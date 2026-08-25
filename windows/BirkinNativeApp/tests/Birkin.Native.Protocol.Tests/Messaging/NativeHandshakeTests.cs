@@ -48,6 +48,40 @@ public sealed class NativeHandshakeTests
         Assert.AreEqual(0, ((NativeJsonObject)subscribe.Body["surfaces"]!).Count);
     }
 
+    [TestMethod]
+    public void ValidateReady_WhenCommandsAreUniqueAndValid_RetainsImmutableAdvertisedSet()
+    {
+        // Given / When
+        var session = NativeHandshake.ValidateReady(
+            Ready("client-1", commands: ["chat.send", "office.create"]),
+            new NativeHandshakeExpectation("client-1", Version, Announcement()));
+
+        // Then
+        CollectionAssert.AreEquivalent(
+            new[] { "chat.send", "office.create" },
+            session.AdvertisedCommands.ToArray());
+        Assert.IsInstanceOfType<IReadOnlySet<string>>(session.AdvertisedCommands);
+    }
+
+    [DataTestMethod]
+    [DataRow("chat.send", "chat.send")]
+    [DataRow("bad command", "office.create")]
+    public void ValidateReady_WhenCommandNamesAreDuplicateOrInvalid_FailsClosed(
+        string first,
+        string second)
+    {
+        // Given
+        var ready = Ready("client-1", commands: [first, second]);
+
+        // When
+        var error = Assert.ThrowsException<NativeProtocolError>(() => NativeHandshake.ValidateReady(
+            ready,
+            new NativeHandshakeExpectation("client-1", Version, Announcement())));
+
+        // Then
+        Assert.AreEqual("E_BODY", error.Code);
+    }
+
     [DataTestMethod]
     [DataRow("different", Version, "E_CORRELATION")]
     [DataRow("client-1", "0.4.277", "E_VERSION_MISMATCH")]
@@ -65,7 +99,10 @@ public sealed class NativeHandshakeTests
         Assert.AreEqual(code, error.Code);
     }
 
-    internal static NativeEnvelope Ready(string reply, string serverVersion = Version) => new(
+    internal static NativeEnvelope Ready(
+        string reply,
+        string serverVersion = Version,
+        IReadOnlyList<string>? commands = null) => new(
         NativeMessageKind.Ready,
         new NativeEnvelopeIdentity("server-1", reply),
         new NativeJsonObject(new KeyValuePair<string, NativeJsonValue>[]
@@ -77,10 +114,20 @@ public sealed class NativeHandshakeTests
             new("transport", new NativeJsonString("loopback")),
             new("capability", Object(("token", new NativeJsonString("capability-token")), ("expires_at", new NativeJsonString("2026-08-24T02:00:00+00:00")), ("hard_expires_at", new NativeJsonString("2026-08-24T08:00:00+00:00")))),
             new("limits", Object(("max_frame_bytes", new NativeJsonInteger(262144)), ("max_payload_bytes", new NativeJsonInteger(65536)), ("max_json_depth", new NativeJsonInteger(12)), ("max_inflight_commands", new NativeJsonInteger(1)), ("max_subscriptions", new NativeJsonInteger(32)))),
-            new("capabilities", Object(("commands", new NativeJsonArray(Array.Empty<NativeJsonValue>())), ("panels", new NativeJsonArray(Array.Empty<NativeJsonValue>())), ("features", new NativeJsonObject()))),
+            new("capabilities", Object(
+                ("commands", new NativeJsonArray((commands ?? []).Select(command => (NativeJsonValue)new NativeJsonString(command)))),
+                ("panels", new NativeJsonArray(Array.Empty<NativeJsonValue>())),
+                ("features", new NativeJsonObject()))),
         }));
 
-    internal static BridgeAnnouncement Announcement() => BridgeAnnouncement.Parse($$"""{"event":"listening","transport":"loopback","pid":1904,"root":"C:\\root","session_id":"native-app","instance_id":"{{InstanceId}}","server_version":"{{Version}}","discovery_path":"C:\\root\\native\\endpoint.json"}""");
+    internal static BridgeAnnouncement Announcement()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "birkin-handshake");
+        var discoveryPath = Path.Combine(root, "native", "endpoint.json");
+        return BridgeAnnouncement.Parse($$"""{"event":"listening","transport":"loopback","pid":1904,"root":"{{Escape(root)}}","session_id":"native-app","instance_id":"{{InstanceId}}","server_version":"{{Version}}","discovery_path":"{{Escape(discoveryPath)}}"}""");
+    }
+
+    private static string Escape(string path) => path.Replace("\\", "\\\\", StringComparison.Ordinal);
 
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) => new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));
     private static string String(NativeJsonObject body, string key) => ((NativeJsonString)body[key]!).Value;

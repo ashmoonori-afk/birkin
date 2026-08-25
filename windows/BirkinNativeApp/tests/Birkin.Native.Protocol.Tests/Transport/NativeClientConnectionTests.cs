@@ -38,6 +38,37 @@ public sealed class NativeClientConnectionTests
     }
 
     [TestMethod]
+    public async Task ConnectAsync_WhenReadyAdvertisesCommands_ExposesSetUntilDisconnect()
+    {
+        // Given
+        await using var server = new LoopbackServerHarness();
+        using var discovery = DiscoveryFile.Create(server.Port);
+        var connection = new NativeClientConnection();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var connect = connection.ConnectAsync(discovery.Announcement, Version, deadline.Token);
+        var hello = await server.ReceiveAsync();
+        await server.SendAsync(NativeHandshakeTests.Ready(
+            hello.Id,
+            commands: ["chat.send", "file.import"]));
+
+        // When
+        await connect;
+        _ = await server.ReceiveAsync();
+        var advertisedWhileConnected = connection.AdvertisedCommands.ToArray();
+        var live = connection.HasLiveCapability(DateTimeOffset.Parse("2026-08-24T01:00:00+00:00"));
+        var expired = connection.HasLiveCapability(DateTimeOffset.Parse("2026-08-24T02:00:00+00:00"));
+        await connection.DisposeAsync();
+
+        // Then
+        CollectionAssert.AreEquivalent(
+            new[] { "chat.send", "file.import" },
+            advertisedWhileConnected);
+        Assert.IsTrue(live);
+        Assert.IsFalse(expired);
+        Assert.AreEqual(0, connection.AdvertisedCommands.Count);
+    }
+
+    [TestMethod]
     public async Task ReceiveAsync_WhenServerReusesRecentFrameId_RefusesReplay()
     {
         // Given

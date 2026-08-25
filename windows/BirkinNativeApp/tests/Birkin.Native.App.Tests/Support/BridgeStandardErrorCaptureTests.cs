@@ -32,7 +32,29 @@ public sealed class BridgeStandardErrorCaptureTests
     }
 
     [TestMethod]
-    public void Append_WhenUnexpectedLineIsInjected_KeepsItInFailingBridgeAssertion()
+    public void Append_WhenKnownPywinautoWarningIsEmitted_SeparatesRuntimeDiagnostic()
+    {
+        // Given
+        string[] diagnostic =
+        [
+            @"C:\workspace\birkin\.venv\Lib\site-packages\pywinauto\keyboard.py:105: SyntaxWarning: invalid escape sequence '\;'",
+            @"  option only affects the behavior of keys matching [-=[]\;',./a-zA-Z0-9 ].  Note",
+        ];
+        var capture = new BridgeStandardErrorCapture();
+
+        // When
+        foreach (var line in diagnostic)
+        {
+            capture.Append(line);
+        }
+
+        // Then
+        Assert.AreEqual(string.Empty, capture.StandardError);
+        Assert.AreEqual(string.Join(Environment.NewLine, diagnostic), capture.LauncherDiagnostics);
+    }
+
+    [TestMethod]
+    public void Append_WhenUnexpectedLineIsInjected_FailsWithRedactedBridgeDiagnostics()
     {
         // Given
         const string unexpected = "E_BRIDGE_SENTINEL unexpected bridge failure";
@@ -41,10 +63,12 @@ public sealed class BridgeStandardErrorCaptureTests
 
         // When
         var failure = Assert.ThrowsException<AssertFailedException>(() =>
-            Assert.AreEqual(string.Empty, capture.StandardError, capture.StandardError));
+            RedactedDiagnostics.AssertEmpty("bridge_stderr", capture.StandardError));
 
         // Then
-        StringAssert.Contains(failure.Message, unexpected);
+        StringAssert.Contains(failure.Message, $"bridge_stderr_bytes={System.Text.Encoding.UTF8.GetByteCount(unexpected)}");
+        StringAssert.Contains(failure.Message, $"bridge_stderr_sha256={ProviderOfficeEvidence.Hash(unexpected)}");
+        Assert.IsFalse(failure.Message.Contains(unexpected, StringComparison.Ordinal));
         Assert.AreEqual(string.Empty, capture.LauncherDiagnostics);
     }
 }

@@ -27,6 +27,7 @@ SurfaceHandler = Callable[[dict[str, object]], dict[str, object]]
 SURFACE_EVENT_SOURCES: Mapping[str, str] = {
     "browser.updated": "browser_aside",
     "office.updated": "office",
+    "office.diff_ready": "office",
     "computer.updated": "computer_use",
 }
 
@@ -152,4 +153,5 @@ class NativeProductSurfaceAuthority:
             "office.select": wrapped("office", "office.updated", self.office.select),
             "office.open": wrapped("office", "office.updated", self.office.open),
             "office.convert": wrapped("office", "office.updated", self.office.convert),
+            "office.compare": wrapped("office", "office.diff_ready", self.office.compare),
         }

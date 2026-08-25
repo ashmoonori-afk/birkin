@@ -51,8 +51,8 @@ public sealed class NativeConnectionReconnectTests
         Assert.IsFalse(connection.IsProjectionCurrent);
         await server.SendAsync(NativeHandshakeTests.Ready(reconnectHello.Id));
         var subscribe = await server.ReceiveAsync();
-        Assert.AreEqual(7L, Integer(subscribe.Body, "after_cursor"));
-        Assert.AreEqual(TestDiscovery.InstanceId, String(subscribe.Body, "known_instance_id"));
+        Assert.AreEqual(0L, Integer(subscribe.Body, "after_cursor"));
+        Assert.IsInstanceOfType<NativeJsonNull>(subscribe.Body["known_instance_id"]);
         var ping = new NativeEnvelope(NativeMessageKind.Ping, "reconnected-ping", Object(
             ("sent_at", new NativeJsonString("2026-08-24T02:45:00+00:00"))));
         await server.SendAsync(ping);

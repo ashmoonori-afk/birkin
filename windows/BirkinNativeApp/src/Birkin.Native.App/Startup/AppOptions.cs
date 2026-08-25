@@ -6,8 +6,15 @@ public sealed record AppOptions(string BridgeAnnouncementJson)
 {
     private const string AnnouncementFileOption = "--bridge-announcement-file";
 
+    public bool IsAttached => BridgeAnnouncementJson.Length != 0;
+
     public static AppOptions Parse(IReadOnlyList<string> arguments)
     {
+        if (arguments.Count == 0)
+        {
+            return new AppOptions(string.Empty);
+        }
+
         if (arguments.Count != 2
             || !string.Equals(arguments[0], AnnouncementFileOption, StringComparison.Ordinal)
             || !Path.IsPathFullyQualified(arguments[1])

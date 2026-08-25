@@ -222,16 +222,16 @@ Office provenance keeps exact reviewed artifact versions and supported runtime r
 
 The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, and the canonical approval coordinator `office_job_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
 
-Document inputs are jailed to `BIRKIN_HOME`. For example, with `BIRKIN_HOME=/workspace/.birkin`, copy or import the source under `/workspace/.birkin/artifacts/incoming` before calling a tool; an absolute path outside that tree is rejected. Outputs are basename-only new files under `/workspace/.birkin/artifacts/drafts`.
+Document inputs are jailed to the dedicated `BIRKIN_HOME/office` tree, separate from configuration, vault, session, and native bootstrap files. With `BIRKIN_HOME=/workspace/.birkin`, copy or import sources under `/workspace/.birkin/office/artifacts/incoming`; a correctly hashed path elsewhere is still rejected. Durable jobs remain under `BIRKIN_HOME/office/jobs`. Consequential mutation and export use only `office_job_request`, whose destination must resolve beneath the caller's approved allowlisted root.
 
 ```json
-{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
 ```
 
 TXT conversion requires the `loss_budget` argument and never claims native or lossless conversion:
 
 ```json
-{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
 ```
 
 The base install keeps the boundary explicit. All five formats support inspect, validate, and compare. DOCX, XLSX, PPTX, and HWPX also support bounded extraction and explicit-budget TXT conversion. PDF inspection remains available, while PDF extraction and TXT conversion report a typed optional-capability boundary. Base creation covers ASCII PDF and trusted-template HWPX derivation; blank DOCX, XLSX, PPTX, and HWPX authoring returns `CAPABILITY_UNAVAILABLE`.
@@ -240,27 +240,27 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.302`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.325`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
 The contract above says what is allowed; this is the order you actually work in.
 
 1. Install the tier you need: `python -m pip install ".[office]"` for DOCX/XLSX/PPTX/HWPX authoring and bounded package edits, `python -m pip install ".[office-advanced]"` to add PDF extraction and deep reopen, or `python -m pip install ".[office-docling]"` for the separate docling path.
-2. Put the source inside the jail. Every input path must already live under `BIRKIN_HOME`; with `BIRKIN_HOME=/workspace/.birkin`, copy the file to `/workspace/.birkin/artifacts/incoming/` first. An absolute path outside that tree is rejected, not silently read.
+2. Put the source inside the dedicated Office jail. Every input path must live under `BIRKIN_HOME/office`; with `BIRKIN_HOME=/workspace/.birkin`, copy or import it to `/workspace/.birkin/office/artifacts/incoming/`. Paths elsewhere under `BIRKIN_HOME` are rejected even when their hashes match.
 3. Ask what is available with `list_document_adapters`, then `inspect_document` the source before mutating anything.
-4. Read or write through the registered calls. Outputs are basename-only new files under `/workspace/.birkin/artifacts/drafts` — nothing is edited in place.
+4. Read through the registered read-only calls. Request consequential mutation or export only through `office_job_request`; its durable journal is under `BIRKIN_HOME/office/jobs`, its destination is caller-allowlisted, and the source is never edited in place.
 
 Pull the text out of a Word file:
 
 ```json
-{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
 ```
 
 Convert the same file to TXT under an explicit loss budget:
 
 ```json
-{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
 ```
 
 In chat you do not call these by name: a trusted Korean or English request routes deterministically to the matching skill (Word to `word-documents`, Excel to `spreadsheets`, PowerPoint to `presentations`, PDF to `pdf-documents`, HWP/HWPX to `korean-hwp-documents`, general office work to `office-work-os`), and conflicting signals route to inspect-first `office-documents`.
@@ -578,7 +578,7 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
 | `birkin gateway` | Run loopback HTTP and configured message channels with crash-durable, exclusively claimed reply redelivery. |
 | `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
-| `birkin native-bridge serve` | Serve the authenticated local bridge the macOS application connects to. |
+| `birkin native-bridge serve` | Serve the authenticated local bridge used by the macOS and Windows native clients. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
 | `birkin tools` | List, enable, or disable native tools from the canonical registry inventory. |
@@ -820,11 +820,29 @@ The shipped boundary is deliberate:
   the initial profile, while Python policy, local authentication, and macOS
   privacy permissions remain enforced.
 
-**Windows WPF/native is implemented in this branch as a development preview.**
-The preview exercises the native shell and bridge contracts, but it is not
-shipped production support: installer and updater delivery, production
-signing, and provider-backed production delivery remain future work. A
-shared cross-platform shell remains a separate future platform decision.
+## Native Windows development preview
+
+The Windows client is a .NET 8 WPF thin client over the authenticated loopback
+bridge. It is a **development preview**, not shipped production support. One
+`BridgeSession` is the sole socket reader and one shared in-memory projection
+store feeds the shell; Python remains the only policy, execution, approval,
+Office, receipt, and recovery authority. Terminal truthfully reports that it
+is unavailable on Windows, and Browser displays canonical projected state
+without inventing controls or authority.
+
+The Windows Office path is deliberately read-only: it can import a jailed
+artifact, select its canonical projection, request a Python-owned comparison,
+and display the resulting Diff. Its approval controls answer only generic
+canonical Birkin approval records; the client does not create or seal a second
+Office approval authority. Direct comparison-report save is unavailable until
+Python exposes a durable comparison-report job through the canonical approval,
+execution, validation, receipt, and recovery path.
+
+There is no Windows installer or MSI, packaged app, or customer-ready release.
+Installer and updater delivery, production
+signing, and provider-backed production delivery remain future work. A shared cross-platform shell remains
+a separate future platform decision. The native-shell mockup above remains a
+roadmap, not a claim that every pictured Windows capability is active.
 
 ### Trade-offs and non-goals
 

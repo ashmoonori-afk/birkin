@@ -67,16 +67,19 @@ def _write_json(path: Path, value: object) -> None:
 def _flow(root: Path, name: str) -> Flow:
     home, caller = root / name / "home", root / name / "caller"
     home.mkdir(parents=True)
+    office_home = home / "office"
+    office_home.mkdir()
     caller.mkdir()
     home, caller = home.resolve(strict=True), caller.resolve(strict=True)
+    office_home = (home / "office").resolve(strict=True)
     os.environ["BIRKIN_HOME"] = str(home)
-    source, destination = home / "source.docx", caller / "delivery.docx"
+    source, destination = office_home / "source.docx", caller / "delivery.docx"
     document = Document()
     _ = document.add_paragraph(BEFORE)
-    document.save(source)
+    document.save(str(source))
     original = Document()
     _ = original.add_paragraph("Caller destination before export.")
-    original.save(destination)
+    original.save(str(destination))
     return Flow(
         home=home,
         caller=caller,
@@ -227,7 +230,7 @@ def run(out: Path) -> dict[str, object]:
         assert Document(str(flow.destination)).paragraphs[0].text == AFTER
         exported_sha = _sha256(flow.destination)
         actions.append("approved queue executed, validated, materialized, and exported")
-        runner = DocumentServiceRunner(DocumentService(flow.home), export_root=flow.caller)
+        runner = DocumentServiceRunner(DocumentService(flow.home / "office"), export_root=flow.caller)
         journal = OfficeJobJournal(flow.home / "office" / "jobs")
         job = journal.restore(cast(str, receipt["job_id"]), runner=runner)
         rollback = job.rollback_export()
@@ -250,7 +253,7 @@ def run(out: Path) -> dict[str, object]:
         (out / "source-after.sha256").write_text(_sha256(flow.source) + "\n", encoding="ascii")
         shutil.copyfile(journal.path_for(cast(str, receipt["job_id"])), out / "journal.jsonl")
         (out / "action-log.txt").write_text("\n".join(actions) + "\n", encoding="utf-8")
-    cleanup = {
+    cleanup: dict[str, object] = {
         "runtime_removed": not runtime_path.exists(),
         "drafts_remaining": [], "backups_remaining": [], "temporary_files_remaining": [],
         "jobs_remaining": [], "processes_remaining": [], "evidence_retained": sorted(path.name for path in out.iterdir()),

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Final, Protocol, cast, final
 
 from birkin.browser_aside_control import BrowserControlAuthority
@@ -209,13 +212,14 @@ class OfficeSurfaceAuthority:
     def __init__(self, service: DocumentService) -> None:
         self.service = service
         self._documents: dict[str, dict[str, object]] = {}
+        self._diffs: dict[str, dict[str, object]] = {}
         self._receipts: list[Mapping[str, object]] = []
         self._refusal: dict[str, object] | None = None
         self._form: dict[str, object] = {"format": "docx", "output_name": "", "content": {"paragraphs": []}}
         self._selected: str | None = None
 
     def snapshot(self) -> dict[str, object]:
-        return {"inventory": self.service.adapter_inventory(), "form": dict(self._form), "selected_artifact_id": self._selected, "documents": list(self._documents.values()), "receipts": list(self._receipts), "refusal": self._refusal}
+        return {"inventory": self.service.adapter_inventory(), "form": dict(self._form), "selected_artifact_id": self._selected, "documents": list(self._documents.values()), "diffs": list(self._diffs.values()), "receipts": list(self._receipts), "refusal": self._refusal}
 
     def _retain(self, artifact_id: str, document: dict[str, object], receipt: Mapping[str, object]) -> None:
         if artifact_id not in self._documents and len(self._documents) == MAX_OFFICE_SNAPSHOT_ITEMS:
@@ -230,6 +234,85 @@ class OfficeSurfaceAuthority:
         if code in {"permission_denied", "policy_denied", "source_changed"}:
             code = "path_refused"
         self._refusal = {"code": code, "message": exc.message}
+
+    def register_import(
+        self,
+        reference: Mapping[str, object],
+        source: Path,
+    ) -> dict[str, object]:
+        expected = reference.get("sha256")
+        jail_name = reference.get("jail_name")
+        if not isinstance(expected, str) or not isinstance(jail_name, str):
+            raise ValueError("Office import reference is invalid")
+        try:
+            result = self.service.import_document(
+                source,
+                expected_sha256=expected,
+                output_name=jail_name,
+            )
+        except DocumentError as exc:
+            self._refused(exc)
+            raise
+        artifact = dict(cast(Mapping[str, object], result["artifact"]))
+        receipt = dict(cast(Mapping[str, object], result["receipt"]))
+        artifact_id = cast(str, artifact["artifact_id"])
+        self._retain(
+            artifact_id,
+            {
+                **artifact,
+                "provenance": {
+                    "operation": "document_import",
+                    "import_id": reference.get("import_id"),
+                    "content_hash": artifact["content_hash"],
+                },
+                "conversion": None,
+                "active_content": [],
+            },
+            receipt,
+        )
+        return {"artifact": artifact, "receipt": receipt}
+
+    def _document(self, artifact_id: object) -> dict[str, object]:
+        if not isinstance(artifact_id, str) or artifact_id not in self._documents:
+            raise ValueError("Office artifact is not registered in this workspace")
+        document = self._documents[artifact_id]
+        return {
+            key: document[key]
+            for key in (
+                "artifact_id",
+                "content_hash",
+                "media_type",
+                "uri",
+                "sensitivity",
+                "acl_fingerprint",
+            )
+        }
+
+    def compare(self, payload: dict[str, object]) -> dict[str, object]:
+        _exact(
+            payload,
+            {"left_artifact_id", "right_artifact_id"},
+            "office.compare",
+        )
+        left = self._document(payload["left_artifact_id"])
+        right = self._document(payload["right_artifact_id"])
+        diff = self.service.compare_documents(left, right)
+        identity = json.dumps(
+            {
+                "left": left["content_hash"],
+                "right": right["content_hash"],
+                "version": diff["version"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        diff_id = f"diff-{hashlib.sha256(identity.encode()).hexdigest()[:32]}"
+        projected = {"diff_id": diff_id, **diff}
+        self._diffs[diff_id] = projected
+        if len(self._diffs) > MAX_OFFICE_SNAPSHOT_ITEMS:
+            del self._diffs[next(iter(self._diffs))]
+        self._refusal = None
+        return {"diff": projected}
 
     def create(self, payload: dict[str, object]) -> dict[str, object]:
         _exact(payload, {"format", "content", "output_name"}, "office.create")

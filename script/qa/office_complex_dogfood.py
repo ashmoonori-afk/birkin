@@ -156,12 +156,13 @@ def run(output_dir: Path) -> dict[str, object]:
     jail.mkdir(parents=True, exist_ok=True)
     temporary = jail / ".fixture-staging"
     temporary.mkdir()
-    sources = jail / "sources"
-    sources.mkdir()
+    office_home = jail / "office"
+    sources = office_home / "sources"
+    sources.mkdir(parents=True)
     os.environ["BIRKIN_HOME"] = str(jail)
     registry = build_registry(ToolContext(cfg={"spill_threshold": 1_000_000}, client=None, cwd=jail), include={"documents"})
-    service = DocumentService(jail)
-    coordinated = jail / "coordinated"
+    service = DocumentService(office_home)
+    coordinated = office_home / "coordinated"
     coordinated.mkdir()
     tools_exercised: set[str] = set()
 

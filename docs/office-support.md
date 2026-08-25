@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.302`
+- Birkin version: `0.4.325`
 - `catalog_revision: 4`
 - `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
@@ -59,37 +59,39 @@ The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word
 
 ## Workspace input jail
 
-`BIRKIN_HOME` is the document workspace jail, not only an output location. Every source and HWPX template URI must be an absolute regular file inside it and its bytes must match `content_hash`. For example, with `BIRKIN_HOME=/workspace/.birkin`, first copy or import inputs under `/workspace/.birkin/artifacts/incoming`. `/workspace/source.docx`, `/tmp/source.docx`, and symlink escapes are rejected.
+`BIRKIN_HOME/office` is the dedicated document workspace jail, separate from configuration, vault, session, and native bootstrap files. Every source and HWPX template URI must be an absolute regular file inside it and its bytes must match `content_hash`. For example, with `BIRKIN_HOME=/workspace/.birkin`, first copy or import inputs under `/workspace/.birkin/office/artifacts/incoming`. `/workspace/source.docx`, `/tmp/source.docx`, and symlink escapes are rejected.
 
-Outputs are basename-only new files under `/workspace/.birkin/artifacts/drafts`. Creation, conversion, and mutation use no-replace publication; mutation is copy-on-write and rechecks source identity.
+The durable job journal remains at `BIRKIN_HOME/office/jobs`. A pending job created with a source outside the dedicated Office jail is not migrated or resumed: re-import the source into `BIRKIN_HOME/office` and submit a new approval proposal. This fail-closed rule prevents legacy source descriptors from reaching configuration or vault files.
+
+Read-only inspection, extraction, comparison, validation, and structured preview do not create mutation authority. Consequential mutation or export has one public entry point: `office_job_request`. Its destination must resolve beneath the caller's allowlisted root; mutation remains copy-on-write and publication is no-replace unless the exact approval authorizes overwrite.
 
 Inspect and extract inside the jail:
 
 ```text
 inspect_document
-{"source":{"content_hash":"<sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"}}
+{"source":{"content_hash":"<sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"}}
 
 extract_document
-{"source":{"content_hash":"<sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"projection":"text","max_spans":1000,"max_nodes":1000,"max_text_bytes":100000}
+{"source":{"content_hash":"<sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_spans":1000,"max_nodes":1000,"max_text_bytes":100000}
 ```
 
-Create a DOCX draft:
+Request a mutation through the canonical coordinator:
 
-```text
-create_document
-{"format":"docx","content":{"paragraphs":["Quarterly report"]},"output_name":"quarterly-draft.docx"}
+```json
+{
+  "request": "Update cell A1 in this Excel workbook",
+  "source": {"content_hash": "<sha256>", "uri": "/workspace/.birkin/office/artifacts/incoming/source.xlsx"},
+  "outcome": "Set Revenue A1 to 9",
+  "operations": [{"cell": "A1", "value": 9}],
+  "destination": "/workspace/exports/approved.xlsx"
+}
 ```
 
-HWPX blank authoring uses the same call with `format: "hwpx"` and paragraph content. Supplying an in-jail `template` artifact instead performs field-binding template derivation.
+The request first inspects the exact source, builds a structured preview and semantic operation summaries, binds the source hash, proposal digest, destination, allowlisted root, and actor, persists the job, and creates a standard `office_job` approval record. Requesting the job does not mutate the source or destination.
 
-Convert to TXT with the required explicit loss budget:
+Only an executing claim from the canonical approval queue may resume that exact payload. Recovery restores the journaled job under its process lock, rechecks the queue payload, proposal and source digests, then executes, validates, publishes, exports, and returns the durable receipt. Changed authority or source bytes fail closed; rejected, failed, rolled-back, or otherwise non-resumable states are not silently retried.
 
-```text
-convert_document
-{"source":{"content_hash":"<sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":100,"style_layout":100,"formula_cache":100,"chart_media":100,"macro_active_content":0,"tracked_changes_comments":100,"form_field":100,"metadata":100,"signature_encryption":0,"accessibility":100}}
-```
-
-Omitted loss categories default to zero. Active content and signed/encrypted sources are refused regardless of budget. TXT is a deterministic bounded projection, never native or lossless conversion.
+Backend creation, conversion, and narrow patch capabilities remain bounded by the matrix above, but they are not separate public mutation authorities. Conversion requires an explicit `loss_budget` wherever the selected backend can lose document structure or fidelity. Active content and signed/encrypted sources remain refused where required; TXT remains a deterministic bounded projection, never native or lossless conversion.
 
 ## Comparison, validation, and rendering
 
@@ -101,7 +103,7 @@ A semantic preview succeeds as follows:
 
 ```text
 render_artifact
-{"artifact":{"content_hash":"<sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"output_format":"structured_preview"}
+{"artifact":{"content_hash":"<sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"output_format":"structured_preview"}
 ```
 
 The result has `render_kind: "structured_preview"`, `evidence_class: "semantic_preview"`, and `visual_proof: false`. Requests for `pdf`, `png`, or `thumbnail` return `RENDER_UNAVAILABLE`; this visual refusal must not be reported for a successful structured preview.
@@ -111,8 +113,8 @@ The result has `render_kind: "structured_preview"`, `evidence_class: "semantic_p
 Install `office` for approved OOXML lazy backends and `office-advanced` for optional pypdf inspection/extraction/deep reopen:
 
 ```bash
-python -m pip install -e ".[office]"
-python -m pip install -e ".[office-advanced]"
+python -m pip install ".[office]"
+python -m pip install ".[office-advanced]"
 ```
 
 Missing optional Python backends return typed capability errors with installation evidence. Package discovery never upgrades capability by itself. ReportLab remains a refused provenance record and has no runtime execution or install-hint path; pypdfium2 remains unwired and does not enable visual rendering. Separately installed applications, executables, daemons, runtimes, and subprocess conversion engines are never discovered or launched. Exact package versions, source artifacts, hashes, licenses, probes, and refusal reasons are in the tracked manifest and notice files linked above.

@@ -15,12 +15,10 @@ public sealed class ShellCoordinatorStreamTests
     private const string InstanceId = "0123456789abcdef0123456789abcdef";
 
     [TestMethod]
-    public async Task ConnectAsync_WhenControlFramesPrecedeSnapshot_WaitsForAuthoritativeSnapshot()
+    public async Task ConnectAsync_WhenConnectionDoesNotOwnPump_AppliesAuthoritativeSnapshotOnly()
     {
         // Given
         var connection = new ScriptedNativeClientConnection();
-        connection.Enqueue(PingEnvelope());
-        connection.Enqueue(CapabilityRenewalEnvelope());
         connection.Enqueue(SnapshotEnvelope());
         var model = new ShellPresentationModel(new ImmediateSynchronizationContext());
         await using var coordinator = new ShellCoordinator(connection, new NativeProjectionStore(), model);
@@ -30,13 +28,13 @@ public sealed class ShellCoordinatorStreamTests
         await coordinator.ConnectAsync(AnnouncementJson(), ExpectedProductVersion, deadline.Token);
 
         // Then
-        Assert.AreEqual(ConnectionState.Ready, model.Connection.State);
+        Assert.AreEqual(ConnectionState.Ready, model.Connection.State, model.Connection.ErrorCode);
         Assert.AreEqual(42L, model.Workspace?.Cursor);
         Assert.AreEqual(1, connection.MaxConcurrentReceives);
     }
 
     [TestMethod]
-    public async Task ConnectAsync_WhenLiveFramesFollowInitialSnapshot_AppliesEveryProjectionInOrder()
+    public async Task ReceiveCanonicalAsync_WhenLiveFramesFollowInitialSnapshot_AppliesEveryProjectionInOrder()
     {
         // Given
         var connection = new ScriptedNativeClientConnection();
@@ -54,6 +52,10 @@ public sealed class ShellCoordinatorStreamTests
         connection.Enqueue(EventEnvelope(43, "message.user", "first live frame"));
         connection.Enqueue(SurfaceEnvelope());
         connection.Enqueue(EventEnvelope(44, "message.assistant.completed", "post-snapshot update"));
+        for (var frame = 0; frame < 5; frame++)
+        {
+            await coordinator.ReceiveCanonicalAsync(deadline.Token);
+        }
         await updated.Task.WaitAsync(deadline.Token);
 
         // Then
@@ -64,7 +66,7 @@ public sealed class ShellCoordinatorStreamTests
     }
 
     [TestMethod]
-    public async Task ConnectAsync_WhenConnectionReconnects_ContinuesTheSameOwnedReceive()
+    public async Task ReceiveCanonicalAsync_WhenConnectionReconnects_ContinuesCallerOwnedReceive()
     {
         // Given
         var connection = new ScriptedNativeClientConnection();
@@ -79,6 +81,7 @@ public sealed class ShellCoordinatorStreamTests
         // When
         connection.EnqueueReconnect();
         connection.Enqueue(EventEnvelope(43, "message.user", "replayed after reconnect"));
+        await coordinator.ReceiveCanonicalAsync(deadline.Token);
         await connection.Reconnected.Task.WaitAsync(deadline.Token);
         await updated.Task.WaitAsync(deadline.Token);
 
@@ -89,7 +92,7 @@ public sealed class ShellCoordinatorStreamTests
     }
 
     [TestMethod]
-    public async Task ConnectAsync_WhenLiveReceiveIsCancelled_StopsPumpAndPublishesBoundedFailure()
+    public async Task ReceiveCanonicalAsync_WhenCallerCancels_StopsTheCallerOwnedReceive()
     {
         // Given
         var connection = new ScriptedNativeClientConnection();
@@ -99,23 +102,22 @@ public sealed class ShellCoordinatorStreamTests
         using var cancellation = new CancellationTokenSource();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await coordinator.ConnectAsync(AnnouncementJson(), ExpectedProductVersion, cancellation.Token);
-        var failed = ConnectionStateReached(coordinator, ConnectionState.Failed);
+        var receiving = coordinator.ReceiveCanonicalAsync(cancellation.Token);
 
         // When
         cancellation.Cancel();
+        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => receiving);
         await connection.ReceiveCancelled.Task.WaitAsync(deadline.Token);
-        await failed.Task.WaitAsync(deadline.Token);
         await coordinator.DisposeAsync();
 
         // Then
-        Assert.AreEqual(ConnectionState.Failed, model.Connection.State);
-        Assert.AreEqual("E_CANCELLED", model.Connection.ErrorCode);
+        Assert.AreEqual(ConnectionState.Ready, model.Connection.State);
         Assert.AreEqual(0, connection.ActiveReceives);
         Assert.AreEqual(1, connection.DisposeCalls);
     }
 
     [TestMethod]
-    public async Task ConnectAsync_WhenLiveFrameIsMalformed_StopsPumpAndPublishesProtocolFailure()
+    public async Task ReceiveCanonicalAsync_WhenLiveFrameIsMalformed_RejectsTheFrameWithoutChangingProjection()
     {
         // Given
         var connection = new ScriptedNativeClientConnection();
@@ -125,14 +127,13 @@ public sealed class ShellCoordinatorStreamTests
         await using var coordinator = new ShellCoordinator(connection, store, model);
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await coordinator.ConnectAsync(AnnouncementJson(), ExpectedProductVersion, deadline.Token);
-        var failed = ConnectionStateReached(coordinator, ConnectionState.Failed);
-
         // When
         connection.Enqueue(new NativeEnvelope(NativeMessageKind.Event, "malformed-event", Object()));
-        await failed.Task.WaitAsync(deadline.Token);
+        var error = await Assert.ThrowsExceptionAsync<NativeProtocolError>(
+            () => coordinator.ReceiveCanonicalAsync(deadline.Token));
 
         // Then
-        Assert.AreEqual("E_BODY", model.Connection.ErrorCode);
+        Assert.AreEqual("E_BODY", error.Code);
         Assert.AreEqual(42L, store.State?.Cursor);
         Assert.AreEqual(0, connection.ActiveReceives);
         Assert.AreEqual(1, connection.MaxConcurrentReceives);
@@ -145,19 +146,6 @@ public sealed class ShellCoordinatorStreamTests
         {
             if (args.PropertyName == nameof(ShellPresentationModel.Workspace)
                 && model.Workspace?.Cursor == cursor)
-            {
-                reached.TrySetResult();
-            }
-        };
-        return reached;
-    }
-
-    private static TaskCompletionSource ConnectionStateReached(ShellCoordinator coordinator, ConnectionState state)
-    {
-        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        coordinator.ConnectionStateChanged += current =>
-        {
-            if (current == state)
             {
                 reached.TrySetResult();
             }
@@ -220,8 +208,7 @@ public sealed class ShellCoordinatorStreamTests
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) =>
         new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));
 
-    private static string AnnouncementJson() =>
-        $$"""{"event":"listening","transport":"loopback","pid":1904,"root":"C:\\root","session_id":"session-1","instance_id":"{{InstanceId}}","server_version":"0.4.276","discovery_path":"C:\\root\\native\\endpoint.json"}""";
+    private static string AnnouncementJson() => TestBridgeAnnouncement.Json(1904);
 
     private sealed class ImmediateSynchronizationContext : SynchronizationContext
     {

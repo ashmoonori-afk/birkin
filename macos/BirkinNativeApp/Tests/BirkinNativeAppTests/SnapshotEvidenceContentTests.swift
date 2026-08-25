@@ -115,6 +115,12 @@ struct SnapshotEvidenceContentTests {
         )
         let importText = try recognizedText(importURL)
         #expect(importText.contains("IMPORT CHIP VISIBLE"), "OCR: \(importText)")
+        let recognizedSpecimens = Set(try recognizedCJK(importURL))
+        let expectedSpecimens = Set(PackagedWindowCapture.cjkSpecimens)
+        #expect(
+            recognizedSpecimens == expectedSpecimens,
+            "CJK OCR: \(recognizedSpecimens); expected: \(expectedSpecimens)"
+        )
         let noCJKURL = root.appendingPathComponent("import-no-cjk.png")
         #expect(try render(
             runtime,
@@ -239,6 +245,15 @@ struct SnapshotEvidenceContentTests {
         try recognizedLines(url)
             .map(\.text)
             .joined(separator: "\n")
+    }
+
+    @MainActor
+    private func recognizedCJK(_ url: URL) throws -> [String] {
+        let data = try Data(contentsOf: url)
+        let bitmap = try #require(NSBitmapImageRep(data: data))
+        return PackagedWindowCapture.recognizedCJKMarkers(
+            try #require(bitmap.cgImage)
+        )
     }
 
     private struct RecognizedLine {

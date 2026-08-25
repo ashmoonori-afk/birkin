@@ -2,6 +2,7 @@ using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Messaging;
 using Birkin.Native.Protocol.Tests.Support;
 using Birkin.Native.Protocol.Transport;
+using Birkin.Native.Shell.Commands;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Birkin.Native.Protocol.Tests.Messaging;
@@ -38,6 +39,55 @@ public sealed class NativeCommandRequestTests
         var context = Object(command, "client_context");
         Assert.AreEqual("windows", String(context, "surface"));
         Assert.AreEqual("conversation", String(context, "view_id"));
+    }
+
+    [TestMethod]
+    public async Task SendCommandAsync_WhenOfficeCompareIsTyped_WritesExactPythonCommandShape()
+    {
+        await using var server = new LoopbackServerHarness();
+        using var discovery = TestDiscovery.Create(server.Port);
+        await using var connection = new NativeClientConnection();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await server.CompleteHandshakeAsync(connection, discovery, deadline.Token);
+        var request = OfficeCommands.Compare(
+            new OfficeCompareIntent("artifact-baseline", "artifact-candidate"),
+            new CommandRequestContext("compare-command-1", 44, NativeHandshake.ViewId));
+
+        await connection.SendCommandAsync(request, deadline.Token);
+        var envelope = await server.ReceiveAsync();
+
+        AssertOfficeCommand(envelope, "compare-command-1", 44, "office.compare");
+        var payload = Object(Object(envelope.Body, "command"), "payload");
+        CollectionAssert.AreEqual(
+            new[] { "left_artifact_id", "right_artifact_id" },
+            payload.Keys.ToArray());
+        Assert.AreEqual("artifact-baseline", String(payload, "left_artifact_id"));
+        Assert.AreEqual("artifact-candidate", String(payload, "right_artifact_id"));
+    }
+
+    [TestMethod]
+    public async Task SendCommandAsync_WhenOfficeDraftIsTyped_WritesExactPythonCommandShape()
+    {
+        await using var server = new LoopbackServerHarness();
+        using var discovery = TestDiscovery.Create(server.Port);
+        await using var connection = new NativeClientConnection();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await server.CompleteHandshakeAsync(connection, discovery, deadline.Token);
+        var request = OfficeCommands.Draft(
+            new OfficeDraftIntent("artifact-template", "diff-authoritative", "comparison-report.docx"),
+            new CommandRequestContext("draft-command-1", 51, NativeHandshake.ViewId));
+
+        await connection.SendCommandAsync(request, deadline.Token);
+        var envelope = await server.ReceiveAsync();
+
+        AssertOfficeCommand(envelope, "draft-command-1", 51, "office.draft");
+        var payload = Object(Object(envelope.Body, "command"), "payload");
+        CollectionAssert.AreEqual(
+            new[] { "template_artifact_id", "diff_id", "output_name" },
+            payload.Keys.ToArray());
+        Assert.AreEqual("artifact-template", String(payload, "template_artifact_id"));
+        Assert.AreEqual("diff-authoritative", String(payload, "diff_id"));
+        Assert.AreEqual("comparison-report.docx", String(payload, "output_name"));
     }
 
     [TestMethod]
@@ -91,6 +141,24 @@ public sealed class NativeCommandRequestTests
         // Then
         Assert.AreEqual("E_FLOW_VIOLATION", error.Code);
         Assert.AreEqual("after-release-3", String(Object(nextWritten.Body, "command"), "command_id"));
+    }
+
+    private static void AssertOfficeCommand(
+        NativeEnvelope envelope,
+        string commandId,
+        long expectedCursor,
+        string commandType)
+    {
+        Assert.AreEqual(NativeMessageKind.Command, envelope.Kind);
+        var command = Object(envelope.Body, "command");
+        Assert.AreEqual(1L, Integer(command, "protocol_version"));
+        Assert.AreEqual(commandId, String(command, "command_id"));
+        Assert.AreEqual(expectedCursor, Integer(command, "expected_cursor"));
+        Assert.AreEqual(commandType, String(command, "type"));
+        var clientContext = Object(command, "client_context");
+        Assert.AreEqual(2, clientContext.Count);
+        Assert.AreEqual("windows", String(clientContext, "surface"));
+        Assert.AreEqual("window-main", String(clientContext, "view_id"));
     }
 
     private static NativeCommandRequest Request(string commandId, long expectedCursor) => new(

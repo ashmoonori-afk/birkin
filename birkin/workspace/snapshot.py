@@ -85,7 +85,9 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
     }.get(event.type, "pending")
     item: dict[str, object] = {
         "id": str(
-            event.payload.get("approval_id")
+            event.event_id
+            if event.type == "receipt.recorded"
+            else event.payload.get("approval_id")
             or event.payload.get("question_id")
             or event.payload.get("task_id")
             or event.payload.get("evidence_id")
@@ -127,6 +129,18 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         value = event.payload.get(field)
         if isinstance(value, str) and value:
             item[field] = value
+    if event.type == "receipt.recorded":
+        for field in (
+            "approval_id",
+            "artifact_id",
+            "diff_id",
+            "job_id",
+            "proposal_digest",
+            "destination",
+        ):
+            value = event.payload.get(field)
+            if isinstance(value, str) and value:
+                item[field] = value
     for field in ("computer_sequence",):
         value = event.payload.get(field)
         if isinstance(value, int) and not isinstance(value, bool):

@@ -222,16 +222,16 @@ Office provenance는 검토된 artifact의 정확한 version과 지원 runtime r
 
 등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, 그리고 정식 승인 코디네이터 `office_job_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
 
-문서 입력은 `BIRKIN_HOME` jail 안에 있어야 합니다. 예를 들어 `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/artifacts/incoming` 아래로 복사하거나 import한 뒤 호출해야 하며, 이 tree 밖의 absolute path는 거부됩니다. 출력은 `/workspace/.birkin/artifacts/drafts` 아래 basename-only 새 파일입니다.
+문서 입력은 config, vault, session, native bootstrap 파일과 분리된 전용 `BIRKIN_HOME/office` jail 안에 있어야 합니다. `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/office/artifacts/incoming` 아래로 복사하거나 import해야 하며, 다른 위치의 path는 hash가 일치해도 거부됩니다. Durable job은 `BIRKIN_HOME/office/jobs`에 유지됩니다. 결과를 만드는 mutation과 export는 caller가 승인한 allowlist root 아래 destination을 사용하는 `office_job_request`로만 요청합니다.
 
 ```json
-{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
 ```
 
 TXT 변환에는 `loss_budget` 인자가 필수이며 native 또는 lossless 변환이라고 주장하지 않습니다.
 
 ```json
-{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
 ```
 
 Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validate, compare를 지원합니다. DOCX, XLSX, PPTX, HWPX는 bounded extraction과 명시적 budget을 둔 TXT conversion도 지원합니다. PDF inspection은 base에서 가능하지만 PDF extraction과 TXT conversion은 typed optional-capability boundary를 반환합니다. Base creation은 ASCII PDF와 trusted-template HWPX derivation을 제공하며, 빈 DOCX, XLSX, PPTX, HWPX authoring은 `CAPABILITY_UNAVAILABLE`로 거부합니다.
@@ -240,27 +240,27 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.302`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.325`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
 위 계약이 "무엇이 허용되는가"라면, 아래는 실제 작업 순서입니다.
 
 1. 필요한 tier를 설치합니다. DOCX/XLSX/PPTX/HWPX 생성과 bounded package 수정은 `python -m pip install ".[office]"`, PDF 추출과 deep reopen 추가는 `python -m pip install ".[office-advanced]"`, 별도 docling path는 `python -m pip install ".[office-docling]"`입니다.
-2. 원본을 jail 안에 둡니다. 모든 입력 경로는 이미 `BIRKIN_HOME` 아래에 있어야 하며, `BIRKIN_HOME=/workspace/.birkin`이면 먼저 `/workspace/.birkin/artifacts/incoming/`으로 복사합니다. 이 tree 밖의 absolute path는 조용히 읽히지 않고 거부됩니다.
+2. 원본을 전용 Office jail 안에 둡니다. 모든 입력 경로는 `BIRKIN_HOME/office` 아래에 있어야 하며, `BIRKIN_HOME=/workspace/.birkin`이면 `/workspace/.birkin/office/artifacts/incoming/`으로 복사하거나 import합니다. `BIRKIN_HOME`의 다른 위치도 hash가 일치하더라도 거부됩니다.
 3. `list_document_adapters`로 사용 가능한 adapter를 확인하고, 무엇을 바꾸기 전에 `inspect_document`로 원본을 먼저 점검합니다.
-4. 등록된 호출로 읽고 씁니다. 출력은 `/workspace/.birkin/artifacts/drafts` 아래 basename-only 새 파일이며, 원본을 제자리에서 수정하지 않습니다.
+4. 등록된 read-only 호출로 읽습니다. 결과를 만드는 mutation 또는 export는 `office_job_request`로만 요청하며, durable journal은 `BIRKIN_HOME/office/jobs`에 있고 destination은 caller allowlist 아래로 제한되며 원본은 제자리에서 수정하지 않습니다.
 
 Word 파일에서 텍스트를 추출합니다.
 
 ```json
-{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
 ```
 
 같은 파일을 명시적 손실 예산으로 TXT로 변환합니다.
 
 ```json
-{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
+{"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"target_format":"txt","output_name":"source.txt","loss_budget":{"structure":10,"style_layout":10,"macro_active_content":0,"signature_encryption":0}}
 ```
 
 chat에서는 이 이름들을 직접 부르지 않습니다. 신뢰된 한국어·영어 요청이 결정적으로 해당 skill로 route됩니다(Word는 `word-documents`, Excel은 `spreadsheets`, PowerPoint는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 office 작업은 `office-work-os`). 신호가 충돌하면 inspect-first `office-documents`로 route합니다.
@@ -580,7 +580,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
 | `birkin gateway` | Loopback HTTP와 설정된 message channel을 실행하고, 중단 후 답변 재전송을 단일 owner가 배타적으로 claim하도록 보장. |
 | `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
-| `birkin native-bridge serve` | macOS 앱이 연결하는 인증된 local bridge 실행. |
+| `birkin native-bridge serve` | macOS와 Windows native client가 사용하는 인증된 local bridge 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
 | `birkin tools` | Canonical registry inventory에서 네이티브 tool 목록·활성화·비활성화. |
@@ -823,11 +823,29 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   밖에 있어 App Sandbox는 계속 비활성화하지만 Python policy, local
   authentication, macOS privacy permission은 적용됩니다.
 
-**Windows WPF/native는 이 브랜치에서 development preview로 구현되었습니다.**
-이 preview는 native shell과 bridge 계약을 실행하지만 production support로
-출시된 것은 아닙니다. Installer와 updater delivery, production signing,
-provider-backed production delivery는 향후 작업으로 남아 있습니다. 공통
-cross-platform shell은 별도의 향후 platform 결정입니다.
+## Native Windows development preview
+
+Windows client는 인증된 loopback bridge 위의 .NET 8 WPF thin client입니다.
+이는 출시된 production support가 아니라 **development preview**입니다. Socket을
+읽는 유일한 주체인 `BridgeSession` 하나와 공유 in-memory projection store 하나가
+shell에 상태를 제공하며, policy, execution, approval, Office, receipt, recovery의
+유일한 authority는 계속 Python입니다. Terminal은 Windows에서 사용할 수 없음을
+사실대로 표시하고, Browser는 control이나 authority를 만들지 않고 canonical
+projected state만 표시합니다.
+
+Windows Office path는 의도적으로 read-only입니다. Jail 안으로 artifact를 import하고,
+canonical projection을 선택하고, Python 소유 comparison을 요청하고, 그 결과인
+Diff를 표시할 수 있습니다. Approval control은 generic canonical Birkin approval
+record에만 답하며 client가 별도의 Office approval authority를 만들거나 seal하지
+않습니다. Python이 canonical approval, execution, validation, receipt, recovery
+path를 사용하는 durable comparison-report job을 제공하기 전까지 direct
+comparison-report save는 unavailable입니다.
+
+Windows installer나 MSI, packaged app, customer-ready release는 아직 없습니다.
+Installer와 updater delivery, production signing,
+provider-backed production delivery는 향후 작업으로 남아 있습니다. 공통 cross-platform shell은 별도의 향후
+platform 결정입니다. 위 native-shell mockup은 모든 Windows capability가
+활성화되었다는 주장이 아니라 roadmap입니다.
 
 ### 절충점과 비목표
 

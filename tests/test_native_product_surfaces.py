@@ -218,7 +218,7 @@ def test_office_projection_create_and_secure_open_stay_in_service_jail(
     assert denied.value.code is DocumentErrorCode.POLICY_DENIED
     assert set(product.office.service.home.rglob("*")) == before
 
-    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home))
+    monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home.parent))
     artifact = approved_docx(product.office.service.home)
     opened = handlers["office.open"]({"artifact": artifact})
     selected = handlers["office.select"]({"artifact_id": artifact["artifact_id"]})

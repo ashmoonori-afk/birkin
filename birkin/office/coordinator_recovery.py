@@ -9,6 +9,7 @@ from typing_extensions import assert_never
 
 from .artifact_serialization import canonical_json
 from .coordinator_data import (
+    canonical_office_home,
     coordinator_error,
     job_journal,
     job_operations,
@@ -184,7 +185,7 @@ def execute_approved_office_job(
     payload: Mapping[str, object], *, approval_id: str | None
 ) -> str:
     """Resume exactly one approval-owned Office mutation under its process lock."""
-    from .. import config, store
+    from .. import store
 
     if approval_id is None:
         raise coordinator_error(
@@ -194,7 +195,7 @@ def execute_approved_office_job(
     _require_queue_authority(approval_id, payload)
     job_id = required_text(payload.get("job_id"), "job_id")
     authority = _authority(payload)
-    home = config.birkin_home()
+    home = canonical_office_home()
     journal = job_journal(home)
     with store.file_lock(journal.path_for(job_id), timeout=0):
         _require_queue_authority(approval_id, payload)

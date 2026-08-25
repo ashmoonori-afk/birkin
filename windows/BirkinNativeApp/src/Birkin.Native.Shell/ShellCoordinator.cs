@@ -7,13 +7,27 @@ using Birkin.Native.Shell.Presentation;
 
 namespace Birkin.Native.Shell;
 
-public sealed class ShellCoordinator : IAsyncDisposable
+public sealed partial class ShellCoordinator : IAsyncDisposable
 {
     private readonly INativeClientConnection _connection;
     private readonly NativeProjectionStore _projectionStore;
     private readonly ShellPresentationModel _presentationModel;
-    private readonly CancellationTokenSource _lifetimeCancellation = new();
-    private Task _receiveTask = Task.CompletedTask;
+    private readonly object _stateLock = new();
+    private readonly Queue<PresentationUpdate> _presentationQueue = new();
+    private ConnectionState _connectionState = ConnectionState.Disconnected;
+    private NativeProjectionState? _projectionState;
+    private bool _projectionAuthorityAvailable;
+    private bool _isDrainingPresentations;
+    private long _nextProjectionCallbackSequence;
+    private long _lastAuthorityCallbackSequence;
+
+    private sealed record ConnectionAuthority(bool IsLive, IReadOnlySet<string> AdvertisedCommands);
+
+    private sealed record PresentationUpdate(
+        ConnectionPresentation? Connection,
+        WorkspaceSnapshotPresentation? Workspace,
+        OfficeWorkflowPresentation Workflow,
+        ConnectionState? ChangedConnectionState = null);
 
     public ShellCoordinator(
         INativeClientConnection connection,
@@ -23,8 +37,20 @@ public sealed class ShellCoordinator : IAsyncDisposable
         _connection = connection;
         _projectionStore = projectionStore;
         _presentationModel = presentationModel;
+        if (_connection.OwnsReceiveLoop
+            && !ReferenceEquals(_connection.ProjectionStore, _projectionStore))
+        {
+            throw new ArgumentException("session and coordinator must share one projection store", nameof(projectionStore));
+        }
         _projectionStore.SnapshotApplied += OnProjectionSnapshotApplied;
+        _projectionStore.CanonicalApplied += OnCanonicalApplied;
+        _projectionStore.MutationAuthorityChanged += OnMutationAuthorityChanged;
     }
+
+    public NativeProjectionStore ProjectionStore => _projectionStore;
+
+    public Func<string> CommandIdFactory { get; init; } =
+        () => $"windows-{Guid.NewGuid():N}";
 
     public event Action<ConnectionState>? ConnectionStateChanged;
 
@@ -35,150 +61,239 @@ public sealed class ShellCoordinator : IAsyncDisposable
         string expectedProductVersion,
         CancellationToken cancellationToken)
     {
-        var receiveCancellation = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken,
-            _lifetimeCancellation.Token);
         try
         {
             TransitionTo(ConnectionState.Connecting);
             var announcement = BridgeAnnouncement.Parse(announcementJson);
             TransitionTo(ConnectionState.Handshaking);
-            await _connection.ConnectAsync(
-                announcement,
-                expectedProductVersion,
-                receiveCancellation.Token).ConfigureAwait(false);
             TransitionTo(ConnectionState.Subscribing);
-            var readyIdentity = new NativeReadyIdentity(
-                announcement.SessionId,
-                announcement.InstanceId,
-                announcement.ServerVersion);
-            NativeEnvelope snapshot;
-            while (true)
+            await _connection.ConnectAsync(announcement, expectedProductVersion, cancellationToken).ConfigureAwait(false);
+            if (!_connection.OwnsReceiveLoop)
             {
-                snapshot = await _connection.ReceiveAsync(receiveCancellation.Token).ConfigureAwait(false);
-                switch (snapshot.Kind.WireName)
-                {
-                    case "snapshot":
-                        break;
-                    case "ping":
-                    case "capability.renewed":
-                        continue;
-                    default:
-                        throw new NativeProtocolError("E_STATE", "subscription requires an initial snapshot");
-                }
-                break;
+                var snapshot = await _connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
+                var readyIdentity = new NativeReadyIdentity(
+                    announcement.SessionId,
+                    announcement.InstanceId,
+                    announcement.ServerVersion);
+                _projectionStore.ApplySnapshot(snapshot, readyIdentity);
             }
-            _projectionStore.ApplySnapshot(snapshot, readyIdentity);
-            _receiveTask = Task.Run(
-                () => ConsumeFramesAsync(readyIdentity, receiveCancellation),
-                CancellationToken.None);
         }
         catch (OperationCanceledException)
         {
-            receiveCancellation.Dispose();
             Fail("E_CANCELLED");
         }
         catch (NativeProtocolError error)
         {
-            receiveCancellation.Dispose();
             Fail(error.Code);
         }
         catch (Exception)
         {
-            receiveCancellation.Dispose();
             Fail("E_CONNECTION");
         }
     }
 
     public async ValueTask DisposeAsync()
     {
-        _lifetimeCancellation.Cancel();
-        await _receiveTask.ConfigureAwait(false);
         _projectionStore.SnapshotApplied -= OnProjectionSnapshotApplied;
+        _projectionStore.CanonicalApplied -= OnCanonicalApplied;
+        _projectionStore.MutationAuthorityChanged -= OnMutationAuthorityChanged;
+        ClearWorkflowAuthority();
         await _connection.DisposeAsync().ConfigureAwait(false);
-        _lifetimeCancellation.Dispose();
-    }
-
-    private async Task ConsumeFramesAsync(
-        NativeReadyIdentity readyIdentity,
-        CancellationTokenSource receiveCancellation)
-    {
-        try
-        {
-            while (true)
-            {
-                var envelope = await _connection.ReceiveAsync(receiveCancellation.Token).ConfigureAwait(false);
-                switch (envelope.Kind.WireName)
-                {
-                    case "snapshot":
-                        _projectionStore.ApplySnapshot(envelope, readyIdentity);
-                        break;
-                    case "event":
-                        _projectionStore.ApplyEvent(envelope);
-                        if (_projectionStore.Status == NativeProjectionStoreStatus.Current)
-                        {
-                            var state = _projectionStore.State
-                                ?? throw new NativeProtocolError("E_STATE", "current projection state is unavailable");
-                            var snapshot = WorkspaceSnapshotPresentation.FromProjection(state, "loopback");
-                            _presentationModel.PresentSnapshot(snapshot, static () => { });
-                        }
-                        break;
-                    case "surface_snapshot":
-                    case "surface_event":
-                        _projectionStore.ApplySurface(envelope);
-                        break;
-                    case "goodbye":
-                        TransitionTo(ConnectionState.Disconnected);
-                        return;
-                    case "ping":
-                    case "pong":
-                    case "receipt":
-                    case "error":
-                    case "capability.renewed":
-                    case "stream.desynchronized":
-                        break;
-                    default:
-                        throw new NativeProtocolError("E_STATE", "server frame is not valid for the shell projection");
-                }
-            }
-        }
-        catch (OperationCanceledException) when (receiveCancellation.IsCancellationRequested)
-        {
-            if (!_lifetimeCancellation.IsCancellationRequested)
-            {
-                Fail("E_CANCELLED");
-            }
-        }
-        catch (NativeProtocolError error)
-        {
-            Fail(error.Code);
-        }
-        catch (Exception)
-        {
-            Fail("E_CONNECTION");
-        }
-        finally
-        {
-            receiveCancellation.Dispose();
-        }
     }
 
     private void OnProjectionSnapshotApplied(NativeProjectionState state)
     {
+        var callbackSequence = ReserveProjectionCallbackSequence();
         var snapshot = WorkspaceSnapshotPresentation.FromProjection(state, "loopback");
-        ConnectionStateChanged?.Invoke(ConnectionState.Ready);
-        _presentationModel.PresentReadySnapshot(snapshot, () => SnapshotApplied?.Invoke(snapshot));
+        var authority = CaptureConnectionAuthority();
+        bool drain;
+        lock (_stateLock)
+        {
+            _projectionState = state;
+            if (callbackSequence > _lastAuthorityCallbackSequence)
+            {
+                _projectionAuthorityAvailable = true;
+                _lastAuthorityCallbackSequence = callbackSequence;
+            }
+            _connectionState = ConnectionState.Ready;
+            RefreshMutationAvailabilityLocked(authority);
+            drain = EnqueuePresentationLocked(new(
+                ConnectionPresentation.Create(ConnectionState.Ready),
+                snapshot,
+                _workflow,
+                ConnectionState.Ready));
+        }
+        DrainPresentations(drain);
+    }
+
+    private void OnCanonicalApplied(NativeEnvelope envelope)
+    {
+        var callbackSequence = ReserveProjectionCallbackSequence();
+        var state = _projectionStore.State;
+        if (state is null)
+        {
+            return;
+        }
+
+        var projectionAuthorityAvailable = _projectionStore.IsMutationAuthorityAvailable;
+        var snapshot = WorkspaceSnapshotPresentation.FromProjection(state, "loopback");
+        var authority = CaptureConnectionAuthority();
+        bool drain;
+        lock (_stateLock)
+        {
+            _projectionState = state;
+            if (callbackSequence > _lastAuthorityCallbackSequence)
+            {
+                _projectionAuthorityAvailable = projectionAuthorityAvailable;
+                _lastAuthorityCallbackSequence = callbackSequence;
+            }
+            if (envelope.Kind == NativeMessageKind.Event)
+            {
+                ResolveFromCanonicalEventLocked(envelope);
+            }
+            RefreshMutationAvailabilityLocked(authority);
+            drain = EnqueuePresentationLocked(new(null, snapshot, _workflow));
+        }
+        DrainPresentations(drain);
+    }
+
+    private void OnMutationAuthorityChanged(bool available)
+    {
+        var callbackSequence = ReserveProjectionCallbackSequence();
+        var authority = CaptureConnectionAuthority();
+        bool drain;
+        lock (_stateLock)
+        {
+            if (callbackSequence <= _lastAuthorityCallbackSequence)
+            {
+                return;
+            }
+
+            _lastAuthorityCallbackSequence = callbackSequence;
+            _projectionAuthorityAvailable = available;
+            if (available)
+            {
+                RefreshMutationAvailabilityLocked(authority);
+            }
+            else
+            {
+                ClearWorkflowAuthorityLocked();
+            }
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+        }
+        DrainPresentations(drain);
     }
 
     private void TransitionTo(ConnectionState state)
     {
-        _presentationModel.PresentConnection(ConnectionPresentation.Create(state));
-        ConnectionStateChanged?.Invoke(state);
+        var authority = CaptureConnectionAuthority();
+        bool drain;
+        lock (_stateLock)
+        {
+            _connectionState = state;
+            RefreshMutationAvailabilityLocked(authority);
+            drain = EnqueuePresentationLocked(new(
+                ConnectionPresentation.Create(state),
+                null,
+                _workflow,
+                state));
+        }
+        DrainPresentations(drain);
     }
 
     private void Fail(string errorCode)
     {
-        _presentationModel.PresentConnection(ConnectionPresentation.Failed(errorCode));
-        ConnectionStateChanged?.Invoke(ConnectionState.Failed);
+        bool drain;
+        lock (_stateLock)
+        {
+            _connectionState = ConnectionState.Failed;
+            ClearWorkflowAuthorityLocked();
+            drain = EnqueuePresentationLocked(new(
+                ConnectionPresentation.Failed(errorCode),
+                null,
+                _workflow,
+                ConnectionState.Failed));
+        }
+        DrainPresentations(drain);
+    }
+
+    private ConnectionAuthority CaptureConnectionAuthority() => new(
+        _connection.HasLiveCapability(DateTimeOffset.UtcNow),
+        new HashSet<string>(_connection.AdvertisedCommands, StringComparer.Ordinal));
+
+    private long ReserveProjectionCallbackSequence()
+    {
+        lock (_stateLock)
+        {
+            return ++_nextProjectionCallbackSequence;
+        }
+    }
+
+    private bool EnqueuePresentationLocked(PresentationUpdate update)
+    {
+        _presentationQueue.Enqueue(update);
+        if (_isDrainingPresentations)
+        {
+            return false;
+        }
+
+        _isDrainingPresentations = true;
+        return true;
+    }
+
+    private void DrainPresentations(bool drain)
+    {
+        if (!drain)
+        {
+            return;
+        }
+
+        while (true)
+        {
+            PresentationUpdate update;
+            lock (_stateLock)
+            {
+                if (!_presentationQueue.TryDequeue(out update!))
+                {
+                    _isDrainingPresentations = false;
+                    return;
+                }
+            }
+
+            Publish(update);
+        }
+    }
+
+    private void Publish(PresentationUpdate update)
+    {
+        if (update.Workspace is { } workspace)
+        {
+            Action published = () => SnapshotApplied?.Invoke(workspace);
+            if (update.Connection is { } readyConnection)
+            {
+                _presentationModel.PresentReadySnapshot(
+                    readyConnection,
+                    workspace,
+                    update.Workflow,
+                    published);
+            }
+            else
+            {
+                _presentationModel.PresentSnapshot(workspace, update.Workflow, published);
+            }
+        }
+        else if (update.Connection is { } connection)
+        {
+            _presentationModel.PresentConnection(connection, update.Workflow);
+        }
+        else
+        {
+            _presentationModel.PresentOfficeWorkflow(update.Workflow);
+        }
+
+        if (update.ChangedConnectionState is { } state)
+        {
+            ConnectionStateChanged?.Invoke(state);
+        }
     }
 }

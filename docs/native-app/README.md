@@ -74,6 +74,22 @@ development artifact with no hardened-runtime option or entitlements. The
 script does not perform notarization; notarization, stapling, and Gatekeeper
 assessment are separate credentialed public-release gates.
 
+## Windows development preview
+
+The repository also contains a .NET 8 WPF thin client at
+`windows/BirkinNativeApp/`. Its implemented Phase 3 state is a development
+preview, not a shipped or customer-ready release. One `BridgeSession` owns the
+only authenticated loopback receive pump and shares one in-memory projection
+store with the shell; Python remains the sole authority. The production-composed
+deterministic WPF/real-bridge regressions are separate from the one real
+existing-account Phase 3 Office proof, which runs only through the protected
+`provider-office-gate` workflow in `.github/workflows/native-windows.yml`.
+
+The Windows mockup keeps visible Terminal and Browser truth-telling
+placeholders by direct user request; they do not create a client-side shell,
+browser, or second authority. There is no Windows installer/MSI, signing,
+updater, packaged app, or customer-ready release; those remain Phases 4-5.
+
 Stable public contracts:
 
 - [Architecture](architecture.md)
