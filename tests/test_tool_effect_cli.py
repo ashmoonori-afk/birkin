@@ -9,6 +9,9 @@ import pytest
 
 from birkin.cli import main
 from birkin.plugin_install import InstalledPlugin, PluginInstaller, Scope
+from birkin.plugin_signature import sign_bundle
+
+KEY = b"tool-effect-cli-test-key"
 
 
 def _install_agent(
@@ -24,6 +27,17 @@ def _install_agent(
     project.mkdir()
     monkeypatch.setenv("BIRKIN_HOME", str(home))
     monkeypatch.chdir(project)
+    home.mkdir()
+    (home / "config.json").write_text(
+        json.dumps({
+            "plugins": {
+                "trusted_keys": {
+                    "test": KEY.hex(),
+                },
+            },
+        }),
+        encoding="utf-8",
+    )
 
     bundle = tmp_path / "bundle"
     bundle.mkdir()
@@ -49,9 +63,18 @@ def _install_agent(
     }
     (bundle / "birkin-plugin.json").write_text(
         json.dumps(manifest), encoding="utf-8")
+    sign_bundle(bundle, "test", KEY)
     installer = PluginInstaller(
-        project / ".birkin" / "registry", home / "registry" / "team")
-    return installer.install(bundle, Scope.PROJECT, version)
+        project / ".birkin" / "registry",
+        home / "registry" / "team",
+        {"test": KEY},
+    )
+    return installer.install(
+        bundle,
+        Scope.PROJECT,
+        version,
+        confirmed=True,
+    )
 
 
 def _effect_path(tmp_path: Path) -> Path:

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
-from .plugin_install import InstalledPlugin, PluginInstaller
+from .plugin_install import InstalledPlugin, PluginInstallError, PluginInstaller
 from .plugin_manifest import PluginKind, load_manifest
-from .plugin_signature import bundle_digest
+from .plugin_signature import SignatureError, verify_bundle
 from .tool_effects import ToolOrigin
 from .tools._types import Tool
 
@@ -24,20 +25,54 @@ def registry_roots(project: Path | None = None) -> tuple[Path, Path]:
     return workspace / ".birkin" / "registry", birkin_home() / "registry" / "team"
 
 
-def _verified_plugins(project_root: Path, team_root: Path) -> tuple[InstalledPlugin, ...]:
-    plugins = PluginInstaller(project_root, team_root).resolved()
-    for plugin in plugins:
-        if not plugin.path.is_dir() or bundle_digest(plugin.path) != plugin.digest:
-            raise PluginActivationError(
-                f"installed plugin bytes do not match lockfile: {plugin.name}@{plugin.version}"
+def _verified_plugins(
+    project_root: Path,
+    team_root: Path,
+    trusted_keys: Mapping[str, bytes] | None = None,
+    *,
+    allow_unsigned: bool = False,
+) -> tuple[InstalledPlugin, ...]:
+    try:
+        plugins = PluginInstaller(
+            project_root,
+            team_root,
+            trusted_keys,
+            allow_unsigned=allow_unsigned,
+        ).resolved()
+        for plugin in plugins:
+            digest, signature = verify_bundle(
+                plugin.path,
+                trusted_keys or {},
+                allow_missing=allow_unsigned,
             )
-    return plugins
+            if digest != plugin.digest or signature != plugin.signature:
+                raise PluginActivationError(
+                    "installed plugin verification does not match its lock record: "
+                    f"{plugin.name}@{plugin.version}"
+                )
+            if signature == "unsigned-allowed" and not allow_unsigned:
+                raise PluginActivationError(
+                    f"unsigned plugin is disabled: {plugin.name}@{plugin.version}"
+                )
+        return plugins
+    except (PluginInstallError, SignatureError) as exc:
+        raise PluginActivationError(
+            f"plugin activation refused; reinstall with "
+            f"`birkin plugins install --upgrade`: {exc}"
+        ) from exc
 
 
 def entry_paths(project_root: Path, team_root: Path,
-                kind: PluginKind) -> tuple[tuple[Path, str], ...]:
+                kind: PluginKind,
+                trusted_keys: Mapping[str, bytes] | None = None, *,
+                allow_unsigned: bool = False) -> tuple[tuple[Path, str], ...]:
     entries: list[tuple[Path, str]] = []
-    for plugin in _verified_plugins(project_root, team_root):
+    for plugin in _verified_plugins(
+        project_root,
+        team_root,
+        trusted_keys,
+        allow_unsigned=allow_unsigned,
+    ):
         manifest = load_manifest(plugin.path / "birkin-plugin.json")
         for raw in manifest.entry_points.get(kind, ()):
             path = (plugin.path / raw.partition(":")[0]).resolve()
@@ -47,9 +82,20 @@ def entry_paths(project_root: Path, team_root: Path,
     return tuple(entries)
 
 
-def load_agent_tools(project_root: Path, team_root: Path) -> list[Tool]:
+def load_agent_tools(
+    project_root: Path,
+    team_root: Path,
+    trusted_keys: Mapping[str, bytes] | None = None,
+    *,
+    allow_unsigned: bool = False,
+) -> list[Tool]:
     loaded: list[Tool] = []
-    for plugin in _verified_plugins(project_root, team_root):
+    for plugin in _verified_plugins(
+        project_root,
+        team_root,
+        trusted_keys,
+        allow_unsigned=allow_unsigned,
+    ):
         manifest = load_manifest(plugin.path / "birkin-plugin.json")
         origin = ToolOrigin(
             "plugin", manifest.name, manifest.version, plugin.digest)

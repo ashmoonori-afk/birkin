@@ -200,7 +200,7 @@ The unified terminal and web workspace expose a dedicated Computer Use panel. Bo
 Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`; events and journals retain bounded redacted metadata, digests, scopes, effects, and receipts instead of raw pixels or typed secrets. Runtime code never installs dependencies, opens privacy settings, or clicks permission dialogs.
 
 > [!IMPORTANT]
-> Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval.
+> Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval. Shell commands are confined to the workspace plus explicit `shell.extra_roots` and receive only terminal/runtime mechanics plus names in `shell.env_passthrough`; ambient credentials are not inherited by default. `shell.env_passthrough=["*"]` explicitly restores the legacy ambient environment. Browser navigation requires public-only DNS by default; private destinations require both the sandbox host policy and `browser_allow_private_network=true`.
 
 ## Office Work OS v2
 
@@ -402,7 +402,7 @@ npm run compile
 code --extensionDevelopmentPath="$PWD"
 ```
 
-Start both `birkin gateway` and `birkin web --no-browser`. The WebUI writes a private `~/.birkin/web_session.json`, which the extension uses to discover its loopback port and capability. Change `birkin.gatewayUrl` if the gateway is not on port 8788. If you set `BIRKIN_HTTP_TOKEN`, copy the same value to `birkin.gatewayToken`.
+Start both `birkin gateway` and `birkin web --no-browser`. The WebUI writes a private `~/.birkin/web_session.json`, which the extension uses to discover its loopback port and capability. Change `birkin.gatewayUrl` if the gateway is not on port 8788. The gateway now requires an owner capability by default: it reuses `BIRKIN_HTTP_TOKEN` when set, otherwise creates an owner-only `gateway_http_token` file under `BIRKIN_HOME`. Copy that value to `birkin.gatewayToken`. Set `gateway.http.insecure_no_token` to `true` only for a deliberately unauthenticated loopback integration.
 
 Open the Command Palette and run **Birkin: Review Plan Before Execution**. The other commands send a contextual request, review proposed changes, roll back files, and refresh status.
 
@@ -462,9 +462,30 @@ skills/             bundled Markdown skills
 tests/              offline unit, integration, and end-to-end coverage
 ```
 
-State stays in files under `BIRKIN_HOME` (normally `~/.birkin`). The workspace uses a per-process capability and accepts `BIRKIN_HTTP_TOKEN` as an explicit bearer-capability override; the loopback gateway can require the same token. MCP speaks newline-delimited JSON-RPC over stdio. The VS Code extension reuses these boundaries: gateway `/message` for turns, and WebUI endpoints for approvals, status, editor context, and checkpoints.
+State stays in files under `BIRKIN_HOME` (normally `~/.birkin`). The workspace uses a per-process capability and accepts `BIRKIN_HTTP_TOKEN` as an explicit bearer-capability override. The loopback gateway requires that environment token or its owner-only `gateway_http_token` file by default; `gateway.http.insecure_no_token=true` is the explicit insecure opt-out. MCP speaks newline-delimited JSON-RPC over stdio. The VS Code extension reuses these boundaries: gateway `/message` for turns, and WebUI endpoints for approvals, status, editor context, and checkpoints.
 
 </details>
+
+## Security defaults and work budgets
+
+- Public Telegram admission permits at most four concurrent workers by
+  default. Set `channels.telegram.max_public_workers` to a positive integer to
+  choose a different deployment-specific cap.
+- Office package parsing refuses any XML part above 10,000,000 bytes or
+  1,000,000 nodes and refuses aggregate package XML above 50,000,000 bytes or
+  2,000,000 nodes. Deep PDF inspection refuses files above 100,000,000 bytes or
+  200 pages, samples at most the first five pages during inspection, and caps
+  extracted UTF-8 text at 10,000,000 bytes and images at 10,000.
+- LSP framing refuses headers above 8 KiB or 32 lines and refuses bodies above
+  exactly 16,000,000 bytes before reading the declared body.
+- The composite GitHub Action carries trusted workflow inputs through the
+  exact `BIRKIN_PROVIDER`, `BIRKIN_MODEL`, `BIRKIN_TEST_COMMAND`, and
+  `BIRKIN_MAX_RETRIES` environment names, then passes them to the driver as
+  quoted literal arguments. Issue and pull-request comments cannot choose the
+  test command.
+- On Windows, shell and process-tree helpers require `SystemRoot` to resolve
+  `cmd.exe`, `chcp.com`, and `taskkill.exe`. They fail closed instead of
+  guessing `C:\Windows` or falling back to `PATH`.
 
 ## Approval console
 
@@ -475,14 +496,17 @@ proposals, action diffs, and execution receipts. A run can be steered, aborted,
 or resumed from its detail card; approval and rejection continue to use the
 same file-backed authority as `birkin review`.
 
-The server remains loopback-only by default. Set `web_remote_access` to `true`
-only when remote access is intentional; this binds on all interfaces but does
-**not** create a public route. In remote mode, `birkin web` prints a secret
+The server remains loopback-only by default. Remote binding is admitted only
+when both `web_remote_access` and the separate `web_remote_insecure_ack` are
+`true`; set the acknowledgement only after TLS termination or a trusted
+private-network tunnel is configured. Without both values, startup refuses
+before binding a socket. Remote mode binds on all interfaces but does **not**
+create a public route. In remote mode, `birkin web` prints a secret
 bootstrap URL using the server hostname and does not open it locally, because
 the nonce is one-time. Open that URL on the remote device; if the hostname is
 not resolvable there, replace only the hostname with the server's trusted
 private-network address. The URL exchanges the per-process capability for an
-HttpOnly, SameSite cookie, and every remote request without that capability is
+HttpOnly, SameSite, Secure cookie, and every remote request without that capability is
 rejected. Local versus remote authority is derived from the TCP peer address,
 not the client-controlled `Host` header; the exact one-time bootstrap URL is the
 only unauthenticated remote exception. Put TLS or a trusted private-network
@@ -685,15 +709,19 @@ prints that disclosure and requires interactive confirmation (or explicit
 `--yes`) unless all four permission fields are read-only/empty. This is
 disclosure and consent, not runtime confinement. Agent entry modules and their
 factories execute as trusted Python inside the Birkin process with host
-authority. Install only code you trust.
+authority, so agent plugins always require confirmation even when their
+declared permission fields are empty. Install only code you trust.
 
 Signed bundle verification accepts a shared HMAC key through
 `--key KEY_ID=HEX`. That checks integrity for holders of the same secret; it
 does not establish publisher identity, and the current argv form can expose a
 long-lived key through shell history or process inspection. Do not treat it as
-a publisher-signature boundary. The bundle itself may set
-`"unsigned_allowed": true`, so inspect that field rather than assuming an
-unsigned bundle fails closed.
+a publisher-signature boundary. Unsigned bundles fail closed by default, and a
+bundle cannot authorize itself with `"unsigned_allowed": true`. An operator
+may explicitly set `plugins.allow_unsigned=true`; trusted HMAC keys may instead
+be stored as hex values under `plugins.trusted_keys`. Installed bytes and their
+signature identity are recorded in the lockfile and reverified before every
+skill or agent activation.
 
 Project pins live under `.birkin/registry/registry.lock`; team pins live under
 `~/.birkin/registry/team/registry.lock`. Resolution is deterministic: a project
@@ -909,6 +937,10 @@ This native design does **not** propose:
   "parallel_tools": true,
   "parallel_tool_workers": 8,
   "shell_approval": "manual",
+  "shell": {
+    "extra_roots": [],
+    "env_passthrough": []
+  },
   "allow_powershell": false,
   "checkpoints": true,
   "hooks": {},
@@ -943,7 +975,14 @@ This native design does **not** propose:
   "memory_nudge_interval": 6,
   "web_port": 8787,
   "web_remote_access": false,
+  "web_remote_insecure_ack": false,
+  "browser_allow_private_network": false,
   "gateway_port": 8788,
+  "gateway": {
+    "http": {
+      "insecure_no_token": false
+    }
+  },
   "gateway_model": "",
   "gateway_reasoning_effort": "",
   "gateway_persistent": true,
@@ -998,7 +1037,8 @@ This native design does **not** propose:
       "enabled": false,
       "token": "",
       "allowed_chat_ids": [],
-      "stream": true
+      "stream": true,
+      "max_public_workers": 4
     },
     "slack": {
       "enabled": false,

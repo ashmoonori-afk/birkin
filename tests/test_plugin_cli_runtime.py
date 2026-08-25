@@ -3,15 +3,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from birkin import config
 from birkin.cli import build_parser, main
 from birkin.plugin_install import PluginInstaller, Scope
-from birkin.plugin_runtime import load_agent_tools
+from birkin.plugin_runtime import PluginActivationError, load_agent_tools
+from birkin.plugin_signature import bundle_digest, sign_bundle
 from birkin.skills.manager import build_manager
+
+KEY = b"fixture-secret-key"
 
 
 def _manifest(root: Path, *, kind: str, entry: str, version: str = "1.0.0",
-              writes: bool = False) -> Path:
+              writes: bool = False, signed: bool = True) -> Path:
     root.mkdir(parents=True)
     target = root / entry.partition(":")[0]
     if kind == "skill":
@@ -40,15 +45,22 @@ def _manifest(root: Path, *, kind: str, entry: str, version: str = "1.0.0",
         "unsigned_allowed": True,
     }
     (root / "birkin-plugin.json").write_text(json.dumps(data), encoding="utf-8")
+    if signed:
+        sign_bundle(root, "test", KEY)
     return root
 
 
 def test_cli_inspect_has_machine_readable_permission_disclosure(tmp_path: Path, capsys):
     bundle = _manifest(tmp_path / "bundle", kind="skill", entry="skill", writes=True)
-    args = build_parser().parse_args(["plugins", "inspect", str(bundle), "--json"])
+    key = f"test={KEY.hex()}"
+    args = build_parser().parse_args(
+        ["plugins", "inspect", str(bundle), "--json", "--key", key]
+    )
     assert args.func.__name__ == "_cmd_plugins"
 
-    assert main(["plugins", "inspect", str(bundle), "--json"]) == 0
+    assert main(
+        ["plugins", "inspect", str(bundle), "--json", "--key", key]
+    ) == 0
     record = json.loads(capsys.readouterr().out)
     assert record["permissions"]["write_paths"] == ["output"]
     assert record["requires_confirmation"] is True
@@ -64,7 +76,15 @@ def test_cli_refuses_install_without_confirmation_then_installs_exact_pin(
     monkeypatch.chdir(project)
     monkeypatch.setattr("builtins.input", lambda _prompt: "n")
 
-    argv = ["plugins", "install", str(bundle), "--version", "1.0.0"]
+    argv = [
+        "plugins",
+        "install",
+        str(bundle),
+        "--version",
+        "1.0.0",
+        "--key",
+        f"test={KEY.hex()}",
+    ]
     assert main(argv) == 1
     assert "write_paths: output" in capsys.readouterr().out
     assert not (project / ".birkin" / "registry" / "registry.lock").exists()
@@ -80,7 +100,9 @@ def test_project_plugin_skills_shadow_team_scope(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(home))
     monkeypatch.chdir(project)
     installer = PluginInstaller(
-        project / ".birkin" / "registry", home / "registry" / "team"
+        project / ".birkin" / "registry",
+        home / "registry" / "team",
+        {"test": KEY},
     )
     installer.install(
         _manifest(tmp_path / "team", kind="skill", entry="skill", version="1.0.0"),
@@ -91,18 +113,68 @@ def test_project_plugin_skills_shadow_team_scope(tmp_path: Path, monkeypatch):
         Scope.PROJECT, "2.0.0",
     )
 
-    skill = build_manager(config.DEFAULT_CONFIG).get("plugin-skill")
+    cfg = {
+        **config.DEFAULT_CONFIG,
+        "plugins": {"trusted_keys": {"test": KEY.hex()}},
+    }
+    skill = build_manager(cfg).get("plugin-skill")
     assert skill is not None
     assert "2.0.0" in skill.source
 
 
 def test_agent_entry_points_feed_existing_tool_registry_contract(tmp_path: Path):
     project, team = tmp_path / "project-registry", tmp_path / "team-registry"
-    installer = PluginInstaller(project, team)
+    installer = PluginInstaller(project, team, {"test": KEY})
     installer.install(
         _manifest(tmp_path / "agent", kind="agent", entry="agent.py:tools"),
-        Scope.PROJECT, "1.0.0",
+        Scope.PROJECT, "1.0.0", confirmed=True,
     )
 
-    tools = load_agent_tools(project, team)
+    tools = load_agent_tools(project, team, {"test": KEY})
     assert [tool.name for tool in tools] == ["plugin_echo"]
+
+
+def test_unsigned_lock_record_cannot_execute_agent_module(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    project, team = tmp_path / "project-registry", tmp_path / "team-registry"
+    bundle = _manifest(
+        project / "bundles" / "plugin-agent" / "1.0.0",
+        kind="agent",
+        entry="agent.py:tools",
+        signed=False,
+    )
+    sentinel = tmp_path / "executed.txt"
+    monkeypatch.setenv("BIRKIN_PLUGIN_SENTINEL", str(sentinel))
+    (bundle / "agent.py").write_text(
+        "import os\n"
+        "from pathlib import Path\n"
+        "Path(os.environ['BIRKIN_PLUGIN_SENTINEL']).write_text('executed')\n"
+        "def tools():\n"
+        " return []\n",
+        encoding="utf-8",
+    )
+    project.mkdir(parents=True, exist_ok=True)
+    (project / "registry.lock").write_text(
+        json.dumps(
+            {
+                "lock_version": 1,
+                "scope": "project",
+                "bundles": {
+                    "plugin-agent": {
+                        "version": "1.0.0",
+                        "digest": bundle_digest(bundle),
+                        "path": "bundles/plugin-agent/1.0.0",
+                        "kinds": ["agent"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(PluginActivationError, match="reinstall"):
+        load_agent_tools(project, team)
+
+    assert not sentinel.exists()

@@ -8,11 +8,13 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from ...httpguard import pinned_opener
 from .registry import ChannelEntry
 
 MAX_MESSAGE_LEN = 3500
 TRUNCATION_MARKER = "\n[truncated]"
 _REQUEST_TIMEOUT = 15
+_EXPECTED_HOST = "hooks.slack.com"
 
 
 def _settings(cfg: dict[str, Any]) -> dict[str, Any]:
@@ -20,7 +22,11 @@ def _settings(cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 def _configured_url(url: str) -> bool:
-    return urllib.parse.urlsplit(url).scheme.lower() == "https"
+    parsed = urllib.parse.urlsplit(url)
+    return (
+        parsed.scheme.lower() == "https"
+        and (parsed.hostname or "").lower() == _EXPECTED_HOST
+    )
 
 
 def validate_cfg(cfg: dict[str, Any]) -> list[str]:
@@ -31,7 +37,9 @@ def validate_cfg(cfg: dict[str, Any]) -> list[str]:
     if not url:
         return ["channels.slack.webhook_url is required when enabled"]
     if not _configured_url(url):
-        return ["channels.slack.webhook_url must use https"]
+        return [
+            "channels.slack.webhook_url must use https on hooks.slack.com"
+        ]
     return []
 
 
@@ -79,7 +87,7 @@ class SlackWebhookAdapter:
             method="POST",
         )
         try:
-            with urllib.request.urlopen(
+            with pinned_opener().open(
                     request, timeout=_REQUEST_TIMEOUT) as response:
                 status = getattr(response, "status", 200)
                 response.read()

@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import stat
 import uuid
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
-from typing import Callable, Mapping
+from pathlib import Path, PurePosixPath
+from typing import cast
 
 from .plugin_manifest import PluginManifest, load_manifest
 from .plugin_signature import verify_bundle
@@ -57,17 +59,93 @@ class InstalledPlugin:
     scope: Scope
     path: Path
     digest: str
+    signature: str
 
 
 Disclosure = Callable[[Inspection], None]
 
 
+def plugin_trust_policy(
+    config: Mapping[str, object],
+) -> tuple[dict[str, bytes], bool]:
+    raw = config.get("plugins")
+    if raw is None:
+        return {}, False
+    if not isinstance(raw, Mapping):
+        raise PluginInstallError("plugins configuration must be a table")
+    trusted = raw.get("trusted_keys", {})
+    if not isinstance(trusted, Mapping):
+        raise PluginInstallError("plugins.trusted_keys must be a table")
+    keys: dict[str, bytes] = {}
+    for key_id, encoded in trusted.items():
+        if not isinstance(key_id, str) or not key_id:
+            raise PluginInstallError("plugin trusted key ids must be non-empty strings")
+        if not isinstance(encoded, str):
+            raise PluginInstallError(
+                f"plugins.trusted_keys.{key_id} must be hex text"
+            )
+        try:
+            keys[key_id] = bytes.fromhex(encoded)
+        except ValueError as exc:
+            raise PluginInstallError(
+                f"plugins.trusted_keys.{key_id} must be valid hex"
+            ) from exc
+        if not keys[key_id]:
+            raise PluginInstallError(
+                f"plugins.trusted_keys.{key_id} must not be empty"
+            )
+    allow_unsigned = raw.get("allow_unsigned", False)
+    if not isinstance(allow_unsigned, bool):
+        raise PluginInstallError("plugins.allow_unsigned must be a boolean")
+    return keys, allow_unsigned
+
+
+def _contained_bundle_dir(
+    root: Path,
+    name: str,
+    version: str,
+    record: Mapping[str, object],
+) -> Path:
+    raw = record.get("path")
+    if not isinstance(raw, str) or not raw or "\\" in raw:
+        raise PluginInstallError("installed plugin path is malformed")
+    relative = PurePosixPath(raw)
+    expected_parts = ("bundles", name, version)
+    if relative.is_absolute() or relative.parts != expected_parts:
+        raise PluginInstallError("installed plugin path is outside the registry")
+    candidate = root.joinpath(*relative.parts)
+    current = root
+    try:
+        for part in relative.parts:
+            current = current / part
+            metadata = current.lstat()
+            if stat.S_ISLNK(metadata.st_mode):
+                raise PluginInstallError(
+                    f"installed plugin path contains a symbolic link: {raw}"
+                )
+    except FileNotFoundError as exc:
+        raise PluginInstallError(f"installed plugin path does not exist: {raw}") from exc
+    expected = root / "bundles" / name / version
+    candidate_stat = candidate.stat()
+    expected_stat = expected.stat()
+    if (candidate_stat.st_dev, candidate_stat.st_ino) != (
+        expected_stat.st_dev,
+        expected_stat.st_ino,
+    ):
+        raise PluginInstallError("installed plugin path identity mismatch")
+    if not candidate.is_dir():
+        raise PluginInstallError("installed plugin path is not a directory")
+    return candidate
+
+
 class PluginInstaller:
     def __init__(self, project_root: Path, team_root: Path,
-                 trusted_keys: Mapping[str, bytes] | None = None):
+                 trusted_keys: Mapping[str, bytes] | None = None, *,
+                 allow_unsigned: bool = False):
         self.project_root = project_root
         self.team_root = team_root
         self.trusted_keys = dict(trusted_keys or {})
+        self.allow_unsigned = allow_unsigned
 
     def _root(self, scope: Scope) -> Path:
         if scope is Scope.PROJECT:
@@ -86,7 +164,7 @@ class PluginInstaller:
                         f"missing {kind.value} entry point: {entry}"
                     )
         digest, signature = verify_bundle(
-            source, self.trusted_keys, allow_missing=manifest.unsigned_allowed
+            source, self.trusted_keys, allow_missing=self.allow_unsigned
         )
         return Inspection(manifest, digest, signature)
 
@@ -107,12 +185,21 @@ class PluginInstaller:
             )
         root = self._root(scope)
         lock = self._read_lock(root, scope)
-        current = lock["bundles"].get(manifest.name)
+        bundles = cast(dict[str, object], lock["bundles"])
+        current = bundles.get(manifest.name)
         if isinstance(current, dict) and current.get("version") != version and not upgrade:
             raise VersionConflict(
                 f"{scope.value} scope pins {current.get('version')}; use --upgrade"
             )
         destination = root / "bundles" / manifest.name / version
+        old: Path | None = None
+        if isinstance(current, dict) and current.get("version") != version:
+            old = _contained_bundle_dir(
+                root,
+                manifest.name,
+                str(current.get("version", "")),
+                current,
+            )
         if isinstance(current, dict) and current.get("version") == version:
             if current.get("digest") != inspection.digest:
                 raise VersionConflict(
@@ -123,25 +210,43 @@ class PluginInstaller:
         destination.parent.mkdir(parents=True, exist_ok=True)
         try:
             shutil.copytree(source, staging)
+            staged_digest, staged_signature = verify_bundle(
+                staging,
+                self.trusted_keys,
+                allow_missing=self.allow_unsigned,
+            )
+            if (
+                staged_digest != inspection.digest
+                or staged_signature != inspection.signature
+            ):
+                raise PluginInstallError(
+                    "staging copy does not match the inspected plugin bundle"
+                )
             if destination.exists():
                 raise VersionConflict(f"destination already exists: {destination}")
             os.replace(staging, destination)
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
-        if isinstance(current, dict) and current.get("version") != version:
-            old = root / str(current.get("path", ""))
-            if old.is_dir() and old != destination:
-                shutil.rmtree(old)
+        if old is not None and old != destination:
+            shutil.rmtree(old)
         relative = destination.relative_to(root).as_posix()
-        lock["bundles"][manifest.name] = {
+        bundles[manifest.name] = {
             "version": version,
             "digest": inspection.digest,
+            "signature": inspection.signature,
             "path": relative,
             "kinds": [kind.value for kind in manifest.kinds],
         }
         self._write_lock(root, lock)
-        return InstalledPlugin(manifest.name, version, scope, destination, inspection.digest)
+        return InstalledPlugin(
+            manifest.name,
+            version,
+            scope,
+            destination,
+            inspection.digest,
+            inspection.signature,
+        )
 
     def resolved(self) -> tuple[InstalledPlugin, ...]:
         """Return effective pins; project records shadow team records by name."""
@@ -174,9 +279,23 @@ class PluginInstaller:
     @staticmethod
     def _installed(name: str, record: dict[str, object], scope: Scope,
                    root: Path) -> InstalledPlugin:
+        version = record.get("version")
+        digest = record.get("digest")
+        signature = record.get("signature")
+        if not isinstance(version, str) or not isinstance(digest, str):
+            raise PluginInstallError("installed plugin lock record is malformed")
+        if not isinstance(signature, str):
+            raise PluginInstallError(
+                f"installed plugin {name}@{version} is unverified; "
+                "reinstall with `birkin plugins install --upgrade`"
+            )
         return InstalledPlugin(
-            name, str(record["version"]), scope,
-            root / str(record["path"]), str(record["digest"]),
+            name,
+            version,
+            scope,
+            _contained_bundle_dir(root, name, version, record),
+            digest,
+            signature,
         )
 
     @staticmethod

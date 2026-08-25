@@ -901,12 +901,19 @@ class VaultMemory:
     # -- tools -------------------------------------------------------------
 
     def tools(self) -> list[Any]:   # list[Tool]; imported lazily (cycle)
+        from .persistence_safety import unsafe_persistence_reason
         from .tools import Tool, ToolContext, ToolResult
 
         def remember(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             note = inp.get("note")
             key, value = inp.get("key"), inp.get("value")
             if key and value:
+                unsafe = unsafe_persistence_reason(key, value)
+                if unsafe is not None:
+                    return ToolResult(
+                        f"Persistence refused: {unsafe}.",
+                        is_error=True,
+                    )
                 if self.profiles_enabled():
                     receipt = self.profile_actions().submit(
                         ProfileEdit("preferences", "add", content=f"{key}: {value}"),
@@ -919,6 +926,12 @@ class VaultMemory:
                 return ToolResult(f"Remembered {key} = {value}")
             if note:
                 title = inp.get("title") or _title_from(note)
+                unsafe = unsafe_persistence_reason(title, note)
+                if unsafe is not None:
+                    return ToolResult(
+                        f"Persistence refused: {unsafe}.",
+                        is_error=True,
+                    )
                 self.write_note(title, str(note), note_type="fact",
                                 confidence=0.7, source="conversation")
                 return ToolResult(f"Noted as [[{title}]].")
@@ -930,6 +943,12 @@ class VaultMemory:
             if not (title and body):
                 return ToolResult("memory_write_note needs title and body.",
                                   is_error=True)
+            unsafe = unsafe_persistence_reason(title, body)
+            if unsafe is not None:
+                return ToolResult(
+                    f"Persistence refused: {unsafe}.",
+                    is_error=True,
+                )
             if self.profiles_enabled() and str(inp.get("type") or "") == "preference":
                 return ToolResult(
                     "memory_write_note(type='preference') is disabled while profiles are enabled; use profile_write.",

@@ -11,8 +11,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 from . import config, store
+from .httpguard import pinned_opener
 from .proc import ShellCommand, run_shell_command, shell_env
-from .tools.web import _GuardedRedirectHandler, _is_blocked_url
+from .tools.web import _is_blocked_url
 
 MAX_BYTES = 256 * 1024
 DEFAULT_MAX_BYTES = MAX_BYTES
@@ -74,14 +75,13 @@ def _now() -> str:
 
 def _fetch_url(url: str, max_bytes: int) -> bytes:
     parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https"):
-        raise ValueError("monitor URL must use HTTP or HTTPS")
+    if parsed.scheme != "https":
+        raise ValueError("monitor URL must use HTTPS")
     if _is_blocked_url(url):
         raise ValueError("refused blocked URL (SSRF guard)")
 
     request = urllib.request.Request(url, method="GET")
-    # This handler re-runs the same SSRF validation for every redirect target.
-    opener = urllib.request.build_opener(_GuardedRedirectHandler)
+    opener = pinned_opener()
     with opener.open(request, timeout=30) as response:
         return response.read(max_bytes)
 

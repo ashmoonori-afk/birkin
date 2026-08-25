@@ -200,7 +200,7 @@ Mutation에는 최신 opaque app/window/snapshot/element ref가 필요합니다.
 Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 형태로 저장합니다. Event와 journal에는 raw pixel이나 입력 text 대신 bounded·redacted metadata, digest, scope, effect, receipt만 남깁니다. Runtime은 dependency를 설치하거나 privacy settings를 열거나 permission dialog를 클릭하지 않습니다.
 
 > [!IMPORTANT]
-> 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오.
+> 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오. Shell command는 workspace와 명시적인 `shell.extra_roots` 안에서만 실행되며 terminal/runtime 동작에 필요한 값과 `shell.env_passthrough`에 지정한 이름만 전달받습니다. Ambient credential은 기본적으로 상속하지 않습니다. `shell.env_passthrough=["*"]`는 legacy ambient environment를 명시적으로 복원합니다. Browser navigation은 기본적으로 public DNS address만 허용하며 private destination은 sandbox host policy와 `browser_allow_private_network=true`가 모두 필요합니다.
 
 ## Office Work OS v2
 
@@ -402,7 +402,7 @@ npm run compile
 code --extensionDevelopmentPath="$PWD"
 ```
 
-`birkin gateway`와 `birkin web --no-browser`를 모두 시작하십시오. WebUI는 private `~/.birkin/web_session.json`을 쓰며 extension은 이 파일에서 loopback port와 capability를 찾습니다. gateway가 8788이 아니면 `birkin.gatewayUrl`을 바꾸십시오. `BIRKIN_HTTP_TOKEN`을 설정했다면 같은 값을 `birkin.gatewayToken`에 넣으십시오.
+`birkin gateway`와 `birkin web --no-browser`를 모두 시작하십시오. WebUI는 private `~/.birkin/web_session.json`을 쓰며 extension은 이 파일에서 loopback port와 capability를 찾습니다. gateway가 8788이 아니면 `birkin.gatewayUrl`을 바꾸십시오. Gateway는 이제 기본적으로 owner capability를 요구합니다. `BIRKIN_HTTP_TOKEN`이 있으면 그 값을 재사용하고, 없으면 `BIRKIN_HOME` 아래에 owner-only `gateway_http_token` 파일을 만듭니다. 그 값을 `birkin.gatewayToken`에 넣으십시오. 의도적으로 인증 없는 loopback 연동이 필요할 때만 `gateway.http.insecure_no_token`을 `true`로 설정하십시오.
 
 Command Palette에서 **Birkin: Review Plan Before Execution**을 실행하십시오. 나머지 명령은 context 요청 전송, 제안 변경 검토, 파일 rollback, status 갱신을 담당합니다.
 
@@ -462,9 +462,31 @@ skills/             번들 Markdown skill
 tests/              offline unit, integration, end-to-end coverage
 ```
 
-상태는 `BIRKIN_HOME`(보통 `~/.birkin`) 아래 파일에 남습니다. Workspace는 process별 capability를 사용하며 `BIRKIN_HTTP_TOKEN`을 명시적인 bearer-capability override로 받을 수 있습니다. Loopback gateway도 같은 token을 요구할 수 있습니다. MCP는 stdio에서 newline-delimited JSON-RPC를 사용합니다. VS Code extension은 기존 경계를 재사용해 turn은 gateway `/message`, approval·status·editor context·checkpoint는 WebUI endpoint로 처리합니다.
+상태는 `BIRKIN_HOME`(보통 `~/.birkin`) 아래 파일에 남습니다. Workspace는 process별 capability를 사용하며 `BIRKIN_HTTP_TOKEN`을 명시적인 bearer-capability override로 받을 수 있습니다. Loopback gateway는 기본적으로 이 environment token이나 owner-only `gateway_http_token` 파일의 값을 요구하며, `gateway.http.insecure_no_token=true`가 명시적인 insecure opt-out입니다. MCP는 stdio에서 newline-delimited JSON-RPC를 사용합니다. VS Code extension은 기존 경계를 재사용해 turn은 gateway `/message`, approval·status·editor context·checkpoint는 WebUI endpoint로 처리합니다.
 
 </details>
+
+## 보안 기본값과 작업 예산
+
+- 공개 Telegram 요청은 기본적으로 동시에 최대 네 worker만 허용합니다.
+  배포 환경에 다른 제한이 필요하면 `channels.telegram.max_public_workers`에
+  양의 정수를 설정하십시오.
+- Office package parser는 XML part 하나가 10,000,000 byte 또는 1,000,000
+  node를 넘으면 거부하고, package 전체 XML이 50,000,000 byte 또는
+  2,000,000 node를 넘으면 거부합니다. PDF deep inspection은
+  100,000,000 byte 또는 200 page를 넘는 파일을 거부하고, inspection 중
+  처음 다섯 page만 sample하며, 추출된 UTF-8 text는 10,000,000 byte,
+  image는 10,000개로 제한합니다.
+- LSP framing은 8 KiB 또는 32 line을 넘는 header를 거부하며, 선언된 body를
+  읽기 전에 정확히 16,000,000 byte를 넘는 body를 거부합니다.
+- Composite GitHub Action은 신뢰된 workflow input을 정확한
+  `BIRKIN_PROVIDER`, `BIRKIN_MODEL`, `BIRKIN_TEST_COMMAND`,
+  `BIRKIN_MAX_RETRIES` environment name으로 전달한 뒤 quoted literal
+  argument로 driver에 넘깁니다. Issue와 pull-request comment는 test
+  command를 선택할 수 없습니다.
+- Windows에서 shell과 process-tree helper는 `cmd.exe`, `chcp.com`,
+  `taskkill.exe`를 해석하기 위해 `SystemRoot`를 요구합니다.
+  `C:\Windows`를 추측하거나 `PATH`로 fallback하지 않고 fail-closed합니다.
 
 ## Approval console
 
@@ -475,14 +497,17 @@ receipt를 표시합니다. 상세 card에서 run을 steer, abort, resume할 수
 approval과 rejection은 `birkin review`와 동일한 file-backed authority를
 계속 사용합니다.
 
-Server는 기본적으로 loopback에서만 동작합니다. Remote access가 의도된
-경우에만 `web_remote_access`를 `true`로 설정하십시오. 이 설정은 모든
-interface에 bind하지만 public route를 만들지는 않습니다. Remote mode에서
+Server는 기본적으로 loopback에서만 동작합니다. Remote bind는
+`web_remote_access`와 별도의 `web_remote_insecure_ack`가 모두 `true`일 때만
+허용됩니다. TLS termination 또는 신뢰할 수 있는 private-network tunnel을
+구성한 뒤에만 acknowledgement를 설정하십시오. 두 값이 모두 없으면 socket을
+bind하기 전에 startup이 거부됩니다. Remote mode는 모든 interface에
+bind하지만 public route를 만들지는 않습니다. Remote mode에서
 `birkin web`은 server hostname을 사용한 secret bootstrap URL을 출력하고,
 nonce가 one-time이므로 local browser에서 자동으로 열지 않습니다. 이 URL을
 remote device에서 여십시오. 해당 hostname을 remote device에서 해석할 수
 없다면 hostname 부분만 server의 신뢰할 수 있는 private-network address로
-바꾸십시오. 이 URL은 process별 capability를 HttpOnly, SameSite cookie로
+바꾸십시오. 이 URL은 process별 capability를 HttpOnly, SameSite, Secure cookie로
 교환하며, capability가 없는 모든 remote request는 거부됩니다. Local/remote
 권한은 client가 제어하는 `Host` header가 아니라 TCP peer address에서
 결정되며, 정확한 one-time bootstrap URL만 인증되지 않은 remote 예외입니다.
@@ -688,15 +713,19 @@ directory입니다. 엄격한 manifest는 정확한 semantic version 하나,
 (또는 명시적 `--yes`)이 필요합니다. 이 절차는 권한 disclosure와 동의이지
 runtime confinement가 아닙니다. Agent entry module과 factory는 Birkin
 process 안에서 host 권한을 가진 trusted Python으로 실행됩니다. 신뢰하는
-코드만 설치하십시오.
+코드만 설치하십시오. 따라서 agent plugin은 선언한 permission field가 모두
+비어 있어도 항상 확인이 필요합니다.
 
 Signed bundle 검증은 `--key KEY_ID=HEX`로 전달한 shared HMAC key를
 사용합니다. 같은 secret을 가진 주체 사이의 integrity는 확인하지만 publisher
 identity를 증명하지는 않습니다. 현재 argv 방식은 장기 key를 shell history나
 process inspection에 노출할 수 있으므로 publisher-signature boundary로
-간주하지 마십시오. Bundle이 직접 `"unsigned_allowed": true`를 설정할 수
-있으므로 unsigned bundle이 항상 fail-closed한다고 가정하지 말고 이 field를
-검사하십시오.
+간주하지 마십시오. Unsigned bundle은 기본적으로 fail-closed이며 bundle이
+`"unsigned_allowed": true`를 설정해 스스로 승인할 수 없습니다. Operator는
+`plugins.allow_unsigned=true`를 명시적으로 설정할 수 있고, trusted HMAC key는
+`plugins.trusted_keys` 아래에 hex 값으로 저장할 수 있습니다. 설치된 byte와
+signature identity는 lockfile에 기록되며 skill 또는 agent를 활성화할 때마다
+다시 검증됩니다.
 
 Project pin은 `.birkin/registry/registry.lock`, team pin은
 `~/.birkin/registry/team/registry.lock`에 저장됩니다. Resolution은 결정적입니다.
@@ -911,6 +940,10 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "parallel_tools": true,
   "parallel_tool_workers": 8,
   "shell_approval": "manual",
+  "shell": {
+    "extra_roots": [],
+    "env_passthrough": []
+  },
   "allow_powershell": false,
   "checkpoints": true,
   "hooks": {},
@@ -945,7 +978,14 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "memory_nudge_interval": 6,
   "web_port": 8787,
   "web_remote_access": false,
+  "web_remote_insecure_ack": false,
+  "browser_allow_private_network": false,
   "gateway_port": 8788,
+  "gateway": {
+    "http": {
+      "insecure_no_token": false
+    }
+  },
   "gateway_model": "",
   "gateway_reasoning_effort": "",
   "gateway_persistent": true,
@@ -1000,7 +1040,8 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
       "enabled": false,
       "token": "",
       "allowed_chat_ids": [],
-      "stream": true
+      "stream": true,
+      "max_public_workers": 4
     },
     "slack": {
       "enabled": false,

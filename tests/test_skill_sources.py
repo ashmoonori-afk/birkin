@@ -18,7 +18,9 @@ of them.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -33,6 +35,30 @@ description: Put things back where they came from.
 
 Steps go here.
 """
+
+COMMIT_SHA = "a" * 40
+
+
+class _Response:
+    def __init__(self, payload: bytes):
+        self.payload = payload
+
+    def __enter__(self) -> _Response:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self, limit: int = -1) -> bytes:
+        return self.payload if limit < 0 else self.payload[:limit]
+
+
+class _Opener:
+    def __init__(self, open_request):
+        self.open_request = open_request
+
+    def open(self, request, timeout: int):
+        return self.open_request(request, timeout=timeout)
 
 
 @pytest.fixture()
@@ -128,6 +154,54 @@ class TestUrlSource:
         """One URL is one skill -- there is no index behind it to query."""
         assert sources.UrlSource().search("anything") == []
 
+    def test_arbitrary_url_never_receives_github_authorization(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        seen: list[Any] = []
+        handlers: list[object] = []
+
+        def open_request(request, timeout: int):
+            seen.append(request)
+            return _Response(SKILL_MD.encode())
+
+        def build_opener(*installed: object) -> _Opener:
+            handlers.extend(installed)
+            return _Opener(open_request)
+
+        monkeypatch.setenv("GITHUB_TOKEN", "synthetic-test-token")
+        monkeypatch.setattr(hub.urllib.request, "urlopen", open_request)
+        monkeypatch.setattr(hub.urllib.request, "build_opener", build_opener)
+
+        hub._get("https://example.invalid/SKILL.md", raw=True)
+        hub._get("https://api.github.com/repos/example/repository", raw=False)
+
+        assert seen[0].get_header("Authorization") is None
+        assert seen[1].get_header("Authorization") == "Bearer synthetic-test-token"
+        assert any(
+            handler.__class__.__name__ == "_NoCrossOriginRedirect"
+            for handler in handlers
+        )
+
+    def test_skill_download_has_a_per_file_byte_limit(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        payload = b"x" * 1_000_001
+
+        def open_request(_request, timeout: int):
+            return _Response(payload)
+
+        monkeypatch.setattr(hub.urllib.request, "urlopen", open_request)
+        monkeypatch.setattr(
+            hub.urllib.request,
+            "build_opener",
+            lambda *_handlers: _Opener(open_request),
+        )
+
+        with pytest.raises(hub.HubError, match="byte limit"):
+            hub._get("https://example.invalid/SKILL.md", raw=True)
+
 
 class TestGitHubSourceKeepsWorking:
     def test_it_reports_its_id(self) -> None:
@@ -146,6 +220,65 @@ class TestGitHubSourceKeepsWorking:
                                                 tmp_path / "q")
         assert seen["identifier"] == "someone/their-skills"
         assert manifest["name"] == "tidy-desk"
+
+    def test_bundle_fetch_pins_every_contents_request_to_one_commit(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        seen: list[str] = []
+
+        def fake_get(url: str, raw: bool = False) -> bytes:
+            seen.append(url)
+            if url.endswith("/repos/example/repository"):
+                return json.dumps({"default_branch": "main"}).encode()
+            if "/commits/main" in url:
+                return json.dumps({"sha": COMMIT_SHA}).encode()
+            if raw:
+                return SKILL_MD.encode()
+            return b"[]"
+
+        monkeypatch.setattr(hub, "_get", fake_get)
+
+        metadata = hub.fetch_bundle(
+            "example/repository",
+            tmp_path / "quarantine",
+        )
+
+        contents = [url for url in seen if "/contents/" in url]
+        assert contents
+        assert all(f"ref={COMMIT_SHA}" in url for url in contents)
+        assert metadata["sha"] == COMMIT_SHA
+
+    def test_bundle_fetch_enforces_aggregate_byte_quota(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+    ) -> None:
+        names = [f"part-{index}.txt" for index in range(6)]
+        skill = (SKILL_MD + "\nRead " + " ".join(names)).encode()
+        listing = json.dumps(
+            [{"name": name, "type": "file"} for name in names]
+        ).encode()
+
+        def fake_get(url: str, raw: bool = False) -> bytes:
+            if url.endswith("/repos/example/repository"):
+                return json.dumps({"default_branch": "main"}).encode()
+            if "/commits/main" in url:
+                return json.dumps({"sha": COMMIT_SHA}).encode()
+            if raw and "/SKILL.md" in url:
+                return skill
+            if raw:
+                return b"x" * 900_000
+            return listing
+
+        monkeypatch.setattr(hub, "_get", fake_get)
+
+        with pytest.raises(hub.HubError, match="aggregate byte quota"):
+            hub.fetch_bundle(
+                "example/repository",
+                tmp_path / "quarantine",
+            )
 
 
 class TestInstallRoutesThroughTheSource:

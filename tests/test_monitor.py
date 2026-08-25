@@ -48,9 +48,8 @@ def test_ssrf_blocked_url_is_rejected_without_fetching(monkeypatch):
     })
 
     assert result.changed is False
-    assert "blocked" in (result.error or "").lower() or "refused" in (
-        result.error or ""
-    ).lower()
+    error = (result.error or "").lower()
+    assert "blocked" in error or "refused" in error or "https" in error
     assert fetched == []
 
 
@@ -75,6 +74,27 @@ def test_url_fetch_is_bounded_and_initial_check_sets_baseline(monkeypatch):
     assert state["last_checked"]
     assert state["last_changed"] is None
     assert state["last_error"] is None
+
+
+def test_url_fetch_uses_the_shared_pinned_opener(monkeypatch):
+    response = _Response(b"bounded")
+    opener = _Opener([response])
+    calls = []
+    monkeypatch.setattr(
+        monitor,
+        "pinned_opener",
+        lambda: calls.append(True) or opener,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        monitor.urllib.request,
+        "build_opener",
+        lambda *_args: opener,
+    )
+    monkeypatch.setattr(monitor, "_is_blocked_url", lambda _url: False)
+
+    assert monitor._fetch_url("https://example.test/page", 4) == b"boun"
+    assert calls == [True]
 
 
 def test_error_does_not_change_hash(monkeypatch):

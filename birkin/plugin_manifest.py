@@ -42,7 +42,8 @@ class PluginManifest:
     def requires_confirmation(self) -> bool:
         policy = self.permissions
         return bool(
-            policy.network is not NetworkPolicy.OFF
+            PluginKind.AGENT in self.kinds
+            or policy.network is not NetworkPolicy.OFF
             or policy.network_allowlist
             or policy.env_allowlist
             or policy.write_paths

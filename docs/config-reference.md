@@ -40,6 +40,9 @@ Schema version: 1
 | `parallel_tools` | `boolean` | `true` | Birkin setting `parallel_tools`. |
 | `parallel_tool_workers` | `integer` | `8` | Birkin setting `parallel_tool_workers`. |
 | `shell_approval` | `string` | `"manual"` | Birkin setting `shell_approval`. |
+| `shell` | `object` | `{"extra_roots": [], "env_passthrough": []}` | Birkin setting `shell`. |
+| `shell.extra_roots` | `array` | `[]` | Birkin setting `shell.extra_roots`. |
+| `shell.env_passthrough` | `array` | `[]` | Birkin setting `shell.env_passthrough`. |
 | `allow_powershell` | `boolean` | `false` | Birkin setting `allow_powershell`. |
 | `checkpoints` | `boolean` | `true` | Birkin setting `checkpoints`. |
 | `hooks` | `object` | `{}` | Birkin setting `hooks`. |
@@ -65,7 +68,12 @@ Schema version: 1
 | `memory_nudge_interval` | `integer` | `6` | Birkin setting `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin setting `web_port`. |
 | `web_remote_access` | `boolean` | `false` | Birkin setting `web_remote_access`. |
+| `web_remote_insecure_ack` | `boolean` | `false` | Birkin setting `web_remote_insecure_ack`. |
+| `browser_allow_private_network` | `boolean` | `false` | Birkin setting `browser_allow_private_network`. |
 | `gateway_port` | `integer` | `8788` | Birkin setting `gateway_port`. |
+| `gateway` | `object` | `{"http": {"insecure_no_token": false}}` | Birkin setting `gateway`. |
+| `gateway.http` | `object` | `{"insecure_no_token": false}` | Birkin setting `gateway.http`. |
+| `gateway.http.insecure_no_token` | `boolean` | `false` | Birkin setting `gateway.http.insecure_no_token`. |
 | `gateway_model` | `string` | `""` | Birkin setting `gateway_model`. |
 | `gateway_reasoning_effort` | `string` | `""` | Birkin setting `gateway_reasoning_effort`. |
 | `gateway_persistent` | `boolean` | `true` | Birkin setting `gateway_persistent`. |
@@ -108,14 +116,15 @@ Schema version: 1
 | `profile.background_review.digest_recent_turns` | `integer` | `6` | Birkin setting `profile.background_review.digest_recent_turns`. |
 | `neurosis_threshold` | `any` | `null` | Birkin setting `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin setting `neurosis_auto`. |
-| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin setting `channels`. |
+| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true, "max_public_workers": 4}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin setting `channels`. |
 | `channels.http` | `object` | `{"enabled": true}` | Birkin setting `channels.http`. |
 | `channels.http.enabled` | `boolean` | `true` | Birkin setting `channels.http.enabled`. |
-| `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}` | Birkin setting `channels.telegram`. |
+| `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true, "max_public_workers": 4}` | Birkin setting `channels.telegram`. |
 | `channels.telegram.enabled` | `boolean` | `false` | Birkin setting `channels.telegram.enabled`. |
 | `channels.telegram.token` | `string` | `""` | Birkin setting `channels.telegram.token`. |
 | `channels.telegram.allowed_chat_ids` | `array` | `[]` | Birkin setting `channels.telegram.allowed_chat_ids`. |
 | `channels.telegram.stream` | `boolean` | `true` | Birkin setting `channels.telegram.stream`. |
+| `channels.telegram.max_public_workers` | `integer` | `4` | Birkin setting `channels.telegram.max_public_workers`. |
 | `channels.slack` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin setting `channels.slack`. |
 | `channels.slack.enabled` | `boolean` | `false` | Birkin setting `channels.slack.enabled`. |
 | `channels.slack.webhook_url` | `string` | `""` | Birkin setting `channels.slack.webhook_url`. |

@@ -132,7 +132,13 @@ def _cmd_compare(args: argparse.Namespace) -> int:
 
 def _cmd_plugins(args: argparse.Namespace) -> int:
     """Inspect, install, and resolve exact plugin bundle pins."""
-    from .plugin_install import PluginInstallError, PluginInstaller, Scope
+    from .config import load_config
+    from .plugin_install import (
+        PluginInstallError,
+        PluginInstaller,
+        Scope,
+        plugin_trust_policy,
+    )
     from .plugin_manifest import ManifestError
     from .plugin_runtime import registry_roots
     from .plugin_signature import SignatureError
@@ -144,8 +150,14 @@ def _cmd_plugins(args: argparse.Namespace) -> int:
             if not separator or not key_id:
                 raise ValueError("trusted keys use KEY_ID=HEX")
             keys[key_id] = bytes.fromhex(encoded)
+        configured_keys, allow_unsigned = plugin_trust_policy(load_config())
         project_root, team_root = registry_roots()
-        installer = PluginInstaller(project_root, team_root, keys)
+        installer = PluginInstaller(
+            project_root,
+            team_root,
+            {**configured_keys, **keys},
+            allow_unsigned=allow_unsigned,
+        )
         if args.action == "resolve":
             found = installer.resolve(args.name, args.version)
             record = {"name": found.name, "version": found.version,

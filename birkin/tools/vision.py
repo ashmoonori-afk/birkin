@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import base64
-import contextlib
 import http.client
+import urllib.error
 import urllib.parse
+import urllib.request
 from typing import Any, Final
 
 from ._types import (
@@ -18,7 +19,8 @@ from ._types import (
     ToolResult,
 )
 from .files import _resolve
-from .web import USER_AGENT, _is_blocked_url
+from ..httpguard import pinned_opener
+from .web import USER_AGENT
 
 MAX_IMAGE_BYTES: Final = 5 * 1024 * 1024
 _MEDIA_TYPES: Final = {
@@ -27,7 +29,6 @@ _MEDIA_TYPES: Final = {
     b"GIF87a": "image/gif",
     b"GIF89a": "image/gif",
 }
-_REDIRECT_STATUSES: Final = frozenset({301, 302, 303, 307, 308})
 
 
 def _media_type(data: bytes) -> str | None:
@@ -40,49 +41,26 @@ def _media_type(data: bytes) -> str | None:
 
 
 def _download_image(source: str) -> bytes | ToolResult:
-    current = source
-    for _redirect in range(6):
-        if _is_blocked_url(current):
-            return ToolResult(
-                "Refused: that URL targets a local/internal/reserved address "
-                "(SSRF guard).",
-                is_error=True,
-            )
-        parsed = urllib.parse.urlsplit(current)
-        if parsed.hostname is None:
-            return ToolResult("Image URL has no host.", is_error=True)
-        connection_type = {
-            "http": http.client.HTTPConnection,
-            "https": http.client.HTTPSConnection,
-        }.get(parsed.scheme)
-        if connection_type is None:
-            return ToolResult("Image URL must use HTTP or HTTPS.", is_error=True)
-        connection = connection_type(parsed.hostname, parsed.port, timeout=30)
-        target = urllib.parse.urlunsplit(
-            ("", "", parsed.path or "/", parsed.query, "")
-        )
-        try:
-            with contextlib.closing(connection):
-                connection.request(
-                    "GET",
-                    target,
-                    headers={"User-Agent": USER_AGENT, "Accept": "image/*"},
-                )
-                response = connection.getresponse()
-                location = response.getheader("Location")
-                status = response.status
-                data = response.read(MAX_IMAGE_BYTES + 1)
-        except (OSError, http.client.HTTPException) as exc:
-            return ToolResult(f"Image fetch failed: {exc}", is_error=True)
-        if status in _REDIRECT_STATUSES and location:
-            current = urllib.parse.urljoin(current, location)
-            continue
-        if status >= 400:
-            return ToolResult(
-                f"Image fetch failed with HTTP {status}.", is_error=True
-            )
-        return data
-    return ToolResult("Image fetch exceeded 5 redirects.", is_error=True)
+    parsed = urllib.parse.urlsplit(source)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        return ToolResult("Image URL must use HTTPS.", is_error=True)
+    request = urllib.request.Request(
+        source,
+        headers={"User-Agent": USER_AGENT, "Accept": "image/*"},
+    )
+    try:
+        with pinned_opener().open(request, timeout=30) as response:
+            data = response.read(MAX_IMAGE_BYTES + 1)
+    except (
+        OSError,
+        ValueError,
+        http.client.HTTPException,
+        urllib.error.URLError,
+    ) as exc:
+        return ToolResult(f"Image fetch failed: {exc}", is_error=True)
+    if len(data) > MAX_IMAGE_BYTES:
+        return ToolResult("Image exceeds the 5 MB limit.", is_error=True)
+    return data
 
 
 def _read_image(source: str, ctx: ToolContext) -> bytes | ToolResult:

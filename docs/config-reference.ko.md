@@ -40,6 +40,9 @@ Schema version: 1
 | `parallel_tools` | `boolean` | `true` | Birkin 설정 `parallel_tools`. |
 | `parallel_tool_workers` | `integer` | `8` | Birkin 설정 `parallel_tool_workers`. |
 | `shell_approval` | `string` | `"manual"` | Birkin 설정 `shell_approval`. |
+| `shell` | `object` | `{"extra_roots": [], "env_passthrough": []}` | Birkin 설정 `shell`. |
+| `shell.extra_roots` | `array` | `[]` | Birkin 설정 `shell.extra_roots`. |
+| `shell.env_passthrough` | `array` | `[]` | Birkin 설정 `shell.env_passthrough`. |
 | `allow_powershell` | `boolean` | `false` | Birkin 설정 `allow_powershell`. |
 | `checkpoints` | `boolean` | `true` | Birkin 설정 `checkpoints`. |
 | `hooks` | `object` | `{}` | Birkin 설정 `hooks`. |
@@ -65,7 +68,12 @@ Schema version: 1
 | `memory_nudge_interval` | `integer` | `6` | Birkin 설정 `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin 설정 `web_port`. |
 | `web_remote_access` | `boolean` | `false` | Birkin 설정 `web_remote_access`. |
+| `web_remote_insecure_ack` | `boolean` | `false` | Birkin 설정 `web_remote_insecure_ack`. |
+| `browser_allow_private_network` | `boolean` | `false` | Birkin 설정 `browser_allow_private_network`. |
 | `gateway_port` | `integer` | `8788` | Birkin 설정 `gateway_port`. |
+| `gateway` | `object` | `{"http": {"insecure_no_token": false}}` | Birkin 설정 `gateway`. |
+| `gateway.http` | `object` | `{"insecure_no_token": false}` | Birkin 설정 `gateway.http`. |
+| `gateway.http.insecure_no_token` | `boolean` | `false` | Birkin 설정 `gateway.http.insecure_no_token`. |
 | `gateway_model` | `string` | `""` | Birkin 설정 `gateway_model`. |
 | `gateway_reasoning_effort` | `string` | `""` | Birkin 설정 `gateway_reasoning_effort`. |
 | `gateway_persistent` | `boolean` | `true` | Birkin 설정 `gateway_persistent`. |
@@ -108,14 +116,15 @@ Schema version: 1
 | `profile.background_review.digest_recent_turns` | `integer` | `6` | Birkin 설정 `profile.background_review.digest_recent_turns`. |
 | `neurosis_threshold` | `any` | `null` | Birkin 설정 `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin 설정 `neurosis_auto`. |
-| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin 설정 `channels`. |
+| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true, "max_public_workers": 4}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin 설정 `channels`. |
 | `channels.http` | `object` | `{"enabled": true}` | Birkin 설정 `channels.http`. |
 | `channels.http.enabled` | `boolean` | `true` | Birkin 설정 `channels.http.enabled`. |
-| `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true}` | Birkin 설정 `channels.telegram`. |
+| `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true, "max_public_workers": 4}` | Birkin 설정 `channels.telegram`. |
 | `channels.telegram.enabled` | `boolean` | `false` | Birkin 설정 `channels.telegram.enabled`. |
 | `channels.telegram.token` | `string` | `""` | Birkin 설정 `channels.telegram.token`. |
 | `channels.telegram.allowed_chat_ids` | `array` | `[]` | Birkin 설정 `channels.telegram.allowed_chat_ids`. |
 | `channels.telegram.stream` | `boolean` | `true` | Birkin 설정 `channels.telegram.stream`. |
+| `channels.telegram.max_public_workers` | `integer` | `4` | Birkin 설정 `channels.telegram.max_public_workers`. |
 | `channels.slack` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin 설정 `channels.slack`. |
 | `channels.slack.enabled` | `boolean` | `false` | Birkin 설정 `channels.slack.enabled`. |
 | `channels.slack.webhook_url` | `string` | `""` | Birkin 설정 `channels.slack.webhook_url`. |

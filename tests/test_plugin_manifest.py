@@ -61,6 +61,21 @@ def test_read_only_manifest_needs_no_confirmation(tmp_path: Path):
     assert load_manifest(path).requires_confirmation is False
 
 
+def test_agent_manifest_always_requires_confirmation(tmp_path: Path):
+    path = _write(
+        tmp_path / "birkin-plugin.json",
+        kinds=["agent"],
+        entry_points={"agent": ["agent.py:tools"]},
+        required_permissions={
+            "network": "off",
+            "network_allowlist": [],
+            "env_allowlist": [],
+            "write_paths": [],
+        },
+    )
+    assert load_manifest(path).requires_confirmation is True
+
+
 @pytest.mark.parametrize(
     ("override", "message"),
     [
