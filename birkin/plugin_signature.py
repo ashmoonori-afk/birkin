@@ -20,7 +20,7 @@ def bundle_digest_bytes(files: Mapping[str, bytes]) -> str:
     """Hash an immutable bundle byte mapping in stable path order."""
     digest = hashlib.sha256()
     for relative, data in sorted(files.items()):
-        if Path(relative).name == SIGNATURE_FILE:
+        if relative == SIGNATURE_FILE:
             continue
         encoded = relative.encode("utf-8")
         digest.update(len(encoded).to_bytes(4, "big"))
@@ -34,7 +34,7 @@ def bundle_digest(root: Path) -> str:
     """Hash paths and bytes in stable order, excluding the detached signature."""
     files = sorted(
         path for path in root.rglob("*")
-        if path.is_file() and path.name != SIGNATURE_FILE
+        if path.is_file()
     )
     captured: dict[str, bytes] = {}
     for path in files:

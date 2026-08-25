@@ -12,12 +12,20 @@ from collections.abc import Iterator, Mapping, Sequence
 from importlib.abc import MetaPathFinder, SourceLoader
 from importlib.machinery import ModuleSpec
 from pathlib import Path, PurePosixPath
-from types import ModuleType
-from typing import BinaryIO, Protocol
+from types import ModuleType, TracebackType
+from typing import BinaryIO, Literal, Protocol
 
 
 class SnapshotImportError(ImportError):
     """A captured plugin module cannot be represented safely."""
+
+
+class SnapshotActivationError(RuntimeError):
+    """Marker for an already typed plugin activation failure."""
+
+
+class SnapshotTransactionError(RuntimeError):
+    """A plugin activation transaction failed after snapshot creation."""
 
 
 class CleanupOwner(Protocol):
@@ -204,6 +212,47 @@ class SnapshotLifetime:
 
     def add_loader(self, loader: SnapshotLoader) -> None:
         self._loaders.append(loader)
+
+    def rollback(self) -> None:
+        loaders = set(self._loaders)
+        for name, module in tuple(sys.modules.items()):
+            if module.__loader__ in loaders:
+                sys.modules.pop(name, None)
+        self._finalizer()
+
+
+class SnapshotActivation:
+    """Own every snapshot lifetime created by one activation call."""
+
+    def __init__(self) -> None:
+        self._lifetimes: list[SnapshotLifetime] = []
+
+    def __enter__(self) -> SnapshotActivation:
+        return self
+
+    def add_owner(self, owner: CleanupOwner) -> SnapshotLifetime:
+        lifetime = SnapshotLifetime(owner)
+        self._lifetimes.append(lifetime)
+        return lifetime
+
+    def __exit__(
+        self,
+        exception_type: type[BaseException] | None,
+        exception: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> Literal[False]:
+        del exception_type, traceback
+        if exception is None:
+            return False
+        for lifetime in reversed(self._lifetimes):
+            lifetime.rollback()
+        if isinstance(exception, SnapshotActivationError):
+            return False
+        if isinstance(exception, Exception):
+            raise SnapshotTransactionError(
+                "plugin activation transaction failed"
+            ) from exception
+        return False
 
 
 def load_snapshot_module(

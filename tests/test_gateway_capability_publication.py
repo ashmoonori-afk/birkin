@@ -76,7 +76,6 @@ def test_gateway_capability_publication_is_atomic_under_concurrency(
         "write",
         "file_fsync",
         "publish",
-        "publish_after_link",
     ],
 )
 def test_gateway_capability_failure_removes_private_artifacts(
@@ -105,9 +104,7 @@ def test_gateway_capability_failure_removes_private_artifacts(
         source: os.PathLike[str] | str,
         destination: os.PathLike[str] | str,
     ) -> None:
-        if failure == "publish_after_link":
-            original_link(source, destination)
-        if failure in {"publish", "publish_after_link"}:
+        if failure == "publish":
             raise OSError("synthetic publication failure")
         original_link(source, destination)
 
@@ -126,7 +123,7 @@ def test_gateway_capability_failure_removes_private_artifacts(
     os.name == "nt",
     reason="directory fsync is a POSIX durability contract",
 )
-def test_gateway_directory_fsync_failure_removes_published_capability(
+def test_gateway_directory_fsync_failure_preserves_complete_capability(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -145,7 +142,9 @@ def test_gateway_directory_fsync_failure_removes_published_capability(
         local_http._load_or_create_token()
 
     assert list(home.glob(".gateway_http_token.*.tmp")) == []
-    assert not (home / "gateway_http_token").exists()
+    capability = home / "gateway_http_token"
+    assert len(capability.read_text(encoding="utf-8").strip()) >= 32
+    assert capability.stat().st_mode & 0o777 == 0o600
 
 
 @pytest.mark.skipif(

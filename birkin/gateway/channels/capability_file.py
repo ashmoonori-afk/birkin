@@ -51,19 +51,6 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _unlink_if_identity(path: Path, identity: tuple[int, int]) -> None:
-    try:
-        metadata = path.stat(follow_symlinks=False)
-    except FileNotFoundError:
-        metadata = None
-    if (
-        metadata is not None
-        and stat.S_ISREG(metadata.st_mode)
-        and (metadata.st_dev, metadata.st_ino) == identity
-    ):
-        path.unlink()
-
-
 def load_or_create_token() -> tuple[str, Path]:
     """Read or atomically create the complete owner gateway capability."""
     path = _token_file()
@@ -87,7 +74,6 @@ def load_or_create_token() -> tuple[str, Path]:
     try:
         descriptor = os.open(temporary, flags, 0o600)
         try:
-            identity = os.fstat(descriptor)
             payload = f"{token}\n".encode("utf-8")
             view = memoryview(payload)
             while view:
@@ -103,12 +89,6 @@ def load_or_create_token() -> tuple[str, Path]:
             _fsync_directory(path.parent)
         except FileExistsError:
             return _read_token(path), path
-        except OSError:
-            _unlink_if_identity(
-                path,
-                (identity.st_dev, identity.st_ino),
-            )
-            raise
         return token, path
     finally:
         temporary.unlink(missing_ok=True)
