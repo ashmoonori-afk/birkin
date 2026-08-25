@@ -6,11 +6,12 @@ from pathlib import Path
 import pytest
 
 from birkin.browser_aside_profiles import (
+    clear_profile_lock,
     profile_lock_target,
     profile_owner_lock,
     purge_stale_profiles,
 )
-from birkin.store import file_lock
+from birkin.store import FileLockTimeout, file_lock
 
 
 def test_profile_sweep_skips_live_owner_then_purges_stale_owner(
@@ -83,3 +84,36 @@ def test_profile_sweep_ignores_path_removed_before_inspection(
 
     monkeypatch.setattr(Path, "lstat", remove_before_lstat)
     assert purge_stale_profiles(profiles) == 0
+
+
+def test_profile_lock_inode_remains_stable_across_clear(
+    tmp_path: Path,
+) -> None:
+    profile = tmp_path / "profiles" / "stable"
+    profile.parent.mkdir()
+    target = profile_lock_target(profile)
+    first = file_lock(target, timeout=0)
+    _ = first.__enter__()
+    lock_path = Path(f"{target}.lock")
+    inode = lock_path.stat().st_ino
+    try:
+        clear_profile_lock(profile)
+        second = file_lock(target, timeout=0)
+        with pytest.raises(FileLockTimeout):
+            _ = second.__enter__()
+        assert lock_path.stat().st_ino == inode
+    finally:
+        first.__exit__(None, None, None)
+
+
+def test_clear_profile_lock_creates_persistent_private_inode(
+    tmp_path: Path,
+) -> None:
+    profile = tmp_path / "profiles" / "new"
+    profile.parent.mkdir()
+
+    clear_profile_lock(profile)
+
+    lock_path = Path(f"{profile_lock_target(profile)}.lock")
+    assert lock_path.is_file()
+    assert lock_path.stat().st_mode & 0o777 == 0o600

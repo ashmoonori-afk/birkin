@@ -21,7 +21,12 @@ function configuration() {
 
 async function dashboard(): Promise<DashboardSession> {
   const config = configuration();
-  return discoverDashboard(config.dashboardUrl, config.dashboardToken);
+  return discoverDashboard(
+    config.dashboardUrl,
+    config.dashboardToken,
+    undefined,
+    { workspaceTrusted: vscode.workspace.isTrusted },
+  );
 }
 
 function snapshot(): EditorSnapshot {

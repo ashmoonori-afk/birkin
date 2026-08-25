@@ -92,6 +92,7 @@
         "birkin.gatewayUrl": {
           "type": "string",
           "default": "http://127.0.0.1:8788/message",
+          "scope": "machine",
           "description": "Birkin gateway POST /message endpoint."
         },
         "birkin.gatewayToken": {
@@ -102,11 +103,13 @@
         "birkin.dashboardUrl": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "description": "Dashboard URL override. Empty discovers ~/.birkin/web_session.json."
         },
         "birkin.dashboardToken": {
           "type": "string",
           "default": "",
+          "scope": "machine",
           "description": "Dashboard capability override. Empty discovers the local session file."
         },
         "birkin.statusRefreshSeconds": {

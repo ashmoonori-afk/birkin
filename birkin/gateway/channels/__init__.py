@@ -31,7 +31,23 @@ def build_channels(cfg: dict[str, Any]) -> list[Channel]:
 
     if ch.get("http", {}).get("enabled", True):
         from .local_http import LocalHTTPChannel
-        channels.append(LocalHTTPChannel(int(cfg.get("gateway_port", 8788))))
+        gateway_cfg = cfg.get("gateway", {}) or {}
+        gateway_http = (
+            gateway_cfg.get("http", {})
+            if isinstance(gateway_cfg, dict)
+            else {}
+        )
+        insecure_no_token = bool(
+            gateway_http.get("insecure_no_token", False)
+            if isinstance(gateway_http, dict)
+            else False
+        )
+        channels.append(
+            LocalHTTPChannel(
+                int(cfg.get("gateway_port", 8788)),
+                insecure_no_token=insecure_no_token,
+            )
+        )
 
     tg = ch.get("telegram", {}) or {}
     if tg.get("enabled"):
@@ -53,7 +69,10 @@ def build_channels(cfg: dict[str, Any]) -> list[Channel]:
             from .polished_telegram import PolishedTelegramChannel
             channels.append(PolishedTelegramChannel(
                 token, cfg=cfg, allowed_chat_ids=allowed,
-                stream=bool(tg.get("stream", True))))
+                stream=bool(tg.get("stream", True)),
+                max_public_workers=int(
+                    tg.get("max_public_workers", 4)
+                )))
 
     return channels
 

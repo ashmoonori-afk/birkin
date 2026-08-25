@@ -51,7 +51,6 @@ def purge_stale_profiles(profiles_root: Path) -> int:
             ) from exc
         finally:
             lock.__exit__(None, None, None)
-        Path(f"{lock_target}.lock").unlink(missing_ok=True)
     return purged
 
 
@@ -64,8 +63,11 @@ def profile_lock_target(profile: Path) -> Path:
 
 
 def clear_profile_lock(profile: Path) -> None:
+    """Retain the advisory-lock inode permanently after owner release."""
     target = profile_lock_target(profile)
-    Path(f"{target}.lock").unlink(missing_ok=True)
+    lock_path = Path(f"{target}.lock")
+    lock_path.touch(mode=0o600, exist_ok=True)
+    lock_path.chmod(0o600)
 
 
 @contextmanager

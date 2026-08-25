@@ -67,11 +67,13 @@ class PolishedTelegramChannel(TelegramChannel):
         cfg: PolishConfig,
         allowed_chat_ids: list[str] | None = None,
         stream: bool = True,
+        max_public_workers: int = 4,
     ) -> None:
         super().__init__(
             token,
             allowed_chat_ids=allowed_chat_ids,
             stream=stream,
+            max_public_workers=max_public_workers,
         )
         self._polish_cfg = cfg
 

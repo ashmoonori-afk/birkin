@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import ipaddress
+import socket
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
@@ -40,6 +42,7 @@ class BrowserPolicyGate:
 
     policy: SandboxPolicy | None = None
     allow_private_network: bool = False
+    resolver: Callable[[str], tuple[str, ...]] | None = None
 
     def check_navigation(self, url: str) -> None:
         parsed = urlsplit(url)
@@ -51,24 +54,65 @@ class BrowserPolicyGate:
             raise BrowserPolicyViolation(
                 "browser network URL must not contain credentials"
             )
-        if self.policy is None:
+        if self.policy is not None:
+            try:
+                _ = self.policy.require(
+                    PolicyRequest(network_hosts=(parsed.hostname,))
+                )
+            except SandboxViolation as exc:
+                raise BrowserPolicyViolation(str(exc)) from exc
+        if self.allow_private_network:
             return
         try:
-            _ = self.policy.require(
-                PolicyRequest(network_hosts=(parsed.hostname,))
+            addresses = (
+                self.resolver(parsed.hostname)
+                if self.resolver is not None
+                else tuple({
+                    str(result[4][0])
+                    for result in socket.getaddrinfo(
+                        parsed.hostname,
+                        parsed.port,
+                        type=socket.SOCK_STREAM,
+                    )
+                })
             )
-        except SandboxViolation as exc:
-            raise BrowserPolicyViolation(str(exc)) from exc
+        except (OSError, ValueError) as exc:
+            raise BrowserPolicyViolation(
+                "browser host resolution failed closed"
+            ) from exc
+        if not addresses:
+            raise BrowserPolicyViolation(
+                "browser host resolution returned no addresses"
+            )
+        if any(
+            not ipaddress.ip_address(address).is_global
+            for address in addresses
+        ):
+            raise BrowserPolicyViolation(
+                "browser host resolves to a non-public address"
+            )
 
 
 @final
 class BrowserSession:
     """Stateful browser page whose actions use one immutable SandboxPolicy."""
 
-    def __init__(self, driver: BrowserDriver, policy: SandboxPolicy, root: Path):
+    def __init__(
+        self,
+        driver: BrowserDriver,
+        policy: SandboxPolicy,
+        root: Path,
+        *,
+        allow_private_network: bool = False,
+        resolver: Callable[[str], tuple[str, ...]] | None = None,
+    ):
         self._driver = driver
         self._policy = policy
-        self._gate = BrowserPolicyGate(policy)
+        self._gate = BrowserPolicyGate(
+            policy,
+            allow_private_network,
+            resolver,
+        )
         self._root = root.resolve()
         self._closed = False
         driver.start(self._gate.check_navigation)
@@ -172,7 +216,14 @@ def _session(ctx: ToolContext) -> BrowserSession:
         ctx.cwd,
         sandbox_defaults,
     )
-    current = BrowserSession(driver, spec.policy, ctx.cwd)
+    current = BrowserSession(
+        driver,
+        spec.policy,
+        ctx.cwd,
+        allow_private_network=(
+            cfg.get("browser_allow_private_network") is True
+        ),
+    )
     ctx.browser_session = current
     return current
 

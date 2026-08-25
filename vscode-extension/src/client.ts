@@ -4,7 +4,12 @@ import type { Approval, Checkpoint, DashboardSession, EditorContext, RuntimeStat
 
 export type Request = (
   url: string,
-  init: { readonly method: "GET" | "POST"; readonly headers: Readonly<Record<string, string>>; readonly body?: string },
+  init: {
+    readonly method: "GET" | "POST";
+    readonly headers: Readonly<Record<string, string>>;
+    readonly body?: string;
+    readonly signal?: AbortSignal;
+  },
 ) => Promise<{ readonly status: number; readonly body: string }>;
 
 const nativeRequest: Request = async (url, init) => {
@@ -55,12 +60,25 @@ export class BirkinClient {
     decode(await this.post(runtime, `/api/checkpoints/${hash}/restore`, { workspace, mode: "files" }));
   }
 
-  public async status(runtime: DashboardSession): Promise<RuntimeStatus> {
-    return parseStatus(decode(await this.get(runtime, "/api/status")));
+  public async status(
+    runtime: DashboardSession,
+    signal?: AbortSignal,
+  ): Promise<RuntimeStatus> {
+    return parseStatus(
+      decode(await this.get(runtime, "/api/status", signal)),
+    );
   }
 
-  private get(runtime: DashboardSession, path: string) {
-    return this.request(`${runtime.url}${path}`, { method: "GET", headers: this.headers(runtime) });
+  private get(
+    runtime: DashboardSession,
+    path: string,
+    signal?: AbortSignal,
+  ) {
+    const base = { method: "GET" as const, headers: this.headers(runtime) };
+    return this.request(
+      `${runtime.url}${path}`,
+      signal === undefined ? base : { ...base, signal },
+    );
   }
 
   private post(runtime: DashboardSession, path: string, value: object) {
