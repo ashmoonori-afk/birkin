@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-from typing import cast
+from typing import Protocol, TypeGuard, cast
 
 from ..operation_policy import ApprovalRequiredError
 from ..proc import ShellCommand, run_shell_command, shell_env
@@ -30,6 +30,10 @@ _POWERSHELL_SEGMENT = re.compile(
 )
 
 
+class _ConfigValue(Protocol):
+    """Opaque input that must be narrowed before use."""
+
+
 def _text(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", "replace")
@@ -42,7 +46,14 @@ def _output(stdout: str | bytes | None, stderr: str | bytes | None) -> str:
     return text + (("\n[stderr]\n" + error) if error else "")
 
 
-def _run_shell(inp: dict[str, object], ctx: ToolContext) -> ToolResult:
+def _is_string_list(value: _ConfigValue) -> TypeGuard[list[str]]:
+    if not isinstance(value, list):
+        return False
+    entries = cast(list[object], value)
+    return all(isinstance(entry, str) for entry in entries)
+
+
+def _run_shell(inp: dict[str, _ConfigValue], ctx: ToolContext) -> ToolResult:
     command_value = inp.get("command")
     command = command_value.strip() if isinstance(command_value, str) else ""
     if not command:
@@ -71,16 +82,15 @@ def _run_shell(inp: dict[str, object], ctx: ToolContext) -> ToolResult:
     try:
         workspace = ctx.cwd.expanduser().resolve(strict=True)
         roots = [workspace]
-        shell_cfg = ctx.cfg.get("shell", {})
-        if not isinstance(shell_cfg, dict):
+        shell_cfg_value = cast(_ConfigValue, ctx.cfg.get("shell", {}))
+        if not isinstance(shell_cfg_value, dict):
             return ToolResult(
                 "Invalid shell configuration",
                 is_error=True,
             )
-        raw_roots = shell_cfg.get("extra_roots", [])
-        if not isinstance(raw_roots, list) or not all(
-            isinstance(value, str) for value in raw_roots
-        ):
+        shell_cfg = cast(dict[object, object], shell_cfg_value)
+        raw_roots = cast(_ConfigValue, shell_cfg.get("extra_roots", []))
+        if not _is_string_list(raw_roots):
             return ToolResult(
                 "Invalid shell.extra_roots configuration",
                 is_error=True,
@@ -113,10 +123,11 @@ def _run_shell(inp: dict[str, object], ctx: ToolContext) -> ToolResult:
         if isinstance(timeout_value, int) and not isinstance(timeout_value, bool)
         else DEFAULT_TIMEOUT
     )
-    raw_allowlist = shell_cfg.get("env_passthrough", [])
-    if not isinstance(raw_allowlist, list) or not all(
-        isinstance(value, str) for value in raw_allowlist
-    ):
+    raw_allowlist = cast(
+        _ConfigValue,
+        shell_cfg.get("env_passthrough", []),
+    )
+    if not _is_string_list(raw_allowlist):
         return ToolResult(
             "Invalid shell.env_passthrough configuration",
             is_error=True,
