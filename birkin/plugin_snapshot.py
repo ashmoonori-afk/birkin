@@ -15,6 +15,8 @@ from pathlib import Path, PurePosixPath
 from types import ModuleType, TracebackType
 from typing import BinaryIO, Literal, Protocol
 
+from .plugin_module_journal import ModuleJournal
+
 
 class SnapshotImportError(ImportError):
     """A captured plugin module cannot be represented safely."""
@@ -101,6 +103,7 @@ class SnapshotLoader(SourceLoader, MetaPathFinder):
         root: Path,
         entry: PurePosixPath,
         files: Mapping[str, bytes],
+        lifetime: SnapshotLifetime,
     ) -> None:
         self._module_name = module_name
         self._root = root
@@ -108,6 +111,7 @@ class SnapshotLoader(SourceLoader, MetaPathFinder):
         self._files = files
         self._entry_is_package = entry.name == "__init__.py"
         self._package_root = entry.parent
+        self._lifetime = lifetime
 
     def _record(
         self,
@@ -137,6 +141,7 @@ class SnapshotLoader(SourceLoader, MetaPathFinder):
         record = self._record(fullname)
         if record is None:
             return None
+        self._lifetime.prepare_module(fullname)
         relative, is_package = record
         spec = importlib.util.spec_from_loader(
             fullname,
@@ -147,6 +152,10 @@ class SnapshotLoader(SourceLoader, MetaPathFinder):
         if spec is not None:
             spec.has_location = True
         return spec
+
+    def exec_module(self, module: ModuleType) -> None:
+        self._lifetime.own_module(module.__name__, module)
+        super().exec_module(module)
 
     def get_filename(self, fullname: str) -> str:
         record = self._record(fullname)
@@ -203,6 +212,7 @@ class SnapshotLifetime:
         owner: CleanupOwner,
     ) -> None:
         self._loaders: list[SnapshotLoader] = []
+        self._modules = ModuleJournal()
         self._finalizer = weakref.finalize(
             self,
             _release_loader,
@@ -213,11 +223,14 @@ class SnapshotLifetime:
     def add_loader(self, loader: SnapshotLoader) -> None:
         self._loaders.append(loader)
 
+    def prepare_module(self, name: str) -> None:
+        self._modules.prepare(name)
+
+    def own_module(self, name: str, module: ModuleType) -> None:
+        self._modules.own(name, module)
+
     def rollback(self) -> None:
-        loaders = set(self._loaders)
-        for name, module in tuple(sys.modules.items()):
-            if module.__loader__ in loaders:
-                sys.modules.pop(name, None)
+        self._modules.rollback()
         self._finalizer()
 
 
@@ -263,7 +276,7 @@ def load_snapshot_module(
     lifetime: SnapshotLifetime,
 ) -> ModuleType:
     """Execute a captured entry module through its immutable byte mapping."""
-    loader = SnapshotLoader(module_name, root, entry, files)
+    loader = SnapshotLoader(module_name, root, entry, files, lifetime)
     spec = loader.module_spec()
     module = importlib.util.module_from_spec(spec)
     lifetime.add_loader(loader)
