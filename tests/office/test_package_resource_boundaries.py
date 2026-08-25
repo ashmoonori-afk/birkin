@@ -8,6 +8,8 @@ import pytest
 
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.package import preflight_package
+from birkin.office import package_scan
+from birkin.office.extract_package import _grouped_text
 from birkin.office.package_types import PackageLimits
 from birkin.office.service import DocumentService
 from birkin.office.service_workspace import MAX_ARTIFACT_BYTES
@@ -26,6 +28,69 @@ def _zip_bytes(entries: list[tuple[str, bytes]]) -> bytes:
         for name, data in entries:
             archive.writestr(name, data)
     return target.getvalue()
+
+
+def test_package_wide_xml_budget_stops_before_later_parts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "aggregate.docx"
+    _zip(
+        source,
+        [
+            ("word/one.xml", b"<root>" + (b"a" * 90) + b"</root>"),
+            ("word/two.xml", b"<root>" + (b"b" * 90) + b"</root>"),
+            ("late.bin", b"must-not-be-read"),
+        ],
+        stored=True,
+    )
+    read_parts: list[str] = []
+    original = package_scan._read_verified
+
+    def recording_read(archive, info):
+        read_parts.append(info.filename)
+        return original(archive, info)
+
+    monkeypatch.setattr(package_scan, "_read_verified", recording_read)
+
+    with pytest.raises(DocumentError) as caught:
+        preflight_package(
+            source,
+            PackageLimits(
+                max_xml_bytes=200,
+                max_total_xml_bytes=150,
+            ),
+        )
+
+    assert caught.value.code is DocumentErrorCode.LIMIT_EXCEEDED
+    assert caught.value.details["reason"] == "package_xml_bytes"
+    assert "late.bin" not in read_parts
+
+
+def test_default_package_wide_xml_budgets_are_exact() -> None:
+    limits = PackageLimits()
+
+    assert limits.max_total_xml_nodes == 2_000_000
+    assert limits.max_total_xml_bytes == 50_000_000
+
+
+def test_grouped_text_stops_at_caller_result_limit() -> None:
+    data = (
+        b"<root><p><t>1234</t></p>"
+        b"<p><t>must-not-be-returned</t></p></root>"
+    )
+    budget = [4]
+
+    lines = _grouped_text(
+        data,
+        "word/document.xml",
+        "p",
+        "t",
+        budget,
+    )
+
+    assert lines == ["1234"]
+    assert budget == [0]
 
 
 def _assert_error(

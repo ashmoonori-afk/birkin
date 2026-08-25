@@ -15,7 +15,7 @@ from .errors import DocumentError, DocumentErrorCode
 from .limits import PackageLimits as BasePackageLimits
 from .package_relationships import RelationshipPartError, external_relationships
 from .package_types import DEFAULT_LIMITS, PackageLimits
-from .package_xml import validate_xml
+from .package_xml import XMLPackageBudget, validate_xml
 from .package_zip import ZipLocalHeaderError, validate_local_headers
 
 _CHUNK_BYTES, _XML_SUFFIXES = 64 * 1024, (".xml", ".rels")
@@ -89,13 +89,18 @@ def _validate_local_metadata(
 
 
 def _validate_metadata(
-    infos: list[zipfile.ZipInfo], limits: PackageLimits, budget: list[int], legacy: bool,
+    infos: list[zipfile.ZipInfo],
+    limits: PackageLimits,
+    budget: list[int],
+    legacy: bool,
+    xml_budget: XMLPackageBudget,
 ) -> list[str]:
     if len(infos) > limits.max_entries:
         raise _resource("too many package entries", "package_entries")
     seen: set[str] = set()
     names: list[str] = []
     archive_total = 0
+    archive_xml_total = 0
     for info in infos:
         name = _validate_name(info.filename, seen, is_directory=info.is_dir())
         names.append(name)
@@ -108,6 +113,8 @@ def _validate_metadata(
             raise _resource(f"package entry compression ratio exceeds limit: {name}", "entry_ratio")
         if name.lower().endswith(_XML_SUFFIXES) and info.file_size > limits.max_xml_bytes:
             raise _resource(f"XML part exceeds byte limit: {name}", "xml_bytes")
+        if name.lower().endswith(_XML_SUFFIXES):
+            archive_xml_total += info.file_size
         if "/media/" in f"/{name.lower()}" and info.file_size > limits.max_media_bytes:
             raise _resource(f"media part exceeds byte limit: {name}", "media_bytes")
         archive_total += info.file_size
@@ -116,6 +123,15 @@ def _validate_metadata(
             raise package_invalid("inflated package exceeds limit")
         raise _resource("inflated package exceeds cumulative limit", "package_uncompressed_bytes")
     budget[0] += archive_total
+    if (
+        xml_budget.bytes + archive_xml_total
+        > limits.max_total_xml_bytes
+    ):
+        raise _resource(
+            "package XML byte limit exceeded",
+            "package_xml_bytes",
+        )
+    xml_budget.bytes += archive_xml_total
     return names
 
 def _read_verified(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
@@ -151,15 +167,26 @@ def _active_content(name: str) -> types.ActiveContent | None:
     return None
 
 def _scan_archive(
-    archive: zipfile.ZipFile, limits: PackageLimits, budget: list[int], depth: int, legacy: bool,
+    archive: zipfile.ZipFile,
+    limits: PackageLimits,
+    budget: list[int],
+    depth: int,
+    legacy: bool,
+    xml_budget: XMLPackageBudget,
 ) -> tuple[list[zipfile.ZipInfo], list[str], list[bytes]]:
     infos = archive.infolist()
     _validate_local_metadata(archive, infos)
-    names = _validate_metadata(infos, limits, budget, legacy)
+    names = _validate_metadata(
+        infos,
+        limits,
+        budget,
+        legacy,
+        xml_budget,
+    )
     data = [_read_verified(archive, info) for info in infos]
     for name, content in zip(names, data, strict=True):
         if name.lower().endswith(_XML_SUFFIXES):
-            validate_xml(name, content, limits)
+            validate_xml(name, content, limits, xml_budget)
         if "/media/" in f"/{name.lower()}":
             constrained = any(value is not None for value in (limits.max_media_width, limits.max_media_height, limits.max_media_pixels, limits.max_media_frames))
             if constrained:
@@ -171,7 +198,14 @@ def _scan_archive(
             if depth >= limits.max_package_depth:
                 raise _error(DocumentErrorCode.POLICY_DENIED, "embedded package depth exceeds policy", "package_depth")
             with zipfile.ZipFile(io.BytesIO(content)) as nested:
-                _ = _scan_archive(nested, limits, budget, depth + 1, legacy)
+                _ = _scan_archive(
+                    nested,
+                    limits,
+                    budget,
+                    depth + 1,
+                    legacy,
+                    xml_budget,
+                )
     return infos, names, data
 
 def preflight_package(path: Path, limits: BasePackageLimits = DEFAULT_LIMITS) -> types.PackageManifest:
@@ -180,7 +214,14 @@ def preflight_package(path: Path, limits: BasePackageLimits = DEFAULT_LIMITS) ->
         legacy = not isinstance(limits, PackageLimits)
         effective = _normalize(limits)
         with zipfile.ZipFile(package_path) as archive:
-            infos, names, payloads = _scan_archive(archive, effective, [0], 0, legacy)
+            infos, names, payloads = _scan_archive(
+                archive,
+                effective,
+                [0],
+                0,
+                legacy,
+                XMLPackageBudget(),
+            )
             parts: dict[str, types.PartManifest] = {}
             external: list[types.ExternalRelationship] = []
             active: list[types.ActiveContent] = []

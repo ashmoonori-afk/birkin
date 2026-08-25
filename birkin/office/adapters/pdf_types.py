@@ -51,6 +51,7 @@ class PdfPermissionValidity(Protocol):
 class ParsedPage:
     _mapping: PdfMapping
     _extractor: PdfTextExtractor
+    _cached_text: str | None = None
 
     @classmethod
     def from_object(cls, value: object) -> ParsedPage:
@@ -63,7 +64,12 @@ class ParsedPage:
         return self._mapping.get(key, default)
 
     def extract_text(self) -> str:
+        if self._cached_text is not None:
+            return self._cached_text
         return self._extractor.extract_text()
+
+    def with_cached_text(self, text: str) -> ParsedPage:
+        return ParsedPage(self._mapping, self._extractor, text)
 
 
 @dataclass(frozen=True, slots=True)

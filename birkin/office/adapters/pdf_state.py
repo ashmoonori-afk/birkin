@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,6 +16,27 @@ if TYPE_CHECKING:
     from pypdf import PdfReader
 
 _INSTALL_HINT = "pip install 'birkin[office-advanced]'"
+INSPECT_SAMPLE_PAGES = 5
+
+
+@dataclass(frozen=True)
+class PDFLimits:
+    max_file_bytes: int = 100_000_000
+    max_pages: int = 200
+    max_text_bytes: int = 10_000_000
+    max_images: int = 10_000
+
+
+DEFAULT_PDF_LIMITS = PDFLimits()
+
+
+def _limit(message: str, reason: str) -> DocumentError:
+    return DocumentError(
+        DocumentErrorCode.LIMIT_EXCEEDED,
+        "inspect",
+        message,
+        details={"reason": reason},
+    )
 
 
 def _reader(path: Path, password: str | bytes | None) -> PdfReader:
@@ -149,9 +171,14 @@ def _basic_state(path: Path) -> tuple[dict[str, object], ParsedPdf]:
 
 
 def inspect_pdf(
-    path: Path, password: str | bytes | None = None
+    path: Path,
+    password: str | bytes | None = None,
+    *,
+    limits: PDFLimits = DEFAULT_PDF_LIMITS,
 ) -> tuple[dict[str, object], ParsedPdf]:
     source = path
+    if source.stat().st_size > limits.max_file_bytes:
+        raise _limit("PDF exceeds file byte limit", "pdf_file_bytes")
     try:
         reader = _reader(source, password)
     except DocumentError as exc:
@@ -163,10 +190,31 @@ def inspect_pdf(
         locked = ParsedPdf(True, None, (), None, None)
         return _locked_state(), locked
 
+    if len(reader.pages) > limits.max_pages:
+        raise _limit("PDF exceeds page limit", "pdf_pages")
+    pages: list[ParsedPage] = []
+    page_text: list[str] = []
+    text_bytes = 0
+    image_count = 0
+    for page_index, raw_page in enumerate(reader.pages):
+        page = ParsedPage.from_object(raw_page)
+        if page_index >= INSPECT_SAMPLE_PAGES:
+            pages.append(page)
+            continue
+        text = page.extract_text() or ""
+        page = page.with_cached_text(text)
+        pages.append(page)
+        text_bytes += len(text.encode("utf-8"))
+        if text_bytes > limits.max_text_bytes:
+            raise _limit("PDF exceeds text byte limit", "pdf_text_bytes")
+        page_text.append(text)
+        image_count += images_on_page(page)
+        if image_count > limits.max_images:
+            raise _limit("PDF exceeds image count limit", "pdf_images")
     document = ParsedPdf(
         is_encrypted=encrypted,
         root_object=reader.root_object,
-        pages=tuple(ParsedPage.from_object(page) for page in reader.pages),
+        pages=tuple(pages),
         user_access_permissions=reader.user_access_permissions,
         permissions_valid=permission_validity(reader),
     )
@@ -182,11 +230,7 @@ def inspect_pdf(
     has_acroform = acroform is not None
     has_xfa = bool(acroform is not None and "/XFA" in acroform)
     form_type = "xfa" if has_xfa else "acroform" if has_acroform else "flat_or_no_form"
-    page_text: list[str] = []
-    image_pages = 0
-    for page in document.pages:
-        page_text.append(page.extract_text() or "")
-        image_pages += images_on_page(page) > 0
+    image_pages = image_count > 0
     native_text = any(text.strip() for text in page_text)
     content_type = (
         "native_text"

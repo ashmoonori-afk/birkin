@@ -20,6 +20,9 @@ import json
 from typing import Any, BinaryIO, Optional
 
 _ENCODING = "utf-8"
+MAX_FRAME_BYTES = 16_000_000
+MAX_LSP_HEADER_BYTES = 8 * 1024
+MAX_LSP_HEADERS = 32
 
 
 class LspError(RuntimeError):
@@ -41,24 +44,40 @@ def read_message(stream: BinaryIO) -> Optional[dict[str, Any]]:
     """
     length: Optional[int] = None
     saw_header = False
+    header_bytes = 0
+    header_count = 0
     while True:
-        line = stream.readline()
+        line = stream.readline(MAX_LSP_HEADER_BYTES + 1)
         if not line:
             if saw_header:
                 raise LspError("stream closed inside a message header")
             return None
         saw_header = True
+        header_bytes += len(line)
+        header_count += 1
+        if (
+            header_bytes > MAX_LSP_HEADER_BYTES
+            or header_count > MAX_LSP_HEADERS
+        ):
+            raise LspError("message header exceeds framing limit")
         stripped = line.strip()
         if not stripped:
             break
         name, _, value = stripped.decode("ascii", "replace").partition(":")
         if name.strip().lower() == "content-length":
+            if length is not None:
+                raise LspError("message header repeated Content-Length")
             try:
                 length = int(value.strip())
             except ValueError:
                 raise LspError(f"unparseable Content-Length: {value!r}")
     if length is None:
         raise LspError("message header carried no Content-Length")
+    if length < 0 or length > MAX_FRAME_BYTES:
+        raise LspError(
+            "Content-Length is outside the allowed frame range: "
+            f"{length}"
+        )
     body = stream.read(length)
     if body is None or len(body) < length:
         raise LspError(
@@ -70,7 +89,7 @@ def read_message(stream: BinaryIO) -> Optional[dict[str, Any]]:
         raise LspError(f"malformed JSON body: {exc}")
 
 
-def _identity(diagnostic: dict[str, Any]) -> tuple:
+def _identity(diagnostic: dict[str, Any]) -> tuple[object, ...]:
     """What makes two diagnostics the same one.
 
     Position is part of it. "unused import" on line 7 and the same text on line
