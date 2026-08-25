@@ -70,7 +70,7 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
         ))
         let approved = try XCTUnwrap(approvalRequest)
         try await runtime.submitAwaitingTransport(approved)
-        try await withTimeout("approval receipt", seconds: 90) {
+        try await withTimeout("approval receipt") {
             try await events.wait(for: "command-receipt id=\(approved.frameID)")
         }
         try await withTimeout("approval answer event") {
