@@ -100,6 +100,29 @@ def execute_action(
             f"{cron.schedule_display(job)} (id {job['id']})."
         )
     if category == "shell":
+        if payload.get("terminal_lease_only") is True:
+            required = {
+                "command",
+                "shell",
+                "cwd",
+                "terminal_lease_only",
+                "session_id",
+                "actor_kind",
+            }
+            raw_cwd = payload.get("cwd")
+            session_id = payload.get("session_id")
+            if (
+                set(payload) != required
+                or payload.get("command") != "/usr/bin/true"
+                or payload.get("shell") != "/bin/sh"
+                or payload.get("actor_kind") != "native_human"
+                or not isinstance(raw_cwd, str)
+                or not isinstance(session_id, str)
+                or not session_id
+                or not Path(raw_cwd).expanduser().resolve().is_dir()
+            ):
+                raise ValueError("invalid terminal lease approval payload")
+            return "Approved native terminal lease."
         command = str(payload.get("command") or "")
         if not command:
             return "No command to run."
