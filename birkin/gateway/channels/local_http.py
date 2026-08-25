@@ -60,26 +60,32 @@ def _load_or_create_token() -> tuple[str, Path]:
     except FileNotFoundError:
         pass
     token = secrets.token_urlsafe(32)
+    temporary = path.with_name(
+        f".{path.name}.{secrets.token_hex(16)}.tmp"
+    )
     flags = (
         os.O_WRONLY
         | os.O_CREAT
         | os.O_EXCL
         | getattr(os, "O_NOFOLLOW", 0)
     )
-    try:
-        descriptor = os.open(path, flags, 0o600)
-    except FileExistsError:
-        return _read_token(path), path
+    descriptor = os.open(temporary, flags, 0o600)
     try:
         payload = f"{token}\n".encode("utf-8")
         view = memoryview(payload)
         while view:
             written = os.write(descriptor, view)
             view = view[written:]
-        os.fsync(descriptor)
         os.fchmod(descriptor, 0o600)
+        os.fsync(descriptor)
     finally:
         os.close(descriptor)
+    try:
+        os.link(temporary, path)
+    except FileExistsError:
+        return _read_token(path), path
+    finally:
+        temporary.unlink(missing_ok=True)
     return token, path
 
 

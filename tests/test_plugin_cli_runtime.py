@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import sys
+import threading
 from pathlib import Path
 
 import pytest
 
-from birkin import config
+from birkin import config, plugin_runtime
 from birkin.cli import build_parser, main
 from birkin.plugin_install import PluginInstaller, Scope
 from birkin.plugin_runtime import PluginActivationError, load_agent_tools
@@ -177,4 +179,77 @@ def test_unsigned_lock_record_cannot_execute_agent_module(
     with pytest.raises(PluginActivationError, match="reinstall"):
         load_agent_tools(project, team)
 
+    assert not sentinel.exists()
+
+
+def test_plugin_activation_rejects_post_verification_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    project = tmp_path / "project-registry"
+    team = tmp_path / "team-registry"
+    installed = PluginInstaller(project, team, {"test": KEY}).install(
+        _manifest(
+            tmp_path / "agent-race",
+            kind="agent",
+            entry="agent.py:tools",
+        ),
+        Scope.PROJECT,
+        "1.0.0",
+        confirmed=True,
+    )
+    sentinel = tmp_path / "replacement-executed"
+    monkeypatch.setenv("BIRKIN_PLUGIN_SENTINEL", str(sentinel))
+    verified = threading.Event()
+    release = threading.Event()
+    original_verify = plugin_runtime.verify_bundle
+
+    def verify_then_wait(
+        root: Path,
+        trusted_keys: dict[str, bytes],
+        *,
+        allow_missing: bool,
+    ) -> tuple[str, str]:
+        result = original_verify(
+            root,
+            trusted_keys,
+            allow_missing=allow_missing,
+        )
+        if root == installed.path:
+            verified.set()
+            assert release.wait(timeout=2)
+        return result
+
+    monkeypatch.setattr(plugin_runtime, "verify_bundle", verify_then_wait)
+    activation_errors: list[PluginActivationError] = []
+
+    def activate() -> None:
+        try:
+            plugin_runtime.load_agent_tools(project, team, {"test": KEY})
+        except PluginActivationError as exc:
+            activation_errors.append(exc)
+
+    thread = threading.Thread(target=activate)
+    thread.start()
+    assert verified.wait(timeout=2)
+    try:
+        (installed.path / "agent.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            "Path(os.environ['BIRKIN_PLUGIN_SENTINEL']).write_text("
+            "'executed', encoding='utf-8')\n"
+            "def tools():\n"
+            " return []\n",
+            encoding="utf-8",
+        )
+    finally:
+        release.set()
+        thread.join(timeout=2)
+        sys.modules.pop(
+            f"birkin_plugin_{installed.digest}_agent",
+            None,
+        )
+
+    assert not thread.is_alive()
+    assert len(activation_errors) == 1
     assert not sentinel.exists()

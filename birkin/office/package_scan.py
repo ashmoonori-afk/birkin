@@ -173,7 +173,7 @@ def _scan_archive(
     depth: int,
     legacy: bool,
     xml_budget: XMLPackageBudget,
-) -> tuple[list[zipfile.ZipInfo], list[str], list[bytes]]:
+) -> types.PackageScanManifest:
     infos = archive.infolist()
     _validate_local_metadata(archive, infos)
     names = _validate_metadata(
@@ -183,8 +183,17 @@ def _scan_archive(
         legacy,
         xml_budget,
     )
-    data = [_read_verified(archive, info) for info in infos]
-    for name, content in zip(names, data, strict=True):
+    digests = [hashlib.sha256(_read_verified(archive, info)).hexdigest() for info in infos]
+    parts: dict[str, types.ScannedPartManifest] = {}
+    external: list[types.ExternalRelationship] = []
+    active: list[types.ActiveContent] = []
+    for index, (info, name) in enumerate(zip(infos, names, strict=True)):
+        content = _read_verified(archive, info)
+        if hashlib.sha256(content).hexdigest() != digests[index]:
+            raise package_invalid(
+                f"package entry changed during preflight: {name}",
+                reason="zip_integrity",
+            )
         if name.lower().endswith(_XML_SUFFIXES):
             validate_xml(name, content, limits, xml_budget)
         if "/media/" in f"/{name.lower()}":
@@ -206,7 +215,19 @@ def _scan_archive(
                     legacy,
                     xml_budget,
                 )
-    return infos, names, data
+        if depth == 0:
+            external.extend(_external_relationships(name, content))
+            finding = _active_content(name)
+            if finding is not None:
+                active.append(finding)
+        parts[name] = {
+            "index": index, "original_sha256": digests[index],
+            "compress_type": info.compress_type, "date_time": info.date_time,
+            "external_attr": info.external_attr, "create_system": info.create_system,
+            "header_offset": info.header_offset,
+        }
+    return {"parts": parts, "external_relationships": external, "active_content": active}
+
 
 def preflight_package(path: Path, limits: BasePackageLimits = DEFAULT_LIMITS) -> types.PackageManifest:
     try:
@@ -214,7 +235,7 @@ def preflight_package(path: Path, limits: BasePackageLimits = DEFAULT_LIMITS) ->
         legacy = not isinstance(limits, PackageLimits)
         effective = _normalize(limits)
         with zipfile.ZipFile(package_path) as archive:
-            infos, names, payloads = _scan_archive(
+            scan = _scan_archive(
                 archive,
                 effective,
                 [0],
@@ -223,15 +244,26 @@ def preflight_package(path: Path, limits: BasePackageLimits = DEFAULT_LIMITS) ->
                 XMLPackageBudget(),
             )
             parts: dict[str, types.PartManifest] = {}
-            external: list[types.ExternalRelationship] = []
-            active: list[types.ActiveContent] = []
-            for index, (info, name, data) in enumerate(zip(infos, names, payloads, strict=True)):
-                external.extend(_external_relationships(name, data))
-                finding = _active_content(name)
-                if finding is not None:
-                    active.append(finding)
-                parts[name] = {"index": index, "original_sha256": hashlib.sha256(data).hexdigest(), "bytes": data, "compress_type": info.compress_type, "date_time": info.date_time, "external_attr": info.external_attr, "create_system": info.create_system, "header_offset": info.header_offset}
-        return {"parts": parts, "source_sha256": sha256_file(package_path), "external_relationships": external, "active_content": active}
+            infos = archive.infolist()
+            for name, metadata in scan["parts"].items():
+                info = infos[metadata["index"]]
+                content = _read_verified(archive, info)
+                digest = hashlib.sha256(content).hexdigest()
+                if digest != metadata["original_sha256"]:
+                    raise package_invalid(
+                        f"package entry changed after preflight: {name}",
+                        reason="zip_integrity",
+                    )
+                parts[name] = {
+                    **metadata,
+                    "bytes": content,
+                }
+        return {
+            "parts": parts,
+            "source_sha256": sha256_file(package_path),
+            "external_relationships": scan["external_relationships"],
+            "active_content": scan["active_content"],
+        }
     except DocumentError:
         raise
     except (OSError, EOFError, zipfile.BadZipFile, RuntimeError) as exc:

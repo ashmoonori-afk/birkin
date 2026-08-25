@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import importlib.util
+import shutil
 import sys
+import tempfile
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -82,6 +84,35 @@ def entry_paths(project_root: Path, team_root: Path,
     return tuple(entries)
 
 
+def _snapshot_plugin(
+    plugin: InstalledPlugin,
+    trusted_keys: Mapping[str, bytes],
+    allow_unsigned: bool,
+) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
+    owner = tempfile.TemporaryDirectory(prefix="birkin-plugin-")
+    snapshot = Path(owner.name) / "bundle"
+    try:
+        shutil.copytree(plugin.path, snapshot, symlinks=True)
+        digest, signature = verify_bundle(
+            snapshot,
+            trusted_keys,
+            allow_missing=allow_unsigned,
+        )
+    except (OSError, SignatureError) as exc:
+        owner.cleanup()
+        raise PluginActivationError(
+            f"plugin activation snapshot verification failed: "
+            f"{plugin.name}@{plugin.version}"
+        ) from exc
+    if digest != plugin.digest or signature != plugin.signature:
+        owner.cleanup()
+        raise PluginActivationError(
+            "plugin activation snapshot does not match its lock record: "
+            f"{plugin.name}@{plugin.version}"
+        )
+    return snapshot, owner
+
+
 def load_agent_tools(
     project_root: Path,
     team_root: Path,
@@ -96,14 +127,19 @@ def load_agent_tools(
         trusted_keys,
         allow_unsigned=allow_unsigned,
     ):
-        manifest = load_manifest(plugin.path / "birkin-plugin.json")
+        snapshot, snapshot_owner = _snapshot_plugin(
+            plugin,
+            trusted_keys or {},
+            allow_unsigned,
+        )
+        manifest = load_manifest(snapshot / "birkin-plugin.json")
         origin = ToolOrigin(
             "plugin", manifest.name, manifest.version, plugin.digest)
         source = f"plugin:{plugin.name}@{plugin.version}"
         for raw in manifest.entry_points.get(PluginKind.AGENT, ()):
             file_part, separator, symbol = raw.partition(":")
-            path = (plugin.path / file_part).resolve()
-            if plugin.path.resolve() not in path.parents:
+            path = (snapshot / file_part).resolve()
+            if snapshot.resolve() not in path.parents:
                 raise PluginActivationError(f"entry point escapes bundle: {raw}")
             if not separator or path.suffix != ".py":
                 raise PluginActivationError(f"agent entry point must be file.py:callable: {raw}")
@@ -114,6 +150,7 @@ def load_agent_tools(
             module = importlib.util.module_from_spec(spec)
             sys.modules[module_name] = module
             spec.loader.exec_module(module)
+            module.__dict__["__birkin_plugin_snapshot__"] = snapshot_owner
             factory = getattr(module, symbol, None)
             if not callable(factory):
                 raise PluginActivationError(f"agent entry point is not callable: {raw}")

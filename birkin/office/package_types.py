@@ -32,15 +32,18 @@ class PackageLimits(BasePackageLimits):
 DEFAULT_LIMITS = PackageLimits()
 
 
-class PartManifest(TypedDict):
+class ScannedPartManifest(TypedDict):
     index: int
     original_sha256: str
-    bytes: bytes
     compress_type: int
     date_time: tuple[int, int, int, int, int, int]
     external_attr: int
     create_system: int
     header_offset: int
+
+
+class PartManifest(ScannedPartManifest):
+    bytes: bytes
 
 
 class ExternalRelationship(TypedDict):
@@ -57,5 +60,11 @@ class ActiveContent(TypedDict):
 class PackageManifest(TypedDict):
     parts: dict[str, PartManifest]
     source_sha256: str
+    external_relationships: list[ExternalRelationship]
+    active_content: list[ActiveContent]
+
+
+class PackageScanManifest(TypedDict):
+    parts: dict[str, ScannedPartManifest]
     external_relationships: list[ExternalRelationship]
     active_content: list[ActiveContent]
