@@ -30,6 +30,7 @@ GOLDEN_ROOT = "macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVecto
 SOLUTION = "windows/BirkinNativeApp/BirkinNativeApp.sln"
 LOCKED_SYNC = "uv sync --frozen --all-extras --all-groups"
 LOCKED_WINDOWS_PYTHON = "./.venv/Scripts/python.exe"
+ENSURE_LOCKED_WINDOWS_PIP = f"{LOCKED_WINDOWS_PYTHON} -m ensurepip --upgrade"
 YamlScalar: TypeAlias = str | int | float | bool | None
 YamlValue: TypeAlias = YamlScalar | list["YamlValue"] | dict[str, "YamlValue"]
 YamlMapping: TypeAlias = dict[str, YamlValue]
@@ -136,9 +137,12 @@ def test_python_windows_gate_runs_the_complete_locked_suite_with_only_two_desele
 
     normalized = [_normalized(command) for command in _commands(job)]
     assert LOCKED_SYNC in normalized
+    assert ENSURE_LOCKED_WINDOWS_PIP in normalized
     pytest_commands = [command for command in normalized if " pytest " in f" {command} "]
     assert len(pytest_commands) == 1
     pytest_command = pytest_commands[0]
+    assert normalized.index(LOCKED_SYNC) < normalized.index(ENSURE_LOCKED_WINDOWS_PIP)
+    assert normalized.index(ENSURE_LOCKED_WINDOWS_PIP) < normalized.index(pytest_command)
     assert pytest_command.startswith(
         f'{LOCKED_WINDOWS_PYTHON} -m pytest -q -o addopts="" '
     )

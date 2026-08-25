@@ -18,7 +18,16 @@ UPSTREAM_URL = "git+" + "https://github.com/ashmoonori-afk/birkin-mnemosyne"
 
 def _build_wheel(output: Path) -> Path:
     _ = subprocess.run(
-        [sys.executable, "-m", "build", "--wheel", "--outdir", str(output)],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(output),
+            str(ROOT),
+        ],
         cwd=ROOT,
         check=True,
     )
@@ -27,7 +36,7 @@ def _build_wheel(output: Path) -> Path:
     return wheels[0]
 
 
-def test_wheel_builder_uses_locked_build_frontend(tmp_path: Path) -> None:
+def test_wheel_builder_uses_pip_frontend(tmp_path: Path) -> None:
     expected = tmp_path / "birkin-test.whl"
     expected.touch()
     completed = subprocess.CompletedProcess[str](args=["build"], returncode=0)
@@ -37,7 +46,16 @@ def test_wheel_builder_uses_locked_build_frontend(tmp_path: Path) -> None:
 
     assert wheel == expected
     run.assert_called_once_with(
-        [sys.executable, "-m", "build", "--wheel", "--outdir", str(tmp_path)],
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-deps",
+            "--wheel-dir",
+            str(tmp_path),
+            str(ROOT),
+        ],
         cwd=ROOT,
         check=True,
     )

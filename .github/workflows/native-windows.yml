@@ -65,6 +65,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --frozen --all-extras --all-groups
+      - run: ./.venv/Scripts/python.exe -m ensurepip --upgrade
       - run: ./.venv/Scripts/python.exe -m playwright install chromium
       - run: >-
           ./.venv/Scripts/python.exe -m pytest -q -o addopts=""
