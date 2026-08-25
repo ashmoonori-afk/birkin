@@ -8,6 +8,7 @@ import subprocess
 import sys
 import zipfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -17,22 +18,29 @@ UPSTREAM_URL = "git+" + "https://github.com/ashmoonori-afk/birkin-mnemosyne"
 
 def _build_wheel(output: Path) -> Path:
     _ = subprocess.run(
-        [
-            sys.executable,
-            "-m",
-            "pip",
-            "wheel",
-            "--no-deps",
-            "--wheel-dir",
-            str(output),
-            str(ROOT),
-        ],
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(output)],
         cwd=ROOT,
         check=True,
     )
     wheels = tuple(output.glob("birkin-*.whl"))
     assert len(wheels) == 1
     return wheels[0]
+
+
+def test_wheel_builder_uses_locked_build_frontend(tmp_path: Path) -> None:
+    expected = tmp_path / "birkin-test.whl"
+    expected.touch()
+    completed = subprocess.CompletedProcess[str](args=["build"], returncode=0)
+
+    with patch.object(subprocess, "run", return_value=completed) as run:
+        wheel = _build_wheel(tmp_path)
+
+    assert wheel == expected
+    run.assert_called_once_with(
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(tmp_path)],
+        cwd=ROOT,
+        check=True,
+    )
 
 
 @pytest.fixture(scope="module")
