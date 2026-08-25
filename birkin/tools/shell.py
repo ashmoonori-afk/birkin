@@ -68,18 +68,60 @@ def _run_shell(inp: dict[str, object], ctx: ToolContext) -> ToolResult:
             ),
         )
     cwd_value = inp.get("cwd")
-    cwd = (
-        Path(cwd_value).expanduser()
-        if isinstance(cwd_value, str) and cwd_value
-        else ctx.cwd
-    )
+    try:
+        workspace = ctx.cwd.expanduser().resolve(strict=True)
+        roots = [workspace]
+        shell_cfg = ctx.cfg.get("shell", {})
+        if not isinstance(shell_cfg, dict):
+            return ToolResult(
+                "Invalid shell configuration",
+                is_error=True,
+            )
+        raw_roots = shell_cfg.get("extra_roots", [])
+        if not isinstance(raw_roots, list) or not all(
+            isinstance(value, str) for value in raw_roots
+        ):
+            return ToolResult(
+                "Invalid shell.extra_roots configuration",
+                is_error=True,
+            )
+        for value in raw_roots:
+            root = Path(value).expanduser()
+            if not root.is_absolute():
+                root = workspace / root
+            roots.append(root.resolve(strict=True))
+        candidate = (
+            Path(cwd_value).expanduser()
+            if isinstance(cwd_value, str) and cwd_value
+            else workspace
+        )
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
+        cwd = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return ToolResult("Shell cwd does not exist", is_error=True)
+    if not cwd.is_dir():
+        return ToolResult("Shell cwd is not a directory", is_error=True)
+    if not any(cwd == root or cwd.is_relative_to(root) for root in roots):
+        return ToolResult(
+            "Shell cwd is outside the configured workspace roots",
+            is_error=True,
+        )
     timeout_value = inp.get("timeout", DEFAULT_TIMEOUT)
     timeout = (
         timeout_value
         if isinstance(timeout_value, int) and not isinstance(timeout_value, bool)
         else DEFAULT_TIMEOUT
     )
-    environment = shell_env()
+    raw_allowlist = shell_cfg.get("env_passthrough", [])
+    if not isinstance(raw_allowlist, list) or not all(
+        isinstance(value, str) for value in raw_allowlist
+    ):
+        return ToolResult(
+            "Invalid shell.env_passthrough configuration",
+            is_error=True,
+        )
+    environment = shell_env(allowlist=raw_allowlist)
     approved_environment = inp.get("_approved_env")
     if ctx.approved_operation and isinstance(approved_environment, dict):
         supplied = cast(dict[object, object], approved_environment)

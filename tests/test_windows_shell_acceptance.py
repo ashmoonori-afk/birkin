@@ -25,9 +25,15 @@ def _command(parts: list[str]) -> str:
 # cold process startup on a loaded CI runner routinely outruns a 10s budget -
 # a slow host, not a hung command. Callers that assert on timeout behaviour
 # itself pass their own short budget, so widening this default weakens nothing.
-def _run(command: str, cwd: Path, timeout: int = 60) -> ToolResult:
+def _run(
+    command: str,
+    cwd: Path,
+    timeout: int = 60,
+    *,
+    cfg: dict[str, object] | None = None,
+) -> ToolResult:
     tool = next(tool for tool in shell_mod.tools() if tool.name == "run_shell")
-    context = ToolContext(cfg={}, client=None, cwd=cwd)
+    context = ToolContext(cfg=cfg or {}, client=None, cwd=cwd)
     return tool.fn({"command": command, "timeout": timeout}, context)
 
 
@@ -139,7 +145,15 @@ def test_environment_stdout_stderr_and_exit_propagate(
         ),
     )
 
-    result = _run(_command([sys.executable, str(script)]), tmp_path)
+    result = _run(
+        _command([sys.executable, str(script)]),
+        tmp_path,
+        cfg={
+            "shell": {
+                "env_passthrough": ["BIRKIN_SHELL_SENTINEL"],
+            },
+        },
+    )
 
     assert result.is_error is True
     assert "inherited-ok" in result.content

@@ -4,6 +4,8 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
+
 from birkin.executable_resolution import (
     CommandProbe,
     EnvironmentPathCandidates,
@@ -147,3 +149,29 @@ def test_path_candidates_preserve_directory_order(tmp_path: Path) -> None:
     )
 
     assert source.candidates("tool") == (str(first_exe), str(second_exe))
+
+
+@pytest.mark.parametrize("path_value", ["relative-bin", ""])
+def test_path_candidates_reject_relative_and_empty_entries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    path_value: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    directory = tmp_path / "relative-bin"
+    directory.mkdir()
+    executable = directory / "tool"
+    executable.write_text("#!/bin/sh\n", encoding="utf-8")
+    executable.chmod(0o700)
+    if path_value == "":
+        cwd_executable = tmp_path / "tool"
+        cwd_executable.write_text("#!/bin/sh\n", encoding="utf-8")
+        cwd_executable.chmod(0o700)
+
+    source = EnvironmentPathCandidates(
+        path=path_value,
+        pathext="",
+        windows=False,
+    )
+
+    assert source.candidates("tool") == ()

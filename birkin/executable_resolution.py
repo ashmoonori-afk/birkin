@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import subprocess
 import sys
@@ -116,7 +117,18 @@ class EnvironmentPathCandidates:
         found: list[str] = []
         seen: set[str] = set()
         for raw_directory in directories:
-            directory = raw_directory.strip().strip('"') or os.curdir
+            directory = raw_directory.strip().strip('"')
+            if not directory:
+                continue
+            if self._windows:
+                drive, tail = ntpath.splitdrive(directory)
+                is_absolute = (
+                    bool(drive) and tail.startswith(("\\", "/"))
+                ) or Path(directory).is_absolute()
+            else:
+                is_absolute = Path(directory).is_absolute()
+            if not is_absolute:
+                continue
             for extension in extensions:
                 candidate = Path(directory) / f"{command}{extension}"
                 if not candidate.is_file():

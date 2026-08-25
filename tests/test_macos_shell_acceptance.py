@@ -27,9 +27,15 @@ def _command(parts: list[str]) -> str:
 # Cold process startup on a loaded CI runner routinely outruns a 10s budget -
 # a slow host, not a hung command. Callers that assert on timeout behaviour
 # itself pass their own short budget, so widening this default weakens nothing.
-def _run(command: str, cwd: Path, timeout: int = 60) -> ToolResult:
+def _run(
+    command: str,
+    cwd: Path,
+    timeout: int = 60,
+    *,
+    cfg: dict[str, object] | None = None,
+) -> ToolResult:
     tool = next(tool for tool in shell_mod.tools() if tool.name == "run_shell")
-    context = ToolContext(cfg={}, client=None, cwd=cwd)
+    context = ToolContext(cfg=cfg or {}, client=None, cwd=cwd)
     return tool.fn({"command": command, "timeout": timeout}, context)
 
 
@@ -141,7 +147,15 @@ def test_streams_environment_cwd_and_temp_overrides(
         encoding="utf-8",
     )
 
-    result = _run(_command([sys.executable, str(script)]), workspace)
+    result = _run(
+        _command([sys.executable, str(script)]),
+        workspace,
+        cfg={
+            "shell": {
+                "env_passthrough": ["BIRKIN_MACOS_SENTINEL"],
+            },
+        },
+    )
 
     assert isinstance(result.content, str)
     stdout, stderr = result.content.split("\n[stderr]\n", 1)
