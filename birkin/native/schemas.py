@@ -196,6 +196,8 @@ def _error(body: dict[str, JSONValue]) -> None:
         "limit",
         "approval_id",
         "server_protocol_versions",
+        "accepted_cursor",
+        "result_event_cursor",
     }
     if not required.issubset(body) or not set(body).issubset(allowed):
         raise NativeProtocolError(
@@ -206,7 +208,12 @@ def _error(body: dict[str, JSONValue]) -> None:
     _ = _string(body, "message")
     if not isinstance(body["retryable"], bool):
         raise NativeProtocolError("E_BODY", "retryable must be a boolean")
-    for key in ("current_cursor", "current_revision", "limit"):
+    if ("accepted_cursor" in body) != ("result_event_cursor" in body):
+        raise NativeProtocolError("E_BODY", "accepted failure cursors must be paired")
+    for key in (
+        "current_cursor", "current_revision", "limit",
+        "accepted_cursor", "result_event_cursor",
+    ):
         if key in body:
             _ = _non_negative_integer(body, key)
     if "approval_id" in body:

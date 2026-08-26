@@ -54,8 +54,8 @@ class DarwinPtyDescriptor:
         self._support = support
         self._lock = threading.Lock()
 
-    def read(self, max_bytes: int, timeout: float) -> bytes:
-        if max_bytes <= 0 or timeout < 0:
+    def read(self, max_bytes: int, timeout: float | None) -> bytes:
+        if max_bytes <= 0 or (timeout is not None and timeout < 0):
             raise ProtocolError("terminal read bounds are invalid")
         descriptor = self._open_descriptor()
         readable, _, _ = select.select([descriptor], [], [], timeout)

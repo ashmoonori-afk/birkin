@@ -20,6 +20,8 @@ public sealed class CombinedSendTerminalIntegrationTests
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         var bridge = await BridgeProcessHarness.StartAsync(deadline.Token, providerFree: true);
         var bridgeError = string.Empty;
+        var liveStage = "bridge-started";
+        var controlState = "not-created";
 
         await using (bridge)
         {
@@ -43,17 +45,24 @@ public sealed class CombinedSendTerminalIntegrationTests
                     TaskCreationOptions.RunContinuationsAsynchronously);
                 var terminalOpened = new TaskCompletionSource<NativeEnvelope>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
-                var terminalOutput = new TaskCompletionSource<WorkspaceSnapshotPresentation>(
+                var terminalAuthorityReady = new TaskCompletionSource<TerminalWorkflowPresentation>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
+                var terminalReadyToClose = new TaskCompletionSource<WorkspaceSnapshotPresentation>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                long? sentinelCursor = null;
+                WorkspaceSnapshotPresentation? latestSnapshot = null;
                 var terminalExited = new TaskCompletionSource<NativeEnvelope>(
                     TaskCreationOptions.RunContinuationsAsynchronously);
 
                 composition.Coordinator.SnapshotApplied += SnapshotApplied;
                 composition.ProjectionStore.CanonicalApplied += CanonicalApplied;
+                composition.PresentationModel.PropertyChanged += PresentationChanged;
                 try
                 {
                     await composition.Runner.RunAsync(options, deadline.Token);
+                    liveStage = "await-initial";
                     _ = await initial.Task.WaitAsync(deadline.Token);
+                    liveStage = "initial-ready";
                     var window = new MainWindow(
                         composition.PresentationModel,
                         composition.Coordinator)
@@ -75,7 +84,9 @@ public sealed class CombinedSendTerminalIntegrationTests
                         // When: Send is triggered only after every canonical signal is armed.
                         OfficeWorkflowViewHarness.Find<Button>(window, "conversation.send")
                             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        liveStage = "await-send-completed";
                         var sent = await sendCompleted.Task.WaitAsync(deadline.Token);
+                        liveStage = "send-completed";
                         Assert.IsTrue(sent.Conversation.Any(row =>
                             row.Kind == "assistant_message"
                             && string.Equals(row.Text.Trim(), "SEND_OK", StringComparison.Ordinal)));
@@ -87,14 +98,22 @@ public sealed class CombinedSendTerminalIntegrationTests
                         // When: the same session then drives the Python-owned terminal.
                         OfficeWorkflowViewHarness.Find<Button>(window, "terminal.create")
                             .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        liveStage = "await-terminal-opened";
                         _ = await terminalOpened.Task.WaitAsync(deadline.Token);
+                        liveStage = "await-terminal-authority";
+                        _ = await terminalAuthorityReady.Task.WaitAsync(deadline.Token);
+                        liveStage = "terminal-authority-ready";
                         var input = OfficeWorkflowViewHarness.Find<TextBox>(
                             window,
                             "terminal.input");
-                        input.Text = "echo CONPTY_OK";
-                        OfficeWorkflowViewHarness.Find<Button>(window, "terminal.send")
-                            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-                        var terminal = await terminalOutput.Task.WaitAsync(deadline.Token);
+                        input.Text = "python -c \"import sys;sys.stdout.buffer.write(bytes.fromhex('434f4e5054595f4f4b'))\"";
+                        var terminalSend = OfficeWorkflowViewHarness.Find<Button>(window, "terminal.send");
+                        var terminalClose = OfficeWorkflowViewHarness.Find<Button>(window, "terminal.close");
+                        controlState = $"send={terminalSend.IsEnabled};close={terminalClose.IsEnabled};window={window.IsVisible}";
+                        terminalSend.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        liveStage = "await-terminal-output";
+                        var terminal = await terminalReadyToClose.Task.WaitAsync(deadline.Token);
+                        liveStage = "terminal-output";
 
                         // Then: both outcomes remain canonical without cross-state contamination.
                         Assert.IsTrue(terminal.Cursor > cursorAfterSend);
@@ -104,9 +123,10 @@ public sealed class CombinedSendTerminalIntegrationTests
                         Assert.IsTrue(terminal.Terminal.Display.Contains(
                             "CONPTY_OK",
                             StringComparison.Ordinal));
-                        OfficeWorkflowViewHarness.Find<Button>(window, "terminal.close")
-                            .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        terminalClose.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                        liveStage = "await-terminal-exited";
                         _ = await terminalExited.Task.WaitAsync(deadline.Token);
+                        liveStage = "terminal-exited";
                     }
                     finally
                     {
@@ -117,10 +137,12 @@ public sealed class CombinedSendTerminalIntegrationTests
                 {
                     composition.Coordinator.SnapshotApplied -= SnapshotApplied;
                     composition.ProjectionStore.CanonicalApplied -= CanonicalApplied;
+                    composition.PresentationModel.PropertyChanged -= PresentationChanged;
                 }
 
                 void SnapshotApplied(WorkspaceSnapshotPresentation snapshot)
                 {
+                    latestSnapshot = snapshot;
                     initial.TrySetResult(snapshot);
                     if (snapshot.Conversation.Any(row =>
                         row.Kind == "assistant_message"
@@ -130,7 +152,40 @@ public sealed class CombinedSendTerminalIntegrationTests
                     }
                     if (snapshot.Terminal.Display.Contains("CONPTY_OK", StringComparison.Ordinal))
                     {
-                        terminalOutput.TrySetResult(snapshot);
+                        sentinelCursor = snapshot.Cursor;
+                        TryCompleteTerminalRendezvous(snapshot);
+                    }
+                }
+
+                void PresentationChanged(
+                    object? sender,
+                    System.ComponentModel.PropertyChangedEventArgs eventArgs)
+                {
+                    var terminal = composition.PresentationModel.TerminalWorkflow;
+                    if (eventArgs.PropertyName == nameof(ShellPresentationModel.TerminalWorkflow)
+                        && terminal.TerminalId is not null
+                        && !terminal.HasPendingCommand
+                        && terminal.MutationAvailability.Input.IsEnabled)
+                    {
+                        terminalAuthorityReady.TrySetResult(terminal);
+                        if (latestSnapshot is not null)
+                        {
+                            TryCompleteTerminalRendezvous(latestSnapshot);
+                        }
+                    }
+                }
+
+                void TryCompleteTerminalRendezvous(WorkspaceSnapshotPresentation snapshot)
+                {
+                    var terminal = composition.PresentationModel.TerminalWorkflow;
+                    if (sentinelCursor is { } cursor
+                        && terminal.NextInputSequence == 2
+                        && !terminal.HasPendingCommand
+                        && terminal.CommandState == TerminalCommandState.Idle
+                        && terminal.CurrentCursor >= cursor
+                        && terminal.MutationAvailability.Close.IsEnabled)
+                    {
+                        terminalReadyToClose.TrySetResult(snapshot);
                     }
                 }
 
@@ -151,7 +206,14 @@ public sealed class CombinedSendTerminalIntegrationTests
                     }
                 }
             });
-            await journey.WaitAsync(deadline.Token);
+            try
+            {
+                await journey.WaitAsync(deadline.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                Assert.Fail($"combined journey timed out at {liveStage}; {controlState}; bridge_exited={bridge.OwnedProcessExited}");
+            }
             bridgeError = bridge.StandardError;
         }
 

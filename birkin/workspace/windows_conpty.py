@@ -9,13 +9,13 @@ import threading
 import time
 from collections import deque
 from ctypes import wintypes
-from dataclasses import dataclass
 from pathlib import Path
 from typing import final
 
 from birkin._winjob import WindowsJob, WindowsStartGate
 
 import birkin.workspace._windows_conpty_abi as _abi
+from birkin.workspace._windows_conpty_io import WriteRequest
 
 __all__ = ["COORD", "WindowsConPtyProcess", "conpty_supported", "launch_windows_terminal_process"]
 
@@ -26,13 +26,6 @@ _close_handle = _abi.close_handle
 _close_pseudo_console = _abi.close_pseudo_console
 
 
-@dataclass(slots=True)
-class _WriteRequest:
-    data: bytes
-    done: threading.Event
-    error: OSError | None = None
-
-
 @final
 class WindowsConPtyProcess:
     """Own a contained process, pseudoconsole, pipes, and blocking workers."""
@@ -40,11 +33,12 @@ class WindowsConPtyProcess:
     def __init__(self, pid: int, process: int, hpcon: int, input_handle: int, output_handle: int, job: WindowsJob) -> None:
         self.pid, self._process, self._hpcon = pid, process, hpcon
         self._input, self._output, self._job = input_handle, output_handle, job
-        self._lock, self._condition = threading.RLock(), threading.Condition()
+        self._lock = threading.RLock()
+        self._condition = threading.Condition(self._lock)
         self._chunks: deque[bytes] = deque()
         self._buffered, self._eof, self._closed = 0, False, False
         self._status: int | None = None
-        self._writes: queue.Queue[_WriteRequest | None] = queue.Queue(maxsize=64)
+        self._writes: queue.Queue[WriteRequest | None] = queue.Queue(maxsize=64)
         self._reader = threading.Thread(target=self._read_worker, name=f"birkin-conpty-reader-{pid}")
         self._writer = threading.Thread(target=self._write_worker, name=f"birkin-conpty-writer-{pid}")
         self._waiter = threading.Thread(target=self._wait_worker, name=f"birkin-conpty-waiter-{pid}")
@@ -56,16 +50,14 @@ class WindowsConPtyProcess:
         with self._lock:
             return self._status
 
-    def read(self, max_bytes: int, timeout: float) -> bytes:
-        if max_bytes <= 0 or timeout < 0:
+    def read(self, max_bytes: int, timeout: float | None) -> bytes:
+        if max_bytes <= 0 or (timeout is not None and timeout < 0):
             raise _abi.ConPtyConfigurationError
-        deadline = time.monotonic() + timeout
         with self._condition:
-            while not self._chunks and not self._eof:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0 or not self._condition.wait(remaining):
-                    return b""
-            if not self._chunks:
+            ready = self._condition.wait_for(
+                lambda: bool(self._chunks) or self._eof or self._closed, timeout
+            )
+            if not ready or not self._chunks:
                 return b""
             chunk = self._chunks.popleft()
             data, remainder = chunk[:max_bytes], chunk[max_bytes:]
@@ -78,7 +70,7 @@ class WindowsConPtyProcess:
     def write(self, data: bytes, timeout: float) -> None:
         if not data or timeout < 0:
             raise _abi.ConPtyConfigurationError
-        request, deadline = _WriteRequest(bytes(data), threading.Event()), time.monotonic() + timeout
+        request, deadline = WriteRequest(bytes(data), threading.Event()), time.monotonic() + timeout
         try:
             self._writes.put(request, timeout=max(0.0, deadline - time.monotonic()))
         except queue.Full:
@@ -103,14 +95,16 @@ class WindowsConPtyProcess:
         self.write(b"\x03", 10.0)
 
     def close(self, exit_code: int = 1) -> None:
-        with self._lock:
+        with self._condition:
             if self._closed:
                 return
             self._closed = True
             if self._status is None:
                 self._status = exit_code
             input_handle, self._input = self._input, None
+            output_handle, self._output = self._output, None
             process = self._process
+            self._condition.notify_all()
         if input_handle is not None:
             _ = _close_handle(input_handle)
         self._writes.put(None)
@@ -124,7 +118,6 @@ class WindowsConPtyProcess:
         self._waiter.join(10.0)
         self._reader.join(10.0)
         with self._lock:
-            output_handle, self._output = self._output, None
             process, self._process = self._process, None
         if self._reader.is_alive() and output_handle is not None:
             _ = _close_handle(output_handle)
@@ -161,8 +154,10 @@ class WindowsConPtyProcess:
                 break
             chunk = buffer.raw[: count.value]
             with self._condition:
-                while self._buffered + len(chunk) > _abi.MAX_BUFFERED_OUTPUT and self._output is not None:
+                while self._buffered + len(chunk) > _abi.MAX_BUFFERED_OUTPUT and not self._closed:
                     _ = self._condition.wait()
+                if self._closed:
+                    break
                 self._chunks.append(chunk)
                 self._buffered += len(chunk)
                 self._condition.notify_all()
@@ -202,9 +197,11 @@ def launch_windows_terminal_process(shell_path: Path, cwd: Path, environment: di
         gate = WindowsStartGate.create()
         security = _abi.SECURITY_ATTRIBUTES(ctypes.sizeof(_abi.SECURITY_ATTRIBUTES), None, True)
         con_in_value, host_in_value, host_out_value, con_out_value = wintypes.HANDLE(), wintypes.HANDLE(), wintypes.HANDLE(), wintypes.HANDLE()
-        if not _abi.create_pipe(ctypes.byref(con_in_value), ctypes.byref(host_in_value), ctypes.byref(security), 0) or not _abi.create_pipe(ctypes.byref(host_out_value), ctypes.byref(con_out_value), ctypes.byref(security), 0):
+        if not _abi.create_pipe(ctypes.byref(con_in_value), ctypes.byref(host_in_value), ctypes.byref(security), 0):
             raise _abi.error("CreatePipe")
         con_in, host_in = int(con_in_value.value or 0), int(host_in_value.value or 0)
+        if not _abi.create_pipe(ctypes.byref(host_out_value), ctypes.byref(con_out_value), ctypes.byref(security), 0):
+            raise _abi.error("CreatePipe")
         host_out, con_out = int(host_out_value.value or 0), int(con_out_value.value or 0)
         if not _abi.set_handle_information(host_in, _abi.HANDLE_FLAG_INHERIT, 0) or not _abi.set_handle_information(host_out, _abi.HANDLE_FLAG_INHERIT, 0):
             raise _abi.error("SetHandleInformation")

@@ -188,7 +188,7 @@ class DarwinOwnedTerminalProcess:
     def poll(self) -> int | None:
         return self._process.poll()
 
-    def read(self, max_bytes: int, timeout: float) -> bytes:
+    def read(self, max_bytes: int, timeout: float | None) -> bytes:
         return self._descriptor.read(max_bytes, timeout)
 
     def write(self, data: bytes, timeout: float) -> None:

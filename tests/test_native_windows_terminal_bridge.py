@@ -9,6 +9,8 @@ import psutil
 import pytest
 
 from birkin.workspace.contracts import REDACTION_MARKER
+from tests.native_windows_prompt_terminator import await_prompt_terminator
+from tests.native_windows_request_success import request_success
 from tests.native_windows_terminal_bridge_support import (
     TIMEOUT,
     WindowsTerminalBridgeHarness,
@@ -44,11 +46,15 @@ def test_windows_bridge_round_trip_redacts_and_bounds_terminal_state(
         opened = event_payloads(opened_events, "terminal.opened")
         assert opened and opened[0]["lease"] == REDACTION_MARKER
 
-        _, first_events = harness.request("terminal.input", "input-ok", {
+        first_after = harness.current_cursor
+        _, _ = request_success(harness, "terminal.input", "input-ok", {
             "terminal_id": terminal_id, "lease": lease, "sequence": 1,
             "data": command_bytes(b"CONPTY_OK"),
         })
-        assert "CONPTY_OK" in str(event_payloads(first_events, "terminal.output"))
+        _ = harness.await_output(terminal_id, "CONPTY_OK", after_cursor=first_after)
+        _ = await_prompt_terminator(
+            harness, terminal_id, "CONPTY_OK", after_cursor=first_after, timeout=TIMEOUT
+        )
         stale, _ = harness.request("terminal.input", "input-stale", {
             "terminal_id": terminal_id, "lease": lease, "sequence": 1,
             "data": secret,
@@ -56,42 +62,60 @@ def test_windows_bridge_round_trip_redacts_and_bounds_terminal_state(
         assert stale.body["code"] == "E_TERMINAL_SEQUENCE"
 
         split = "한글-日本語".encode()
-        _, _ = harness.request("terminal.input", "input-unicode-vt", {
+        unicode_after = harness.current_cursor
+        _, _ = request_success(harness, "terminal.input", "input-unicode-vt", {
             "terminal_id": terminal_id, "lease": lease, "sequence": 2,
             "data": command_bytes(split + b"\x1b[31mRED\x1b[0m"),
         })
+        _ = harness.await_output(
+            terminal_id, "한글-日本語", after_cursor=unicode_after
+        )
+        _ = await_prompt_terminator(
+            harness, terminal_id, "한글-日本語", after_cursor=unicode_after, timeout=TIMEOUT
+        )
         large_command = subprocess.list2cmdline([
             sys.executable,
             "-c",
-            "import sys;sys.stdout.buffer.write(b'A'*20000+b'BOUNDARY_OK')",
+            "import sys;sys.stdout.buffer.write(b'A'*20000+bytes.fromhex('424f554e444152595f4f4b'))",
         ]) + "\r\n"
-        _, large_events = harness.request("terminal.input", "input-bounded", {
+        large_after = harness.current_cursor
+        _, large_events = request_success(harness, "terminal.input", "input-bounded", {
             "terminal_id": terminal_id, "lease": lease, "sequence": 3,
             "data": large_command,
         })
+        _ = harness.await_output(terminal_id, "BOUNDARY_OK", after_cursor=large_after)
+        _ = await_prompt_terminator(
+            harness, terminal_id, "BOUNDARY_OK", after_cursor=large_after, timeout=TIMEOUT
+        )
         output_payloads = event_payloads(large_events, "terminal.output")
         assert all(
             len(str(payload["data"]).encode())
             <= harness.terminal.max_output_bytes
             for payload in output_payloads
         )
-        resized, _ = harness.request("terminal.resize", "resize", {
+        resized, _ = request_success(harness, "terminal.resize", "resize", {
             "terminal_id": terminal_id, "lease": lease,
             "columns": 100, "rows": 30,
         })
         assert receipt_result(resized) == {
             "terminal_id": terminal_id, "columns": 100, "rows": 30
         }
+        resize_output = harness.receive_event("terminal.output", terminal_id)
+        resize_payload = resize_output.body.get("payload")
+        resize_cursor = resize_output.body.get("cursor")
+        assert isinstance(resize_payload, dict)
+        assert "\x1b[8;30;100t" in str(resize_payload.get("data"))
+        assert isinstance(resize_cursor, int) and not isinstance(resize_cursor, bool)
         for name in ("TERM", "HUP"):
             refused, _ = harness.request("terminal.signal", f"signal-{name}", {
                 "terminal_id": terminal_id, "lease": lease, "signal": name,
-            })
+            }, expected_cursor=resize_cursor if name == "TERM" else None)
             assert refused.body["code"] == "E_TERMINAL_SIGNAL"
-        interrupted, _ = harness.request("terminal.signal", "signal-INT", {
+        interrupted, _ = request_success(harness, "terminal.signal", "signal-INT", {
             "terminal_id": terminal_id, "lease": lease, "signal": "INT",
         })
         assert receipt_result(interrupted)["signal"] == "INT"
-        snapshot, _ = harness.request("terminal.snapshot", "snapshot", {
+        snapshot, _ = request_success(harness, "terminal.snapshot", "snapshot", {
             "terminal_id": terminal_id,
         })
         projected = receipt_result(snapshot)
@@ -105,7 +129,7 @@ def test_windows_bridge_round_trip_redacts_and_bounds_terminal_state(
             "p=subprocess.Popen([sys.executable,'-c','import threading;threading.Event().wait()']);"
             "print('BIRKIN_CHILD_PID='+str(p.pid),flush=True);p.wait()"
         )
-        _, child_events = harness.request("terminal.input", "input-child", {
+        _, child_events = request_success(harness, "terminal.input", "input-child", {
             "terminal_id": terminal_id, "lease": lease, "sequence": 4,
             "data": subprocess.list2cmdline([
                 sys.executable, "-c", child_code
@@ -121,7 +145,7 @@ def test_windows_bridge_round_trip_redacts_and_bounds_terminal_state(
         assert isinstance(raw_pid, int) and not isinstance(raw_pid, bool)
         process = psutil.Process(raw_pid)
         child_process = psutil.Process(child_pid)
-        closed, exit_events = harness.request("terminal.close", "close", {
+        closed, exit_events = request_success(harness, "terminal.close", "close", {
             "terminal_id": terminal_id, "lease": lease,
         })
         assert receipt_result(closed)["closed"] is True

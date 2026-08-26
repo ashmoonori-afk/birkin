@@ -98,7 +98,21 @@ than authority.
   descendants. On supported Windows builds, the alternative backend is a
   start-gated ConPTY process assigned to a Python-owned Windows Job before it
   can execute; Job, process, pseudoconsole, pipe, and worker cleanup remain
-  Python-owned.
+  Python-owned. Windows cmd history masking supports only complete literal
+  `set KEY=VALUE` and `set "KEY=VALUE"` lines for the documented sensitive-key
+  families. Values are held only in a bounded per-terminal memory registry and
+  are masked from live output and reconnectable history across stream chunks.
+  Statically identifiable sensitive command chains, caret-obfuscated sensitive
+  `set` forms, `set /p`, `for`, PowerShell `$env:`, Unix `export`, and non-cmd
+  shell syntax are unsupported and fail before process input. Cmd `%VAR%`,
+  positional `%x`, and `!VAR!` dynamic expansions are allowed and sent
+  byte-for-byte; Python does not evaluate them or guess resulting values.
+  Expansion segments do not suppress scanning of the remaining command text, so
+  any separately visible unsupported sensitive `set` form still fails before
+  input. Expansion-generated secrets can therefore appear in durable terminal journal,
+  snapshot, and reconnect history. Users must use a supported complete literal
+  assignment when masking is required. Non-sensitive assignments remain
+  unchanged.
 - **Bridge supervision:** Swift terminates or restarts only children it spawned.
   An externally discovered bridge is attached without ownership and is left
   running at app shutdown. Restart loops are bounded.

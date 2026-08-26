@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import final
 
@@ -13,37 +14,60 @@ from birkin.workspace.terminal_session import TerminalSessions
 
 @final
 class SplitUtf8Process:
-    """Mutable fake that exposes one UTF-8 scalar across two refresh calls."""
+    """Event-backed fake that exposes one scalar across two blocking reads."""
 
     def __init__(self) -> None:
         self.pid = 731
         encoded = "한".encode("utf-8")
-        self._reads = [encoded[:1], b"", encoded[1:], b""]
+        self._first = encoded[:1]
+        self._second = encoded[1:]
+        self._second_ready = False
+        self._closed = False
+        self._condition = threading.Condition()
 
     def poll(self) -> int | None:
-        return None
+        with self._condition:
+            return 0 if self._closed else None
 
-    def read(self, max_bytes: int, timeout: float) -> bytes:
-        _ = max_bytes, timeout
-        return self._reads.pop(0) if self._reads else b""
+    def read(self, max_bytes: int, timeout: float | None) -> bytes:
+        with self._condition:
+            if self._first:
+                chunk, self._first = self._first[:max_bytes], self._first[max_bytes:]
+                return chunk
+            def ready() -> bool:
+                return self._second_ready or self._closed
+
+            if not ready() and not self._condition.wait_for(ready, timeout):
+                return b""
+            if self._closed:
+                return b""
+            chunk, self._second = self._second[:max_bytes], self._second[max_bytes:]
+            self._second_ready = bool(self._second)
+            return chunk
 
     def write(self, data: bytes, timeout: float) -> None:
-        _ = data, timeout
+        del data, timeout
+        with self._condition:
+            self._second_ready = True
+            self._condition.notify_all()
 
     def resize(self, columns: int, rows: int) -> None:
-        _ = columns, rows
+        del columns, rows
 
     def signal(self, name: str) -> None:
-        _ = name
+        del name
 
     def close(self, exit_code: int = 1) -> None:
-        _ = exit_code
+        del exit_code
+        with self._condition:
+            self._closed = True
+            self._condition.notify_all()
 
 
 def test_output_preserves_utf8_scalar_when_reads_span_refresh_calls(
     tmp_path: Path,
 ) -> None:
-    # Given: process output splits one UTF-8 scalar across create and input refreshes.
+    # Given a process whose second chunk is event-blocked until terminal input
     process = SplitUtf8Process()
     events: list[tuple[str, dict[str, object]]] = []
     sessions = TerminalSessions(
@@ -54,19 +78,20 @@ def test_output_preserves_utf8_scalar_when_reads_span_refresh_calls(
     opened = sessions.create(
         ApprovedTerminalLaunch(tmp_path / "shell", tmp_path, {}, "approval-1")
     )
-
-    # When: the second refresh receives the remainder of that scalar.
-    result = sessions.input(
-        TerminalInputIntent(
-            identity=TerminalIdentity(
-                terminal_id=str(opened["terminal_id"]),
-                lease=str(opened["lease"]),
-            ),
-            sequence=1,
-            data=b"input",
+    try:
+        # When input releases the exact second-chunk condition
+        result = sessions.input(
+            TerminalInputIntent(
+                identity=TerminalIdentity(
+                    terminal_id=str(opened["terminal_id"]),
+                    lease=str(opened["lease"]),
+                ),
+                sequence=1,
+                data=b"input",
+            )
         )
-    )
-
-    # Then: output contains the exact scalar, never replacement characters.
-    assert result["output"] == "한"
-    assert "�" not in str(events)
+        # Then the sole pump preserves the scalar and no replacement appears
+        assert result["output"] == "한"
+        assert "�" not in str(events)
+    finally:
+        sessions.close_all()
