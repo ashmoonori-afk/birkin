@@ -10,6 +10,7 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
     private ConnectionPresentation _connection = ConnectionPresentation.Create(ConnectionState.Disconnected);
     private WorkspaceSnapshotPresentation? _workspace;
     private OfficeWorkflowPresentation _officeWorkflow = OfficeWorkflowPresentation.Empty;
+    private TerminalWorkflowPresentation _terminalWorkflow = TerminalWorkflowPresentation.Empty;
 
     public ShellPresentationModel(SynchronizationContext synchronizationContext)
     {
@@ -24,6 +25,8 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
 
     public OfficeWorkflowPresentation OfficeWorkflow => _officeWorkflow;
 
+    public TerminalWorkflowPresentation TerminalWorkflow => _terminalWorkflow;
+
     public void PresentConnection(ConnectionPresentation presentation) =>
         _synchronizationContext.Post(
             _ =>
@@ -35,14 +38,17 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
 
     public void PresentConnection(
         ConnectionPresentation connection,
-        OfficeWorkflowPresentation workflow) =>
+        OfficeWorkflowPresentation workflow,
+        TerminalWorkflowPresentation terminalWorkflow) =>
         _synchronizationContext.Post(
             _ =>
             {
                 _connection = connection;
                 _officeWorkflow = workflow;
+                _terminalWorkflow = terminalWorkflow;
                 OnPropertyChanged(nameof(Connection));
                 OnPropertyChanged(nameof(OfficeWorkflow));
+                OnPropertyChanged(nameof(TerminalWorkflow));
             },
             null);
 
@@ -59,24 +65,34 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
     public void PresentSnapshot(
         WorkspaceSnapshotPresentation presentation,
         OfficeWorkflowPresentation workflow,
+        TerminalWorkflowPresentation terminalWorkflow,
         Action published) =>
         _synchronizationContext.Post(
             _ =>
             {
                 _workspace = presentation;
                 _officeWorkflow = workflow;
+                _terminalWorkflow = terminalWorkflow;
                 OnPropertyChanged(nameof(Workspace));
                 OnPropertyChanged(nameof(OfficeWorkflow));
+                OnPropertyChanged(nameof(TerminalWorkflow));
                 published();
             },
             null);
 
     public void PresentOfficeWorkflow(OfficeWorkflowPresentation presentation) =>
+        PresentWorkflows(presentation, TerminalWorkflow);
+
+    public void PresentWorkflows(
+        OfficeWorkflowPresentation presentation,
+        TerminalWorkflowPresentation terminalPresentation) =>
         _synchronizationContext.Post(
             _ =>
             {
                 _officeWorkflow = presentation;
+                _terminalWorkflow = terminalPresentation;
                 OnPropertyChanged(nameof(OfficeWorkflow));
+                OnPropertyChanged(nameof(TerminalWorkflow));
             },
             null);
 
@@ -96,6 +112,7 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
         ConnectionPresentation connection,
         WorkspaceSnapshotPresentation presentation,
         OfficeWorkflowPresentation workflow,
+        TerminalWorkflowPresentation terminalWorkflow,
         Action published) =>
         _synchronizationContext.Post(
             _ =>
@@ -103,9 +120,11 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
                 _connection = connection;
                 _workspace = presentation;
                 _officeWorkflow = workflow;
+                _terminalWorkflow = terminalWorkflow;
                 OnPropertyChanged(nameof(Connection));
                 OnPropertyChanged(nameof(Workspace));
                 OnPropertyChanged(nameof(OfficeWorkflow));
+                OnPropertyChanged(nameof(TerminalWorkflow));
                 published();
             },
             null);

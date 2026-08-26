@@ -34,8 +34,23 @@ internal static class WorkspaceProjectionMapper
             PanelItems(state.Panels, "activity_logs"),
             PanelItems(state.Panels, "browser_aside", "browser", "computer_use"),
             PanelItems(state.Panels, "office", "files_evidence"),
-            new TerminalPresentation(false, state.Terminals.Values.Count),
+            Terminal(state.Terminals),
             MutationAvailabilityPresentation.PhaseOne);
+
+    private static TerminalPresentation Terminal(NativeJsonArray values) => new(
+        false,
+        "E_COMMAND_UNADVERTISED",
+        ReadOnly(values.Values.OfType<NativeJsonObject>().Select(item =>
+            new TerminalItemPresentation(
+                Text(item, "terminal_id") ?? string.Empty,
+                Text(item, "cwd") ?? string.Empty,
+                Text(item, "display") ?? string.Empty,
+                Integer(item, "output_sequence") ?? 0,
+                Text(item, "state") ?? string.Empty,
+                Integer(item, "exit_status"),
+                Integer(item, "columns") ?? 0,
+                Integer(item, "rows") ?? 0,
+                Flag(item, "read_only")))));
 
     private static IReadOnlyList<ConversationRowPresentation> Conversation(NativeJsonArray values) =>
         ReadOnly(values.Values.OfType<NativeJsonObject>().Select(item =>

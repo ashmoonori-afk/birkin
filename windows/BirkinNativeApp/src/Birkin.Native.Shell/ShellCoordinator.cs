@@ -27,6 +27,7 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
         ConnectionPresentation? Connection,
         WorkspaceSnapshotPresentation? Workspace,
         OfficeWorkflowPresentation Workflow,
+        TerminalWorkflowPresentation TerminalWorkflow,
         ConnectionState? ChangedConnectionState = null);
 
     public ShellCoordinator(
@@ -67,6 +68,10 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
             var announcement = BridgeAnnouncement.Parse(announcementJson);
             TransitionTo(ConnectionState.Handshaking);
             TransitionTo(ConnectionState.Subscribing);
+            lock (_stateLock)
+            {
+                _terminalWorkflow = _terminalWorkflow with { WorkspaceCwd = announcement.Root };
+            }
             await _connection.ConnectAsync(announcement, expectedProductVersion, cancellationToken).ConfigureAwait(false);
             if (!_connection.OwnsReceiveLoop)
             {
@@ -101,199 +106,4 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
         await _connection.DisposeAsync().ConfigureAwait(false);
     }
 
-    private void OnProjectionSnapshotApplied(NativeProjectionState state)
-    {
-        var callbackSequence = ReserveProjectionCallbackSequence();
-        var snapshot = WorkspaceSnapshotPresentation.FromProjection(state, "loopback");
-        var authority = CaptureConnectionAuthority();
-        bool drain;
-        lock (_stateLock)
-        {
-            _projectionState = state;
-            if (callbackSequence > _lastAuthorityCallbackSequence)
-            {
-                _projectionAuthorityAvailable = true;
-                _lastAuthorityCallbackSequence = callbackSequence;
-            }
-            _connectionState = ConnectionState.Ready;
-            RefreshMutationAvailabilityLocked(authority);
-            drain = EnqueuePresentationLocked(new(
-                ConnectionPresentation.Create(ConnectionState.Ready),
-                snapshot,
-                _workflow,
-                ConnectionState.Ready));
-        }
-        DrainPresentations(drain);
-    }
-
-    private void OnCanonicalApplied(NativeEnvelope envelope)
-    {
-        var callbackSequence = ReserveProjectionCallbackSequence();
-        var state = _projectionStore.State;
-        if (state is null)
-        {
-            return;
-        }
-
-        var projectionAuthorityAvailable = _projectionStore.IsMutationAuthorityAvailable;
-        var snapshot = WorkspaceSnapshotPresentation.FromProjection(state, "loopback");
-        var authority = CaptureConnectionAuthority();
-        bool drain;
-        lock (_stateLock)
-        {
-            _projectionState = state;
-            if (callbackSequence > _lastAuthorityCallbackSequence)
-            {
-                _projectionAuthorityAvailable = projectionAuthorityAvailable;
-                _lastAuthorityCallbackSequence = callbackSequence;
-            }
-            if (envelope.Kind == NativeMessageKind.Event)
-            {
-                ResolveFromCanonicalEventLocked(envelope);
-            }
-            RefreshMutationAvailabilityLocked(authority);
-            drain = EnqueuePresentationLocked(new(null, snapshot, _workflow));
-        }
-        DrainPresentations(drain);
-    }
-
-    private void OnMutationAuthorityChanged(bool available)
-    {
-        var callbackSequence = ReserveProjectionCallbackSequence();
-        var authority = CaptureConnectionAuthority();
-        bool drain;
-        lock (_stateLock)
-        {
-            if (callbackSequence <= _lastAuthorityCallbackSequence)
-            {
-                return;
-            }
-
-            _lastAuthorityCallbackSequence = callbackSequence;
-            _projectionAuthorityAvailable = available;
-            if (available)
-            {
-                RefreshMutationAvailabilityLocked(authority);
-            }
-            else
-            {
-                ClearWorkflowAuthorityLocked();
-            }
-            drain = EnqueuePresentationLocked(new(null, null, _workflow));
-        }
-        DrainPresentations(drain);
-    }
-
-    private void TransitionTo(ConnectionState state)
-    {
-        var authority = CaptureConnectionAuthority();
-        bool drain;
-        lock (_stateLock)
-        {
-            _connectionState = state;
-            RefreshMutationAvailabilityLocked(authority);
-            drain = EnqueuePresentationLocked(new(
-                ConnectionPresentation.Create(state),
-                null,
-                _workflow,
-                state));
-        }
-        DrainPresentations(drain);
-    }
-
-    private void Fail(string errorCode)
-    {
-        bool drain;
-        lock (_stateLock)
-        {
-            _connectionState = ConnectionState.Failed;
-            ClearWorkflowAuthorityLocked();
-            drain = EnqueuePresentationLocked(new(
-                ConnectionPresentation.Failed(errorCode),
-                null,
-                _workflow,
-                ConnectionState.Failed));
-        }
-        DrainPresentations(drain);
-    }
-
-    private ConnectionAuthority CaptureConnectionAuthority() => new(
-        _connection.HasLiveCapability(DateTimeOffset.UtcNow),
-        new HashSet<string>(_connection.AdvertisedCommands, StringComparer.Ordinal));
-
-    private long ReserveProjectionCallbackSequence()
-    {
-        lock (_stateLock)
-        {
-            return ++_nextProjectionCallbackSequence;
-        }
-    }
-
-    private bool EnqueuePresentationLocked(PresentationUpdate update)
-    {
-        _presentationQueue.Enqueue(update);
-        if (_isDrainingPresentations)
-        {
-            return false;
-        }
-
-        _isDrainingPresentations = true;
-        return true;
-    }
-
-    private void DrainPresentations(bool drain)
-    {
-        if (!drain)
-        {
-            return;
-        }
-
-        while (true)
-        {
-            PresentationUpdate update;
-            lock (_stateLock)
-            {
-                if (!_presentationQueue.TryDequeue(out update!))
-                {
-                    _isDrainingPresentations = false;
-                    return;
-                }
-            }
-
-            Publish(update);
-        }
-    }
-
-    private void Publish(PresentationUpdate update)
-    {
-        if (update.Workspace is { } workspace)
-        {
-            Action published = () => SnapshotApplied?.Invoke(workspace);
-            if (update.Connection is { } readyConnection)
-            {
-                _presentationModel.PresentReadySnapshot(
-                    readyConnection,
-                    workspace,
-                    update.Workflow,
-                    published);
-            }
-            else
-            {
-                _presentationModel.PresentSnapshot(workspace, update.Workflow, published);
-            }
-        }
-        else if (update.Connection is { } connection)
-        {
-            _presentationModel.PresentConnection(connection, update.Workflow);
-        }
-        else
-        {
-            _presentationModel.PresentOfficeWorkflow(update.Workflow);
-        }
-
-        if (update.ChangedConnectionState is { } state)
-        {
-            ConnectionStateChanged?.Invoke(state);
-        }
-    }
 }

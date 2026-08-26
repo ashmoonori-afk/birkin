@@ -10,6 +10,16 @@ public sealed record MutationAuthoritySnapshot(
 
 public sealed record MutationAvailability(bool IsEnabled, string? DisabledReason)
 {
+    public string? DisabledMessage => DisabledReason switch
+    {
+        null => null,
+        "E_CONNECTION_NOT_READY" => "Waiting for the local workspace connection.",
+        "E_CAPABILITY_EXPIRED" => "Reconnect to continue.",
+        "E_COMMAND_UNADVERTISED" => "This action is unavailable in the current session.",
+        "E_PROJECTION_FORBIDS_MUTATION" => "This action is unavailable while the workspace refreshes.",
+        _ => "This action is currently unavailable.",
+    };
+
     public static MutationAvailability ForCommand(
         string commandType,
         MutationAuthoritySnapshot authority)

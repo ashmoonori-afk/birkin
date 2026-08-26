@@ -33,14 +33,22 @@ public sealed record OfficeWorkflowPresentation(
     long? AcceptedCursor,
     long? CurrentCursor,
     string? RefusalCode,
+    string? FailureMessage,
     MutationAvailabilitySet Availability)
 {
     public static OfficeWorkflowPresentation Empty { get; } =
-        new(string.Empty, null, null, WorkflowCommandState.Idle, null, null, null, MutationAvailabilitySet.None);
+        new(string.Empty, null, null, WorkflowCommandState.Idle, null, null, null, null, MutationAvailabilitySet.None);
 
     public bool HasPendingCommand =>
         CommandState is WorkflowCommandState.PendingReceipt
             or WorkflowCommandState.AcceptedPendingProjection;
+
+    public string? UserFacingFailure => RefusalCode switch
+    {
+        null => null,
+        "E_COMMAND_FAILED" => "Birkin couldn't complete the command. Check the local workspace and try again.",
+        _ => FailureMessage,
+    };
 
     public OfficeWorkflowPresentation WithDraft(string draft) => this with { Draft = draft };
 
@@ -55,6 +63,7 @@ public sealed record OfficeWorkflowPresentation(
         AcceptedCursor = null,
         CurrentCursor = null,
         RefusalCode = null,
+        FailureMessage = null,
     };
 
     public OfficeWorkflowPresentation Accept(string commandId, long acceptedCursor) =>
@@ -72,13 +81,15 @@ public sealed record OfficeWorkflowPresentation(
     public OfficeWorkflowPresentation Refuse(
         string commandId,
         string refusalCode,
-        long? currentCursor) =>
+        long? currentCursor,
+        string? failureMessage = null) =>
         string.Equals(CommandId, commandId, StringComparison.Ordinal)
             ? this with
             {
                 CommandState = WorkflowCommandState.Refused,
                 RefusalCode = refusalCode,
                 CurrentCursor = currentCursor,
+                FailureMessage = failureMessage,
             }
             : this;
 
@@ -95,6 +106,7 @@ public sealed record OfficeWorkflowPresentation(
                 AcceptedCursor = null,
                 CurrentCursor = null,
                 RefusalCode = null,
+                FailureMessage = null,
             }
             : this;
 
@@ -106,5 +118,6 @@ public sealed record OfficeWorkflowPresentation(
         AcceptedCursor = null,
         CurrentCursor = null,
         RefusalCode = null,
+        FailureMessage = null,
     };
 }
