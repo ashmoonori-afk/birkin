@@ -259,6 +259,7 @@ def test_disconnect_cleanup_runs_after_blocked_command_mutation(
         assert mutated.wait(timeout=2)
         assert cleaned.wait(timeout=2)
         assert ordering == ["mutation", "cleanup"]
+        assert ordering.count("cleanup") == 1
         assert resources == []
     finally:
         release.set()

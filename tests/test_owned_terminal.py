@@ -2,44 +2,85 @@ from __future__ import annotations
 
 import os
 import signal
-import sys
 from pathlib import Path
-from typing import Any
 
 import pytest
 
 from birkin import approvals, store
 from birkin.workspace.contracts import (
+    ProtocolError,
     TerminalApprovalRequired,
     TerminalLeaseRequired,
     TerminalSignalRejected,
 )
 from birkin.workspace.owned_terminal import TerminalAuthority
-
-pytestmark = pytest.mark.skipif(
-    sys.platform != "darwin",
-    reason="owned terminal behavior requires Darwin containment",
+from tests.owned_terminal_test_support import (
+    EventRecorder,
+    authority,
+    darwin_only,
+    windows_only,
 )
 
 
-class EventRecorder:
-    def __init__(self) -> None:
-        self.events: list[tuple[str, dict[str, object]]] = []
+@windows_only
+def test_windows_terminal_validates_jail_and_consumes_bound_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given a Windows authority with explicit shell approval
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    recorder = EventRecorder()
+    terminal = authority(tmp_path, recorder, {"auto_approve": []})
+    (tmp_path / "other").mkdir()
 
-    def __call__(self, kind: str, payload: dict[str, object]) -> Any:
-        self.events.append((kind, payload))
-        return payload
+    # When invalid boundaries and approval replay are attempted
+    with pytest.raises(ProtocolError, match="actor_kind"):
+        terminal.create({"actor_kind": "agent", "cwd": str(tmp_path)})
+    with pytest.raises(ProtocolError, match="outside"):
+        terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path.parent)})
+    with pytest.raises(ProtocolError, match="does not exist"):
+        terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path / "missing")})
+    with pytest.raises(TerminalApprovalRequired) as denied:
+        terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path)})
+    assert approvals.reject(denied.value.approval_id, "denied")["ok"] is True
+    with pytest.raises(TerminalApprovalRequired):
+        terminal.create({
+            "actor_kind": "native_human", "cwd": str(tmp_path),
+            "approval_id": denied.value.approval_id,
+        })
+    with pytest.raises(TerminalApprovalRequired) as requested:
+        terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path)})
+    assert (pending := store.get_pending(requested.value.approval_id)) is not None
+    binding = pending["payload"]
+    assert isinstance(binding, dict)
+    assert binding["terminal_lease_only"] is True
+    assert Path(str(binding["shell"])).is_file()
+    assert approvals.approve(requested.value.approval_id)["ok"] is True
+    with pytest.raises(TerminalApprovalRequired):
+        terminal.create({
+            "actor_kind": "native_human",
+            "cwd": str(tmp_path / "other"),
+            "approval_id": requested.value.approval_id,
+        })
+    opened = terminal.create({
+        "actor_kind": "native_human",
+        "cwd": str(tmp_path),
+        "approval_id": requested.value.approval_id,
+    })
+    try:
+        # Then only the exactly bound create receives a transient lease, once
+        assert opened["lease"]
+        with pytest.raises(TerminalApprovalRequired):
+            terminal.create({
+                "actor_kind": "native_human",
+                "cwd": str(tmp_path),
+                "approval_id": requested.value.approval_id,
+            })
+    finally:
+        terminal.close_all()
 
 
-def authority(tmp_path: Path, recorder: EventRecorder, cfg: dict[str, Any]) -> TerminalAuthority:
-    return TerminalAuthority(
-        session_id="session-1",
-        workspace_root=tmp_path,
-        emit=recorder,
-        config_loader=lambda: cfg,
-    )
-
-
+@darwin_only
 def test_terminal_create_requires_shell_approval_before_lease(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -63,6 +104,7 @@ def test_terminal_create_requires_shell_approval_before_lease(
     assert terminal.active_process_ids == ()
 
 
+@darwin_only
 def test_revoked_terminal_lease_cannot_be_replayed_as_empty_string(
     tmp_path: Path,
 ) -> None:
@@ -82,6 +124,7 @@ def test_revoked_terminal_lease_cannot_be_replayed_as_empty_string(
         terminal.close_all()
 
 
+@darwin_only
 def test_terminal_approval_can_mint_only_one_lease(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -109,6 +152,7 @@ def test_terminal_approval_can_mint_only_one_lease(
         terminal.close_all()
 
 
+@darwin_only
 def test_terminal_create_refuses_missing_or_wrong_lease(tmp_path: Path) -> None:
     recorder = EventRecorder()
     terminal = authority(tmp_path, recorder, {"auto_approve": ["shell"]})
@@ -125,6 +169,7 @@ def test_terminal_create_refuses_missing_or_wrong_lease(tmp_path: Path) -> None:
         terminal.close_all()
 
 
+@darwin_only
 def test_real_pty_echo_resize_snapshot_signal_and_close(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -188,6 +233,7 @@ def test_real_pty_echo_resize_snapshot_signal_and_close(
     assert "terminal.exited" in event_types
 
 
+@darwin_only
 def test_lease_expiry_revokes_input_and_process_tree(tmp_path: Path) -> None:
     recorder = EventRecorder()
     now = [100.0]

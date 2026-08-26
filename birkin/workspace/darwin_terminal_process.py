@@ -4,14 +4,24 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import select
 import signal
 import subprocess
 import tempfile
+import threading
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import final
 
+from ._darwin_pty import (
+    DarwinPtyDescriptor,
+    PtySupport as PtySupport,
+    load_pty_support as load_pty_support,
+    open_darwin_pty,
+)
+from .contracts import TerminalSignalRejected
 from .darwin_coalition import (
     DarwinCoalitionCleanupError,
     resource_coalition_id,
@@ -20,10 +30,18 @@ from .darwin_coalition import (
 
 _LAUNCHCTL = "/bin/launchctl"
 _SANDBOX_EXEC = "/usr/bin/sandbox-exec"
-_TERMINAL_SANDBOX_PROFILE = (
-    "(version 1)(allow default)"
-    "(deny mach-lookup)(deny network*)(deny ipc*)(deny signal)"
-)
+_TERMINAL_SANDBOX_PROFILE = "(version 1)(allow default)(deny mach-lookup)(deny network*)(deny ipc*)(deny signal)"
+_SIGNAL_NAMES = ("INT", "TERM", "HUP")
+
+
+def darwin_signals() -> dict[str, signal.Signals]:
+    """Return only terminal signals defined by the running interpreter."""
+    table: dict[str, signal.Signals] = {}
+    for name in _SIGNAL_NAMES:
+        value = getattr(signal, f"SIG{name}", None)
+        if isinstance(value, signal.Signals):
+            table[name] = value
+    return table
 
 
 @final
@@ -150,6 +168,79 @@ def launch_darwin_terminal(
             raise
         finally:
             os.close(ready_fd)
+
+
+@final
+class DarwinOwnedTerminalProcess:
+    """Own a Darwin PTY descriptor and its isolated launchd coalition."""
+
+    def __init__(
+        self,
+        process: DarwinTerminalProcess,
+        descriptor: DarwinPtyDescriptor,
+    ) -> None:
+        self.pid = process.pid
+        self._process = process
+        self._descriptor = descriptor
+        self._closed = False
+        self._lock = threading.Lock()
+
+    def poll(self) -> int | None:
+        return self._process.poll()
+
+    def read(self, max_bytes: int, timeout: float) -> bytes:
+        return self._descriptor.read(max_bytes, timeout)
+
+    def write(self, data: bytes, timeout: float) -> None:
+        self._descriptor.write(data, timeout)
+
+    def resize(self, columns: int, rows: int) -> None:
+        self._descriptor.resize(columns, rows)
+
+    def signal(self, name: str) -> None:
+        signals = darwin_signals()
+        if name not in signals:
+            raise TerminalSignalRejected("terminal signal must be INT, TERM, or HUP")
+        os.killpg(self.pid, signals[name])
+
+    def close(self, exit_code: int = 1) -> None:
+        del exit_code
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+        try:
+            terminate_darwin_terminal(self._process)
+        finally:
+            self._descriptor.close()
+
+
+def launch_darwin_terminal_process(
+    shell_path: Path,
+    cwd: Path,
+    environment: Mapping[str, str],
+    columns: int,
+    rows: int,
+) -> DarwinOwnedTerminalProcess:
+    """Launch and transfer a Darwin PTY plus coalition to one owner."""
+    pair = open_darwin_pty()
+    descriptor: DarwinPtyDescriptor | None = None
+    process: DarwinTerminalProcess | None = None
+    try:
+        slave_path = pair.slave_path
+        descriptor = pair.transfer(columns, rows)
+        process = launch_darwin_terminal(
+            shell_path=str(shell_path),
+            cwd=cwd,
+            environment=dict(environment),
+            slave_path=slave_path,
+            label=f"com.birkin.terminal.{secrets.token_hex(16)}",
+        )
+        return DarwinOwnedTerminalProcess(process, descriptor)
+    finally:
+        pair.close()
+        if process is None and descriptor is not None:
+            descriptor.close()
 
 
 def terminate_darwin_terminal(process: DarwinTerminalProcess) -> None:
