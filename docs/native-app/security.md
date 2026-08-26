@@ -46,7 +46,8 @@ The Windows sole-reader `BridgeSession` revokes mutation authority on gaps,
 desynchronization, heartbeat loss, and disconnect. External attachment never
 confers kill authority. Only the exact spawned process object is owned; session
 disposal precedes its stop and restart halts after five exits in 60 seconds.
-Visible Terminal and Browser placeholders are presentation only.
+The Windows Terminal is writable only while Python advertises the tested ConPTY
+commands and grants a live terminal lease; Browser remains projected-only.
 
 ## Strict and bounded input
 
@@ -94,7 +95,10 @@ than authority.
   profile that denies Mach, network, shared-memory IPC, and terminal-originated
   process signalling. App exit quiesces and rescans the
   coalition before killing every member, including double-forked `setsid()`
-  descendants. Non-Darwin bridges do not advertise this command set.
+  descendants. On supported Windows builds, the alternative backend is a
+  start-gated ConPTY process assigned to a Python-owned Windows Job before it
+  can execute; Job, process, pseudoconsole, pipe, and worker cleanup remain
+  Python-owned.
 - **Bridge supervision:** Swift terminates or restarts only children it spawned.
   An externally discovered bridge is attached without ownership and is left
   running at app shutdown. Restart loops are bounded.

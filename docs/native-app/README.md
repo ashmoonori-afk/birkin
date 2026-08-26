@@ -85,10 +85,11 @@ deterministic WPF/real-bridge regressions are separate from the one real
 existing-account Phase 3 Office proof documented under
 `.omo/evidence/native-windows-20260824/remediation/w6/`.
 
-The Windows mockup keeps visible Terminal and Browser truth-telling
-placeholders by direct user request; they do not create a client-side shell,
-browser, or second authority. There is no Windows installer/MSI, signing,
-updater, packaged app, or customer-ready release; those remain Phases 4-5.
+On supported Windows builds, the Terminal is a typed WPF surface over the
+Python-owned ConPTY/Windows Job backend; it has no client-side process fallback
+or second authority. Browser remains projected-only. There is no Windows
+installer/MSI, signing, updater, packaged app, or customer-ready release; those
+remain Phases 4-5.
 
 Stable public contracts:
 

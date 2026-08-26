@@ -17,8 +17,9 @@ and its `BridgeSessionTests.cs`.
 External attach never grants process ownership and is never killed. An owned
 bridge is the exact process object returned by the spawn closure; its fifth exit
 in a rolling 60 seconds stops restart, and session disposal precedes process
-stop. Terminal and Browser regions remain visible truth-telling placeholders by
-direct user request and cannot invent authority.
+stop. On supported Windows builds, Python owns the start-gated ConPTY process
+inside a Windows Job and the WPF Terminal submits only advertised typed commands;
+Browser remains projected-only and neither region can invent authority.
 
 ## Authority boundary
 

@@ -80,7 +80,9 @@ create/input/resize/signal/close/snapshot; Browser start/navigate; Office
 create/open; jailed file import; skill reload; checkpoint restore; config set;
 and gateway restart. `ready.capabilities.commands` is the authoritative subset
 actually registered for a connection. Unsupported registered-schema commands
-are not simulated by Swift and return `E_UNSUPPORTED_COMMAND`.
+are not simulated by a native client and return `E_UNSUPPORTED_COMMAND`. On
+Windows, the terminal subset is advertised only when the Python-owned ConPTY
+backend is supported; WPF never substitutes a client-side process.
 
 ## Handshake and capability lifecycle
 

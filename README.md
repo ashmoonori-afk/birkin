@@ -778,8 +778,9 @@ The shipped boundary is deliberate:
   coalition. Its Seatbelt profile denies Mach, network, and shared-memory IPC
   plus terminal-originated process signalling, and cleanup
   quiesces, rescans, and kills the coalition so double-forked or `setsid()`
-  descendants cannot migrate away from Python ownership. Non-Darwin bridges do
-  not advertise the Native Terminal command set.
+  descendants cannot migrate away from Python ownership. On supported Windows
+  builds, Python instead owns a start-gated ConPTY process tree inside a Windows
+  Job and advertises Terminal commands only when that backend is available.
 - **Bridge lifecycle:** the app starts its own Python bridge with the shipped
   `birkin native-bridge serve` command, waits for the endpoint that command
   announces, restarts it at most five times in sixty seconds, and terminates it
@@ -829,10 +830,11 @@ authenticated loopback bridge. Phase 3 is a **development preview**, not a
 customer release. Its production composition has one `BridgeSession` as the
 sole socket reader and one shared in-memory projection store; Python remains
 the only policy, execution, approval, Office, receipt, and recovery authority.
-Terminal and Browser regions are visible truth-telling placeholders because
-the requested Windows mockup includes them: Terminal says it is unavailable on
-Windows, and Browser renders only canonical projected state rather than
-inventing controls or authority.
+The Terminal region is interactive only when Python advertises its tested
+ConPTY command set: Python owns the Job, process tree, pseudoconsole, pipes,
+leases, sequencing, and cleanup, while WPF renders canonical VT-free display
+and submits typed controls. Browser remains canonical projected state rather
+than inventing controls or authority.
 
 The deterministic fast regression drives the real WPF `MainWindow`, real frame
 codec/reducer, and real Python bridge without a provider or manual receive path

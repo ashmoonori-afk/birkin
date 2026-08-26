@@ -780,8 +780,9 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   안에서 실행됩니다. Seatbelt profile은 Mach, network, shared-memory IPC와
   terminal-originated process signal을 차단하고, cleanup은 coalition을
   정지·재탐색·종료하므로 double-fork 또는 `setsid()` descendant가 Python
-  소유권 밖으로 이동할 수 없습니다.
-  Non-Darwin bridge는 Native Terminal command set을 광고하지 않습니다.
+  소유권 밖으로 이동할 수 없습니다. 지원되는 Windows build에서는 Python이
+  Windows Job 안의 start-gated ConPTY process tree를 소유하며, 해당 backend를
+  사용할 수 있을 때만 Terminal command를 광고합니다.
 - **Bridge lifecycle:** App은 배포된 `birkin native-bridge serve` 명령으로
   자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint를 기다리며,
   60초 안에 최대 다섯 번까지 재시작하고, 종료할 때 함께 정리합니다.
@@ -831,9 +832,10 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
 Phase 3는 **development preview**이며 customer release가 아닙니다. Production
 composition은 socket을 읽는 유일한 주체인 `BridgeSession` 하나와 공유 in-memory
 projection store 하나를 사용합니다. Policy, execution, approval, Office, receipt,
-recovery의 유일한 authority는 계속 Python입니다. 요청된 Windows mockup에 포함된
-Terminal과 Browser 영역은 상태를 사실대로 알리는 visible placeholder입니다.
-Terminal은 Windows에서 사용할 수 없음을 표시하고, Browser는 control이나 authority를
+recovery의 유일한 authority는 계속 Python입니다. Terminal 영역은 Python이 검증된
+ConPTY command set을 광고할 때만 interactive합니다. Python이 Job, process tree,
+pseudoconsole, pipe, lease, sequence, cleanup을 소유하고 WPF는 canonical VT-free
+화면을 표시하며 typed control만 전송합니다. Browser는 control이나 authority를
 만들지 않고 canonical projected state만 표시합니다.
 
 결정적 fast regression은 provider나 manual receive path 없이 실제 WPF
