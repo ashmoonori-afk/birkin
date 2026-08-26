@@ -5,8 +5,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 
 class SignatureError(ValueError):
@@ -16,23 +16,32 @@ class SignatureError(ValueError):
 SIGNATURE_FILE = "bundle.sig"
 
 
-def bundle_digest(root: Path) -> str:
-    """Hash paths and bytes in stable order, excluding the detached signature."""
+def bundle_digest_bytes(files: Mapping[str, bytes]) -> str:
+    """Hash an immutable bundle byte mapping in stable path order."""
     digest = hashlib.sha256()
-    files = sorted(
-        path for path in root.rglob("*")
-        if path.is_file() and path.name != SIGNATURE_FILE
-    )
-    for path in files:
-        if path.is_symlink():
-            raise SignatureError(f"bundle contains a symbolic link: {path}")
-        relative = path.relative_to(root).as_posix().encode("utf-8")
-        data = path.read_bytes()
-        digest.update(len(relative).to_bytes(4, "big"))
-        digest.update(relative)
+    for relative, data in sorted(files.items()):
+        if relative == SIGNATURE_FILE:
+            continue
+        encoded = relative.encode("utf-8")
+        digest.update(len(encoded).to_bytes(4, "big"))
+        digest.update(encoded)
         digest.update(len(data).to_bytes(8, "big"))
         digest.update(data)
     return digest.hexdigest()
+
+
+def bundle_digest(root: Path) -> str:
+    """Hash paths and bytes in stable order, excluding the detached signature."""
+    files = sorted(
+        path for path in root.rglob("*")
+        if path.is_file()
+    )
+    captured: dict[str, bytes] = {}
+    for path in files:
+        if path.is_symlink():
+            raise SignatureError(f"bundle contains a symbolic link: {path}")
+        captured[path.relative_to(root).as_posix()] = path.read_bytes()
+    return bundle_digest_bytes(captured)
 
 
 def sign_bundle(root: Path, key_id: str, key: bytes) -> Path:

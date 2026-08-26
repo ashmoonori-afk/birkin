@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypedDict
@@ -31,6 +32,27 @@ from typing import Protocol, TypedDict
 _WIN_SHELL_METACHARS = frozenset("&|<>^")
 _WINDOWS_CREATE_SUSPENDED = 0x00000004
 _POSIX_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
+_SHELL_ENVIRONMENT = frozenset({
+    "COLORTERM",
+    "ComSpec",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LOGNAME",
+    "LOCALAPPDATA",
+    "PATH",
+    "PATHEXT",
+    "SHELL",
+    "SystemRoot",
+    "TEMP",
+    "TERM",
+    "TMP",
+    "TMPDIR",
+    "USER",
+    "USERPROFILE",
+    "WINDIR",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,16 +116,29 @@ def shell_argv(command: str) -> list[str]:
     command is the whole point there, so shell semantics are intentional.
     """
     if os.name == "nt":
-        system_root = os.environ.get("SystemRoot") or r"C:\Windows"
+        system_root = os.environ.get("SystemRoot")
+        if not system_root:
+            raise OSError("SystemRoot is required for Windows shell execution")
         return windows_shell_argv(command, system_root)
     return ["/bin/bash", "-c", command]
 
 
+def windows_system_executable(
+    name: str,
+    system_root: str | None = None,
+) -> str | None:
+    root = system_root or os.environ.get("SystemRoot")
+    if not root:
+        return None
+    return ntpath.join(root, "System32", name)
+
+
 def windows_shell_argv(command: str, system_root: str) -> list[str]:
     """Build an AutoRun-free, UTF-8 argv for the Windows interpreter."""
-    system32 = ntpath.join(system_root, "System32")
-    executable = ntpath.join(system32, "cmd.exe")
-    code_page = ntpath.join(system32, "chcp.com")
+    executable = windows_system_executable("cmd.exe", system_root)
+    code_page = windows_system_executable("chcp.com", system_root)
+    if executable is None or code_page is None:
+        raise OSError("SystemRoot is required for Windows shell execution")
     return [
         executable,
         "/d",
@@ -201,9 +236,25 @@ def _normalized_shell_environment(
     return env
 
 
-def shell_env() -> dict[str, str]:
-    """Environment for a free-form shell command."""
-    return _normalized_shell_environment(dict(os.environ))
+def shell_env(
+    *,
+    allowlist: Iterable[str] = (),
+    source: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Minimal environment for a free-form shell command."""
+    values = os.environ if source is None else source
+    requested = frozenset(allowlist)
+    names = (
+        frozenset(values)
+        if "*" in requested
+        else _SHELL_ENVIRONMENT | requested
+    )
+    selected = {
+        name: value
+        for name, value in values.items()
+        if name in names
+    }
+    return _normalized_shell_environment(selected)
 
 
 def run_shell_command(
@@ -371,17 +422,19 @@ def kill_tree(proc: ProcessHandle | None) -> None:
         return
     pid = proc.pid
     if os.name == "nt":
-        try:
-            result = subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True,
-                timeout=10,
-                check=False,
-            )
-            if result.returncode == 0:
-                return
-        except (OSError, subprocess.SubprocessError):
-            pass
+        taskkill = windows_system_executable("taskkill.exe")
+        if taskkill is not None:
+            try:
+                result = subprocess.run(
+                    [taskkill, "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=10,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    return
+            except (OSError, subprocess.SubprocessError):
+                pass
     if os.name != "nt" and kill_process_group(pid):
         return
     try:

@@ -140,6 +140,25 @@ class TestFraming:
         with pytest.raises(LspError):
             protocol.read_message(io.BytesIO(b"Content-Length: 50\r\n\r\n{}"))
 
+    @pytest.mark.parametrize("length", [-1, 16_000_001])
+    def test_invalid_frame_length_is_refused_before_body_read(
+        self,
+        length: int,
+    ) -> None:
+        class NoBodyRead(io.BytesIO):
+            def read(self, *_args: object, **_kwargs: object) -> bytes:
+                raise AssertionError("body read occurred before frame validation")
+
+        stream = NoBodyRead(
+            f"Content-Length: {length}\r\n\r\n".encode("ascii")
+        )
+
+        with pytest.raises(LspError, match="Content-Length"):
+            protocol.read_message(stream)
+
+    def test_exact_frame_cap_is_sixteen_million_bytes(self) -> None:
+        assert protocol.MAX_FRAME_BYTES == 16_000_000
+
 
 class TestClientAgainstARealServer:
     def test_initialize_returns_the_servers_capabilities(self, server_script) -> None:

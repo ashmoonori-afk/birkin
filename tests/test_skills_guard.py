@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import os
+import urllib.parse
 from pathlib import Path
 
 import pytest
@@ -323,8 +325,13 @@ def test_identifier_parsing():
 
 def _fake_github(monkeypatch, files: dict[str, str]):
     def fake_get(url, raw=False):
+        path = urllib.parse.urlsplit(url).path
+        if "/commits/" in path:
+            return json.dumps({"sha": "a" * 40}).encode()
+        if "/contents/" not in path and path.startswith("/repos/"):
+            return json.dumps({"default_branch": "main"}).encode()
         for name, content in files.items():
-            if url.endswith(name.replace(" ", "%20")):
+            if path.endswith(name.replace(" ", "%20")):
                 return content.encode("utf-8")
         raise hub.HubError("not found on GitHub — check owner/repo/path")
     monkeypatch.setattr(hub, "_get", fake_get)

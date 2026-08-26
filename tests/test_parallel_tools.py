@@ -147,7 +147,18 @@ def test_results_keep_emission_order_and_pair_with_their_calls():
                if b.get("type") == "tool_result"]
     assert [b["tool_use_id"] for b in results] == ["r1", "w1", "m1"]
     assert results[0]["content"] == "read_file ok"
-    assert results[1]["content"] == "web_fetch ok"
+    external = results[1]["content"]
+    assert isinstance(external, str)
+    opening = external.splitlines()[0]
+    nonce = opening.removeprefix(
+        '<birkin-external nonce="'
+    ).removesuffix('">')
+    assert len(nonce) >= 16
+    assert "\nweb_fetch ok\n" in external
+    assert external.rstrip().endswith(
+        f'</birkin-external nonce="{nonce}">'
+    )
+    assert results[2]["content"] == "memory_search ok"
 
 
 def test_exactly_one_result_per_call_in_a_mixed_batch():

@@ -35,7 +35,11 @@ from urllib.parse import quote, urlparse, urlsplit
 from .. import __version__
 from ..egress import record_tool_receipt
 from ..egress_scan import EgressScanError, inspect_payload
-from ..httpguard import PinnedHTTPSHandler, is_public_ip
+from ..httpguard import (
+    GuardedRedirectHandler,
+    is_public_ip,
+    pinned_opener,
+)
 from .web_document import (
     ContentDecodingError,
     decode_http_body,
@@ -57,6 +61,7 @@ MARGINALIA_LICENSE = "CC-BY-NC-SA 4.0"
 MARGINALIA_PUBLIC_KEY = "public"   # the key its operator publishes for anyone
 SEARCH_TIMEOUT = 10   # a lookup, not a page read: fail into the fallback fast
 MAX_RESULTS = 20
+_GuardedRedirectHandler = GuardedRedirectHandler
 
 
 def _is_blocked_literal_url(url: str) -> bool:
@@ -102,30 +107,6 @@ def _is_blocked_url(url: str) -> bool:
     return False
 
 
-class _GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Re-run the SSRF guard on every redirect target.
-
-    ``urlopen`` follows 30x automatically, and the default handler does NOT
-    re-validate the new location — so a public URL could 302 to
-    ``http://169.254.169.254/...`` (cloud metadata) or an internal address and
-    bypass the up-front ``_is_blocked_url`` check. Refuse a blocked hop."""
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if urlsplit(newurl).scheme != "https":
-            raise urllib.error.HTTPError(
-                newurl,
-                code,
-                "SSRF: HTTPS is required for redirect targets",
-                headers,
-                fp,
-            )
-        if _is_blocked_literal_url(newurl):
-            raise urllib.error.HTTPError(
-                newurl, code, "redirect to a local/internal/reserved address "
-                "(SSRF guard)", headers, fp)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -167,7 +148,7 @@ def _web_fetch(
             "Refused: that URL targets a local/internal/reserved address "
             "(SSRF guard).", is_error=True)
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _GuardedRedirectHandler(), PinnedHTTPSHandler())
+    opener = pinned_opener()
     receipt_id = record_tool_receipt(
         ctx.cfg if ctx is not None else {},
         operation="web_fetch",
@@ -241,7 +222,7 @@ def _get_json(url: str, headers: dict[str, str] | None = None) -> Any:
     """
     req = urllib.request.Request(
         url, headers={"User-Agent": USER_AGENT, **(headers or {})})
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), _GuardedRedirectHandler(), PinnedHTTPSHandler())
+    opener = pinned_opener()
     with opener.open(req, timeout=SEARCH_TIMEOUT) as resp:
         return json.loads(resp.read(2_000_000).decode("utf-8", "replace"))
 

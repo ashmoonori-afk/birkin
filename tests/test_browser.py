@@ -7,6 +7,7 @@ from typing import Callable
 import pytest
 
 from birkin.browser import (
+    BrowserPolicyGate,
     BrowserPolicyViolation,
     BrowserSession,
     ConsoleMessage,
@@ -80,7 +81,12 @@ def test_actions_map_to_shared_sandbox_policy_requests(tmp_path: Path) -> None:
 
     policy = RecordingPolicy()
     driver = FakeDriver()
-    browser = BrowserSession(driver, policy, tmp_path)  # type: ignore[arg-type]
+    browser = BrowserSession(  # type: ignore[arg-type]
+        driver,
+        policy,
+        tmp_path,
+        allow_private_network=True,
+    )
 
     browser.navigate("http://localhost:8787/")
     browser.click("#refresh")
@@ -105,13 +111,45 @@ def test_actions_map_to_shared_sandbox_policy_requests(tmp_path: Path) -> None:
 
 def test_allowed_host_navigates_and_denied_host_fails_closed(tmp_path: Path) -> None:
     driver = FakeDriver()
-    browser = BrowserSession(driver, _policy("127.0.0.1"), tmp_path)
+    browser = BrowserSession(
+        driver,
+        _policy("127.0.0.1"),
+        tmp_path,
+        allow_private_network=True,
+    )
 
     assert browser.navigate("http://127.0.0.1:8787/") == "Birkin"
     with pytest.raises(BrowserPolicyViolation, match="not allowlisted"):
         browser.navigate("https://example.com/")
 
     assert [action for action, _ in driver.actions] == ["navigate"]
+
+
+def test_legacy_browser_rejects_mixed_public_private_dns_answers() -> None:
+    gate = BrowserPolicyGate(
+        _policy("mixed.example"),
+        resolver=lambda _host: ("93.184.216.34", "127.0.0.1"),
+    )
+
+    with pytest.raises(BrowserPolicyViolation, match="non-public"):
+        gate.check_navigation("https://mixed.example/")
+
+
+def test_private_navigation_needs_policy_and_explicit_config() -> None:
+    policy = _policy("127.0.0.1")
+    denied = BrowserPolicyGate(
+        policy,
+        resolver=lambda _host: ("127.0.0.1",),
+    )
+    allowed = BrowserPolicyGate(
+        policy,
+        allow_private_network=True,
+        resolver=lambda _host: ("127.0.0.1",),
+    )
+
+    with pytest.raises(BrowserPolicyViolation, match="non-public"):
+        denied.check_navigation("http://127.0.0.1:8787/")
+    allowed.check_navigation("http://127.0.0.1:8787/")
 
 
 def test_network_off_denies_navigation_by_default(tmp_path: Path) -> None:
@@ -167,6 +205,7 @@ def test_browser_tools_register_and_honor_disabled_tool_gate(tmp_path: Path) -> 
             "write_paths": ["."],
         },
         "disabled_tools": ["browser_execute"],
+        "browser_allow_private_network": True,
     }
     ctx = ToolContext(cfg=cfg, client=None, cwd=tmp_path, browser_driver=driver)
     registry = build_registry(ctx)

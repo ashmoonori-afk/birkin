@@ -22,13 +22,13 @@ import re
 import secrets
 import signal
 import socket
+import sys
 import threading
 import webbrowser
 from collections.abc import Mapping
 from dataclasses import replace
 from http.cookies import CookieError, SimpleCookie
-from http.server import BaseHTTPRequestHandler
-from http.server import ThreadingHTTPServer as HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import RLock
 from types import FrameType
@@ -82,7 +82,111 @@ from .browser_security import (
 _STATIC = Path(__file__).resolve().parent / "static"
 MAX_POST_BODY_BYTES = 65_536
 POST_BODY_TIMEOUT_SECONDS = 2.0
+MAX_PUBLIC_WORKERS = 4
+PUBLIC_HEADER_TIMEOUT_SECONDS = 5.0
+REJECTED_HEADER_TIMEOUT_SECONDS = 0.5
+MAX_REJECTED_HEADER_BYTES = 16_384
 _APPROVAL_ID_RE = re.compile(r"[0-9a-f]{12}")
+
+
+class BoundedHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+    request_queue_size = 16
+    allow_reuse_address = True
+
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        request_handler: type[BaseHTTPRequestHandler],
+        bind_and_activate: bool = True,
+    ) -> None:
+        self._worker_slots = threading.BoundedSemaphore(
+            MAX_PUBLIC_WORKERS
+        )
+        super().__init__(
+            server_address,
+            request_handler,
+            bind_and_activate,
+        )
+
+    def get_request(self):
+        request, address = super().get_request()
+        request.settimeout(PUBLIC_HEADER_TIMEOUT_SECONDS)
+        return request, address
+
+    def process_request(
+        self,
+        request: Any,
+        client_address: Any,
+    ) -> None:
+        if not self._worker_slots.acquire(blocking=False):
+            self._drain_rejected_request(cast(socket.socket, request))
+            try:
+                cast(socket.socket, request).sendall(
+                    b"HTTP/1.1 503 Service Unavailable\r\n"
+                    b"Content-Type: text/plain; charset=utf-8\r\n"
+                    b"Content-Length: 12\r\n"
+                    b"Connection: close\r\n\r\n"
+                    b"server busy\n"
+                )
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._worker_slots.release()
+            raise
+
+    @staticmethod
+    def _drain_rejected_request(request: socket.socket) -> None:
+        previous_timeout = request.gettimeout()
+        remaining = MAX_REJECTED_HEADER_BYTES
+        suffix = b""
+        try:
+            request.settimeout(REJECTED_HEADER_TIMEOUT_SECONDS)
+            while remaining > 0:
+                pending = request.recv(
+                    min(remaining, 4096),
+                    socket.MSG_PEEK,
+                )
+                if not pending:
+                    return
+                combined = suffix + pending
+                boundary = combined.find(b"\r\n\r\n")
+                consume = (
+                    boundary + 4 - len(suffix)
+                    if boundary >= 0
+                    else len(pending)
+                )
+                consumed = 0
+                while consumed < consume:
+                    chunk = request.recv(consume - consumed)
+                    if not chunk:
+                        return
+                    consumed += len(chunk)
+                remaining -= consumed
+                if boundary >= 0:
+                    return
+                suffix = combined[-3:]
+        except OSError:
+            return
+        finally:
+            request.settimeout(previous_timeout)
+
+    def process_request_thread(
+        self,
+        request: Any,
+        client_address: Any,
+    ) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._worker_slots.release()
+
+
+HTTPServer = BoundedHTTPServer
 
 # A per-process capability set as an HttpOnly cookie on the root page and
 # required for sensitive reads and mutations. JavaScript never receives it.
@@ -903,6 +1007,12 @@ class Handler(BaseHTTPRequestHandler):
                     "Set-Cookie": (
                         f"{_CAPABILITY_COOKIE}={capability}; HttpOnly; "
                         "SameSite=Strict; Path=/"
+                        + (
+                            "; Secure"
+                            if self.client_address[0]
+                            not in _LOOPBACK_PEERS
+                            else ""
+                        )
                     ),
                 },
             )
@@ -1349,6 +1459,14 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
     cfg = config.load_config()
     port = port or int(cfg.get("web_port", 8787))
     remote = bool(cfg.get("web_remote_access", False))
+    if remote and cfg.get("web_remote_insecure_ack") is not True:
+        print(
+            "remote WebUI refused before bind: set "
+            "web_remote_insecure_ack=true only after configuring TLS "
+            "or a trusted private-network tunnel",
+            file=sys.stderr,
+        )
+        return 2
     bind_host = "0.0.0.0" if remote else "127.0.0.1"
     httpd = HTTPServer((bind_host, port), Handler)
     actual_port = int(httpd.server_address[1])
@@ -1370,6 +1488,11 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
     url = f"http://{url_host}:{actual_port}"
     bootstrap_url = f"{url}/_bootstrap/{bootstrap_nonce}"
     print(f"birkin workspace running at {bootstrap_url}  (Ctrl-C to stop)")
+    if remote:
+        print(
+            "WARNING: direct remote WebUI transport is cleartext; "
+            "use TLS termination or a trusted private-network tunnel"
+        )
     if open_browser and not remote:
         try:
             _ = webbrowser.open(bootstrap_url)

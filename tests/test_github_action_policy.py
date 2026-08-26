@@ -27,6 +27,26 @@ def test_action_declares_only_documented_secret_inputs() -> None:
     assert execute["env"]["OPENAI_API_KEY"] == "${{ inputs.openai-api-key }}"
 
 
+def test_action_passes_untrusted_inputs_only_through_environment() -> None:
+    action = _yaml(ROOT / "action.yml")
+    execute = next(
+        step
+        for step in action["runs"]["steps"]
+        if step.get("id") == "execute"
+    )
+
+    assert "${{ inputs." not in execute["run"]
+    assert execute["env"]["BIRKIN_PROVIDER"] == "${{ inputs.provider }}"
+    assert execute["env"]["BIRKIN_MODEL"] == "${{ inputs.model }}"
+    assert execute["env"]["BIRKIN_TEST_COMMAND"] == (
+        "${{ inputs.test-command }}"
+    )
+    assert execute["env"]["BIRKIN_MAX_RETRIES"] == (
+        "${{ inputs.max-retries }}"
+    )
+    assert '"$BIRKIN_TEST_COMMAND"' in execute["run"]
+
+
 def test_mention_workflow_is_trusted_issue_comment_only() -> None:
     workflow = _yaml(ROOT / ".github" / "workflows" / "birkin.yml")
     # PyYAML implements YAML 1.1 and reads GitHub's YAML 1.2 ``on`` as True.

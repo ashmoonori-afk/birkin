@@ -63,11 +63,15 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         ANTHROPIC_API_KEY: ${{ inputs.anthropic-api-key }}
         OPENAI_API_KEY: ${{ inputs.openai-api-key }}
+        BIRKIN_PROVIDER: ${{ inputs.provider }}
+        BIRKIN_MODEL: ${{ inputs.model }}
+        BIRKIN_TEST_COMMAND: ${{ inputs.test-command }}
+        BIRKIN_MAX_RETRIES: ${{ inputs.max-retries }}
         PYTHONUTF8: "1"
       run: >-
         python -m birkin.github_action execute
         --event "$GITHUB_EVENT_PATH"
-        --provider "${{ inputs.provider }}"
-        --model "${{ inputs.model }}"
-        --test-command "${{ inputs.test-command }}"
-        --max-retries "${{ inputs.max-retries }}"
+        --provider "$BIRKIN_PROVIDER"
+        --model "$BIRKIN_MODEL"
+        --test-command "$BIRKIN_TEST_COMMAND"
+        --max-retries "$BIRKIN_MAX_RETRIES"

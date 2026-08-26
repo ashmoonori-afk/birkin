@@ -9,6 +9,10 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from birkin.browser_aside_errors import BrowserAsideError
+from birkin.private_storage import (
+    harden_private_directory,
+    harden_private_file,
+)
 from birkin.store import FileLockTimeout, file_lock
 
 
@@ -51,21 +55,22 @@ def purge_stale_profiles(profiles_root: Path) -> int:
             ) from exc
         finally:
             lock.__exit__(None, None, None)
-        Path(f"{lock_target}.lock").unlink(missing_ok=True)
     return purged
 
 
 def profile_lock_target(profile: Path) -> Path:
     root = profile.parent.resolve()
     locks = root / ".locks"
-    locks.mkdir(mode=0o700, exist_ok=True)
-    locks.chmod(0o700)
+    harden_private_directory(locks)
     return locks / profile.name
 
 
 def clear_profile_lock(profile: Path) -> None:
+    """Retain the advisory-lock inode permanently after owner release."""
     target = profile_lock_target(profile)
-    Path(f"{target}.lock").unlink(missing_ok=True)
+    lock_path = Path(f"{target}.lock")
+    lock_path.touch(mode=0o600, exist_ok=True)
+    harden_private_file(lock_path)
 
 
 @contextmanager

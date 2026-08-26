@@ -21,6 +21,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -39,6 +40,8 @@ _ATTACHMENT_RE = re.compile(
     r"path=([\"'])(.+?)\1[ \t]*/?>[ \t]*(?:\n|$)"
 )
 _MAX_DOCUMENT_BYTES = 50 * 1024 * 1024
+MAX_PUBLIC_WORKERS = 4
+_BUSY_REPLY = "Birkin is busy; try again shortly."
 
 
 def _stream_visible_text(text: str) -> str:
@@ -322,8 +325,18 @@ class TelegramChannel(Channel):
     name = "telegram"
     _HEARTBEAT_INTERVAL = 180.0
 
-    def __init__(self, token: str, allowed_chat_ids: list[str] | None = None,
-                 stream: bool = True):
+    def __init__(
+        self,
+        token: str,
+        allowed_chat_ids: list[str] | None = None,
+        stream: bool = True,
+        max_public_workers: int = 4,
+    ):
+        if (
+            isinstance(max_public_workers, bool)
+            or not 1 <= max_public_workers <= 64
+        ):
+            raise ValueError("max_public_workers must be between 1 and 64")
         self.token = token
         # When non-empty, only these chat ids may drive the agent (access control
         # for a reachable bot). build_channels refuses an empty allowlist.
@@ -337,6 +350,41 @@ class TelegramChannel(Channel):
         self._workers: dict[str, threading.Thread] = {}
         self._action_workers: dict[str, threading.Thread] = {}
         self._workflow_ids: dict[str, str] = {}
+        self._worker_slots = threading.BoundedSemaphore(max_public_workers)
+        self._worker_lock = threading.Lock()
+
+    def _start_public_worker(
+        self,
+        registry: dict[str, threading.Thread],
+        key: str,
+        target: Callable[..., None],
+        args: tuple[Any, ...],
+    ) -> threading.Thread | None:
+        if not self._worker_slots.acquire(blocking=False):
+            return None
+        worker: threading.Thread
+
+        def run() -> None:
+            try:
+                target(*args)
+            finally:
+                with self._worker_lock:
+                    if registry.get(key) is worker:
+                        registry.pop(key, None)
+                self._worker_slots.release()
+
+        worker = threading.Thread(target=run, daemon=True)
+        with self._worker_lock:
+            registry[key] = worker
+        try:
+            worker.start()
+        except RuntimeError:
+            with self._worker_lock:
+                if registry.get(key) is worker:
+                    registry.pop(key, None)
+            self._worker_slots.release()
+            raise
+        return worker
 
     def _call(self, method: str, params: dict[str, Any], timeout: int = 60, *,
               body: bytes | None = None,
@@ -734,18 +782,20 @@ class TelegramChannel(Channel):
                 self._edit(chat_id, mid, f"{old}\n\n{result}"[:4000])
             if resume_prompt is None:
                 return
-            worker = threading.Thread(
-                target=self._run_turn,
-                args=(gateway, chat_id, resume_prompt, offset, aid),
-                daemon=True,
-            )
-            self._workers[chat_id] = worker
             self._workflow_ids[chat_id] = aid
             try:
-                worker.start()
+                worker = self._start_public_worker(
+                    self._workers,
+                    chat_id,
+                    self._run_turn,
+                    (gateway, chat_id, resume_prompt, offset, aid),
+                )
+                if worker is None:
+                    workflow.restore_claim(aid)
+                    self._workflow_ids.pop(chat_id, None)
+                    self._send_plain(chat_id, _BUSY_REPLY)
             except RuntimeError:
                 workflow.restore_claim(aid)
-                self._workers.pop(chat_id, None)
                 self._workflow_ids.pop(chat_id, None)
                 if mid:
                     self._edit(chat_id, mid, f"{old}\n\n⚠ 시작하지 못했습니다. 다시 승인해 주세요.")
@@ -769,17 +819,18 @@ class TelegramChannel(Channel):
             self._edit(chat_id, mid, f"{old}\n\n{result}"[:4000])
         if verb == "rej" or not claimed:
             return
-        worker = threading.Thread(
-            target=self._run_claimed_action,
-            args=(gateway, chat_id, aid, mid, old),
-            daemon=True,
-        )
-        self._action_workers[chat_id] = worker
         try:
-            worker.start()
+            worker = self._start_public_worker(
+                self._action_workers,
+                chat_id,
+                self._run_claimed_action,
+                (gateway, chat_id, aid, mid, old),
+            )
+            if worker is None:
+                gateway.restore_action_claim(aid)
+                self._send_plain(chat_id, _BUSY_REPLY)
         except RuntimeError:
             gateway.restore_action_claim(aid)
-            self._action_workers.pop(chat_id, None)
             if mid:
                 self._edit(chat_id, mid, f"{old}\n\n⚠ 시작하지 못했습니다. 다시 승인해 주세요.")
 
@@ -1150,8 +1201,11 @@ class TelegramChannel(Channel):
                     continue
                 # Run the turn in a worker so the loop keeps polling (and can
                 # see the next message to interrupt this one).
-                w = threading.Thread(target=self._run_turn,
-                                     args=(gateway, chat_id, text, offset),
-                                     daemon=True)
-                self._workers[chat_id] = w
-                w.start()
+                worker = self._start_public_worker(
+                    self._workers,
+                    chat_id,
+                    self._run_turn,
+                    (gateway, chat_id, text, offset),
+                )
+                if worker is None:
+                    self._send_plain(chat_id, _BUSY_REPLY)

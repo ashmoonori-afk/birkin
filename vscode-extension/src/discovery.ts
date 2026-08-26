@@ -5,20 +5,68 @@ import { BirkinError } from "./errors.js";
 import { isObject } from "./contracts.js";
 import type { DashboardSession } from "./types.js";
 
+interface DiscoveryOptions {
+  readonly workspaceTrusted?: boolean;
+  readonly readSession?: (path: string) => Promise<string>;
+}
+
 export async function discoverDashboard(
   urlOverride: string,
   tokenOverride: string,
   sessionPath = join(homedir(), ".birkin", "web_session.json"),
+  options: DiscoveryOptions = {},
 ): Promise<DashboardSession> {
-  if (urlOverride && tokenOverride) return { url: urlOverride.replace(/\/$/, ""), token: tokenOverride };
+  const url = urlOverride.trim();
+  const token = tokenOverride.trim();
+  if (url || token) {
+    if (!url || !token) {
+      throw new BirkinError(
+        "Dashboard URL and token overrides must both be configured.",
+        "configuration",
+      );
+    }
+    if (options.workspaceTrusted !== true) {
+      throw new BirkinError(
+        "Dashboard overrides require a trusted workspace.",
+        "configuration",
+      );
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch (error) {
+      throw new BirkinError(
+        "Dashboard URL override is invalid.",
+        "configuration",
+        error,
+      );
+    }
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new BirkinError(
+        "Dashboard URL override must use HTTP or HTTPS.",
+        "configuration",
+      );
+    }
+    return { url: url.replace(/\/$/, ""), token };
+  }
   try {
-    const value: unknown = JSON.parse(await readFile(sessionPath, "utf8"));
-    if (!isObject(value) || typeof value.port !== "number" || typeof value.token !== "string") {
+    const readSession = options.readSession
+      ?? (async (path: string) => readFile(path, "utf8"));
+    const value: unknown = JSON.parse(await readSession(sessionPath));
+    if (
+      !isObject(value)
+      || typeof value.port !== "number"
+      || !Number.isInteger(value.port)
+      || value.port < 1
+      || value.port > 65_535
+      || typeof value.token !== "string"
+      || !value.token
+    ) {
       throw new Error("invalid session record");
     }
     return {
-      url: urlOverride.replace(/\/$/, "") || `http://127.0.0.1:${value.port}`,
-      token: tokenOverride || value.token,
+      url: `http://127.0.0.1:${value.port}`,
+      token: value.token,
     };
   } catch (error) {
     throw new BirkinError(

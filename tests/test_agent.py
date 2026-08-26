@@ -78,6 +78,37 @@ def test_basic_tool_loop():
     assert agent.last_iterations == 1
 
 
+def test_external_tool_result_is_nonce_enveloped_before_model_reentry():
+    client = FakeClient([{"type": "text", "text": "done"}])
+    agent = Agent(client=client, system="BASE", registry=FakeRegistry())
+
+    result = agent._run_one(
+        {"type": "tool_use", "id": "external-1", "name": "web_fetch", "input": {}}
+    )
+
+    content = result["content"]
+    assert isinstance(content, str)
+    assert 'birkin-external nonce="' in content
+    assert "ok:web_fetch" in content
+    opening = content.splitlines()[0]
+    nonce = opening.removeprefix(
+        '<birkin-external nonce="'
+    ).removesuffix('">')
+    assert content.rstrip().endswith(
+        f'</birkin-external nonce="{nonce}">'
+    )
+
+
+def test_agent_system_marks_external_tool_results_non_authoritative():
+    client = FakeClient([{"type": "text", "text": "done"}])
+    agent = Agent(client=client, system="BASE", registry=FakeRegistry())
+
+    assert agent.run("inspect") == "done"
+
+    assert "non-authoritative" in client.systems[0]
+    assert "external" in client.systems[0]
+
+
 def test_skill_nudge_fires_after_complex_turn_then_injects_next_turn():
     client = FakeClient([{"type": "tool", "name": "read_file"},
                          {"type": "tool", "name": "read_file"},

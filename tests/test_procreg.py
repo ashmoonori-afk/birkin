@@ -45,7 +45,22 @@ def test_reaper_kills_children_of_dead_owner(tmp_path, monkeypatch):
     from birkin import store
     # a registry owned by a (fake) dead pid with two live children
     p = procreg._reg_path(424242)
-    store._write_json(p, {"owner": 424242, "children": [501, 502]})
+    store._write_json(
+        p,
+        {
+            "owner": 424242,
+            "children": [501, 502],
+            "records": [
+                {"pid": 501, "process_generation": "generation-501"},
+                {"pid": 502, "process_generation": "generation-502"},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        procreg,
+        "process_generation",
+        lambda pid: f"generation-{pid}",
+    )
     killed = []
 
     def alive(pid):
@@ -60,7 +75,22 @@ def test_reaper_skips_already_dead_children(tmp_path, monkeypatch):
     procreg = _setup(tmp_path, monkeypatch)
     from birkin import store
     p = procreg._reg_path(424243)
-    store._write_json(p, {"owner": 424243, "children": [601, 602]})
+    store._write_json(
+        p,
+        {
+            "owner": 424243,
+            "children": [601, 602],
+            "records": [
+                {"pid": 601, "process_generation": "generation-601"},
+                {"pid": 602, "process_generation": "generation-602"},
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        procreg,
+        "process_generation",
+        lambda pid: f"generation-{pid}",
+    )
     killed = []
     # owner dead; child 601 already gone, 602 still alive
     r = procreg.reap_orphans(alive=lambda pid: pid == 602, kill=killed.append)
@@ -111,6 +141,7 @@ def test_windows_reaper_uses_taskkill_for_registered_tree(
     procreg = _setup(tmp_path, monkeypatch)
     calls = []
     monkeypatch.setattr(procreg.os, "name", "nt")
+    monkeypatch.setenv("SystemRoot", r"C:\Windows")
     monkeypatch.setattr(
         procreg.subprocess,
         "run",
@@ -121,10 +152,119 @@ def test_windows_reaper_uses_taskkill_for_registered_tree(
 
     assert calls == [
         (
-            ["taskkill", "/F", "/T", "/PID", "4312"],
+            [
+                r"C:\Windows\System32\taskkill.exe",
+                "/F",
+                "/T",
+                "/PID",
+                "4312",
+            ],
             {"capture_output": True, "timeout": 10},
         )
     ]
+
+
+def test_reaper_refuses_child_without_recorded_generation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    procreg = _setup(tmp_path, monkeypatch)
+    from birkin import store
+
+    path = procreg._reg_path(424244)
+    store._write_json(
+        path,
+        {
+            "owner": 424244,
+            "owner_generation": "recorded-owner",
+            "children": [701],
+            "records": [{"pid": 701}],
+        },
+    )
+    monkeypatch.setattr(
+        procreg,
+        "process_generation",
+        lambda pid: f"current-{pid}",
+    )
+    killed: list[int] = []
+
+    result = procreg.reap_orphans(
+        alive=lambda pid: pid == 701,
+        kill=killed.append,
+    )
+
+    assert result == {"dead_owners": 1, "killed": 0}
+    assert killed == []
+
+
+def test_kill_tree_resolves_windows_taskkill_absolutely(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from birkin import proc
+
+    calls = []
+    handle = SimpleNamespace(
+        pid=4312,
+        kill=lambda: pytest.fail("absolute taskkill should succeed"),
+    )
+    monkeypatch.setattr(proc.os, "name", "nt")
+    monkeypatch.setenv("SystemRoot", r"D:\Windows")
+    monkeypatch.setattr(
+        proc.subprocess,
+        "run",
+        lambda argv, **kwargs: (
+            calls.append((argv, kwargs))
+            or SimpleNamespace(returncode=0)
+        ),
+    )
+
+    proc.kill_tree(handle)
+
+    assert calls == [
+        (
+            [
+                r"D:\Windows\System32\taskkill.exe",
+                "/F",
+                "/T",
+                "/PID",
+                "4312",
+            ],
+            {
+                "capture_output": True,
+                "timeout": 10,
+                "check": False,
+            },
+        )
+    ]
+
+
+def test_windows_tree_kill_never_guesses_systemroot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    from birkin import proc
+
+    killed: list[bool] = []
+    handle = SimpleNamespace(
+        pid=4312,
+        kill=lambda: killed.append(True),
+    )
+    monkeypatch.setattr(proc.os, "name", "nt")
+    monkeypatch.delenv("SystemRoot", raising=False)
+    monkeypatch.setattr(
+        proc.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail(
+            "missing SystemRoot fell back to PATH or a guessed directory"
+        ),
+    )
+
+    proc.kill_tree(handle)
+
+    assert killed == [True]
 
 
 def test_register_sanitizes_and_replaces_generation_record(

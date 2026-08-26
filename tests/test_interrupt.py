@@ -633,7 +633,7 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
             self.join_calls += 1
 
     class _InlineThread:
-        def __init__(self, target, args, daemon):
+        def __init__(self, target, args=(), daemon=None):
             self.target = target
             self.args = args
 

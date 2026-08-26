@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from typing import Any
 
 import pytest
@@ -230,20 +231,36 @@ def test_double_workflow_tap_starts_only_one_worker(tmp_path, monkeypatch) -> No
     aid = workflow.queue_proposal(_proposal(), "원래 요청", "42")
     channel = TelegramChannel("token", allowed_chat_ids=["42"])
     resumed: list[str] = []
+    started = threading.Event()
+    release = threading.Event()
     monkeypatch.setattr(
         channel, "_call", lambda *_args, **_kwargs: {"ok": True})
-    monkeypatch.setattr(
-        channel, "_run_turn",
-        lambda _gateway, _chat, _text, _offset, workflow_id=None: resumed.append(
-            str(workflow_id)
-        ),
-    )
+
+    def run_turn(
+        _gateway,
+        _chat,
+        _text,
+        _offset,
+        workflow_id=None,
+    ) -> None:
+        resumed.append(str(workflow_id))
+        started.set()
+        assert release.wait(timeout=2)
+
+    monkeypatch.setattr(channel, "_run_turn", run_turn)
 
     # When
-    channel._handle_callback(object(), _callback(aid, "cb-1"), offset=1)
-    first = channel._workers["42"]
-    first.join(timeout=2)
-    channel._handle_callback(object(), _callback(aid, "cb-2"), offset=1)
+    first = None
+    try:
+        channel._handle_callback(object(), _callback(aid, "cb-1"), offset=1)
+        assert started.wait(timeout=2)
+        first = channel._workers["42"]
+        channel._handle_callback(object(), _callback(aid, "cb-2"), offset=1)
+    finally:
+        release.set()
+        if first is not None:
+            first.join(timeout=2)
+            assert not first.is_alive()
 
     # Then
     assert resumed == [aid]
@@ -254,6 +271,8 @@ def test_generic_approval_ack_precedes_background_execution(
     # Given
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     events: list[str] = []
+    started = threading.Event()
+    release = threading.Event()
 
     class _Gateway:
         @staticmethod
@@ -263,6 +282,8 @@ def test_generic_approval_ack_precedes_background_execution(
         @staticmethod
         def execute_claimed_action(_aid):
             events.append("execute")
+            started.set()
+            assert release.wait(timeout=2)
             return "✅ done"
 
     channel = TelegramChannel("token", allowed_chat_ids=["42"])
@@ -272,8 +293,16 @@ def test_generic_approval_ack_precedes_background_execution(
     )
 
     # When
-    channel._handle_callback(_Gateway(), _callback("a" * 12), offset=1)
-    channel._action_workers["42"].join(timeout=2)
+    worker = None
+    try:
+        channel._handle_callback(_Gateway(), _callback("a" * 12), offset=1)
+        assert started.wait(timeout=2)
+        worker = channel._action_workers["42"]
+    finally:
+        release.set()
+        if worker is not None:
+            worker.join(timeout=2)
+            assert not worker.is_alive()
 
     # Then
     assert events.index("answerCallbackQuery") < events.index("execute")

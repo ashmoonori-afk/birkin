@@ -42,7 +42,8 @@ class PluginManifest:
     def requires_confirmation(self) -> bool:
         policy = self.permissions
         return bool(
-            policy.network is not NetworkPolicy.OFF
+            PluginKind.AGENT in self.kinds
+            or policy.network is not NetworkPolicy.OFF
             or policy.network_allowlist
             or policy.env_allowlist
             or policy.write_paths
@@ -102,10 +103,18 @@ def _permissions(raw: object) -> SandboxPolicy:
         raise ManifestError(f"invalid required_permissions: {exc}") from exc
 
 
-def load_manifest(path: Path) -> PluginManifest:
+def load_manifest(
+    path: Path,
+    *,
+    data: bytes | None = None,
+) -> PluginManifest:
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+        raw = json.loads(
+            path.read_text(encoding="utf-8")
+            if data is None
+            else data
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ManifestError(f"cannot read manifest {path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise ManifestError("manifest must be an object")

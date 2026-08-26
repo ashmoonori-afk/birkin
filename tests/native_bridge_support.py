@@ -176,6 +176,7 @@ class CorrelatedFrameReader:
         self._expected: dict[str, threading.Event] = {}
         self._frames: dict[str, NativeEnvelope] = {}
         self._stopping = threading.Event()
+        self._stopped = threading.Event()
         self._failure: NativeProtocolError | OSError | None = None
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -200,36 +201,42 @@ class CorrelatedFrameReader:
         except OSError:
             pass
         self._client.close()
-        self._thread.join(timeout=2)
-        assert not self._thread.is_alive()
+        assert self._stopped.wait(timeout=10)
+        self._thread.join()
         if self._failure is not None:
             raise self._failure
 
     def _run(self) -> None:
-        while not self._stopping.is_set():
-            try:
-                frame = receive_frame(self._client)
-                if frame.kind == "ping":
-                    self._client.sendall(encode_frame(envelope(
-                        "pong",
-                        frame_id=f"pong-{frame.id}",
-                        in_reply_to=frame.id,
-                        body={**frame.body, "session_capability": self._token},
-                    )))
-                    continue
-            except (NativeProtocolError, OSError) as exc:
-                if not self._stopping.is_set():
-                    self._failure = exc
+        try:
+            while not self._stopping.is_set():
+                try:
+                    frame = receive_frame(self._client)
+                    if frame.kind == "ping":
+                        self._client.sendall(encode_frame(envelope(
+                            "pong",
+                            frame_id=f"pong-{frame.id}",
+                            in_reply_to=frame.id,
+                            body={
+                                **frame.body,
+                                "session_capability": self._token,
+                            },
+                        )))
+                        continue
+                except (NativeProtocolError, OSError) as exc:
+                    if not self._stopping.is_set():
+                        self._failure = exc
+                        with self._lock:
+                            for expected in self._expected.values():
+                                expected.set()
+                    return
+                if frame.in_reply_to is not None:
                     with self._lock:
-                        for expected in self._expected.values():
+                        self._frames[frame.in_reply_to] = frame
+                        expected = self._expected.get(frame.in_reply_to)
+                        if expected is not None:
                             expected.set()
-                return
-            if frame.in_reply_to is not None:
-                with self._lock:
-                    self._frames[frame.in_reply_to] = frame
-                    expected = self._expected.get(frame.in_reply_to)
-                    if expected is not None:
-                        expected.set()
+        finally:
+            self._stopped.set()
 
 
 def command_body(

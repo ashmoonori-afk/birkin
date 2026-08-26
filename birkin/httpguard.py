@@ -6,6 +6,7 @@ import http.client
 import ipaddress
 import socket
 import ssl
+import urllib.error
 import urllib.parse
 import urllib.request
 from functools import partial
@@ -97,3 +98,41 @@ class PinnedHTTPSHandler(urllib.request.HTTPSHandler):
             req,
             context=self._context,
         )
+
+
+class GuardedRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Require HTTPS and public resolution for every redirect target."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        parsed = urllib.parse.urlsplit(newurl)
+        if parsed.scheme.lower() != "https" or not parsed.hostname:
+            raise urllib.error.HTTPError(
+                newurl,
+                code,
+                "SSRF: HTTPS is required for redirect targets",
+                headers,
+                fp,
+            )
+        try:
+            resolve_public(parsed.hostname, parsed.port or 443)
+        except UnsafeAddress as exc:
+            raise urllib.error.HTTPError(
+                newurl,
+                code,
+                f"SSRF: {exc}",
+                headers,
+                fp,
+            ) from exc
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def pinned_opener(
+    *,
+    redirect_handler: urllib.request.HTTPRedirectHandler | None = None,
+) -> urllib.request.OpenerDirector:
+    """Build a proxy-free opener with DNS pinning and guarded redirects."""
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        redirect_handler or GuardedRedirectHandler(),
+        PinnedHTTPSHandler(),
+    )

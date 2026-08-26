@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 
 from birkin import store
 from birkin.gateway import core, workflow
@@ -243,6 +244,8 @@ def test_workflow_button_acknowledges_then_resumes_same_chat(
     channel = TelegramChannel("token", allowed_chat_ids=["42"])
     calls: list[tuple[str, dict]] = []
     resumed: list[tuple[str, str, int]] = []
+    started = threading.Event()
+    release = threading.Event()
     monkeypatch.setattr(
         channel,
         "_call",
@@ -250,13 +253,18 @@ def test_workflow_button_acknowledges_then_resumes_same_chat(
             calls.append((method, params)) or {"ok": True}
         ),
     )
-    monkeypatch.setattr(
-        channel,
-        "_run_turn",
-        lambda _gateway, chat_id, text, offset, workflow_id=None: resumed.append(
-            (chat_id, text, offset)
-        ),
-    )
+    def run_turn(
+        _gateway,
+        chat_id,
+        text,
+        offset,
+        workflow_id=None,
+    ) -> None:
+        resumed.append((chat_id, text, offset))
+        started.set()
+        assert release.wait(timeout=2)
+
+    monkeypatch.setattr(channel, "_run_turn", run_turn)
     callback = {
         "id": "cb-work",
         "data": f"apv:{aid}",
@@ -269,8 +277,16 @@ def test_workflow_button_acknowledges_then_resumes_same_chat(
     }
 
     # When
-    channel._handle_callback(object(), callback, offset=17)
-    channel._workers["42"].join(timeout=2)
+    worker = None
+    try:
+        channel._handle_callback(object(), callback, offset=17)
+        assert started.wait(timeout=2)
+        worker = channel._workers["42"]
+    finally:
+        release.set()
+        if worker is not None:
+            worker.join(timeout=2)
+            assert not worker.is_alive()
 
     # Then
     methods = [method for method, _params in calls]

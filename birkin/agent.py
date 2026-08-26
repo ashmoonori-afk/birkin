@@ -25,6 +25,11 @@ from typing import Any, Callable, Optional, Protocol, runtime_checkable
 from . import compaction, ooda, parallel
 from .config import CLI_PROVIDERS
 from .llm import LLMClient, LLMError
+from .tool_effects import (
+    EXTERNAL_CONTENT_RULE,
+    EXTERNAL_DATA_TOOLS,
+    external_envelope,
+)
 
 SKILL_TOOLS = {"create_skill", "improve_skill"}
 MEMORY_TOOLS = {"remember", "memory_write_note", "memory_link", "profile_write"}
@@ -369,7 +374,10 @@ class Agent:
             spec for spec in self.registry.specs()
             if str(spec.get("name", "")) not in self._blocked_tools
         ]
-        system = self.system + (f"\n\n{extra_system}" if extra_system else "")
+        system = (
+            f"{self.system}\n\n{EXTERNAL_CONTENT_RULE}"
+            + (f"\n\n{extra_system}" if extra_system else "")
+        )
         used_skill = used_memory = False
 
         for _turn in range(self.max_turns):
@@ -469,7 +477,12 @@ class Agent:
             )
         try:
             res = self.registry.execute(name, tool_use.get("input", {}) or {})
-            return self._result_block(tool_use, res.content, res.is_error)
+            content = (
+                external_envelope(res.content)
+                if name in EXTERNAL_DATA_TOOLS
+                else res.content
+            )
+            return self._result_block(tool_use, content, res.is_error)
         except Exception as exc:
             return self._result_block(
                 tool_use, f"Tool {name!r} failed: {exc}", True)

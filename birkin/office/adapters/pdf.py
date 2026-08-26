@@ -13,7 +13,7 @@ from .pdf_mutation import (
     PdfMutationOperation,
     parse_pdf_mutation_operation,
 )
-from .pdf_state import inspect_pdf
+from .pdf_state import DEFAULT_PDF_LIMITS, inspect_pdf
 from .pdf_types import array_items, mapping
 
 
@@ -159,8 +159,17 @@ class PdfAdapter:
                 DocumentErrorCode.CAPABILITY_UNAVAILABLE,
             )
         spans: list[dict[str, object]] = []
+        text_bytes = 0
         for page_number, page in enumerate(reader.pages, 1):
             text = page.extract_text() or ""
+            text_bytes += len(text.encode("utf-8"))
+            if text_bytes > DEFAULT_PDF_LIMITS.max_text_bytes:
+                raise _refusal(
+                    "extract",
+                    "PDF exceeds text byte limit",
+                    "pdf_text_bytes",
+                    DocumentErrorCode.LIMIT_EXCEEDED,
+                )
             for line in (item.strip() for item in text.splitlines()):
                 if line:
                     spans.append(

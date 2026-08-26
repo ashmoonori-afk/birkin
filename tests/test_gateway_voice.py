@@ -52,7 +52,7 @@ def _bound_port(channel: LocalHTTPChannel) -> int:
 def _start_channel(
     gateway: _Gateway | BirkinGateway,
 ) -> tuple[LocalHTTPChannel, threading.Thread]:
-    channel = LocalHTTPChannel(0)
+    channel = LocalHTTPChannel(0, insecure_no_token=True)
     thread = threading.Thread(
         target=channel.start,
         args=(gateway,),

@@ -5,8 +5,10 @@ from pathlib import Path
 
 import pytest
 
+from birkin import plugin_install
 from birkin.plugin_install import (
     InstallConfirmationRequired,
+    PluginInstallError,
     PluginInstaller,
     Scope,
     VersionConflict,
@@ -54,6 +56,7 @@ def test_signed_install_is_pinned_and_recorded_in_lockfile(tmp_path: Path):
     lock = json.loads((tmp_path / "project" / "registry.lock").read_text(encoding="utf-8"))
     assert lock["bundles"]["acme-review"]["version"] == "1.0.0"
     assert lock["bundles"]["acme-review"]["digest"]
+    assert lock["bundles"]["acme-review"]["signature"] == "verified:test"
 
 
 def test_signature_fails_closed_for_missing_tampered_and_unknown_key(tmp_path: Path):
@@ -74,8 +77,19 @@ def test_signature_fails_closed_for_missing_tampered_and_unknown_key(tmp_path: P
         installer.inspect(unknown)
 
 
-def test_manifest_may_explicitly_allow_unsigned_bundle(tmp_path: Path):
-    record = _installer(tmp_path).inspect(_bundle(tmp_path / "bundle", unsigned=True))
+def test_bundle_manifest_cannot_authorize_its_own_unsigned_install(tmp_path: Path):
+    with pytest.raises(SignatureError, match="missing"):
+        _installer(tmp_path).inspect(_bundle(tmp_path / "bundle", unsigned=True))
+
+
+def test_operator_may_explicitly_allow_unsigned_bundle(tmp_path: Path):
+    installer = PluginInstaller(
+        tmp_path / "project",
+        tmp_path / "team",
+        {"test": KEY},
+        allow_unsigned=True,
+    )
+    record = installer.inspect(_bundle(tmp_path / "bundle", unsigned=True))
     assert record.signature == "unsigned-allowed"
 
 
@@ -107,7 +121,12 @@ def test_read_only_bundle_installs_without_confirmation(tmp_path: Path):
 
 
 def test_upgrade_is_explicit_and_resolution_prefers_project_scope(tmp_path: Path):
-    installer = _installer(tmp_path)
+    installer = PluginInstaller(
+        tmp_path / "project",
+        tmp_path / "team",
+        {"test": KEY},
+        allow_unsigned=True,
+    )
     team = _bundle(tmp_path / "team-bundle", "1.0.0", unsigned=True, writable=False)
     project = _bundle(tmp_path / "project-bundle", "2.0.0", unsigned=True, writable=False)
     installer.install(team, Scope.TEAM, "1.0.0")
@@ -122,3 +141,130 @@ def test_upgrade_is_explicit_and_resolution_prefers_project_scope(tmp_path: Path
     with pytest.raises(VersionConflict, match="--upgrade"):
         installer.install(newer, Scope.PROJECT, "3.0.0")
     assert installer.install(newer, Scope.PROJECT, "3.0.0", upgrade=True).version == "3.0.0"
+
+
+@pytest.mark.parametrize("stored_path", ["/tmp/external", "../external"])
+def test_upgrade_refuses_uncontained_lock_record_path(
+    tmp_path: Path,
+    stored_path: str,
+):
+    external = tmp_path / "external"
+    external.mkdir()
+    sentinel = external / "sentinel.txt"
+    sentinel.write_text("unchanged", encoding="utf-8")
+    root = tmp_path / "project"
+    root.mkdir()
+    if stored_path.startswith("/"):
+        stored_path = str(external)
+    (root / "registry.lock").write_text(
+        json.dumps(
+            {
+                "lock_version": 1,
+                "scope": "project",
+                "bundles": {
+                    "acme-review": {
+                        "version": "0.9.0",
+                        "digest": "old",
+                        "path": stored_path,
+                        "kinds": ["skill"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    bundle = _bundle(tmp_path / "bundle", "1.0.0")
+    sign_bundle(bundle, "test", KEY)
+
+    with pytest.raises(PluginInstallError, match="path"):
+        _installer(tmp_path).install(
+            bundle,
+            Scope.PROJECT,
+            "1.0.0",
+            confirmed=True,
+            upgrade=True,
+        )
+
+    assert sentinel.read_text(encoding="utf-8") == "unchanged"
+
+
+def test_upgrade_refuses_symlinked_installed_bundle_path(tmp_path: Path):
+    external = tmp_path / "external"
+    external.mkdir()
+    sentinel = external / "sentinel.txt"
+    sentinel.write_text("unchanged", encoding="utf-8")
+    root = tmp_path / "project"
+    old = root / "bundles" / "acme-review" / "0.9.0"
+    old.parent.mkdir(parents=True)
+    old.symlink_to(external, target_is_directory=True)
+    (root / "registry.lock").write_text(
+        json.dumps(
+            {
+                "lock_version": 1,
+                "scope": "project",
+                "bundles": {
+                    "acme-review": {
+                        "version": "0.9.0",
+                        "digest": "old",
+                        "path": "bundles/acme-review/0.9.0",
+                        "kinds": ["skill"],
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    bundle = _bundle(tmp_path / "bundle", "1.0.0")
+    sign_bundle(bundle, "test", KEY)
+
+    with pytest.raises(PluginInstallError, match="symbolic link"):
+        _installer(tmp_path).install(
+            bundle,
+            Scope.PROJECT,
+            "1.0.0",
+            confirmed=True,
+            upgrade=True,
+        )
+
+    assert sentinel.read_text(encoding="utf-8") == "unchanged"
+
+
+def test_install_verifies_staging_copy_before_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    bundle = _bundle(tmp_path / "bundle")
+    sign_bundle(bundle, "test", KEY)
+    original_verify_bundle = plugin_install.verify_bundle
+    verification_count = 0
+
+    def tampering_verify_bundle(
+        root: Path,
+        trusted_keys: dict[str, bytes],
+        *,
+        allow_missing: bool,
+    ) -> tuple[str, str]:
+        nonlocal verification_count
+        verification_count += 1
+        if verification_count == 2:
+            (root / "skills" / "review" / "SKILL.md").write_text(
+                "replacement",
+                encoding="utf-8",
+            )
+        return original_verify_bundle(
+            root,
+            trusted_keys,
+            allow_missing=allow_missing,
+        )
+
+    monkeypatch.setattr(plugin_install, "verify_bundle", tampering_verify_bundle)
+
+    with pytest.raises(SignatureError, match="mismatch"):
+        _installer(tmp_path).install(
+            bundle,
+            Scope.PROJECT,
+            "1.0.0",
+            confirmed=True,
+        )
+
+    assert not (tmp_path / "project" / "registry.lock").exists()

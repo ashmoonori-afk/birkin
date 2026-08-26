@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import time
 import urllib.error
@@ -29,6 +30,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .. import config
+from ..httpguard import PinnedHTTPSHandler
 from . import guard
 from .bundle_publish import (
     BundleSnapshot,
@@ -43,6 +45,10 @@ USER_AGENT = "birkin-skills-hub"
 SUPPORT_DIRS = ("references", "templates", "scripts", "assets", "examples")
 MAX_SUPPORT_FILES = 20
 FETCH_TIMEOUT = 30
+MAX_SKILL_BYTES = 1_000_000
+MAX_BUNDLE_BYTES = 5_000_000
+_GITHUB_AUTH_HOSTS = frozenset({"api.github.com", "raw.githubusercontent.com"})
+_COMMIT_SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
 class HubError(RuntimeError):
@@ -110,17 +116,58 @@ def resolve_install_path(name: str) -> Path:
 
 # -- GitHub ----------------------------------------------------------------
 
+
+class _NoCrossOriginRedirect(urllib.request.HTTPRedirectHandler):
+    """Refuse redirects that could carry credentials to another origin."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        source = urllib.parse.urlsplit(req.full_url)
+        target = urllib.parse.urlsplit(newurl)
+        source_origin = (
+            source.scheme.lower(),
+            (source.hostname or "").lower(),
+            source.port or 443,
+        )
+        target_origin = (
+            target.scheme.lower(),
+            (target.hostname or "").lower(),
+            target.port or 443,
+        )
+        if target.scheme.lower() != "https" or target_origin != source_origin:
+            raise urllib.error.HTTPError(
+                newurl,
+                code,
+                "cross-origin skill redirect refused",
+                headers,
+                fp,
+            )
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 def _get(url: str, raw: bool = False) -> bytes:
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme.lower() != "https" or not parsed.hostname:
+        raise HubError("skill downloads require an HTTPS URL")
     headers = {"User-Agent": USER_AGENT,
                "Accept": ("application/vnd.github.v3.raw" if raw
                           else "application/vnd.github+json")}
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
-    if token:
+    if token and parsed.hostname.lower() in _GITHUB_AUTH_HOSTS:
         headers["Authorization"] = f"Bearer {token}"
     request = urllib.request.Request(url, headers=headers)
+    opener = urllib.request.build_opener(
+        urllib.request.ProxyHandler({}),
+        _NoCrossOriginRedirect(),
+        PinnedHTTPSHandler(),
+    )
     try:
-        with urllib.request.urlopen(request, timeout=FETCH_TIMEOUT) as resp:
-            return resp.read()
+        with opener.open(request, timeout=FETCH_TIMEOUT) as resp:
+            payload = resp.read(MAX_SKILL_BYTES + 1)
+        if len(payload) > MAX_SKILL_BYTES:
+            raise HubError(
+                f"skill download exceeds the {MAX_SKILL_BYTES}-byte limit"
+            )
+        return payload
     except urllib.error.HTTPError as exc:
         if exc.code == 403:
             raise HubError(
@@ -133,9 +180,39 @@ def _get(url: str, raw: bool = False) -> bytes:
         raise HubError(f"could not reach GitHub: {exc.reason}") from exc
 
 
-def _contents_url(owner: str, repo: str, path: str) -> str:
+def _contents_url(
+    owner: str,
+    repo: str,
+    path: str,
+    ref: str | None = None,
+) -> str:
     quoted = urllib.parse.quote(path.strip("/"))
-    return f"{API}/repos/{owner}/{repo}/contents/{quoted}"
+    url = f"{API}/repos/{owner}/{repo}/contents/{quoted}"
+    return f"{url}?{urllib.parse.urlencode({'ref': ref})}" if ref else url
+
+
+def _resolve_github_ref(owner: str, repo: str) -> str:
+    try:
+        repository = json.loads(_get(f"{API}/repos/{owner}/{repo}"))
+        if not isinstance(repository, dict):
+            raise HubError("GitHub repository metadata is malformed")
+        branch = repository.get("default_branch")
+        if not isinstance(branch, str) or not branch:
+            raise HubError("GitHub repository has no default branch")
+        commit = json.loads(
+            _get(
+                f"{API}/repos/{owner}/{repo}/commits/"
+                f"{urllib.parse.quote(branch, safe='')}"
+            )
+        )
+        if not isinstance(commit, dict):
+            raise HubError("GitHub commit metadata is malformed")
+        sha = commit.get("sha")
+        if not isinstance(sha, str) or not _COMMIT_SHA.fullmatch(sha):
+            raise HubError("GitHub returned an invalid commit SHA")
+        return sha
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HubError("GitHub repository metadata is malformed") from exc
 
 
 def parse_identifier(identifier: str) -> tuple[str, str, str]:
@@ -146,10 +223,15 @@ def parse_identifier(identifier: str) -> tuple[str, str, str]:
     return parts[0], parts[1], "/".join(parts[2:])
 
 
-def _list_dir(owner: str, repo: str, path: str) -> dict[str, str]:
+def _list_dir(
+    owner: str,
+    repo: str,
+    path: str,
+    ref: str,
+) -> dict[str, str]:
     """``{lowercased name: actual name}`` for the files in a repo directory."""
     try:
-        entries = json.loads(_get(_contents_url(owner, repo, path)))
+        entries = json.loads(_get(_contents_url(owner, repo, path, ref)))
     except (HubError, ValueError):
         return {}
     if not isinstance(entries, list):
@@ -196,9 +278,14 @@ def referenced_support_paths(skill_md: str) -> list[str]:
 def fetch_bundle(identifier: str, dest: Path) -> dict[str, Any]:
     """Download a skill into ``dest``. Returns bundle metadata."""
     owner, repo, path = parse_identifier(identifier)
+    sha = _resolve_github_ref(owner, repo)
     skill_path = f"{path}/SKILL.md" if path else "SKILL.md"
-    skill_md = _get(_contents_url(owner, repo, skill_path),
-                    raw=True).decode("utf-8", "replace")
+    skill_payload = _get(
+        _contents_url(owner, repo, skill_path, sha),
+        raw=True,
+    )
+    total_bytes = len(skill_payload)
+    skill_md = skill_payload.decode("utf-8", "replace")
 
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "SKILL.md").write_text(skill_md, encoding="utf-8")
@@ -207,7 +294,7 @@ def fetch_bundle(identifier: str, dest: Path) -> dict[str, Any]:
     # actually exist. Skills routinely refer to REFERENCE.md while shipping
     # reference.md, and GitHub's API is case-sensitive — without this the skill
     # installs without the documents it tells the model to read.
-    listing = _list_dir(owner, repo, path)
+    listing = _list_dir(owner, repo, path, sha)
 
     fetched = ["SKILL.md"]
     for rel in referenced_support_paths(skill_md):
@@ -216,9 +303,15 @@ def fetch_bundle(identifier: str, dest: Path) -> dict[str, Any]:
             continue                      # named in prose, not in the repo
         remote = f"{path}/{actual}" if path else actual
         try:
-            blob = _get(_contents_url(owner, repo, remote), raw=True)
+            blob = _get(_contents_url(owner, repo, remote, sha), raw=True)
         except HubError:
             continue                      # referenced but absent: not fatal
+        total_bytes += len(blob)
+        if total_bytes > MAX_BUNDLE_BYTES:
+            raise HubError(
+                f"skill bundle exceeds the {MAX_BUNDLE_BYTES}-byte "
+                "aggregate byte quota"
+            )
         rel = actual
         target = dest / rel
         if not target.resolve().is_relative_to(dest.resolve()):
@@ -229,7 +322,7 @@ def fetch_bundle(identifier: str, dest: Path) -> dict[str, Any]:
 
     from .frontmatter import parse
     meta, _body = parse(skill_md)
-    return {"identifier": identifier, "files": fetched,
+    return {"identifier": identifier, "sha": sha, "files": fetched,
             "name": str(meta.get("name") or (path.split("/")[-1] if path else repo)),
             "description": str(meta.get("description", ""))}
 

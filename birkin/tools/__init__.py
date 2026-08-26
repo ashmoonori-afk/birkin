@@ -225,9 +225,16 @@ def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
         "egress": egress.tools(),
         "documents": documents.tools(),
     }
+    from ..plugin_install import plugin_trust_policy
     from ..plugin_runtime import load_agent_tools, registry_roots
     plugin_project, plugin_team = registry_roots(ctx.cwd)
-    groups["plugins"] = load_agent_tools(plugin_project, plugin_team)
+    plugin_keys, allow_unsigned = plugin_trust_policy(ctx.cfg)
+    groups["plugins"] = load_agent_tools(
+        plugin_project,
+        plugin_team,
+        plugin_keys,
+        allow_unsigned=allow_unsigned,
+    )
     if ctx.cfg.get("desktop_tools") is True:
         groups["desktop"] = desktop.tools()
         computer_use_config = ctx.cfg.get("computer_use")

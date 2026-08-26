@@ -17,6 +17,9 @@ class PackageLimits(BasePackageLimits):
     max_xml_depth: int = 256
     max_xml_attributes: int = 1_000_000
     max_xml_text_bytes: int = 10_000_000
+    max_total_xml_bytes: int = 50_000_000
+    max_total_xml_nodes: int = 2_000_000
+    max_total_xml_text_bytes: int = 50_000_000
     max_media_bytes: int = 100_000_000
     allowed_media_types: tuple[str, ...] | None = None
     max_media_width: int | None = None
@@ -29,15 +32,18 @@ class PackageLimits(BasePackageLimits):
 DEFAULT_LIMITS = PackageLimits()
 
 
-class PartManifest(TypedDict):
+class ScannedPartManifest(TypedDict):
     index: int
     original_sha256: str
-    bytes: bytes
     compress_type: int
     date_time: tuple[int, int, int, int, int, int]
     external_attr: int
     create_system: int
     header_offset: int
+
+
+class PartManifest(ScannedPartManifest):
+    bytes: bytes
 
 
 class ExternalRelationship(TypedDict):
@@ -54,5 +60,11 @@ class ActiveContent(TypedDict):
 class PackageManifest(TypedDict):
     parts: dict[str, PartManifest]
     source_sha256: str
+    external_relationships: list[ExternalRelationship]
+    active_content: list[ActiveContent]
+
+
+class PackageScanManifest(TypedDict):
+    parts: dict[str, ScannedPartManifest]
     external_relationships: list[ExternalRelationship]
     active_content: list[ActiveContent]

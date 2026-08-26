@@ -15,9 +15,11 @@ import secrets
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .base import Channel
+from .capability_file import load_or_create_token as _load_or_create_token
 
 if TYPE_CHECKING:
     from ..core import Gateway
@@ -26,17 +28,21 @@ _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 _LOOPBACK_PEERS = {"127.0.0.1", "::1"}
 _MAX_BODY = 1_000_000  # 1 MB cap on a request body — this endpoint takes a chat line
 _BODY_TIMEOUT_SECONDS = 2.0
-# Optional shared secret. When BIRKIN_HTTP_TOKEN is set, /message requires a
-# matching X-Birkin-Token header (defense-in-depth lockdown; off by default so
-# existing local clients keep working).
-_HTTP_TOKEN = (os.environ.get("BIRKIN_HTTP_TOKEN") or "").strip()
-
 
 class LocalHTTPChannel(Channel):
     name = "http"
 
-    def __init__(self, port: int):
+    def __init__(
+        self,
+        port: int,
+        *,
+        token: str | None = None,
+        insecure_no_token: bool = False,
+    ):
         self.port = port
+        self._configured_token = (token or "").strip()
+        self.insecure_no_token = insecure_no_token
+        self.token: str | None = None
         self._ready = threading.Event()
         self._stop_requested = threading.Event()
         self._httpd: ThreadingHTTPServer | None = None
@@ -64,6 +70,19 @@ class LocalHTTPChannel(Channel):
     def start(self, gateway: Gateway) -> None:
         self._stop_requested.clear()
         gw = gateway
+        environment_token = (
+            os.environ.get("BIRKIN_HTTP_TOKEN") or ""
+        ).strip()
+        token_path: Path | None = None
+        if environment_token:
+            required_token: str | None = environment_token
+        elif self.insecure_no_token:
+            required_token = None
+        elif self._configured_token:
+            required_token = self._configured_token
+        else:
+            required_token, token_path = _load_or_create_token()
+        self.token = required_token
 
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, format: str, *args: Any) -> None:
@@ -112,9 +131,8 @@ class LocalHTTPChannel(Channel):
                     self._json(
                         {"error": "Content-Type must be application/json"}, 415)
                     return
-                # Optional shared-secret lockdown (off unless BIRKIN_HTTP_TOKEN set).
-                if _HTTP_TOKEN and not secrets.compare_digest(
-                        self.headers.get("X-Birkin-Token", ""), _HTTP_TOKEN):
+                if required_token is not None and not secrets.compare_digest(
+                        self.headers.get("X-Birkin-Token", ""), required_token):
                     self._json({"error": "unauthorized"}, 401)
                     return
                 # Tolerate junk: bad Content-Length, non-UTF-8 bytes (port
@@ -181,8 +199,19 @@ class LocalHTTPChannel(Channel):
             self._httpd = httpd
             self.port = int(httpd.server_address[1])
             self._ready.set()
-        print(f"  · http channel on http://127.0.0.1:{self.port} "
-              f"(POST /message, GET /health)")
+        capability = (
+            "insecure tokenless mode"
+            if required_token is None
+            else (
+                f"capability file: {token_path}"
+                if token_path is not None
+                else "capability required"
+            )
+        )
+        print(
+            f"  · http channel on http://127.0.0.1:{self.port} "
+            f"(POST /message, GET /health; {capability})"
+        )
         try:
             while not self._stop_requested.is_set():
                 httpd.handle_request()

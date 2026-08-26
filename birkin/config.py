@@ -116,6 +116,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     #   "off"    — no gate (the pre-shellguard behavior)
     # A small set of catastrophic commands is refused in every mode.
     "shell_approval": "manual",
+    "shell": {
+        "extra_roots": [],
+        "env_passthrough": [],
+    },
     # PowerShell is never implicit. Set this deliberately, or approve one
     # exact run_shell operation when Birkin queues it for review.
     "allow_powershell": False,
@@ -177,8 +181,20 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # the per-process WebUI capability; false keeps the historical local-only
     # surface and rejects forged/non-loopback Host headers.
     "web_remote_access": False,
+    # A separate acknowledgement is required before binding beyond loopback.
+    "web_remote_insecure_ack": False,
+    # Legacy browser adapter private destinations need this plus sandbox host
+    # permission. Public-only DNS remains the default.
+    "browser_allow_private_network": False,
     # --- Gateway (run the agent as a service across channels) ---
     "gateway_port": 8788,
+    "gateway": {
+        "http": {
+            # Fail closed by default. Set true only for a deliberately
+            # unauthenticated loopback integration.
+            "insecure_no_token": False,
+        },
+    },
     # Model used only by `birkin gateway` (the always-on service). Empty -> use
     # the global "model". Set to a faster model (e.g. "sonnet") so the gateway
     # stays responsive while interactive chat can keep a heavier model.
@@ -270,7 +286,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # "stream": edit-stream partial replies into the chat as they arrive
         # (hermes-style perceived latency) instead of one final message.
         "telegram": {"enabled": False, "token": "", "allowed_chat_ids": [],
-                     "stream": True},
+                     "stream": True, "max_public_workers": 4},
         # Send-only incoming-webhook targets. They do not start listeners and
         # remain inert unless explicitly enabled with an HTTPS URL.
         "slack": {
@@ -621,10 +637,20 @@ def skill_dirs(cfg: dict[str, Any]) -> list[tuple[Path, str]]:
     dirs: list[tuple[Path, str]] = [(d, "bundled") for d in bundled_skills_dirs()]
     for extra in cfg.get("extra_skill_dirs", []) or []:
         dirs.append((Path(extra).expanduser(), "extra"))
+    from .plugin_install import plugin_trust_policy
     from .plugin_manifest import PluginKind
     from .plugin_runtime import entry_paths, registry_roots
     project_registry, team_registry = registry_roots()
-    dirs.extend(entry_paths(project_registry, team_registry, PluginKind.SKILL))
+    plugin_keys, allow_unsigned = plugin_trust_policy(cfg)
+    dirs.extend(
+        entry_paths(
+            project_registry,
+            team_registry,
+            PluginKind.SKILL,
+            plugin_keys,
+            allow_unsigned=allow_unsigned,
+        )
+    )
     dirs.append((user_skills_dir(), "user"))
     return dirs
 

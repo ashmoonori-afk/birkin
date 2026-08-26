@@ -86,6 +86,17 @@ def _assert_windows_owner_only(path: Path, *, sid: str) -> None:
     }
 
 
+def assert_owner_only(path: Path, *, posix_mode: int) -> None:
+    if os.name == "nt":
+        system = Path(os.environ["SystemRoot"]) / "System32"
+        _assert_windows_owner_only(
+            path,
+            sid=_windows_owner_sid(system),
+        )
+        return
+    assert path.stat().st_mode & 0o777 == posix_mode
+
+
 def test_windows_owner_sid_ignores_localized_username_bytes() -> None:
     output = (
         "사용자".encode("cp949")

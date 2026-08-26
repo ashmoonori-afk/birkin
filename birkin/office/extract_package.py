@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import posixpath
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Protocol, overload
 
@@ -12,7 +12,7 @@ from birkin.office.safe_xml import ElementTree
 from birkin.office.safe_xml import DefusedXmlException
 
 from .errors import DocumentError, DocumentErrorCode
-from .package import PartManifest, preflight_package
+from .package_stream import stream_package_payloads
 from .service_types import ExtractedItem
 
 _RESERVED_PREFIXES = frozenset({b"xml", b"xmlns"})
@@ -62,13 +62,7 @@ def _parse(data: bytes, part: str) -> _Element:
         raise _invalid(part, f"malformed XML in {part}: {exc}") from exc
 
 
-def _package_parts(path: Path) -> dict[str, bytes]:
-    parts: dict[str, PartManifest] = preflight_package(path)["parts"]
-    ordered = sorted(parts.items(), key=lambda item: item[1]["index"])
-    return {part_uri: metadata["bytes"] for part_uri, metadata in ordered}
-
-
-def _numbered(parts: dict[str, bytes], pattern: str) -> list[str]:
+def _numbered(parts: Mapping[str, bytes], pattern: str) -> list[str]:
     matcher = re.compile(pattern)
     matched = [(match, name) for name in parts if (match := matcher.fullmatch(name))]
     return [name for _, name in sorted(matched, key=lambda pair: int(pair[0].group(1)))]
@@ -94,7 +88,7 @@ def _relationship_targets(data: bytes | None, base: str) -> dict[str, str]:
 
 
 def _ordered_parts(
-    parts: dict[str, bytes],
+    parts: Mapping[str, bytes],
     source: str,
     rels: str,
     base: str,
@@ -119,34 +113,72 @@ def _ordered_parts(
     return ordered or _numbered(parts, fallback)
 
 
-def _grouped_text(data: bytes, part: str, paragraph: str, text: str) -> list[str]:
-    groups: list[list[str]] = [[]]
+MAX_EXTRACTED_TEXT_BYTES = 10_000_000
+
+
+def _grouped_text(
+    data: bytes,
+    part: str,
+    paragraph: str,
+    text: str,
+    budget: list[int] | None = None,
+) -> list[str]:
+    budget = budget if budget is not None else [MAX_EXTRACTED_TEXT_BYTES]
+    lines: list[str] = []
+    group: list[str] = []
+
+    def flush() -> bool:
+        line = "".join(group)
+        if not line.strip():
+            return True
+        size = len(line.encode("utf-8"))
+        if size > budget[0]:
+            budget[0] = 0
+            return False
+        lines.append(line)
+        budget[0] -= size
+        return budget[0] > 0
+
     for node in _parse(data, part).iter():
         name = _local(node.tag)
         if name == paragraph:
-            groups.append([])
+            if group and not flush():
+                break
+            group = []
         elif name == text:
-            groups[-1].append("".join(node.itertext()))
-    return [line for group in groups if (line := "".join(group)).strip()]
+            group.append("".join(node.itertext()))
+    if budget[0] > 0 and group:
+        _ = flush()
+    return lines
 
 
-def _paragraphs(parts: dict[str, bytes], names: list[str], missing: str) -> list[str]:
+def _paragraphs(
+    parts: Mapping[str, bytes],
+    names: list[str],
+    missing: str,
+    budget: list[int],
+) -> list[str]:
     if not names:
         raise _invalid(missing, f"package contains no {missing} parts")
-    return [
-        line for name in names for line in _grouped_text(parts[name], name, "p", "t")
-    ]
+    lines: list[str] = []
+    for name in names:
+        lines.extend(
+            _grouped_text(parts[name], name, "p", "t", budget)
+        )
+        if budget[0] <= 0:
+            break
+    return lines
 
 
-def _extract_docx(parts: dict[str, bytes]) -> list[str]:
+def _extract_docx(parts: Mapping[str, bytes], budget: list[int]) -> list[str]:
     part = "word/document.xml"
     data = parts.get(part)
     if data is None:
         raise _invalid(part, f"required part is missing: {part}")
-    return _grouped_text(data, part, "p", "t")
+    return _grouped_text(data, part, "p", "t", budget)
 
 
-def _extract_pptx(parts: dict[str, bytes]) -> list[str]:
+def _extract_pptx(parts: Mapping[str, bytes], budget: list[int]) -> list[str]:
     slides = _ordered_parts(
         parts,
         "ppt/presentation.xml",
@@ -155,10 +187,10 @@ def _extract_pptx(parts: dict[str, bytes]) -> list[str]:
         "sldId",
         r"ppt/slides/slide(\d+)\.xml",
     )
-    return _paragraphs(parts, slides, "slide")
+    return _paragraphs(parts, slides, "slide", budget)
 
 
-def _shared_strings(parts: dict[str, bytes]) -> list[str]:
+def _shared_strings(parts: Mapping[str, bytes]) -> list[str]:
     data = parts.get("xl/sharedStrings.xml")
     if data is None:
         return []
@@ -185,7 +217,7 @@ def _cell_text(cell: _Element, shared: list[str]) -> str:
     return shared[index] if 0 <= index < len(shared) else ""
 
 
-def _extract_xlsx(parts: dict[str, bytes]) -> list[str]:
+def _extract_xlsx(parts: Mapping[str, bytes], budget: list[int]) -> list[str]:
     sheets = _ordered_parts(
         parts,
         "xl/workbook.xml",
@@ -208,28 +240,47 @@ def _extract_xlsx(parts: dict[str, bytes]) -> list[str]:
             while values and not values[-1].strip():
                 del values[-1]
             if values:
-                lines.append("\t".join(values))
+                line = "\t".join(values)
+                size = len(line.encode("utf-8"))
+                if size > budget[0]:
+                    budget[0] = 0
+                    return lines
+                lines.append(line)
+                budget[0] -= size
+                if budget[0] <= 0:
+                    return lines
     return lines
 
 
-def extract_package_items(path: Path, format_name: str) -> list[ExtractedItem]:
+def extract_package_items(
+    path: Path,
+    format_name: str,
+    *,
+    max_text_bytes: int = MAX_EXTRACTED_TEXT_BYTES,
+) -> list[ExtractedItem]:
     """Extract typed package nodes without executing relationships or content."""
-    parts = _package_parts(path)
-    if format_name == "docx":
-        lines, kind = _extract_docx(parts), "paragraph"
-    elif format_name == "xlsx":
-        lines, kind = _extract_xlsx(parts), "row"
-    elif format_name == "pptx":
-        lines, kind = _extract_pptx(parts), "slide_paragraph"
-    elif format_name == "hwpx":
-        sections = _numbered(parts, r"Contents/section(\d+)\.xml")
-        lines, kind = _paragraphs(parts, sections, "section"), "paragraph"
-    else:
-        raise DocumentError(
-            DocumentErrorCode.UNSUPPORTED_FORMAT,
-            "probe",
-            f"unsupported package format: {format_name}",
-        )
+    if max_text_bytes <= 0:
+        raise ValueError("max_text_bytes must be positive")
+    with stream_package_payloads(path) as parts:
+        budget = [max_text_bytes]
+        if format_name == "docx":
+            lines, kind = _extract_docx(parts, budget), "paragraph"
+        elif format_name == "xlsx":
+            lines, kind = _extract_xlsx(parts, budget), "row"
+        elif format_name == "pptx":
+            lines, kind = _extract_pptx(parts, budget), "slide_paragraph"
+        elif format_name == "hwpx":
+            sections = _numbered(parts, r"Contents/section(\d+)\.xml")
+            lines, kind = (
+                _paragraphs(parts, sections, "section", budget),
+                "paragraph",
+            )
+        else:
+            raise DocumentError(
+                DocumentErrorCode.UNSUPPORTED_FORMAT,
+                "probe",
+                f"unsupported package format: {format_name}",
+            )
     return [
         {
             "text": text,

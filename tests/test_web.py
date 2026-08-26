@@ -200,6 +200,28 @@ def test_run_prints_secret_bootstrap_url_for_no_browser(monkeypatch, capsys):
     assert "http://127.0.0.1:8765/_bootstrap/" in output
 
 
+def test_remote_run_requires_explicit_admission_ack_before_bind(
+    monkeypatch,
+    capsys,
+):
+    cfg = {
+        **web_server.config.load_config(),
+        "web_remote_access": True,
+        "web_remote_insecure_ack": False,
+    }
+    monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
+    monkeypatch.setattr(
+        web_server,
+        "HTTPServer",
+        lambda *_args, **_kwargs: pytest.fail(
+            "remote listener bound without explicit acknowledgement"
+        ),
+    )
+
+    assert web_server.run(port=8765, open_browser=False) != 0
+    assert "web_remote_insecure_ack" in capsys.readouterr().err
+
+
 def test_remote_run_prints_remote_bootstrap_without_consuming_it(
         monkeypatch,
         capsys):
@@ -217,6 +239,7 @@ def test_remote_run_prints_remote_bootstrap_without_consuming_it(
     cfg = {
         **web_server.config.load_config(),
         "web_remote_access": True,
+        "web_remote_insecure_ack": True,
     }
     monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
     monkeypatch.setattr(web_server, "HTTPServer", StoppingServer)
@@ -234,7 +257,39 @@ def test_remote_run_prints_remote_bootstrap_without_consuming_it(
         "http://birkin-host.example:8765/_bootstrap/"
         in output
     )
+    assert "cleartext" in output.lower()
     assert opened == []
+
+
+def test_remote_bootstrap_cookie_is_secure(monkeypatch):
+    cfg = {
+        **web_server.config.load_config(),
+        "web_remote_access": True,
+        "web_remote_insecure_ack": True,
+    }
+    monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
+    httpd = _ForcedRemoteHTTPServer(
+        ("127.0.0.1", 0),
+        web_server.Handler,
+    )
+    port = int(httpd.server_address[1])
+    nonce = web_server._bootstrap_nonce(httpd)
+    thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+    thread.start()
+    try:
+        code, headers, _body = _request(
+            "console.example",
+            port,
+            "GET",
+            f"/_bootstrap/{nonce}",
+        )
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+        thread.join(timeout=2)
+
+    assert code == 303
+    assert "Secure" in headers["Set-Cookie"]
 
 
 def test_api_status_marks_skill_discovery_unavailable(srv, monkeypatch):

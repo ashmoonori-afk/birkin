@@ -14,8 +14,29 @@ import pytest
 
 from birkin import checkpoints, config, delivery, lineage, scheduler
 from birkin import workspace_theme as legacy_theme
+from birkin.gateway.channels import discord_webhook, slack_webhook
 from birkin.plugin_manifest import ManifestError, load_manifest
 from birkin.workspace import theme as canonical_theme
+
+
+def _webhook_url(channel: str) -> str:
+    host = "hooks.slack.com" if channel == "slack" else "discord.com"
+    return f"https://{host}/{channel}"
+
+
+def _patch_webhook_opener(
+    monkeypatch: pytest.MonkeyPatch,
+    channel: str,
+    open_request,
+) -> None:
+    module = slack_webhook if channel == "slack" else discord_webhook
+
+    class Opener:
+        @staticmethod
+        def open(request, timeout):
+            return open_request(request, timeout)
+
+    monkeypatch.setattr(module, "pinned_opener", lambda: Opener())
 
 
 def _cli(home: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -115,7 +136,7 @@ def test_send_only_channels_have_policy_gated_scheduler_producer(
             "channels": {
                 channel: {
                     "enabled": True,
-                    "webhook_url": f"https://127.0.0.1/{channel}",
+                    "webhook_url": _webhook_url(channel),
                     "allowed_channel_ids": ["ops"],
                 }
             },
@@ -143,7 +164,7 @@ def test_send_only_channels_have_policy_gated_scheduler_producer(
         requests.append(request)
         return Response()
 
-    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    _patch_webhook_opener(monkeypatch, channel, urlopen)
     result = scheduler._deliver(
         {
             "name": "daily",
@@ -171,7 +192,7 @@ def test_send_only_channels_replay_pending_delivery_on_scheduler_start(
             "channels": {
                 channel: {
                     "enabled": True,
-                    "webhook_url": f"https://127.0.0.1/{channel}",
+                    "webhook_url": _webhook_url(channel),
                     "allowed_channel_ids": ["ops"],
                 }
             },
@@ -191,9 +212,9 @@ def test_send_only_channels_replay_pending_delivery_on_scheduler_start(
         def read(self) -> bytes:
             return b""
 
-    monkeypatch.setattr(
-        urllib.request,
-        "urlopen",
+    _patch_webhook_opener(
+        monkeypatch,
+        channel,
         lambda request, timeout: requests.append(request) or Response(),
     )
     delivery.record(channel, "ops", "recover me")
@@ -216,7 +237,7 @@ def test_send_only_channels_keep_revoked_destinations_pending(
             "channels": {
                 channel: {
                     "enabled": True,
-                    "webhook_url": f"https://127.0.0.1/{channel}",
+                    "webhook_url": _webhook_url(channel),
                     "allowed_channel_ids": [],
                 }
             },
@@ -248,7 +269,7 @@ def test_send_only_channels_refuse_unrecorded_delivery(
             "channels": {
                 channel: {
                     "enabled": True,
-                    "webhook_url": f"https://127.0.0.1/{channel}",
+                    "webhook_url": _webhook_url(channel),
                     "allowed_channel_ids": ["ops"],
                 }
             },

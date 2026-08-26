@@ -17,6 +17,7 @@ from datetime import datetime
 from typing import Any, Callable, Optional, cast
 
 from . import config, selfimprove, store, transcripts, ui
+from .persistence_safety import unsafe_persistence_reason
 from .ui import BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW
 
 
@@ -384,6 +385,10 @@ def _memory(session: Any, arg: str) -> None:
     if verb.lower() == "save":
         if not rest:
             print(f"{RED}Give something to remember: /memory save <text>.{RESET}")
+            return
+        unsafe = unsafe_persistence_reason(rest[:60], rest)
+        if unsafe is not None:
+            print(f"{RED}Persistence refused: {unsafe}.{RESET}")
             return
         session.memory.write_note(rest[:60], rest, note_type="fact", source="repl")
         print(f"{GREEN}Noted.{RESET}")

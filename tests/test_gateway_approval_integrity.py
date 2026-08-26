@@ -86,8 +86,10 @@ def test_generic_approval_worker_has_a_dedicated_slot(monkeypatch) -> None:
 
     assert "42" in channel._action_workers
     assert "42" not in channel._workers
+    worker = channel._action_workers["42"]
     release.set()
-    channel._action_workers["42"].join(timeout=2)
+    worker.join(timeout=2)
+    assert not worker.is_alive()
 
 
 def test_native_subagent_tool_requires_approved_gateway_work(tmp_path) -> None:

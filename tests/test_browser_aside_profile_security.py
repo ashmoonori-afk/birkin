@@ -20,6 +20,7 @@ from birkin.browser_aside_playwright import PersistentBrowserRuntime
 from birkin.browser_aside_policy import BrowserEgressPolicy
 from birkin.browser_aside_profiles import profile_owner_lock
 from birkin.browser_playwright import playwright_browser_available
+from tests.test_native_private_storage import assert_owner_only
 
 pytestmark = [
     pytest.mark.browser_integration,
@@ -47,8 +48,7 @@ def _assert_private_directory(path: Path, root: Path) -> None:
             & stat.FILE_ATTRIBUTE_REPARSE_POINT
         )
         assert path.resolve().is_relative_to(root.resolve())
-        return
-    assert _private_mode(path) == 0o700
+    assert_owner_only(path, posix_mode=0o700)
 
 
 def _runtime(
@@ -82,8 +82,6 @@ def test_workspace_profiles_and_artifacts_are_isolated(
     registry = browser_workspace_registry()
     first = registry.resolve("profile-a", "web")
     second = registry.resolve("profile-b", "agent")
-    first_status: dict[str, object]
-    second_status: dict[str, object]
     try:
         first_status, _ = first.start()
         second_status, _ = second.start()

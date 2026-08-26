@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Any
 
 from . import config, store
-from .proc import kill_process_group
+from .proc import kill_process_group, windows_system_executable
 
 _atexit_armed = False
 
@@ -99,11 +99,13 @@ def _kill_pid(pid: int) -> None:
     Best-effort: never raises."""
     try:
         if os.name == "nt":
-            _ = subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(pid)],
-                capture_output=True,
-                timeout=10,
-            )
+            taskkill = windows_system_executable("taskkill.exe")
+            if taskkill is not None:
+                _ = subprocess.run(
+                    [taskkill, "/F", "/T", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=10,
+                )
         else:
             import signal as _sig
 
@@ -286,9 +288,11 @@ def reap_orphans(*, alive: Callable[[int | None], bool] = pid_alive,
                 if isinstance(record, dict)
                 else None
             )
+            current_generation = process_generation(child)
             same_generation = (
-                expected is None
-                or process_generation(child) == expected
+                isinstance(expected, str)
+                and current_generation is not None
+                and current_generation == expected
             )
             if alive(child) and same_generation:
                 kill(child)

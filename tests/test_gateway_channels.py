@@ -29,12 +29,14 @@ class _Response:
 def _capture_post(monkeypatch, module):
     seen = {}
 
-    def urlopen(request, timeout):
-        seen["request"] = request
-        seen["timeout"] = timeout
-        return _Response()
+    class _Opener:
+        @staticmethod
+        def open(request, timeout):
+            seen["request"] = request
+            seen["timeout"] = timeout
+            return _Response()
 
-    monkeypatch.setattr(module.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(module, "pinned_opener", lambda: _Opener())
     return seen
 
 
@@ -91,7 +93,7 @@ def test_gateway_resolves_registry_before_legacy(monkeypatch):
         "channels": {
             "slack": {
                 "enabled": True,
-                "webhook_url": "https://hooks.slack.test/services/1",
+                "webhook_url": "https://hooks.slack.com/services/1",
                 "allowed_channel_ids": ["ops"],
             }
         }
@@ -117,7 +119,7 @@ def test_slack_posts_json_and_truncates(monkeypatch):
         "channels": {
             "slack": {
                 "enabled": True,
-                "webhook_url": "https://hooks.slack.test/services/1",
+                "webhook_url": "https://hooks.slack.com/services/1",
                 "allowed_channel_ids": ["ops"],
             }
         }
@@ -142,7 +144,7 @@ def test_discord_posts_json_and_truncates(monkeypatch):
         "channels": {
             "discord": {
                 "enabled": True,
-                "webhook_url": "https://discord.test/api/webhooks/1",
+                "webhook_url": "https://discord.com/api/webhooks/1",
                 "allowed_channel_ids": ["ops"],
             }
         }
@@ -171,7 +173,10 @@ def test_webhook_validation_is_https_only(module_name, entry_name):
     problems = module.validate_cfg(
         {"channels": {entry_name: {"enabled": True, "webhook_url": "http://example.test/hook"}}}
     )
-    assert problems == [f"channels.{entry_name}.webhook_url must use https"]
+    assert len(problems) == 1
+    assert problems[0].startswith(
+        f"channels.{entry_name}.webhook_url must use https"
+    )
 
 
 def test_health_never_touches_network(monkeypatch):
@@ -215,7 +220,7 @@ def test_redelivery_uses_registered_adapter_before_legacy_send(
             "channels": {
                 "slack": {
                     "enabled": True,
-                    "webhook_url": "https://hooks.slack.test/services/1",
+                    "webhook_url": "https://hooks.slack.com/services/1",
                 }
             }
         },

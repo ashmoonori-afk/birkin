@@ -93,15 +93,23 @@ def load_inventory(
     project: Path | None = None,
 ) -> tuple[InventoryRow, ...]:
     """Load verified installed tools and return their reconciled inventory."""
+    from .config import load_config
+    from .plugin_install import plugin_trust_policy
     from .plugin_runtime import load_agent_tools, registry_roots
 
     project_root, team_root = registry_roots(project)
+    plugin_keys, allow_unsigned = plugin_trust_policy(load_config())
     # SourceFileLoader normally writes __pycache__ into the signed bundle,
     # changing its digest after the first inventory read. Inventory is read-only.
     previous = sys.dont_write_bytecode
     sys.dont_write_bytecode = True
     try:
-        tools = load_agent_tools(project_root, team_root)
+        tools = load_agent_tools(
+            project_root,
+            team_root,
+            plugin_keys,
+            allow_unsigned=allow_unsigned,
+        )
     finally:
         sys.dont_write_bytecode = previous
     return reconcile_inventory(tools, snapshot)

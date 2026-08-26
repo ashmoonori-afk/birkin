@@ -10,11 +10,13 @@ import types
 
 import pytest
 
+from birkin import config
 from birkin.gateway import core as gw_core
 from birkin.gateway.channels import build_channels, local_http
 from birkin.gateway.channels.local_http import LocalHTTPChannel
 from birkin.gateway.channels.telegram import verify_token
 from tests.local_http_support import local_http_timeout
+from tests.test_native_private_storage import assert_owner_only
 
 # ---------------- Gateway.handle ----------------
 
@@ -100,7 +102,7 @@ def test_gateway_persistent_codex_timeout_runs_moirai_recovery(monkeypatch):
             return None
 
     gateway._claude_sessions.put(("http", "u1"), TimedOutCodex())
-    recovered: list[dict] = []
+    recovered: list[dict[str, object]] = []
 
     def run_approved(payload, on_event=None):
         recovered.append(payload)
@@ -109,7 +111,7 @@ def test_gateway_persistent_codex_timeout_runs_moirai_recovery(monkeypatch):
         return "moirai: hard-task completed"
 
     monkeypatch.setattr(trigger, "run_approved", run_approved)
-    progress: dict = {}
+    progress: dict[str, object] = {}
 
     # When: the local user sends a request through the persistent gateway.
     reply = gateway.handle("http", "u1", "continue the Kaggle work",
@@ -220,8 +222,17 @@ def test_gateway_moirai_recovery_failure_reports_server_error(monkeypatch):
 
 # ---------------- LocalHTTPChannel ----------------
 
-def _start_http_channel(gateway):
-    channel = LocalHTTPChannel(0)
+def _start_http_channel(
+    gateway,
+    *,
+    insecure_no_token: bool = True,
+    token: str | None = None,
+):
+    channel = LocalHTTPChannel(
+        0,
+        insecure_no_token=insecure_no_token,
+        token=token,
+    )
     thread = threading.Thread(
         target=channel.start, args=(gateway,), daemon=True)
     thread.start()
@@ -244,13 +255,15 @@ def http_channel():
 
 
 def _req(channel, method, path, host="127.0.0.1", body=None,
-         timeout=None):
+         timeout=None, token: str | None = None):
     conn = http.client.HTTPConnection(
         "127.0.0.1", channel.port,
         timeout=local_http_timeout() if timeout is None else timeout)
     headers = {"Host": host}
     if body is not None:
         headers["Content-Type"] = "application/json"
+    if token is not None:
+        headers["X-Birkin-Token"] = token
     conn.request(method, path, body=body, headers=headers)
     r = conn.getresponse()
     data = r.read()
@@ -280,6 +293,57 @@ def test_local_http_message_routes_to_gateway(http_channel):
     code, payload = _req(http_channel, "POST", "/message", body=body)
     assert code == 200
     assert json.loads(payload)["reply"] == "[http:u1] hello"
+
+
+def test_local_http_default_requires_owner_capability_before_dispatch(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("BIRKIN_HTTP_TOKEN", raising=False)
+    calls = []
+    gateway = types.SimpleNamespace(
+        handle=lambda *args: calls.append(args) or "ok",
+        pending_hard_restart=False,
+    )
+    channel = LocalHTTPChannel(0)
+    thread = threading.Thread(
+        target=channel.start,
+        args=(gateway,),
+        daemon=True,
+    )
+    thread.start()
+    assert channel.wait_until_ready(1.0)
+    try:
+        body = json.dumps({"session": "owner", "text": "hello"}).encode()
+        missing, _ = _req(channel, "POST", "/message", body=body)
+        wrong, _ = _req(
+            channel,
+            "POST",
+            "/message",
+            body=body,
+            token="wrong-test-token",
+        )
+        token_path = config.birkin_home() / "gateway_http_token"
+        token = token_path.read_text(encoding="utf-8").strip()
+        accepted, payload = _req(
+            channel,
+            "POST",
+            "/message",
+            body=body,
+            token=token,
+        )
+    finally:
+        channel.stop()
+        thread.join(timeout=2.0)
+
+    assert missing == 401
+    assert wrong == 401
+    assert accepted == 200
+    assert json.loads(payload) == {"reply": "ok"}
+    assert calls == [("http", "owner", "hello")]
+    assert len(token) >= 32
+    assert_owner_only(token_path, posix_mode=0o600)
 
 
 def test_local_http_timeout_runs_real_moirai_hard_task(
@@ -346,7 +410,6 @@ def test_local_http_timeout_runs_real_moirai_hard_task(
 
 
 def test_local_http_token_uses_constant_time_comparison(monkeypatch):
-    monkeypatch.setattr(local_http, "_HTTP_TOKEN", "correct-token")
     comparisons = []
     real_compare_digest = secrets.compare_digest
 
@@ -359,7 +422,11 @@ def test_local_http_token_uses_constant_time_comparison(monkeypatch):
         handle=lambda *_args: "ok",
         pending_hard_restart=False,
     )
-    channel, thread = _start_http_channel(fake_gw)
+    channel, thread = _start_http_channel(
+        fake_gw,
+        insecure_no_token=False,
+        token="correct-token",
+    )
     try:
         body = json.dumps({"text": "x"}).encode()
         conn = http.client.HTTPConnection(
@@ -515,7 +582,7 @@ def test_local_http_stop_does_not_deadlock_before_serve_loop(monkeypatch):
         local_http, "print", blocking_print, raising=False)
     gateway = types.SimpleNamespace(
         handle=lambda *_args: "ok", pending_hard_restart=False)
-    channel = LocalHTTPChannel(0)
+    channel = LocalHTTPChannel(0, insecure_no_token=True)
     server_thread = threading.Thread(
         target=channel.start, args=(gateway,), daemon=True)
     server_thread.start()

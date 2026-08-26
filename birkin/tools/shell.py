@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import subprocess
 from pathlib import Path
-from typing import cast
+from typing import Protocol, TypeGuard, cast
 
 from ..operation_policy import ApprovalRequiredError
 from ..proc import ShellCommand, run_shell_command, shell_env
@@ -30,6 +30,10 @@ _POWERSHELL_SEGMENT = re.compile(
 )
 
 
+class _ConfigValue(Protocol):
+    """Opaque input that must be narrowed before use."""
+
+
 def _text(value: str | bytes | None) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", "replace")
@@ -42,7 +46,14 @@ def _output(stdout: str | bytes | None, stderr: str | bytes | None) -> str:
     return text + (("\n[stderr]\n" + error) if error else "")
 
 
-def _run_shell(inp: dict[str, object], ctx: ToolContext) -> ToolResult:
+def _is_string_list(value: _ConfigValue) -> TypeGuard[list[str]]:
+    if not isinstance(value, list):
+        return False
+    entries = cast(list[object], value)
+    return all(isinstance(entry, str) for entry in entries)
+
+
+def _run_shell(inp: dict[str, _ConfigValue], ctx: ToolContext) -> ToolResult:
     command_value = inp.get("command")
     command = command_value.strip() if isinstance(command_value, str) else ""
     if not command:
@@ -68,18 +79,60 @@ def _run_shell(inp: dict[str, object], ctx: ToolContext) -> ToolResult:
             ),
         )
     cwd_value = inp.get("cwd")
-    cwd = (
-        Path(cwd_value).expanduser()
-        if isinstance(cwd_value, str) and cwd_value
-        else ctx.cwd
-    )
+    try:
+        workspace = ctx.cwd.expanduser().resolve(strict=True)
+        roots = [workspace]
+        shell_cfg_value = cast(_ConfigValue, ctx.cfg.get("shell", {}))
+        if not isinstance(shell_cfg_value, dict):
+            return ToolResult(
+                "Invalid shell configuration",
+                is_error=True,
+            )
+        shell_cfg = cast(dict[object, object], shell_cfg_value)
+        raw_roots = cast(_ConfigValue, shell_cfg.get("extra_roots", []))
+        if not _is_string_list(raw_roots):
+            return ToolResult(
+                "Invalid shell.extra_roots configuration",
+                is_error=True,
+            )
+        for value in raw_roots:
+            root = Path(value).expanduser()
+            if not root.is_absolute():
+                root = workspace / root
+            roots.append(root.resolve(strict=True))
+        candidate = (
+            Path(cwd_value).expanduser()
+            if isinstance(cwd_value, str) and cwd_value
+            else workspace
+        )
+        if not candidate.is_absolute():
+            candidate = workspace / candidate
+        cwd = candidate.resolve(strict=True)
+    except (OSError, RuntimeError):
+        return ToolResult("Shell cwd does not exist", is_error=True)
+    if not cwd.is_dir():
+        return ToolResult("Shell cwd is not a directory", is_error=True)
+    if not any(cwd == root or cwd.is_relative_to(root) for root in roots):
+        return ToolResult(
+            "Shell cwd is outside the configured workspace roots",
+            is_error=True,
+        )
     timeout_value = inp.get("timeout", DEFAULT_TIMEOUT)
     timeout = (
         timeout_value
         if isinstance(timeout_value, int) and not isinstance(timeout_value, bool)
         else DEFAULT_TIMEOUT
     )
-    environment = shell_env()
+    raw_allowlist = cast(
+        _ConfigValue,
+        shell_cfg.get("env_passthrough", []),
+    )
+    if not _is_string_list(raw_allowlist):
+        return ToolResult(
+            "Invalid shell.env_passthrough configuration",
+            is_error=True,
+        )
+    environment = shell_env(allowlist=raw_allowlist)
     approved_environment = inp.get("_approved_env")
     if ctx.approved_operation and isinstance(approved_environment, dict):
         supplied = cast(dict[object, object], approved_environment)

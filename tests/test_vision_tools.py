@@ -4,6 +4,8 @@ import base64
 import json
 from pathlib import Path
 
+import pytest
+
 from birkin.tools import ToolContext, build_registry
 
 
@@ -57,7 +59,7 @@ def test_vision_analyze_rejects_private_url(tmp_path: Path) -> None:
     assert isinstance(result.content, str)
 
 
-def test_vision_analyze_downloads_public_http_image(
+def test_vision_analyze_refuses_public_http_image(
         tmp_path: Path, monkeypatch) -> None:
     # Given
     from birkin.tools import vision
@@ -87,8 +89,11 @@ def test_vision_analyze_downloads_public_http_image(
         def close(self) -> None:
             pass
 
-    monkeypatch.setattr(vision, "_is_blocked_url", lambda _url: False)
-    monkeypatch.setattr(vision.http.client, "HTTPConnection", ImageConnection)
+    monkeypatch.setattr(
+        vision.http.client,
+        "HTTPConnection",
+        ImageConnection,
+    )
     registry = build_registry(_context(tmp_path), include={"vision"})
 
     # When
@@ -98,8 +103,64 @@ def test_vision_analyze_downloads_public_http_image(
     )
 
     # Then
+    assert result.is_error is True
+    assert isinstance(result.content, str)
+    assert "HTTPS" in result.content
+
+
+def test_vision_analyze_uses_the_pinned_https_opener(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin.tools import vision
+
+    class ImageResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+        @staticmethod
+        def read(_limit: int) -> bytes:
+            return _ONE_PIXEL_PNG
+
+    class ImageOpener:
+        calls: list[tuple[object, int]] = []
+
+        def open(self, request: object, timeout: int) -> ImageResponse:
+            self.calls.append((request, timeout))
+            return ImageResponse()
+
+    opener = ImageOpener()
+    monkeypatch.setattr(
+        vision,
+        "pinned_opener",
+        lambda: opener,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        vision.urllib.request,
+        "urlopen",
+        lambda *_args, **_kwargs: pytest.fail(
+            "vision used the default URL opener instead of pinned HTTPS"
+        ),
+    )
+    registry = build_registry(_context(tmp_path), include={"vision"})
+
+    result = registry.execute(
+        "vision_analyze",
+        {
+            "image_url": "https://example.com/pixel.png",
+            "question": "What is shown?",
+        },
+    )
+
     assert result.is_error is False
-    assert isinstance(result.content, list)
+    assert len(opener.calls) == 1
+    assert opener.calls[0][1] == 30
 
 
 def test_desktop_tools_require_explicit_opt_in(tmp_path: Path) -> None:
