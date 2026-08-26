@@ -1,0 +1,192 @@
+<UserControl x:Class="Birkin.Native.App.Views.TerminalView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+             automation:AutomationProperties.Name="Terminal workspace">
+    <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <DockPanel Margin="0,0,0,8">
+            <Button DockPanel.Dock="Right"
+                    Content="Create"
+                    automation:AutomationProperties.AutomationId="terminal.create"
+                    automation:AutomationProperties.Name="Create terminal"
+                    automation:AutomationProperties.LiveSetting="Off"
+                    Style="{StaticResource DisabledActionStyle}"
+                    IsEnabled="{Binding TerminalWorkflow.CreateAvailability.IsEnabled}"
+                    Click="CreateClicked" />
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <TextBlock Text="&gt;_" FontFamily="Cascadia Mono, Consolas" FontSize="17"
+                           Foreground="{StaticResource MutedBrush}" Margin="0,0,10,0" />
+                <TextBlock Text="Terminal" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="{Binding Workspace.Terminal.State}"
+                           automation:AutomationProperties.AutomationId="terminal.state"
+                           automation:AutomationProperties.Name="Terminal process state"
+                           automation:AutomationProperties.LiveSetting="Off"
+                           Foreground="{StaticResource MutedBrush}" Margin="10,2,0,0" />
+                <TextBlock Text="{Binding Workspace.Terminal.OutputSequence, StringFormat=Cursor {0}}"
+                           automation:AutomationProperties.AutomationId="terminal.cursor"
+                           automation:AutomationProperties.Name="Terminal synchronization cursor"
+                           automation:AutomationProperties.LiveSetting="Off"
+                           Foreground="{StaticResource FaintBrush}" Margin="8,2,0,0" />
+            </StackPanel>
+        </DockPanel>
+
+        <Border Grid.Row="1" Background="{StaticResource TerminalBrush}" CornerRadius="7" Padding="9" MinHeight="96">
+            <Grid>
+            <TextBox x:Name="OutputText"
+                     automation:AutomationProperties.AutomationId="terminal.output"
+                     automation:AutomationProperties.Name="Terminal output"
+                     automation:AutomationProperties.LiveSetting="Polite"
+                     FontFamily="Cascadia Mono, Consolas, Malgun Gothic, Yu Gothic UI"
+                     Foreground="{StaticResource TextBrush}"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     Padding="0"
+                     IsReadOnly="True"
+                     AcceptsReturn="True"
+                     TextWrapping="NoWrap"
+                     VerticalScrollBarVisibility="Auto"
+                     HorizontalScrollBarVisibility="Auto" />
+            <TextBlock x:Name="LegacyOutputText"
+                       automation:AutomationProperties.AutomationId="terminal.output"
+                       automation:AutomationProperties.Name="Terminal output compatibility"
+                       Text="{Binding Text, ElementName=OutputText}"
+                       Visibility="Collapsed" />
+            </Grid>
+        </Border>
+
+        <Grid Grid.Row="2" Margin="0,8,0,0">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBox x:Name="InputBox"
+                     automation:AutomationProperties.AutomationId="terminal.input"
+                     automation:AutomationProperties.Name="Terminal input"
+                     automation:AutomationProperties.LiveSetting="Off"
+                     AcceptsReturn="True"
+                     MinHeight="38"
+                     MaxHeight="58"
+                     VerticalScrollBarVisibility="Auto"
+                     TextWrapping="Wrap"
+                     Padding="7,5"
+                     Background="{StaticResource RaisedBrush}"
+                     BorderBrush="{StaticResource BorderBrush}"
+                     Foreground="{StaticResource TextBrush}"
+                     CaretBrush="{StaticResource AccentBrush}"
+                     IsEnabled="{Binding TerminalWorkflow.MutationAvailability.Input.IsEnabled}"
+                     PreviewKeyDown="InputKeyDown" />
+            <Button Grid.Column="1"
+                    Content="Send"
+                    Margin="7,0,0,0"
+                    automation:AutomationProperties.AutomationId="terminal.send"
+                    automation:AutomationProperties.Name="Send terminal input"
+                    automation:AutomationProperties.LiveSetting="Off"
+                    Style="{StaticResource DisabledActionStyle}"
+                    IsEnabled="{Binding TerminalWorkflow.MutationAvailability.Input.IsEnabled}"
+                    Click="SendClicked" />
+        </Grid>
+
+        <WrapPanel Grid.Row="3" Margin="0,7,0,0" VerticalAlignment="Center">
+            <TextBlock Text="Size" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" Margin="0,0,5,0" />
+            <TextBox x:Name="ColumnsBox" Text="80" Width="45" Padding="5,3"
+                     automation:AutomationProperties.AutomationId="terminal.columns"
+                     automation:AutomationProperties.Name="Terminal columns"
+                     automation:AutomationProperties.LiveSetting="Off"
+                     Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}"
+                     Foreground="{StaticResource TextBrush}"
+                     IsEnabled="{Binding TerminalWorkflow.MutationAvailability.Resize.IsEnabled}" />
+            <TextBlock Text="×" Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" Margin="4,0" />
+            <TextBox x:Name="RowsBox" Text="24" Width="45" Padding="5,3"
+                     automation:AutomationProperties.AutomationId="terminal.rows"
+                     automation:AutomationProperties.Name="Terminal rows"
+                     automation:AutomationProperties.LiveSetting="Off"
+                     Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}"
+                     Foreground="{StaticResource TextBrush}"
+                     IsEnabled="{Binding TerminalWorkflow.MutationAvailability.Resize.IsEnabled}" />
+            <Button Content="Resize" Margin="6,0,0,0"
+                    automation:AutomationProperties.AutomationId="terminal.resize"
+                    automation:AutomationProperties.Name="Resize terminal"
+                    automation:AutomationProperties.LiveSetting="Off"
+                    Style="{StaticResource DisabledActionStyle}"
+                    IsEnabled="{Binding TerminalWorkflow.MutationAvailability.Resize.IsEnabled}"
+                    Click="ResizeClicked" />
+            <Button Content="Interrupt" Margin="6,0,0,0"
+                    automation:AutomationProperties.AutomationId="terminal.interrupt"
+                    automation:AutomationProperties.Name="Interrupt terminal"
+                    automation:AutomationProperties.LiveSetting="Off"
+                    Style="{StaticResource DisabledActionStyle}"
+                    IsEnabled="{Binding TerminalWorkflow.MutationAvailability.Interrupt.IsEnabled}"
+                    Click="InterruptClicked" />
+            <Button Content="Close" Margin="6,0,0,0"
+                    automation:AutomationProperties.AutomationId="terminal.close"
+                    automation:AutomationProperties.Name="Close terminal"
+                    automation:AutomationProperties.LiveSetting="Off"
+                    Style="{StaticResource DisabledActionStyle}"
+                    IsEnabled="{Binding TerminalWorkflow.MutationAvailability.Close.IsEnabled}"
+                    Click="CloseClicked" />
+        </WrapPanel>
+
+        <TextBlock Grid.Row="4"
+                   automation:AutomationProperties.AutomationId="terminal.guidance"
+                   automation:AutomationProperties.Name="Terminal availability guidance"
+                   automation:AutomationProperties.LiveSetting="Off"
+                   Margin="0,6,0,0">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource MutedTextStyle}">
+                    <Setter Property="Text" Value="Terminal commands are not available in this session." />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding Workspace.Terminal.IsAvailable}" Value="True">
+                            <Setter Property="Text" Value="This terminal is read-only. Create a new terminal to continue." />
+                        </DataTrigger>
+                        <DataTrigger Binding="{Binding TerminalWorkflow.CreateAvailability.IsEnabled}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                        <MultiDataTrigger>
+                            <MultiDataTrigger.Conditions>
+                                <Condition Binding="{Binding TerminalWorkflow.CreateAvailability.IsEnabled}" Value="True" />
+                                <Condition Binding="{Binding Workspace.Terminal.IsAvailable}" Value="True" />
+                            </MultiDataTrigger.Conditions>
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Setter Property="Text" Value="This terminal is read-only. Create a new terminal to continue." />
+                        </MultiDataTrigger>
+                        <DataTrigger Binding="{Binding TerminalWorkflow.MutationAvailability.Input.IsEnabled}" Value="True">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+
+        <TextBlock Grid.Row="4"
+                   automation:AutomationProperties.AutomationId="terminal.read-only-caption"
+                   automation:AutomationProperties.Name="Terminal read-only status"
+                   automation:AutomationProperties.LiveSetting="Off"
+                   Text="Read-only terminal projection"
+                   Visibility="Collapsed" />
+
+        <TextBlock Grid.Row="5" Margin="0,5,0,0"
+                   automation:AutomationProperties.AutomationId="terminal.failure"
+                   automation:AutomationProperties.Name="Terminal action failure"
+                   automation:AutomationProperties.LiveSetting="Assertive"
+                   Foreground="{StaticResource DangerBrush}"
+                   Text="{Binding TerminalWorkflow.UserFacingFailure}"
+                   TextWrapping="Wrap">
+            <TextBlock.Style>
+                <Style TargetType="TextBlock">
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding TerminalWorkflow.UserFacingFailure}" Value="{x:Null}">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </TextBlock.Style>
+        </TextBlock>
+    </Grid>
+</UserControl>

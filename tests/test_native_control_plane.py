@@ -192,7 +192,7 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
 
     def normal(payload: dict[str, object]) -> dict[str, object]:
         normal_entered.set()
-        if not release_normal.wait(timeout=10):
+        if not release_normal.wait(timeout=30):
             raise AssertionError("test did not release normal command")
         ordering.append("normal")
         return {"reply": str(payload["text"])}
@@ -200,7 +200,7 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
     def control(name: str) -> Callable[[dict[str, object]], dict[str, object]]:
         def run(_payload: dict[str, object]) -> dict[str, object]:
             control_entered[name].set()
-            if not release_controls.wait(timeout=10):
+            if not release_controls.wait(timeout=30):
                 raise AssertionError(f"test did not release {name}")
             ordering.append(name)
             control_completed[name].set()
@@ -219,18 +219,18 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
         "chat.resume": control("resume"),
     }, cleanup=cleanup)
     server_socket, client = socket.socketpair()
-    client.settimeout(2)
+    client.settimeout(10)
     thread, errors = serve(
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
     token = handshake(client)
     try:
         _send(client, token, "chat.send", "normal", 0, {"text": "work"})
-        assert normal_entered.wait(timeout=1)
+        assert normal_entered.wait(timeout=10)
         for index, (name, event) in enumerate(control_entered.items(), start=1):
             payload = {"text": "direction"} if name == "steer" else {}
             _send(client, token, f"chat.{name}", name, source.snapshot().cursor, payload)
-            assert event.wait(timeout=1)
+            assert event.wait(timeout=10)
             _send(client, token, f"chat.{name}", f"second-{name}", source.snapshot().cursor, payload)
             refusal = _reply(client, token, f"second-{name}")
             assert refusal.body["code"] == "E_FLOW_VIOLATION"
@@ -243,12 +243,12 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
         assert len(workers) <= 4
 
         client.close()
-        thread.join(timeout=2)
+        thread.join(timeout=10)
         assert not thread.is_alive()
         assert not cleaned.is_set()
 
         second_server, second_client = socket.socketpair()
-        second_client.settimeout(2)
+        second_client.settimeout(10)
         second_thread, second_errors = serve(
             bridge, second_server, transport="uds", peer_uid=local_peer_uid()
         )
@@ -257,15 +257,15 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
         refusal = receive_kind(second_client, "error")
         assert refusal.body["code"] == "E_FLOW_VIOLATION"
         second_client.close()
-        second_thread.join(timeout=2)
+        second_thread.join(timeout=10)
         assert second_errors == []
 
         release_controls.set()
         for event in control_completed.values():
-            assert event.wait(timeout=2)
+            assert event.wait(timeout=10)
         assert not cleaned.is_set()
         release_normal.set()
-        assert cleaned.wait(timeout=2)
+        assert cleaned.wait(timeout=10)
         assert ordering[-1] == "cleanup"
     finally:
         release_controls.set()

@@ -2,7 +2,7 @@
 
 Protocol: `birkin-local-1`, envelope version `1`
 
-Status: shipped by the Python bridge and Swift protocol package.
+Status: shipped by the Python bridge and Swift protocol package; consumed by the Windows Phase 3 development preview.
 
 ## Transport and framing
 
@@ -41,6 +41,17 @@ connection. Reusing an identifier still inside that window is refused as
 streaming connection processes an unbounded number of frames with bounded
 memory and is never torn down for age alone.
 
+### Windows client consumption
+
+Windows uses authenticated loopback with exact
+`surface = "windows"` and `view_id = "window-main"`. One `BridgeSession` is the
+sole reader over one shared projection store; callers cannot race it with a
+manual receive. Cursor or surface gaps, `stream.desynchronized`, heartbeat loss,
+and disconnect revoke mutation authority. One gated replay episode requests
+canonical state, and only a replacement snapshot returns the store to `Live`.
+Attach never kills an external bridge; shutdown closes the session before
+stopping an exact owned process.
+
 ## Message kinds
 
 These are all registered envelope kinds in `birkin/native/protocol.py`:
@@ -69,7 +80,9 @@ create/input/resize/signal/close/snapshot; Browser start/navigate; Office
 create/open; jailed file import; skill reload; checkpoint restore; config set;
 and gateway restart. `ready.capabilities.commands` is the authoritative subset
 actually registered for a connection. Unsupported registered-schema commands
-are not simulated by Swift and return `E_UNSUPPORTED_COMMAND`.
+are not simulated by a native client and return `E_UNSUPPORTED_COMMAND`. On
+Windows, the terminal subset is advertised only when the Python-owned ConPTY
+backend is supported; WPF never substitutes a client-side process.
 
 ## Handshake and capability lifecycle
 
@@ -162,11 +175,12 @@ The shipped Python native boundary emits these codes:
 
 Errors expose bounded public text, not tracebacks or raw secret-bearing payloads.
 The protocol and projection fixtures contain 21 Python-generated frame vectors,
-a canonical snapshot, 14 events, and a gap event, all decoded by Swift tests.
+a canonical snapshot, 14 events, and a gap event, consumed by both Swift and C#
+tests.
 
 ## Cross-language JSON narrowings
 
-The Python and Swift codecs both narrow generic JSON in two places:
+The Python, Swift, and C# codecs narrow generic JSON in two places:
 
 - A lone UTF-16 surrogate (`\uD800`-`\uDFFF` not forming a valid pair) is
   refused as `E_JSON`, because Swift `String` cannot represent it.

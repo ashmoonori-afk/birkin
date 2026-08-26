@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import final
+from typing import cast, final
 
 from birkin.native.product_surface_authorities import (
     BrowserAsideProjectionSource as BrowserAsideProjectionSource,
@@ -27,6 +27,7 @@ SurfaceHandler = Callable[[dict[str, object]], dict[str, object]]
 SURFACE_EVENT_SOURCES: Mapping[str, str] = {
     "browser.updated": "browser_aside",
     "office.updated": "office",
+    "office.diff_ready": "office",
     "computer.updated": "computer_use",
 }
 
@@ -133,6 +134,19 @@ class NativeProductSurfaceAuthority:
                 return result
             return handle
 
+        def draft(payload: dict[str, object]) -> dict[str, object]:
+            result = self.office.draft(payload)
+            requested = emit("approval.requested", self.office.approval_event(result))
+            command_id = getattr(requested, "command_id", "")
+            raw_approval = result.get("approval")
+            if isinstance(raw_approval, dict):
+                approval = cast(dict[str, object], raw_approval)
+                approval_id = approval.get("approval_id")
+                if isinstance(approval_id, str) and isinstance(command_id, str):
+                    self.office.bind_request_command(approval_id, command_id)
+            _ = emit("office.updated", {"surface": "office", "result": result})
+            return result
+
         return {
             "browser.start": wrapped("browser_aside", "browser.updated", self.browser.start),
             "browser.navigate": wrapped("browser_aside", "browser.updated", self.browser.navigate),
@@ -152,4 +166,6 @@ class NativeProductSurfaceAuthority:
             "office.select": wrapped("office", "office.updated", self.office.select),
             "office.open": wrapped("office", "office.updated", self.office.open),
             "office.convert": wrapped("office", "office.updated", self.office.convert),
+            "office.compare": wrapped("office", "office.diff_ready", self.office.compare),
+            "office.draft": draft,
         }

@@ -45,9 +45,21 @@ import birkin.native.server
 import birkin.native.session
 import birkin.native.product_surfaces
 import birkin.cli
+from pathlib import Path
+from birkin.workspace.owned_terminal import TerminalAuthority
 
 for name in BLOCKED:
     assert name not in sys.modules, name
+if sys.platform == "win32":
+    from birkin.workspace.windows_conpty import conpty_supported
+    authority = TerminalAuthority(
+        session_id="import-probe",
+        workspace_root=Path.cwd(),
+        emit=lambda _event, _payload: None,
+        config_loader=lambda: {{"auto_approve": ["shell"]}},
+    )
+    assert conpty_supported()
+    assert "terminal.create" in authority.handlers()
 print("IMPORT_OK")
 '''
 
@@ -108,22 +120,15 @@ def test_package_web_native_and_cli_import_without_unix_pty_modules() -> None:
     assert "IMPORT_OK" in result.stdout
 
 
-def test_terminal_creation_without_pty_returns_typed_capability_error() -> None:
-    """Given a platform with no PTY support, When a terminal is requested,
-    Then a typed unsupported-capability refusal is raised, not an import error."""
+def test_darwin_pty_probe_returns_typed_capability_error_without_pty() -> None:
+    """Given no Unix PTY modules, When Darwin support is probed, Then the
+    boundary returns a typed capability refusal rather than an import error."""
     from birkin.workspace import owned_terminal
     from birkin.workspace.contracts import TerminalUnsupported
 
-    authority = owned_terminal.TerminalAuthority(
-        session_id="session-1",
-        workspace_root=Path.cwd(),
-        emit=lambda _event, _payload: None,
-        config_loader=lambda: {"auto_approve": ["shell"]},
-    )
-
     with _unix_pty_modules_blocked():
         with pytest.raises(TerminalUnsupported) as refusal:
-            _ = authority.create({"actor_kind": "native_human", "cwd": "."})
+            _ = owned_terminal.load_pty_support()
 
     assert refusal.value.capability == "terminal"
 

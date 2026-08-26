@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import os
+import stat
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol, cast
@@ -13,6 +16,7 @@ from .adapters.hwpx_package import require_hwpx_content
 from .adapters.pdf import PdfAdapter
 from .adapters.pptx import PptxAdapter
 from .adapters.xlsx import XlsxAdapter
+from .comparison_report import render_comparison_report
 from .diff import compare_documents as build_document_diff
 from .errors import DocumentError, DocumentErrorCode
 from .extract import extract_items
@@ -95,6 +99,82 @@ class DocumentService:
                 self._workspace, format_name=format, content=content,
                 output_name=output_name, template=self._snapshot_ref(template, snapshot),
             )
+
+    def import_document(
+        self,
+        source: Path,
+        *,
+        expected_sha256: str,
+        output_name: str,
+    ) -> dict[str, object]:
+        """Copy one authority-validated import into the document jail."""
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        try:
+            source_fd = os.open(source, flags)
+        except OSError as exc:
+            raise DocumentError(
+                DocumentErrorCode.PERMISSION_DENIED,
+                "import",
+                "registered import is unavailable",
+            ) from exc
+        try:
+            metadata = os.fstat(source_fd)
+            if not stat.S_ISREG(metadata.st_mode):
+                raise DocumentError(
+                    DocumentErrorCode.PERMISSION_DENIED,
+                    "import",
+                    "registered import is not a regular file",
+                )
+            digest = hashlib.sha256()
+            while chunk := os.read(source_fd, 1024 * 1024):
+                digest.update(chunk)
+            if digest.hexdigest() != expected_sha256:
+                raise DocumentError(
+                    DocumentErrorCode.SOURCE_CHANGED,
+                    "import",
+                    "registered import changed before document copy",
+                )
+            output = self._workspace.output_path(output_name, source.suffix.lower())
+
+            def write(target: Path) -> None:
+                _ = os.lseek(source_fd, 0, os.SEEK_SET)
+                target_fd = os.open(
+                    target,
+                    os.O_WRONLY | getattr(os, "O_BINARY", 0),
+                )
+                copied = hashlib.sha256()
+                try:
+                    while chunk := os.read(source_fd, 1024 * 1024):
+                        copied.update(chunk)
+                        view = memoryview(chunk)
+                        while view:
+                            written = os.write(target_fd, view)
+                            view = view[written:]
+                    os.fsync(target_fd)
+                finally:
+                    os.close(target_fd)
+                if copied.hexdigest() != expected_sha256:
+                    raise DocumentError(
+                        DocumentErrorCode.SOURCE_CHANGED,
+                        "import",
+                        "registered import changed during document copy",
+                    )
+
+            copied_sha256 = self._workspace.atomic_publish(output, write)
+        finally:
+            os.close(source_fd)
+        artifact = self._workspace.artifact(output)
+        return {
+            "artifact": artifact,
+            "receipt": {
+                "operation": "document_import",
+                "artifact_id": artifact["artifact_id"],
+                "sha256": copied_sha256,
+                "copied": True,
+            },
+        }
 
     def inspect_document(self, source: Mapping[str, object]) -> dict[str, object]:
         with self._workspace.artifact_snapshot(source) as path:
@@ -192,6 +272,38 @@ class DocumentService:
             self._require_content(left_path, left_fmt)
             self._require_content(right_path, right_fmt)
             return build_document_diff(left_path, right_path, left_fmt, right_fmt)
+
+    def render_comparison_draft(
+        self,
+        template: Mapping[str, object],
+        diff: Mapping[str, object],
+        *,
+        draft_name: str,
+    ) -> dict[str, object]:
+        """Render and seal a comparison report outside the publication path."""
+        with self._workspace.artifact_snapshot(template) as source:
+            if self._format(source) != "docx":
+                raise DocumentError(
+                    DocumentErrorCode.UNSUPPORTED_FORMAT,
+                    "office_draft",
+                    "Office comparison report templates must be DOCX",
+                )
+            output = self._workspace.staging_path(draft_name, ".docx")
+
+            def write(target: Path) -> None:
+                render_comparison_report(source, target, diff)
+
+            def validate(target: Path) -> None:
+                if validate_document(target, "docx")["valid"] is not True:
+                    raise DocumentError(
+                        DocumentErrorCode.PACKAGE_INVALID,
+                        "office_draft",
+                        "rendered Office comparison draft is invalid",
+                    )
+
+            sha256 = self._workspace.atomic_stage(output, write, validate)
+        artifact = self._workspace.artifact(output, template)
+        return {"artifact": artifact, "sha256": sha256}
 
     def render_artifact(
         self,

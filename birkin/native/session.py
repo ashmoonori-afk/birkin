@@ -6,8 +6,8 @@ from dataclasses import dataclass
 from typing import Protocol, TypeGuard, final
 
 from birkin.native.projection import (
-    public_native_mapping,
     public_workspace_event,
+    public_workspace_snapshot,
 )
 from birkin.native.protocol import NativeProtocolError
 from birkin.workspace.records import WorkspaceEvent, WorkspaceSnapshot
@@ -102,7 +102,7 @@ class NativeProjectionSession:
 
 
 def _reconnect_snapshot(snapshot: WorkspaceSnapshot) -> dict[str, object]:
-    public = public_native_mapping(snapshot.to_json())
+    public = public_workspace_snapshot(snapshot.to_json())
     terminals = public.get("terminals")
     if _is_object_list(terminals):
         for terminal in terminals:

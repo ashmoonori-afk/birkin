@@ -115,10 +115,21 @@ struct SnapshotEvidenceContentTests {
         )
         let importText = try recognizedText(importURL)
         #expect(importText.contains("IMPORT CHIP VISIBLE"), "OCR: \(importText)")
+        let recognizedSpecimens = Set(try recognizedCJK(importURL))
+        let expectedSpecimens = Set(PackagedWindowCapture.cjkSpecimens)
         #expect(
-            Set(try recognizedCJK(importURL))
-                == Set(PackagedWindowCapture.cjkSpecimens)
+            recognizedSpecimens == expectedSpecimens,
+            "CJK OCR: \(recognizedSpecimens); expected: \(expectedSpecimens)"
         )
+        let noCJKURL = root.appendingPathComponent("import-no-cjk.png")
+        #expect(try render(
+            runtime,
+            session: session,
+            captureView: captureView,
+            to: noCJKURL,
+            evidenceSpecimens: []
+        ))
+        #expect(try topRegionPixelDifference(importURL, noCJKURL) > 500)
     }
 
     @MainActor
@@ -142,12 +153,13 @@ struct SnapshotEvidenceContentTests {
         _ runtime: BirkinApplicationRuntime,
         session: NativeReadySession,
         captureView: SnapshotCaptureView,
-        to url: URL
+        to url: URL,
+        evidenceSpecimens: [String] = PackagedWindowCapture.cjkSpecimens
     ) throws -> Bool {
         let hostingView = NSHostingView(rootView: NativeShellView(
             store: runtime.store,
             connectionState: .ready(session),
-            evidenceSpecimens: PackagedWindowCapture.cjkSpecimens,
+            evidenceSpecimens: evidenceSpecimens,
             jailedDrop: runtime.jailedDrop,
             presentationModel: runtime.presentationModel
         ))
@@ -285,5 +297,34 @@ struct SnapshotEvidenceContentTests {
             }
         }
         return colours.count
+    }
+
+    private func topRegionPixelDifference(
+        _ firstURL: URL,
+        _ secondURL: URL
+    ) throws -> Int {
+        let first = try #require(NSBitmapImageRep(
+            data: Data(contentsOf: firstURL)
+        ))
+        let second = try #require(NSBitmapImageRep(
+            data: Data(contentsOf: secondURL)
+        ))
+        #expect(first.pixelsWide == second.pixelsWide)
+        #expect(first.pixelsHigh == second.pixelsHigh)
+        let endY = min(160, first.pixelsHigh)
+        var differences = 0
+        for y in 0..<endY {
+            for x in 0..<first.pixelsWide {
+                guard let firstColour = first.colorAt(x: x, y: y),
+                      let secondColour = second.colorAt(x: x, y: y)
+                else { continue }
+                let distance =
+                    abs(firstColour.redComponent - secondColour.redComponent)
+                    + abs(firstColour.greenComponent - secondColour.greenComponent)
+                    + abs(firstColour.blueComponent - secondColour.blueComponent)
+                if distance > 0.05 { differences += 1 }
+            }
+        }
+        return differences
     }
 }

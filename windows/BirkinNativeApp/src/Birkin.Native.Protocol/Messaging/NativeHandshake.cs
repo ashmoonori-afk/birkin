@@ -1,3 +1,4 @@
+using System.Collections.Frozen;
 using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Protocol.Transport;
@@ -11,7 +12,10 @@ public sealed record NativeSessionCapability(
     DateTimeOffset ExpiresAt,
     DateTimeOffset HardExpiresAt);
 
-public sealed record NativeReadySession(NativeReadyIdentity Identity, NativeSessionCapability SessionCapability)
+public sealed record NativeReadySession(
+    NativeReadyIdentity Identity,
+    NativeSessionCapability SessionCapability,
+    IReadOnlySet<string> AdvertisedCommands)
 {
     public string SessionId => Identity.SessionId;
     public string InstanceId => Identity.InstanceId;
@@ -26,6 +30,8 @@ public sealed record NativeHandshakeExpectation(
 
 public static class NativeHandshake
 {
+    public const string ViewId = "window-main";
+
     private const int MaxPayloadBytes = 65_536;
     private const int MaxInflightCommands = 1;
     private const int MaxSubscriptions = 32;
@@ -38,7 +44,7 @@ public static class NativeHandshake
             ("client_build", new NativeJsonString(productVersion)),
             ("supported_protocol_versions", new NativeJsonArray([new NativeJsonInteger(NativeProtocolConstants.Version)])),
             ("surface", new NativeJsonString("windows")),
-            ("view_id", new NativeJsonString("window-main")),
+            ("view_id", new NativeJsonString(ViewId)),
             ("bootstrap_secret", new NativeJsonString(bootstrapSecret)));
         var hello = new NativeEnvelope(NativeMessageKind.Hello, id, body);
         NativeBodyValidator.Validate(hello, NativeMessageOrigin.Client);
@@ -102,6 +108,7 @@ public static class NativeHandshake
         ValidateLimits(RequireObject(body, "limits"));
         var capabilities = RequireObject(body, "capabilities");
         if (capabilities["commands"] is not NativeJsonArray commands
+            || commands.Values.Count > 128
             || commands.Values.Any(value => value is not NativeJsonString)
             || capabilities["panels"] is not NativeJsonArray panels
             || panels.Values.Any(value => value is not NativeJsonString)
@@ -110,9 +117,17 @@ public static class NativeHandshake
             throw BodyError();
         }
 
+        var commandNames = commands.Values.Cast<NativeJsonString>().Select(command => command.Value).ToArray();
+        if (commandNames.Distinct(StringComparer.Ordinal).Count() != commandNames.Length
+            || commandNames.Any(command => !IsIdentifier(command)))
+        {
+            throw BodyError();
+        }
+
         return new NativeReadySession(
             new NativeReadyIdentity(sessionId, instanceId, serverVersion),
-            new NativeSessionCapability(token, expiresAt, hardExpiresAt));
+            new NativeSessionCapability(token, expiresAt, hardExpiresAt),
+            commandNames.ToFrozenSet(StringComparer.Ordinal));
     }
 
     public static NativeEnvelope CreateSubscribe(NativeReadySession session, string id) =>
@@ -206,6 +221,15 @@ public static class NativeHandshake
 
     private static string String(NativeJsonObject body, string key) =>
         body[key] is NativeJsonString text ? text.Value : throw BodyError();
+
+    private static bool IsIdentifier(string value) =>
+        value.Length is >= 1 and <= 128
+        && value is not "." and not ".."
+        && value.All(character =>
+            character is >= 'A' and <= 'Z'
+            or >= 'a' and <= 'z'
+            or >= '0' and <= '9'
+            or '.' or '_' or ':' or '-');
 
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) =>
         new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));

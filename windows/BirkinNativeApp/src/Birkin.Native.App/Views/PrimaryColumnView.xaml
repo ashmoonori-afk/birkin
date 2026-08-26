@@ -5,156 +5,35 @@
     <UserControl.Resources>
         <ResourceDictionary Source="../Styles/ShellStyles.xaml" />
     </UserControl.Resources>
-    <Grid x:Name="PrimaryColumn"
-          automation:AutomationProperties.AutomationId="primary.column">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="3*" />
-            <RowDefinition Height="5" />
-            <RowDefinition Height="2*" />
-        </Grid.RowDefinitions>
+    <ScrollViewer x:Name="PrimaryScroll"
+                  automation:AutomationProperties.AutomationId="primary.scroll"
+                  automation:AutomationProperties.Name="Primary workspace panels"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  CanContentScroll="False">
+        <Grid x:Name="PrimaryColumn"
+              Height="{Binding ViewportHeight, ElementName=PrimaryScroll}"
+              MinHeight="585"
+              automation:AutomationProperties.AutomationId="primary.column">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="3*" MinHeight="270" />
+                <RowDefinition Height="5" />
+                <RowDefinition Height="2*" MinHeight="310" />
+            </Grid.RowDefinitions>
 
-        <Border x:Name="ConversationRegion"
-                automation:AutomationProperties.AutomationId="conversation.stream"
-                Style="{StaticResource CardStyle}">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
-                    <TextBlock Text="&#xE8BD;" FontFamily="Segoe MDL2 Assets"
-                               Foreground="{StaticResource MutedBrush}" FontSize="19" Margin="0,0,9,0" />
-                    <TextBlock Text="Conversation" Style="{StaticResource SectionTitleStyle}" />
-                </StackPanel>
-                <Grid Grid.Row="1">
-                    <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <ItemsControl x:Name="ConversationItems"
-                                      automation:AutomationProperties.AutomationId="conversation.items"
-                                      ItemsSource="{Binding Workspace.Conversation}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="{StaticResource RaisedBrush}"
-                                            CornerRadius="8" Padding="11" Margin="0,0,0,8">
-                                        <StackPanel>
-                                            <TextBlock Foreground="{StaticResource AccentBrush}"
-                                                       FontWeight="SemiBold"
-                                                       FontSize="11"
-                                                       Margin="0,0,0,5">
-                                                <TextBlock.Style>
-                                                    <Style TargetType="TextBlock">
-                                                        <Setter Property="Text" Value="Event" />
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding Kind}" Value="user_message">
-                                                                <Setter Property="Text" Value="You" />
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding Kind}" Value="assistant_message">
-                                                                <Setter Property="Text" Value="Birkin" />
-                                                            </DataTrigger>
-                                                            <DataTrigger Binding="{Binding Kind}" Value="assistant_stream">
-                                                                <Setter Property="Text" Value="Birkin" />
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </TextBlock.Style>
-                                            </TextBlock>
-                                            <TextBlock Text="{Binding Text}"
-                                                       Foreground="{StaticResource TextBrush}"
-                                                       TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
-                    <Border VerticalAlignment="Stretch">
-                        <Border.Style>
-                            <Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Workspace.Conversation.Count}" Value="0">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Border.Style>
-                        <StackPanel VerticalAlignment="Center">
-                            <TextBlock Text="&#xE8BD;" Style="{StaticResource GlyphStyle}" />
-                            <TextBlock Text="No messages yet" FontWeight="SemiBold"
-                                       HorizontalAlignment="Center" Margin="0,10,0,4" />
-                            <TextBlock Text="Ask Birkin to help with a task."
-                                       Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
-                        </StackPanel>
-                    </Border>
-                </Grid>
-                <Border x:Name="ComposerRegion"
-                        Grid.Row="2"
-                        automation:AutomationProperties.AutomationId="composer.landmark"
-                        Background="{StaticResource RaisedBrush}"
-                        BorderBrush="{StaticResource BorderBrush}"
-                        BorderThickness="1"
-                        CornerRadius="8"
-                        Padding="11"
-                        Margin="0,10,0,0">
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
-                        </Grid.RowDefinitions>
-                        <TextBox Text="Ask Birkin anything..."
-                                 IsReadOnly="True"
-                                 IsEnabled="False"
-                                 Background="Transparent"
-                                 BorderThickness="0"
-                                 Foreground="{StaticResource MutedBrush}"
-                                 automation:AutomationProperties.AutomationId="composer.draft" />
-                        <DockPanel Grid.Row="1" Margin="0,8,0,0">
-                            <Button DockPanel.Dock="Right" Content="Send"
-                                    Style="{StaticResource DisabledActionStyle}"
-                                    automation:AutomationProperties.AutomationId="composer.send" />
-                            <StackPanel Orientation="Horizontal">
-                                <Button Content="Attach" Margin="0,0,6,0"
-                                        Style="{StaticResource DisabledActionStyle}"
-                                        automation:AutomationProperties.AutomationId="composer.attach" />
-                                <Button Content="&lt;/&gt;"
-                                        Style="{StaticResource DisabledActionStyle}"
-                                        automation:AutomationProperties.AutomationId="composer.code-mode" />
-                                <TextBlock Text="Read-only preview — sending is disabled in this build."
-                                           Style="{StaticResource MutedTextStyle}"
-                                           VerticalAlignment="Center"
-                                           Margin="10,0,0,0"
-                                           automation:AutomationProperties.AutomationId="composer.read-only-caption" />
-                            </StackPanel>
-                        </DockPanel>
-                    </Grid>
-                </Border>
-            </Grid>
-        </Border>
+            <Border x:Name="ConversationRegion"
+                    automation:AutomationProperties.AutomationId="conversation.stream"
+                    Style="{StaticResource CardStyle}">
+                <ContentControl x:Name="ConversationHost" />
+            </Border>
 
-        <Border x:Name="TerminalRegion"
-                Grid.Row="2"
-                automation:AutomationProperties.AutomationId="terminal.landmark"
-                Style="{StaticResource CardStyle}">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="&gt;_" FontFamily="Consolas" FontSize="17"
-                               Foreground="{StaticResource MutedBrush}" Margin="0,0,10,0" />
-                    <TextBlock Text="Terminal" Style="{StaticResource SectionTitleStyle}" />
-                </StackPanel>
-                <Border Grid.Row="1" Background="{StaticResource TerminalBrush}" CornerRadius="7" Margin="0,10,0,0">
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="&#xE756;" Style="{StaticResource GlyphStyle}" />
-                        <TextBlock Text="Terminal unavailable on Windows"
-                                   FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,4" />
-                        <TextBlock Text="Python has no PTY backend on this platform yet."
-                                   Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Border>
-            </Grid>
-        </Border>
-    </Grid>
+            <Border x:Name="TerminalRegion"
+                    Grid.Row="2"
+                    automation:AutomationProperties.AutomationId="terminal.landmark"
+                    automation:AutomationProperties.Name="Terminal workspace"
+                    Style="{StaticResource CardStyle}">
+                <ContentControl x:Name="TerminalHost" />
+            </Border>
+        </Grid>
+    </ScrollViewer>
 </UserControl>

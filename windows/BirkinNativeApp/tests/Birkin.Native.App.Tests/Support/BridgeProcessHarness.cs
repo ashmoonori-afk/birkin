@@ -57,7 +57,13 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
 
     public string LauncherDiagnostics => _standardError.LauncherDiagnostics;
 
-    public static Task<BridgeProcessHarness> StartAsync(CancellationToken cancellationToken)
+    public bool OwnedProcessExited { get; private set; }
+
+    public bool TemporaryRootDeleted { get; private set; }
+
+    public static Task<BridgeProcessHarness> StartAsync(
+        CancellationToken cancellationToken,
+        bool providerFree = false)
     {
         var temporaryRoot = Path.Combine(Path.GetTempPath(), $"birkin-live-bridge-{Guid.NewGuid():N}");
         var bridgeRoot = Path.Combine(temporaryRoot, "workspace");
@@ -82,6 +88,16 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         start.ArgumentList.Add("loopback");
         start.ArgumentList.Add("--root");
         start.ArgumentList.Add(bridgeRoot);
+
+        if (providerFree)
+        {
+            var home = Path.Combine(temporaryRoot, "home");
+            Directory.CreateDirectory(home);
+            File.WriteAllText(
+                Path.Combine(home, "config.json"),
+                "{\"provider\":\"local-cli\",\"model\":\"\",\"cli_command\":[\"cmd.exe\",\"/d\",\"/s\",\"/c\",\"echo SEND_OK\"],\"auto_approve\":[\"shell\"]}");
+            start.Environment["BIRKIN_HOME"] = home;
+        }
 
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, eventArgs) =>
@@ -119,7 +135,7 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         catch
         {
             process.Dispose();
-            Directory.Delete(temporaryRoot, recursive: true);
+            DeleteTemporaryRoot(temporaryRoot);
             throw;
         }
     }
@@ -130,8 +146,10 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await StopOwnedProcessAsync(_process);
+        OwnedProcessExited = _process.HasExited;
         _process.Dispose();
-        Directory.Delete(TemporaryRoot, recursive: true);
+        DeleteTemporaryRoot(TemporaryRoot);
+        TemporaryRootDeleted = !Directory.Exists(TemporaryRoot);
     }
 
     internal static async Task StopOwnedProcessAsync(IOwnedBridgeProcess process)
@@ -150,6 +168,15 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         }
 
         await process.WaitForExitAsync();
+    }
+
+    private static void DeleteTemporaryRoot(string temporaryRoot)
+    {
+        foreach (var path in Directory.EnumerateFiles(temporaryRoot, "*", SearchOption.AllDirectories))
+        {
+            File.SetAttributes(path, File.GetAttributes(path) & ~FileAttributes.ReadOnly);
+        }
+        Directory.Delete(temporaryRoot, recursive: true);
     }
 
     private static string FindRepositoryRoot()

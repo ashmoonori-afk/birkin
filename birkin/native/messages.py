@@ -141,6 +141,7 @@ class NativeMessageFactory:
         error: WorkspaceProtocolError,
         *,
         in_reply_to: str,
+        accepted_details: dict[str, object] | None = None,
     ) -> NativeEnvelope:
         details: dict[str, object] | None = None
         if isinstance(error, WorkingMemoryRevisionConflict):
@@ -172,6 +173,8 @@ class NativeMessageFactory:
             code = "E_COMMAND_ID_CONFLICT"
         else:
             code = "E_BODY"
+        if accepted_details is not None:
+            details = {**(details or {}), **accepted_details}
         return self.error(
             NativeProtocolError(code, str(error)),
             in_reply_to=in_reply_to,

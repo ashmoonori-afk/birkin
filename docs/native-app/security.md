@@ -33,6 +33,22 @@ memory, use a 15-minute sliding expiry with an eight-hour hard ceiling, rotate
 in band, and are revoked on disconnect, expiry, or bridge teardown. Bootstrap
 secrets and session capabilities cannot approve product actions.
 
+### Windows loopback discovery
+
+The Windows development preview uses the Python-created owner-only discovery
+record, rotating one-shot secret, and authenticated `127.0.0.1` handshake. This
+boundary is proven; no secret or authentication path belongs in evidence.
+Handle-based C# discovery verification of the final opened path, reparse state,
+owner, and protected DACL is explicitly deferred LOW hardening and must not be
+claimed as current coverage.
+
+The Windows sole-reader `BridgeSession` revokes mutation authority on gaps,
+desynchronization, heartbeat loss, and disconnect. External attachment never
+confers kill authority. Only the exact spawned process object is owned; session
+disposal precedes its stop and restart halts after five exits in 60 seconds.
+The Windows Terminal is writable only while Python advertises the tested ConPTY
+commands and grants a live terminal lease; Browser remains projected-only.
+
 ## Strict and bounded input
 
 The boundary refuses oversized or incomplete frames, payloads over 65,536,
@@ -79,7 +95,24 @@ than authority.
   profile that denies Mach, network, shared-memory IPC, and terminal-originated
   process signalling. App exit quiesces and rescans the
   coalition before killing every member, including double-forked `setsid()`
-  descendants. Non-Darwin bridges do not advertise this command set.
+  descendants. On supported Windows builds, the alternative backend is a
+  start-gated ConPTY process assigned to a Python-owned Windows Job before it
+  can execute; Job, process, pseudoconsole, pipe, and worker cleanup remain
+  Python-owned. Windows cmd history masking supports only complete literal
+  `set KEY=VALUE` and `set "KEY=VALUE"` lines for the documented sensitive-key
+  families. Values are held only in a bounded per-terminal memory registry and
+  are masked from live output and reconnectable history across stream chunks.
+  Statically identifiable sensitive command chains, caret-obfuscated sensitive
+  `set` forms, `set /p`, `for`, PowerShell `$env:`, Unix `export`, and non-cmd
+  shell syntax are unsupported and fail before process input. Cmd `%VAR%`,
+  positional `%x`, and `!VAR!` dynamic expansions are allowed and sent
+  byte-for-byte; Python does not evaluate them or guess resulting values.
+  Expansion segments do not suppress scanning of the remaining command text, so
+  any separately visible unsupported sensitive `set` form still fails before
+  input. Expansion-generated secrets can therefore appear in durable terminal journal,
+  snapshot, and reconnect history. Users must use a supported complete literal
+  assignment when masking is required. Non-sensitive assignments remain
+  unchanged.
 - **Bridge supervision:** Swift terminates or restarts only children it spawned.
   An externally discovered bridge is attached without ownership and is left
   running at app shutdown. Restart loops are bounded.

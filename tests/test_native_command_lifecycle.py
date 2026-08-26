@@ -238,8 +238,18 @@ def test_disconnect_cleanup_runs_after_blocked_command_mutation(
         )
         second_token = handshake(second_client)
         _send_command(second_client, second_token, command_id="refused-late")
-        refusal = receive_frame(second_client)
-        assert refusal.body["code"] == "E_FLOW_VIOLATION"
+        refusals = [
+            frame
+            for frame in _barrier(
+                second_client,
+                second_token,
+                "refused-late-barrier",
+            )
+            if frame.kind == "error" and frame.in_reply_to == "refused-late"
+        ]
+        assert [(frame.in_reply_to, frame.body["code"]) for frame in refusals] == [
+            ("refused-late", "E_FLOW_VIOLATION")
+        ]
         second_client.close()
         second_thread.join(timeout=2)
         assert second_errors == []
@@ -249,6 +259,7 @@ def test_disconnect_cleanup_runs_after_blocked_command_mutation(
         assert mutated.wait(timeout=2)
         assert cleaned.wait(timeout=2)
         assert ordering == ["mutation", "cleanup"]
+        assert ordering.count("cleanup") == 1
         assert resources == []
     finally:
         release.set()

@@ -55,6 +55,8 @@ _COMMAND_TYPES = {
     "office.select",
     "office.open",
     "office.convert",
+    "office.compare",
+    "office.draft",
     "file.import",
     "skill.reload",
     "checkpoint.restore",

@@ -42,11 +42,12 @@
                 <ColumnDefinition Width="340" MinWidth="300" />
             </Grid.ColumnDefinitions>
             <views:NavigationColumnView Grid.Column="0" />
-            <views:PrimaryColumnView Grid.Column="2" />
-            <views:ContextColumnView Grid.Column="4" />
+            <views:PrimaryColumnView x:Name="PrimaryColumnView" Grid.Column="2" />
+            <views:ContextColumnView x:Name="ContextColumnView" Grid.Column="4" />
         </Grid>
 
         <Border Grid.Row="2"
+                automation:AutomationProperties.AutomationId="workspace.status"
                 Background="{StaticResource CardBrush}"
                 BorderBrush="{StaticResource BorderBrush}"
                 BorderThickness="1,1,1,0"

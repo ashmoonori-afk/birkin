@@ -28,7 +28,7 @@ public sealed record WorkspaceSnapshotPresentation
             [],
             [],
             [],
-            new TerminalPresentation(false, 0),
+            new TerminalPresentation(false, "E_COMMAND_UNADVERTISED", []),
             MutationAvailabilityPresentation.PhaseOne)
     {
     }

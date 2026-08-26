@@ -12,6 +12,8 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+from . import local_environment_policy
+
 # Optional layered prompt files composed from the workspace (cwd), if present —
 # identity/policy/tool notes, like hermes' SOUL/AGENTS/TOOLS.
 _WORKSPACE_PROMPT_FILES = ("AGENTS.md", "TOOLS.md")
@@ -132,10 +134,12 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
                         harness_block: str = "") -> str:
     # The user's SOUL.md persona (when set) replaces the default identity slot;
     # everything else (tool guidance, skills, memory) is appended as usual.
-    identity = persona.strip() if persona and persona.strip() else _IDENTITY
+    clean = local_environment_policy.strip_markers
+    identity_text = clean(persona.strip()) if persona else ""
+    identity = identity_text or _IDENTITY
     parts: list[str] = [identity]
     if profile_block:
-        parts.append(profile_block)
+        parts.append(clean(profile_block))
 
     if role == "subagent":
         parts.append(
@@ -143,7 +147,7 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
             "conversation. Complete the given task fully and return a clear, "
             "self-contained result.")
 
-    workspace = workspace_prompt_block()
+    workspace = clean(workspace_prompt_block())
     if workspace:
         parts.append(workspace)
 
@@ -151,21 +155,22 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
 
     if skills_index:
         parts.append("## Available skills (call load_skill for full instructions)\n"
-                     + skills_index)
+                     + clean(skills_index))
 
     if preloaded:
-        blocks = [f"### {name}\n{body}" for name, body in preloaded]
+        blocks = [f"### {name}\n{clean(body)}" for name, body in preloaded]
         parts.append("## Preloaded skills\n" + "\n\n".join(blocks))
 
     if memory_block:
-        parts.append("## What you know about the user\n" + memory_block)
+        parts.append("## What you know about the user\n" + clean(memory_block))
 
     if harness_block:
-        parts.append(harness_block)
+        parts.append(clean(harness_block))
 
     if extra:
-        parts.append(extra)
+        parts.append(clean(extra))
 
+    parts.append(local_environment_policy.render())
     parts.append(UI_COMPONENT_POLICY)
     parts.append(RESEARCH_EVIDENCE_POLICY)
     return "\n\n".join(parts)
@@ -225,21 +230,24 @@ def build_cli_system(*, memory_block: str = "",
     :func:`cli_mcp_block`, which the caller appends via ``extra``. This
     docstring used to claim the opposite, and that belief is why unattended
     runs kept reporting they had no tools while holding twelve of them."""
-    identity = persona.strip() if persona and persona.strip() else _CLI_IDENTITY
+    clean = local_environment_policy.strip_markers
+    identity_text = clean(persona.strip()) if persona else ""
+    identity = identity_text or _CLI_IDENTITY
     parts: list[str] = [identity]
     if profile_block:
-        parts.append(profile_block)
-    workspace = workspace_prompt_block()
+        parts.append(clean(profile_block))
+    workspace = clean(workspace_prompt_block())
     if workspace:
         parts.append(workspace)
     if memory_block:
         parts.append("## What you know about the user (birkin memory)\n"
-                     + memory_block)
+                     + clean(memory_block))
     if harness_block:
-        parts.append(harness_block)
+        parts.append(clean(harness_block))
     if preloaded:
         parts.append("## Relevant skills — follow these if they apply\n\n"
-                     + "\n\n---\n\n".join(preloaded))
+                     + "\n\n---\n\n".join(clean(body) for body in preloaded))
+    parts.append(local_environment_policy.render())
     parts.append(UI_COMPONENT_POLICY)
     parts.append(RESEARCH_EVIDENCE_POLICY)
     return "\n\n".join(parts)

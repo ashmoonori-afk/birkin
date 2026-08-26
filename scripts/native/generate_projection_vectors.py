@@ -17,7 +17,7 @@ from pathlib import Path
 from birkin import goals
 from birkin import __version__
 from birkin.native.messages import NativeMessageFactory
-from birkin.native.projection import public_native_mapping, public_workspace_event
+from birkin.native.projection import public_workspace_event, public_workspace_snapshot
 from birkin.native.protocol import NativeEnvelope, decode_frame, encode_frame
 from birkin.workspace.presets import SESSION_PRESETS
 from birkin.workspace.records import WorkspaceEvent
@@ -165,7 +165,7 @@ def render_fixture() -> str:
     )
 
     working_memory = canonical_working_memory()
-    snapshot = public_native_mapping(
+    snapshot = public_workspace_snapshot(
         replace(
             reduce_snapshot(
                 "session-1", tuple(_as_client_sees(item) for item in base_events)
@@ -186,7 +186,7 @@ def render_fixture() -> str:
             {
                 **frame_document(message),
                 "cursor": delta.cursor,
-                "expected_state": public_native_mapping(
+                "expected_state": public_workspace_snapshot(
                     replace(
                         reduce_snapshot(
                             "session-1",
@@ -204,8 +204,8 @@ def render_fixture() -> str:
         "generated_by": "scripts/native/generate_projection_vectors.py",
         "source_modules": [
             "birkin.native.messages.NativeMessageFactory",
-            "birkin.native.projection.public_native_mapping",
             "birkin.native.projection.public_workspace_event",
+            "birkin.native.projection.public_workspace_snapshot",
             "birkin.workspace.snapshot.reduce_snapshot",
             "birkin.workspace.working_memory.WorkingMemoryAuthority",
             "birkin.workspace.working_memory.project_working_memory",

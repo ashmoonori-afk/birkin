@@ -108,9 +108,7 @@ enum NativeProjectionReducer {
             guard case .int(let sequence) = event.payload["sequence"],
                   sequence == state.terminals[index].outputSequence + 1,
                   let data = event.payload.string("data") else { return }
-            state.terminals[index].screen = boundedScreen(
-                state.terminals[index].screen + data
-            )
+            state.terminals[index].appendOutput(data)
             state.terminals[index].outputSequence = sequence
         case "terminal.resized":
             if case .int(let columns) = event.payload["columns"] {
@@ -132,15 +130,6 @@ enum NativeProjectionReducer {
             state.terminals[index].readOnly = true
         default: break
         }
-    }
-
-    private static func boundedScreen(_ value: String) -> String {
-        guard value.utf8.count > 65_536 else { return value }
-        var bounded = value
-        while bounded.utf8.count > 65_536 {
-            bounded.removeFirst()
-        }
-        return bounded
     }
 
     private static func applyWorkingMemory(

@@ -1,11 +1,21 @@
 # Phase 1: Windows Development Preview Vertical Slice
 
-Status: executable implementation plan
+Status: completed historical Phase 1 slice; superseded by the Phase 3 development preview
 Exit statement: development preview, not shipped and not customer-ready
+
+> Historical context: the numbered units and RED commands below record the
+> original snapshot-only slice and should not be read as the current production
+> composition. Current startup uses one `BridgeSession` as the sole receive
+> owner over one shared `NativeProjectionStore`; deterministic real-window tests
+> do not call a manual receive path. Production development-preview startup can
+> own the exact spawned `Process`, while announcement-file attach never kills;
+> session disposal precedes stopping an owned process, and five exits in a
+> rolling 60 seconds stop restart. See `architecture.md`, `protocol.md`, and
+> `windows/BirkinNativeApp/tests/Birkin.Native.Protocol.Tests/Transport/BridgeSessionTests.cs`.
 
 ## 1. Goal and observable
 
-Phase 1 proves exactly one end-to-end path:
+Phase 1 historically proved exactly one end-to-end path:
 
 ```text
 WPF client process
@@ -24,10 +34,13 @@ The bridge is launched with the already-working console-script command:
 uv run --frozen birkin native-bridge serve --transport loopback --root <temporary-root>
 ```
 
-The app is visibly titled **Birkin for Windows - Development Preview**. It is
-read-only. It has no command submission, terminal panel, product-surface panel,
-owned bridge restart, persisted product state, installer, updater, tray icon,
-notification, or background launch.
+The Phase 1 app was visibly titled **Birkin for Windows - Development
+Preview** and was read-only. It had no command submission, terminal panel,
+product-surface panel, owned bridge restart, persisted product state, installer,
+updater, tray icon, notification, or background launch. Phase 3 now has
+capability-gated Office mutations and visible Terminal/Browser truth-telling
+placeholders, but still has no installer, MSI, signing, updater, packaged app,
+or customer-ready release.
 
 The implementation language is C# with no MVVM, DI, logging, JSON, or socket
 framework dependency. Use .NET 8 BCL types, WPF, and MSTest only. The exact
@@ -284,7 +297,7 @@ Failure to locate the already-linked projection fixture is not valid RED.
 
 ### Production change
 
-Implement snapshot-only projection application for Phase 1. Require kind
+The historical Phase 1 implementation was snapshot-only. Require kind
 `snapshot` and the exact 12 snapshot body keys. Validate protocol version,
 ready session ID, ready instance ID, non-negative cursor, reset reason,
 panels, conversation, composer, status, Working Memory, approval policy, and
@@ -298,7 +311,8 @@ The vector test loads the real Python-generated snapshot and compares every
 machine-consumed value to `expected_state`.
 
 Event reduction, gap repair, surface revisions, capability renewal, and
-reconnect are Phase 2 work and are not stubbed in Phase 1.
+reconnect were deferred from Phase 1 and are now implemented through the
+sole-reader `BridgeSession` and shared projection store.
 
 ### Exact verification command
 
@@ -415,8 +429,10 @@ PanelCountText
 ```
 
 It displays only values from `ShellPresentationModel`. The Ready status is
-`LOCAL · PRIVATE`; loading and failure remain visibly distinct. The window has
-no terminal area and no enabled mutation control.
+`LOCAL · PRIVATE`; loading and failure remain visibly distinct. The Phase 1
+window had no terminal area and no enabled mutation control. The current Phase
+3 mockup includes visible Terminal and Browser truth-telling
+placeholders by direct user request; neither placeholder grants authority.
 
 `AppOptions` accepts exactly
 `--bridge-announcement-file <absolute-existing-file>` and rejects missing,
@@ -452,9 +468,9 @@ process, sleep, or poll the visual tree.
 dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj -c Debug --artifacts-path .\windows\BirkinNativeApp\artifacts\P1-06 --filter "TestCategory=LiveBridge|FullyQualifiedName~AppOptionsTests|FullyQualifiedName~WorkspaceSnapshotViewTests"
 ```
 
-## 10. Phase exit verification
+## 10. Historical Phase 1 exit verification
 
-Run these commands once after all six units are green:
+These were the commands run after all six Phase 1 units were green:
 
 ```powershell
 uv run --frozen pytest -q tests/test_native_windows_import.py
@@ -472,8 +488,11 @@ The exit evidence must include:
 - empty bridge stderr;
 - clean process and temporary-directory teardown.
 
-Phase 1 passes only if the live test succeeds in one run. Retries do not turn a
-flaky run into evidence.
+Phase 1 evidence required the live test to succeed in one run. Current fast
+regression evidence instead uses the production-composed deterministic WPF
+journeys; the separate existing-account Phase 3 proof is documented under
+`.omo/evidence/native-windows-20260824/remediation/w6/` and must not be conflated
+with provider-free regression.
 
 ## 11. Scope and completion audit
 
@@ -482,7 +501,7 @@ and central property files belong only to P1-01. Protocol framing belongs only
 to P1-02; transport only to P1-03; projection only to P1-04; Shell only to
 P1-05; WPF App and App.Tests only to P1-06.
 
-No unit touches `birkin/native/serve.py`, `birkin/cli.py`,
+No historical Phase 1 unit touched `birkin/native/serve.py`, `birkin/cli.py`,
 `tests/test_native_serve_transport_default.py`, any macOS source, either golden
 fixture, or any Python production file. Phase 1 consumes those contracts
 read-only.

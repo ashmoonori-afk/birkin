@@ -39,7 +39,51 @@ def public_workspace_event(event: WorkspaceEvent) -> dict[str, object]:
         payload["redacted"] = True
         projected["payload"] = payload
         return projected
+    if event.type == "terminal.output":
+        projected["payload"] = _public_terminal_output_payload(event.payload)
+        return projected
     projected["payload"] = _public_mapping(event.payload)
+    return projected
+
+
+def _public_terminal_output_payload(payload: dict[str, object]) -> dict[str, object]:
+    projected: dict[str, object] = {}
+    terminal_id = payload.get("terminal_id")
+    sequence = payload.get("sequence")
+    data = payload.get("data")
+    if isinstance(terminal_id, str):
+        projected["terminal_id"] = terminal_id
+    if type(sequence) is int:
+        projected["sequence"] = sequence
+    if isinstance(data, str):
+        projected["data"] = redact_secrets(data)[:_MAX_PUBLIC_TEXT]
+    return projected
+
+
+def public_workspace_snapshot(mapping: dict[str, object]) -> dict[str, object]:
+    """Project a snapshot while preserving bounded terminal VT screens."""
+
+    projected = _public_mapping(mapping)
+    source_terminals = mapping.get("terminals")
+    public_terminals = projected.get("terminals")
+    if isinstance(source_terminals, list) and isinstance(public_terminals, list):
+        source_values = cast(list[object], source_terminals)
+        public_values = cast(list[object], public_terminals)
+        for index, source_terminal in enumerate(source_values):
+            if index >= len(public_values):
+                break
+            public_terminal = public_values[index]
+            if not isinstance(source_terminal, dict) or not isinstance(public_terminal, dict):
+                continue
+            source_mapping = cast(dict[object, object], source_terminal)
+            public_mapping = cast(dict[object, object], public_terminal)
+            screen = source_mapping.get("screen")
+            if not isinstance(screen, str):
+                continue
+            bounded = redact_secrets(screen)[-65_536:]
+            if bounded and 0xDC00 <= ord(bounded[0]) <= 0xDFFF:
+                bounded = bounded[1:]
+            public_mapping["screen"] = bounded
     return projected
 
 

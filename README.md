@@ -80,6 +80,12 @@ Optional background review is best effort, not guaranteed capture. It runs only 
 
 Workspace `SOUL.md` is deprecated and no longer injected. Use workspace `AGENTS.md` for project instructions and `~/.birkin/SOUL.md` for persona; Birkin prints a deprecation notice when it finds a cwd `SOUL.md`.
 
+### Local environment evidence
+
+Trusted native and CLI agent prompts include the current operating system and home directory plus a machine-readable local-environment policy. Session or memory paths are treated as unverified until current tool output establishes them, so a path from another operating system must not be reused as a host fact. Before Birkin reports that a target directory is not writable, it must use an available tool to create, write, and delete a uniquely named temporary entry inside that directory; the probe must never modify or delete an existing path. A sandbox, route, missing tool, approval requirement, or operating-system permission result is classified from the observed evidence instead of being mislabeled as a different restriction.
+
+The requested outcome and application scope remain binding: Birkin must not replace an applied profile or memory change with a workspace draft and then claim completion. User-profile facts remain separate from assistant-persona facts, including names assigned to the assistant. This local block is added only to trusted native and CLI prompts; public or untrusted prompts receive neither local path facts nor private profile context.
+
 ## Quick Start
 
 Birkin requires Python 3.10 or newer. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.
@@ -236,7 +242,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.294`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.325`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
@@ -574,7 +580,7 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
 | `birkin gateway` | Run loopback HTTP and configured message channels with crash-durable, exclusively claimed reply redelivery. |
 | `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
-| `birkin native-bridge serve` | Serve the authenticated local bridge the macOS application connects to. |
+| `birkin native-bridge serve` | Serve the authenticated local bridge used by the macOS and Windows native clients. |
 | `birkin review` | Approve or reject pending consequential actions. |
 | `birkin permission` | Inspect or change approval categories and CLI access. |
 | `birkin tools` | List, enable, or disable native tools from the canonical registry inventory. |
@@ -772,8 +778,9 @@ The shipped boundary is deliberate:
   coalition. Its Seatbelt profile denies Mach, network, and shared-memory IPC
   plus terminal-originated process signalling, and cleanup
   quiesces, rescans, and kills the coalition so double-forked or `setsid()`
-  descendants cannot migrate away from Python ownership. Non-Darwin bridges do
-  not advertise the Native Terminal command set.
+  descendants cannot migrate away from Python ownership. On supported Windows
+  builds, Python instead owns a start-gated ConPTY process tree inside a Windows
+  Job and advertises Terminal commands only when that backend is available.
 - **Bridge lifecycle:** the app starts its own Python bridge with the shipped
   `birkin native-bridge serve` command, waits for the endpoint that command
   announces, restarts it at most five times in sixty seconds, and terminates it
@@ -816,9 +823,35 @@ The shipped boundary is deliberate:
   the initial profile, while Python policy, local authentication, and macOS
   privacy permissions remain enforced.
 
-A future platform decision—Windows-native versus a shared cross-platform
-shell—remains open and will be based on accessibility APIs, installer
-maintenance, and real usage rather than code reuse alone.
+## Native Windows development preview
+
+The platform decision is now implemented as a .NET 8 WPF thin client over the
+authenticated loopback bridge. Phase 3 is a **development preview**, not a
+customer release. Its production composition has one `BridgeSession` as the
+sole socket reader and one shared in-memory projection store; Python remains
+the only policy, execution, approval, Office, receipt, and recovery authority.
+The Terminal region is interactive only when Python advertises its tested
+ConPTY command set: Python owns the Job, process tree, pseudoconsole, pipes,
+leases, sequencing, and cleanup, while WPF renders canonical VT-free display
+and submits typed controls. Browser remains canonical projected state rather
+than inventing controls or authority.
+
+The deterministic fast regression drives the real WPF `MainWindow`, real frame
+codec/reducer, and real Python bridge without a provider or manual receive path
+(`windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Journeys/DeterministicWindowJourneyTests.cs`
+and `ProviderOfficeDeterministicSeamTests.cs`). Separately, the Phase 3 exit
+journey passed once with the existing `codex-cli` account: provider-backed chat,
+three jailed imports, Python comparison and sealed approval, a visible
+pre-approval Diff, UI approval, structural OOXML save, an Activity receipt, two
+screenshots, and cleanup. The test is
+`windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Journeys/ProviderOfficeJourneyTests.cs`;
+bounded evidence is retained as private local release evidence and is not
+shipped.
+
+There is no Windows installer or MSI, code signing, updater, packaged app, or
+customer-ready release. Those remain later roadmap work. The existing
+native-shell mockup above remains the product roadmap, not a claim that every
+pictured Windows capability is active.
 
 ### Trade-offs and non-goals
 

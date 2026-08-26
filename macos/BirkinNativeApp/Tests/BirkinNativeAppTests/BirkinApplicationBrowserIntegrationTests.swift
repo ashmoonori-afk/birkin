@@ -202,7 +202,7 @@ server.serve_forever()
     private static func readLine(from handle: FileHandle) throws -> String {
         let bytes = LockedBytes()
         let ready = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
+        Thread.detachNewThread {
             while true {
                 let byte = handle.readData(ofLength: 1)
                 if byte.isEmpty || byte == Data([0x0a]) { break }

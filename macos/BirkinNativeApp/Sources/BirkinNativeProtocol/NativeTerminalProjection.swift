@@ -1,6 +1,7 @@
 public struct NativeTerminalProjection: Equatable, Sendable, Identifiable {
     public let terminalID: String
     public var cwd: String
+    private var canonicalScreen: String
     private var renderer: NativeTerminalRenderer
     public var outputSequence: Int
     public var state: String
@@ -12,18 +13,7 @@ public struct NativeTerminalProjection: Equatable, Sendable, Identifiable {
 
     public var id: String { terminalID }
 
-    public var screen: String {
-        get { renderer.screen }
-        set {
-            let rendered = renderer.screen
-            guard !rendered.isEmpty else {
-                renderer.append(newValue)
-                return
-            }
-            let overlap = Self.suffixPrefixOverlap(rendered, newValue)
-            renderer.append(String(newValue.dropFirst(overlap)))
-        }
-    }
+    public var screen: String { renderer.screen }
 
     public init(
         terminalID: String,
@@ -37,10 +27,12 @@ public struct NativeTerminalProjection: Equatable, Sendable, Identifiable {
         lease: String?,
         readOnly: Bool
     ) {
+        let boundedScreen = Self.boundedCanonicalScreen(screen)
         self.terminalID = terminalID
         self.cwd = cwd
+        canonicalScreen = boundedScreen
         renderer = NativeTerminalRenderer()
-        renderer.append(screen)
+        renderer.append(boundedScreen)
         self.outputSequence = outputSequence
         self.state = state
         self.exitStatus = exitStatus
@@ -50,9 +42,15 @@ public struct NativeTerminalProjection: Equatable, Sendable, Identifiable {
         self.readOnly = readOnly
     }
 
+    mutating func appendOutput(_ data: String) {
+        canonicalScreen = Self.boundedCanonicalScreen(canonicalScreen + data)
+        renderer.append(data)
+    }
+
     public static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.terminalID == rhs.terminalID
             && lhs.cwd == rhs.cwd
+            && lhs.canonicalScreen == rhs.canonicalScreen
             && lhs.screen == rhs.screen
             && lhs.outputSequence == rhs.outputSequence
             && lhs.state == rhs.state
@@ -67,7 +65,7 @@ public struct NativeTerminalProjection: Equatable, Sendable, Identifiable {
         [
             "terminal_id": .string(terminalID),
             "cwd": .string(cwd),
-            "screen": .string(screen),
+            "screen": .string(canonicalScreen),
             "output_sequence": .int(outputSequence),
             "state": .string(state),
             "exit_status": exitStatus.map(NativeJSONValue.int) ?? .null,
@@ -78,29 +76,12 @@ public struct NativeTerminalProjection: Equatable, Sendable, Identifiable {
         ]
     }
 
-    private static func suffixPrefixOverlap(_ old: String, _ new: String) -> Int {
-        let pattern = Array(new)
-        guard !pattern.isEmpty else { return 0 }
-        var prefix = Array(repeating: 0, count: pattern.count)
-        for index in pattern.indices.dropFirst() {
-            var length = prefix[index - 1]
-            while length > 0, pattern[index] != pattern[length] {
-                length = prefix[length - 1]
-            }
-            if pattern[index] == pattern[length] { length += 1 }
-            prefix[index] = length
-        }
-        var matched = 0
-        let oldCharacters = Array(old)
-        for (index, character) in oldCharacters.enumerated() {
-            while matched > 0, character != pattern[matched] {
-                matched = prefix[matched - 1]
-            }
-            if character == pattern[matched] { matched += 1 }
-            if matched == pattern.count, index != oldCharacters.count - 1 {
-                matched = prefix[matched - 1]
-            }
-        }
-        return matched
+    private static func boundedCanonicalScreen(_ value: String) -> String {
+        let bytes = Array(value.utf8)
+        guard bytes.count > NativeTerminalRenderer.maximumScreenBytes else { return value }
+        return String(
+            decoding: bytes.suffix(NativeTerminalRenderer.maximumScreenBytes),
+            as: UTF8.self
+        )
     }
 }

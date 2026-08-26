@@ -93,7 +93,7 @@ public struct NativeShellView: View {
                 HStack(spacing: 24) {
                     ForEach(evidenceSpecimens, id: \.self) { specimen in
                         Text(specimen)
-                            .font(.headline.weight(.bold))
+                            .font(.title2.weight(.bold))
                             .fixedSize()
                     }
                 }

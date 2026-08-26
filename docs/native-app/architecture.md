@@ -2,6 +2,25 @@
 
 Status: shipped repository contract for the macOS client.
 
+## Windows Phase 3 companion architecture
+
+The Windows client is a .NET 8 WPF thin shell over authenticated raw loopback.
+Production composition creates one `NativeProjectionStore`, one sole-reader
+`BridgeSession`, and one shell coordinator over that same store. The session
+routes every frame and owns canonical recovery: gap, desynchronization,
+heartbeat loss, or disconnect revokes mutation authority; one replay episode
+remains in flight until a replacement snapshot restores `Live` state. There is
+no manual receive path or second authority. See
+`windows/BirkinNativeApp/src/Birkin.Native.Protocol/Transport/BridgeSession.cs`
+and its `BridgeSessionTests.cs`.
+
+External attach never grants process ownership and is never killed. An owned
+bridge is the exact process object returned by the spawn closure; its fifth exit
+in a rolling 60 seconds stops restart, and session disposal precedes process
+stop. On supported Windows builds, Python owns the start-gated ConPTY process
+inside a Windows Job and the WPF Terminal submits only advertised typed commands;
+Browser remains projected-only and neither region can invent authority.
+
 ## Authority boundary
 
 Birkin's macOS application is a thin SwiftUI shell. It connects to the local

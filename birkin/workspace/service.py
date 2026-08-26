@@ -17,6 +17,7 @@ from .contracts import (
     WorkspaceCommand,
 )
 from .approval_projection import approval_items, approval_policy
+from .command_failure import attach_command_receipt
 from .journal import WorkspaceJournal
 from .presets import SESSION_PRESETS, SessionPreset
 from .redaction import bounded_error_text
@@ -111,7 +112,8 @@ class WorkspaceService:
         with self._receipt_lock:
             receipt = self._active_receipts.get(threading.get_ident())
         if receipt is None:
-            raise ProtocolError("workspace event emitted outside a command")
+            from .terminal_runtime_events import terminal_runtime_event
+            receipt = terminal_runtime_event(event_type, payload)
         return self._append(
             event_type,
             actor_id=receipt.actor_id,
@@ -180,12 +182,12 @@ class WorkspaceService:
                 command_id=command.command_id,
                 payload={"error": "unsupported command handler"},
             )
-            _ = self._journal.complete(
+            failed_receipt = self._journal.complete(
                 receipt,
                 state="failed",
                 result_cursor=failed.cursor,
             )
-            raise UnsupportedCommand(f"no handler for {command.type}")
+            raise attach_command_receipt(UnsupportedCommand(f"no handler for {command.type}"), failed_receipt)
         _ = self._append(
             "command.started",
             actor_id=receipt.actor_id,
@@ -204,12 +206,12 @@ class WorkspaceService:
                 command_id=command.command_id,
                 payload={"error": bounded_error_text(str(exc))},
             )
-            _ = self._journal.complete(
+            failed_receipt = self._journal.complete(
                 receipt,
                 state="failed",
                 result_cursor=failed.cursor,
             )
-            raise
+            raise attach_command_receipt(exc, failed_receipt)
         finally:
             with self._receipt_lock:
                 del self._active_receipts[thread_id]

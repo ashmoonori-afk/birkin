@@ -10,5 +10,7 @@
     <PackageReference Include="MSTest.TestFramework" />
     <PackageReference Include="MSTest.TestAdapter" />
     <ProjectReference Include="..\..\src\Birkin.Native.App\Birkin.Native.App.csproj" />
+    <Compile Include="..\Birkin.Native.Protocol.Tests\Support\BridgeStandardErrorClassifier.cs" Link="Support\BridgeStandardErrorClassifier.cs" />
+    <None Include="Fixtures\Office\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

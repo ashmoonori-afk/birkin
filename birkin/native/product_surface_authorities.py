@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Final, Protocol, cast, final
 
+from birkin import approvals, store
 from birkin.browser_aside_control import BrowserControlAuthority
 from birkin.browser_aside_errors import BrowserAsideError
 from birkin.browser_aside_service import BrowserAsideService
@@ -11,6 +15,7 @@ from birkin.browser_aside_store import MAX_FRAME_BYTES
 from birkin.computer_use.capability_types import PlatformProbe
 from birkin.computer_use.doctor import doctor_report
 from birkin.office.errors import DocumentError
+from birkin.office.job_runner import DocumentServiceRunner
 from birkin.office.service import DocumentService
 
 MAX_OFFICE_SNAPSHOT_ITEMS: Final = 8
@@ -209,13 +214,15 @@ class OfficeSurfaceAuthority:
     def __init__(self, service: DocumentService) -> None:
         self.service = service
         self._documents: dict[str, dict[str, object]] = {}
+        self._diffs: dict[str, dict[str, object]] = {}
+        self._request_commands: dict[str, str] = {}
         self._receipts: list[Mapping[str, object]] = []
         self._refusal: dict[str, object] | None = None
         self._form: dict[str, object] = {"format": "docx", "output_name": "", "content": {"paragraphs": []}}
         self._selected: str | None = None
 
     def snapshot(self) -> dict[str, object]:
-        return {"inventory": self.service.adapter_inventory(), "form": dict(self._form), "selected_artifact_id": self._selected, "documents": list(self._documents.values()), "receipts": list(self._receipts), "refusal": self._refusal}
+        return {"inventory": self.service.adapter_inventory(), "form": dict(self._form), "selected_artifact_id": self._selected, "documents": list(self._documents.values()), "diffs": list(self._diffs.values()), "receipts": list(self._receipts), "refusal": self._refusal}
 
     def _retain(self, artifact_id: str, document: dict[str, object], receipt: Mapping[str, object]) -> None:
         if artifact_id not in self._documents and len(self._documents) == MAX_OFFICE_SNAPSHOT_ITEMS:
@@ -230,6 +237,241 @@ class OfficeSurfaceAuthority:
         if code in {"permission_denied", "policy_denied", "source_changed"}:
             code = "path_refused"
         self._refusal = {"code": code, "message": exc.message}
+
+    def register_import(
+        self,
+        reference: Mapping[str, object],
+        source: Path,
+    ) -> dict[str, object]:
+        expected = reference.get("sha256")
+        jail_name = reference.get("jail_name")
+        if not isinstance(expected, str) or not isinstance(jail_name, str):
+            raise ValueError("Office import reference is invalid")
+        try:
+            result = self.service.import_document(
+                source,
+                expected_sha256=expected,
+                output_name=jail_name,
+            )
+        except DocumentError as exc:
+            self._refused(exc)
+            raise
+        artifact = dict(cast(Mapping[str, object], result["artifact"]))
+        receipt = dict(cast(Mapping[str, object], result["receipt"]))
+        artifact_id = cast(str, artifact["artifact_id"])
+        self._retain(
+            artifact_id,
+            {
+                **artifact,
+                "provenance": {
+                    "operation": "document_import",
+                    "import_id": reference.get("import_id"),
+                    "content_hash": artifact["content_hash"],
+                },
+                "conversion": None,
+                "active_content": [],
+            },
+            receipt,
+        )
+        return {"artifact": artifact, "receipt": receipt}
+
+    def _document(self, artifact_id: object) -> dict[str, object]:
+        if not isinstance(artifact_id, str) or artifact_id not in self._documents:
+            raise ValueError("Office artifact is not registered in this workspace")
+        document = self._documents[artifact_id]
+        return {
+            key: document[key]
+            for key in (
+                "artifact_id",
+                "content_hash",
+                "media_type",
+                "uri",
+                "sensitivity",
+                "acl_fingerprint",
+            )
+        }
+
+    def compare(self, payload: dict[str, object]) -> dict[str, object]:
+        _exact(
+            payload,
+            {"left_artifact_id", "right_artifact_id"},
+            "office.compare",
+        )
+        left = self._document(payload["left_artifact_id"])
+        right = self._document(payload["right_artifact_id"])
+        diff = self.service.compare_documents(left, right)
+        identity = json.dumps(
+            {
+                "left": left["content_hash"],
+                "right": right["content_hash"],
+                "version": diff["version"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        diff_id = f"diff-{hashlib.sha256(identity.encode()).hexdigest()[:32]}"
+        projected = {"diff_id": diff_id, **diff}
+        self._diffs[diff_id] = projected
+        if len(self._diffs) > MAX_OFFICE_SNAPSHOT_ITEMS:
+            del self._diffs[next(iter(self._diffs))]
+        self._refusal = None
+        return {"diff": projected}
+
+    def draft(self, payload: dict[str, object]) -> dict[str, object]:
+        _exact(
+            payload,
+            {"template_artifact_id", "diff_id", "output_name"},
+            "office.draft",
+        )
+        template = self._document(payload["template_artifact_id"])
+        diff_id, output_name = payload["diff_id"], payload["output_name"]
+        if not isinstance(diff_id, str) or diff_id not in self._diffs:
+            raise ValueError("Office diff is not registered in this workspace")
+        if not isinstance(output_name, str) or not output_name:
+            raise ValueError("Office output_name must be a non-empty string")
+        identity = json.dumps(
+            {
+                "template": template["content_hash"],
+                "diff_id": diff_id,
+                "output_name": output_name,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        draft_id = f"draft-{hashlib.sha256(identity.encode()).hexdigest()[:32]}"
+        rendered = self.service.render_comparison_draft(
+            template,
+            self._diffs[diff_id],
+            draft_name=f"{draft_id}.docx",
+        )
+        draft_artifact = dict(cast(Mapping[str, object], rendered["artifact"]))
+        record = store.add_pending(
+            category="office",
+            title="Save Office comparison report",
+            description="Publish the Python-produced report draft after approval",
+            payload={
+                "draft_id": draft_id,
+                "diff_id": diff_id,
+                "draft_artifact": draft_artifact,
+                "output_name": output_name,
+            },
+            origin="native-office",
+        )
+        approval_id = cast(str, record["id"])
+        return {
+            "draft_id": draft_id,
+            "diff_id": diff_id,
+            "approval": {
+                "approval_id": approval_id,
+                "status": "pending",
+                "summary": record["title"],
+            },
+        }
+
+    @staticmethod
+    def approval_event(result: Mapping[str, object]) -> dict[str, object]:
+        approval = cast(Mapping[str, object], result["approval"])
+        return {
+            "approval_id": approval["approval_id"],
+            "summary": approval["summary"],
+            "description": "Publish the Python-produced report draft after approval",
+            "category": "office",
+            "status": "pending",
+            "risk": "medium",
+            "sealed": True,
+            "decided": False,
+            "draft_id": result["draft_id"],
+            "diff_id": result["diff_id"],
+        }
+
+    def bind_request_command(self, approval_id: str, command_id: str) -> None:
+        self._request_commands[approval_id] = command_id
+
+    def answers(self, approval_id: str) -> bool:
+        record = store.get_pending(approval_id)
+        return record is not None and record.get("category") == "office"
+
+    def answer(self, approval_id: str, decision: str, reason: str) -> dict[str, object]:
+        record = store.get_pending(approval_id)
+        if record is None or record.get("category") != "office":
+            raise ValueError("Office approval is unavailable")
+        payload = cast(dict[str, object], record.get("payload"))
+        draft_id, diff_id = payload.get("draft_id"), payload.get("diff_id")
+        if decision == "reject":
+            result = approvals.reject(approval_id, reason=reason)
+            if not result.get("ok"):
+                return {"outcome": "answered_elsewhere", "approval_id": approval_id}
+            return {
+                "outcome": "rejected",
+                "approval_id": approval_id,
+                "draft_id": draft_id,
+                "diff_id": diff_id,
+            }
+        if decision != "approve":
+            raise ValueError("decision must be approve or reject")
+        claimed = approvals.claim(approval_id)
+        if not claimed.get("ok"):
+            return {"outcome": "answered_elsewhere", "approval_id": approval_id}
+        try:
+            draft_artifact = _mapping(
+                payload.get("draft_artifact"),
+                "Office rendered draft",
+            )
+            output_name = payload.get("output_name")
+            if not isinstance(output_name, str):
+                raise ValueError("Office approval output_name is invalid")
+            validation = dict(self.service.validate_artifact(draft_artifact))
+            if validation.get("valid") is not True:
+                raise ValueError("sealed Office draft failed structural validation")
+            publication = DocumentServiceRunner(self.service).publish(
+                artifact=draft_artifact,
+                output_name=output_name,
+            )
+            artifact = dict(cast(Mapping[str, object], publication["artifact"]))
+        except Exception:
+            _ = store.resolve_pending(
+                approval_id,
+                "error",
+                updates={"failure_stage": "office_save"},
+            )
+            raise
+        receipt_ref = f"office-save:{artifact['artifact_id']}"
+        _ = store.resolve_pending(
+            approval_id,
+            "approved",
+            updates={"action_receipt": receipt_ref},
+        )
+        artifact_id = cast(str, artifact["artifact_id"])
+        self._retain(
+            artifact_id,
+            {
+                **artifact,
+                "provenance": {
+                    "operation": "office_approved_save",
+                    "approval_id": approval_id,
+                    "draft_id": draft_id,
+                    "diff_id": diff_id,
+                },
+                "conversion": None,
+                "active_content": [],
+            },
+            {
+                "operation": "office_approved_save",
+                "receipt_ref": receipt_ref,
+                "approval_id": approval_id,
+                "artifact_id": artifact_id,
+            },
+        )
+        return {
+            "outcome": "approved",
+            "approval_id": approval_id,
+            "draft_id": draft_id,
+            "diff_id": diff_id,
+            "request_command_id": self._request_commands.get(approval_id, ""),
+            "artifact": artifact,
+            "validation": validation,
+            "receipt_ref": receipt_ref,
+        }
 
     def create(self, payload: dict[str, object]) -> dict[str, object]:
         _exact(payload, {"format", "content", "output_name"}, "office.create")

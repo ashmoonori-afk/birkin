@@ -90,6 +90,11 @@
                     <ItemsControl x:Name="WorkingMemoryItems"
                                   automation:AutomationProperties.AutomationId="working-memory.items"
                                   ItemsSource="{Binding Workspace.WorkingMemory.Rows}">
+                        <ItemsControl.ItemContainerStyle>
+                            <Style TargetType="ContentPresenter">
+                                <Setter Property="automation:AutomationProperties.Name" Value="Working memory item" />
+                            </Style>
+                        </ItemsControl.ItemContainerStyle>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Background="{StaticResource RaisedBrush}"

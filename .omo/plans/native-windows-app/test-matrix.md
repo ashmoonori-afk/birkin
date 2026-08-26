@@ -1,6 +1,6 @@
 # Birkin Native Windows Test Matrix
 
-Status: implementation and CI decision
+Status: implemented local matrix and W7 CI definition; remote W7 execution unproven
 Primary hosted runner: GitHub `windows-latest`
 Customer OS evidence: Windows 10 22H2 and current Windows 11
 
@@ -38,8 +38,14 @@ dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.Shell.Tests\Birkin.Nat
 # WPF and live bridge
 dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj -c Debug
 
-# Exact phase-one vertical-slice proof
-dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj -c Debug --filter "TestCategory=LiveBridge"
+# Real bridge plus deterministic production-composed windows
+dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj -c Release --filter "TestCategory=LiveBridge"
+
+# Fast deterministic Office window seam: real WPF/codec/reducer/Python bridge, no provider
+dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj -c Release --filter "TestCategory=OfficeWorkflow&TestCategory=DeterministicWindow"
+
+# Existing-account phase-exit filter (recorded pass was local; dispatch job is unproven)
+dotnet test .\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj -c Release --filter "TestCategory=OfficeWorkflow&TestCategory=ExistingAccountProvider"
 
 # Existing Python Windows/native boundary
 uv run --frozen pytest -q tests/test_native_windows_import.py
@@ -54,10 +60,16 @@ uv run --frozen birkin native-bridge serve --transport loopback --root $temporar
 
 It must never use `python -m birkin.cli`.
 
-## 3. Phase-one live-window test
+## 3. Deterministic real-window journeys
 
-`LiveBridgeWindowTests.ConnectsAndRendersPythonSnapshot` is the release-blocking
-phase-one journey. It does all of the following in one test process:
+The original `LiveBridgeWindowTests.ConnectsAndRendersPythonSnapshot` name below
+is historical Phase 1 context. Current production-composed coverage is
+`DeterministicWindowJourneyTests` plus
+`ProviderOfficeDeterministicSeamTests`: both show a real WPF `MainWindow`, use
+the real Python bridge and codec/reducer, and rely on `BridgeSession` rather
+than a manual `ReceiveAsync` path. The deterministic Office seam explicitly
+performs zero provider invocations. The historical Phase 1 journey did all of
+the following in one test process:
 
 1. Create a unique temporary workspace root.
 2. Subscribe to redirected stdout and process-exit signals before starting the
@@ -133,36 +145,61 @@ A protocol pull request cannot update only one client. Generated fixture change,
 Python codec/schema tests, Swift conformance, C# conformance, and the normative
 protocol document are one required change set.
 
-## 5. GitHub Actions changes
+## 5. GitHub Actions definition
 
-Add `.github/workflows/native-windows.yml` with these required jobs:
+`.github/workflows/native-windows.yml` currently defines these seven jobs. The
+superseded decision named CPython `3.12`; the workflow itself is the authority
+for its current pinned runtime:
 
-| Job | Runner | Commands and gate |
+| Job | Runner | Actual command/gate |
 | --- | --- | --- |
-| `python-windows` | `windows-latest` | Install uv and CPython 3.12, `uv sync --frozen`, then run the full Python suite with the two POSIX-symlink tests environment-gated as described below. |
-| `dotnet-portable` | matrix of `ubuntu-latest`, `macos-latest`, `windows-latest` | Install .NET SDK 8, restore, then test only Protocol and Shell in Release. |
-| `wpf-windows` | `windows-latest` | Install .NET SDK 8 and uv, `uv sync --frozen`, restore, build the solution in Release, then run all three C# test projects with `--no-build`. |
-| `live-bridge-window` | `windows-latest` | Run the `LiveBridge` category once; upload TRX and bounded redacted diagnostics on failure. |
-| `protocol-fixture-freshness` | `ubuntu-latest` | Run both Python generators and require a clean fixture diff. |
-| `swift-conformance` | `macos-latest` | Run the existing Swift protocol tests against the shared generated artifacts. |
+| `python-windows` | `windows-latest` | Workflow-pinned CPython; `uv sync --frozen --all-extras --all-groups`; full `pytest` with exactly two `--deselect` arguments. |
+| `dotnet-portable` | `ubuntu-latest`, `macos-latest`, `windows-latest` matrix | Restore and test the Protocol and Shell projects in Release with `--no-restore --filter "TestCategory!=LiveBridge&TestCategory!=WindowsOnly"`. |
+| `wpf-windows` | `windows-latest` | Workflow-pinned CPython; set `UV_NO_SYNC=1`; `uv sync --frozen --all-extras --all-groups`; restore/build the solution; run the unfiltered full Release solution with `--no-build`. |
+| `live-bridge-window` | `windows-latest` | Set `UV_NO_SYNC=1`; `uv sync --frozen --all-extras --all-groups`; build App.Tests and run `--filter "TestCategory=LiveBridge"`; upload only TRX on failure. |
+| `protocol-fixture-freshness` | `ubuntu-latest` | Regenerate protocol, projection, and invalid vectors; reject tracked or untracked fixture drift. |
+| `swift-conformance` | `macos-latest` | Run the full `swift test --package-path macos/BirkinNativeApp` suite. |
+| `provider-office-gate` | dispatch-only protected self-hosted Windows x64 | On a protected ref and environment, run only the exact `OfficeWorkflow&ExistingAccountProvider` intersection; no artifact upload. |
 
-The concrete .NET commands are:
+The concrete WPF commands are:
 
 ```powershell
+uv sync --frozen --all-extras --all-groups
 dotnet restore .\windows\BirkinNativeApp\BirkinNativeApp.sln
 dotnet build .\windows\BirkinNativeApp\BirkinNativeApp.sln -c Release --no-restore
 dotnet test .\windows\BirkinNativeApp\BirkinNativeApp.sln -c Release --no-build --logger "trx;LogFilePrefix=native-windows"
 ```
 
-The workflow has path filters for `windows/**`, `birkin/native/**`,
-`birkin/workspace/**`, `scripts/native/**`, both golden-vector files, the native
-protocol docs, `pyproject.toml`, and `uv.lock`. Branch protection requires all
-six jobs once Phase 1 merges. A scheduled weekly run omits path filters so SDK
-or hosted-image drift is visible.
+The portable matrix applies the same explicit exclusion to each project:
 
-Secrets, bootstrap records, capabilities, complete workspace snapshots, and
-raw stderr are never uploaded. A failed live test uploads only TRX plus a
-bounded diagnostic file that has passed the same redaction rules as the app.
+```powershell
+dotnet test windows/BirkinNativeApp/tests/Birkin.Native.Protocol.Tests/Birkin.Native.Protocol.Tests.csproj -c Release --no-restore --filter "TestCategory!=LiveBridge&TestCategory!=WindowsOnly"
+dotnet test windows/BirkinNativeApp/tests/Birkin.Native.Shell.Tests/Birkin.Native.Shell.Tests.csproj -c Release --no-restore --filter "TestCategory!=LiveBridge&TestCategory!=WindowsOnly"
+```
+
+The workflow has path filters for `windows/**`, `birkin/native/**`,
+`birkin/office/**`, `birkin/workspace/**`, `scripts/native/**`,
+`tests/test_native_office*.py`, the golden-vector directory,
+`docs/native-app/**`, `pyproject.toml`, `uv.lock`, and its contract files. The
+`windows/**` path includes the checked-in App test Office fixtures. A scheduled
+weekly run is defined. Repository evidence proves this YAML contract
+through `tests/test_native_windows_ci_contract.py`; it does **not** prove that
+GitHub ran any job or that branch protection requires it.
+
+`provider-office-gate` is intentionally absent from push/PR execution and runs
+only on protected-ref `workflow_dispatch`. The protected environment
+`native-windows-existing-account`, the matching labels
+`self-hosted, Windows, X64, birkin-existing-account`, and existing-account
+provider authentication are external administrator prerequisites. W7 did not
+create, inspect, or remotely execute them. Its verification log exists only as
+private ignored local evidence at
+`.omo/evidence/native-windows-20260824/remediation/w7/verification.txt`; remote
+readers cannot access it from the repository or pull request.
+
+Secrets, bootstrap records, capabilities, complete workspace snapshots, raw
+stderr, and screenshots are never uploaded. Local screenshots are private,
+ignored evidence rather than committed, PR-attached, or remote CI artifacts.
+The current failed-live path uploads only TRX.
 
 ## 6. Windows gating for the two POSIX symlink tests
 
@@ -179,7 +216,7 @@ and macOS continue to require them.
 The `python-windows` job environment-gates only those node IDs:
 
 ```powershell
-uv run --frozen pytest -q -k "not test_uds_listener_rejects_symlinked_parent and not test_uds_listener_rejects_symlinked_socket_path"
+./.venv/Scripts/python.exe -m pytest -q -o addopts="" --deselect tests/test_native_transport.py::test_uds_listener_rejects_symlinked_parent --deselect tests/test_native_transport.py::test_uds_listener_rejects_symlinked_socket_path
 ```
 
 The job logs the two deselections. All other tests run. This is the sole Windows
@@ -203,15 +240,29 @@ exception; a broader `test_native_transport.py` exclusion is forbidden.
 - heartbeat, bounded backpressure, disconnect, deterministic reconnect;
 - external process never terminated, owned process only terminated through its
   returned handle, and five exits in 60 seconds stops restart;
-- owner-only discovery DACL inspection and wrong/expired bootstrap refusal.
+- wrong/expired one-shot bootstrap refusal and the authenticated owner-only
+  Python discovery boundary;
+- deferred LOW hardening: C# handle-level final-path, reparse/owner, and
+  protected-DACL verification (not a current green claim).
 
 ### Phase 3: core office workflow
 
 - stable command ID and expected-cursor behavior;
 - stale cursor preserves the draft but does not replay it;
 - file import stays jailed and Python-owned;
-- spreadsheet comparison input, generated report/diff presentation, explicit
-  approval, verified save, and Activity receipt through real Python authority;
+- three jailed imports, Python spreadsheet comparison, sealed report/diff
+  approval, visible pre-approval Diff, UI approval, structural OOXML save, and
+  Activity receipt through real Python authority;
+- deterministic fast regressions use the production-composed real WPF window,
+  real bridge, and no provider; one separate existing-account `codex-cli`
+  phase-exit run passed locally. Historical W6 provider screenshots are
+  `remediation/w6/pre-approval-diff.png` and
+  `remediation/w6/post-save-activity-office.png`; final G local visual evidence
+  is `final-review-fixes/g/pre-approval-diff-1500x940.png`,
+  `post-save-activity-office-1500x940.png`, and
+  `post-save-office-1100x700.png`. These paths are beneath the private ignored
+  `.omo/evidence/native-windows-20260824/` tree and are not repository, PR, or
+  remote CI artifacts;
 - interruption and restart recover canonical outcomes rather than optimistic UI
   state.
 

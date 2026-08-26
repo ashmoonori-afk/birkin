@@ -2,8 +2,8 @@
   "generated_by": "scripts/native/generate_projection_vectors.py",
   "source_modules": [
     "birkin.native.messages.NativeMessageFactory",
-    "birkin.native.projection.public_native_mapping",
     "birkin.native.projection.public_workspace_event",
+    "birkin.native.projection.public_workspace_snapshot",
     "birkin.workspace.snapshot.reduce_snapshot",
     "birkin.workspace.working_memory.WorkingMemoryAuthority",
     "birkin.workspace.working_memory.project_working_memory",
@@ -1390,8 +1390,8 @@
       }
     },
     {
-      "frame_base64": "AAABgXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTEwIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTEsImV2ZW50X2lkIjoiZXZlbnQtMTEiLCJ0eXBlIjoidGVybWluYWwub3V0cHV0IiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoxMVoiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGVybWluYWxfaWQiOiJ0ZXJtaW5hbC12ZWN0b3IiLCJzZXF1ZW5jZSI6MSwiZGF0YSI6ImhlbGxvLW5hdGl2ZSJ9fX0=",
-      "frame_byte_count": 389,
+      "frame_base64": "AAABhXsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTEwIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MTEsImV2ZW50X2lkIjoiZXZlbnQtMTEiLCJ0eXBlIjoidGVybWluYWwub3V0cHV0IiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoxMVoiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGVybWluYWxfaWQiOiJ0ZXJtaW5hbC12ZWN0b3IiLCJzZXF1ZW5jZSI6MSwiZGF0YSI6ImhlbGxvLW5hdGl2ZVxyXG4ifX19",
+      "frame_byte_count": 393,
       "kind": "event",
       "cursor": 11,
       "expected_state": {
@@ -1560,7 +1560,7 @@
           {
             "terminal_id": "terminal-vector",
             "cwd": "/private/workspace",
-            "screen": "hello-native",
+            "screen": "hello-native\r\n",
             "output_sequence": 1,
             "state": "running",
             "exit_status": null,
@@ -1743,7 +1743,7 @@
           {
             "terminal_id": "terminal-vector",
             "cwd": "/private/workspace",
-            "screen": "hello-native",
+            "screen": "hello-native\r\n",
             "output_sequence": 1,
             "state": "running",
             "exit_status": null,
@@ -1926,7 +1926,7 @@
           {
             "terminal_id": "terminal-vector",
             "cwd": "/private/workspace",
-            "screen": "hello-native",
+            "screen": "hello-native\r\n",
             "output_sequence": 1,
             "state": "exited",
             "exit_status": 0,
@@ -2118,7 +2118,7 @@
           {
             "terminal_id": "terminal-vector",
             "cwd": "/private/workspace",
-            "screen": "hello-native",
+            "screen": "hello-native\r\n",
             "output_sequence": 1,
             "state": "exited",
             "exit_status": 0,
@@ -2318,7 +2318,7 @@
           {
             "terminal_id": "terminal-vector",
             "cwd": "/private/workspace",
-            "screen": "hello-native",
+            "screen": "hello-native\r\n",
             "output_sequence": 1,
             "state": "exited",
             "exit_status": 0,
@@ -2532,7 +2532,7 @@
           {
             "terminal_id": "terminal-vector",
             "cwd": "/private/workspace",
-            "screen": "hello-native",
+            "screen": "hello-native\r\n",
             "output_sequence": 1,
             "state": "exited",
             "exit_status": 0,

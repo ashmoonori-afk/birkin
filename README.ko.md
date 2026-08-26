@@ -79,6 +79,12 @@ Role profile 계층은 opt-in입니다. `profile.enabled`의 기본값은 `false
 
 Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다. Project instruction은 workspace `AGENTS.md`에, persona는 `~/.birkin/SOUL.md`에 두십시오. Birkin은 cwd `SOUL.md`를 발견하면 deprecation notice를 출력합니다.
 
+### 로컬 환경 증거
+
+신뢰된 native 및 CLI agent prompt에는 현재 운영체제와 홈 디렉터리, 그리고 machine-readable 로컬 환경 policy가 들어갑니다. Session이나 memory에 남은 경로는 현재 tool output으로 확인되기 전까지 미검증 값으로 취급하므로 다른 운영체제의 경로를 현재 host 사실로 재사용해서는 안 됩니다. Birkin은 대상 디렉터리가 쓰기 불가라고 보고하기 전에 사용 가능한 tool로 그 디렉터리 안에 고유한 이름의 임시 항목을 생성하고 쓰고 삭제해야 하며, 기존 경로는 수정하거나 삭제해서는 안 됩니다. Sandbox, route, 누락된 tool, 승인 요구, 운영체제 권한 결과는 관찰된 증거로 구분하며 서로 다른 제한으로 잘못 분류하지 않습니다.
+
+요청한 결과와 적용 범위는 계속 구속력을 가집니다. Birkin은 실제 profile 또는 memory 적용을 workspace 초안으로 대체한 뒤 완료라고 주장해서는 안 됩니다. Assistant에게 붙인 이름을 포함한 assistant persona 사실과 사용자 profile 사실도 분리합니다. 이 로컬 block은 신뢰된 native 및 CLI prompt에만 추가되며 public 또는 untrusted prompt에는 로컬 경로 사실이나 private profile context가 들어가지 않습니다.
+
 ## 빠른 시작
 
 Birkin은 Python 3.10 이상이 필요합니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.
@@ -236,7 +242,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.294`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.325`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -576,7 +582,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
 | `birkin gateway` | Loopback HTTP와 설정된 message channel을 실행하고, 중단 후 답변 재전송을 단일 owner가 배타적으로 claim하도록 보장. |
 | `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
-| `birkin native-bridge serve` | macOS 앱이 연결하는 인증된 local bridge 실행. |
+| `birkin native-bridge serve` | macOS와 Windows native client가 사용하는 인증된 local bridge 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |
 | `birkin permission` | Approval category와 CLI access 확인·변경. |
 | `birkin tools` | Canonical registry inventory에서 네이티브 tool 목록·활성화·비활성화. |
@@ -774,8 +780,9 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   안에서 실행됩니다. Seatbelt profile은 Mach, network, shared-memory IPC와
   terminal-originated process signal을 차단하고, cleanup은 coalition을
   정지·재탐색·종료하므로 double-fork 또는 `setsid()` descendant가 Python
-  소유권 밖으로 이동할 수 없습니다.
-  Non-Darwin bridge는 Native Terminal command set을 광고하지 않습니다.
+  소유권 밖으로 이동할 수 없습니다. 지원되는 Windows build에서는 Python이
+  Windows Job 안의 start-gated ConPTY process tree를 소유하며, 해당 backend를
+  사용할 수 있을 때만 Terminal command를 광고합니다.
 - **Bridge lifecycle:** App은 배포된 `birkin native-bridge serve` 명령으로
   자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint를 기다리며,
   60초 안에 최대 다섯 번까지 재시작하고, 종료할 때 함께 정리합니다.
@@ -819,9 +826,33 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   밖에 있어 App Sandbox는 계속 비활성화하지만 Python policy, local
   authentication, macOS privacy permission은 적용됩니다.
 
-향후 Windows-native client와 공통 cross-platform shell 중 무엇을 택할지는
-아직 열려 있으며, 코드 재사용률만이 아니라 accessibility API, installer
-유지보수, 실제 사용량을 기준으로 결정합니다.
+## Native Windows development preview
+
+플랫폼 결정은 인증된 loopback bridge 위의 .NET 8 WPF thin client로 구현되었습니다.
+Phase 3는 **development preview**이며 customer release가 아닙니다. Production
+composition은 socket을 읽는 유일한 주체인 `BridgeSession` 하나와 공유 in-memory
+projection store 하나를 사용합니다. Policy, execution, approval, Office, receipt,
+recovery의 유일한 authority는 계속 Python입니다. Terminal 영역은 Python이 검증된
+ConPTY command set을 광고할 때만 interactive합니다. Python이 Job, process tree,
+pseudoconsole, pipe, lease, sequence, cleanup을 소유하고 WPF는 canonical VT-free
+화면을 표시하며 typed control만 전송합니다. Browser는 control이나 authority를
+만들지 않고 canonical projected state만 표시합니다.
+
+결정적 fast regression은 provider나 manual receive path 없이 실제 WPF
+`MainWindow`, 실제 frame codec/reducer, 실제 Python bridge를 구동합니다
+(`windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Journeys/DeterministicWindowJourneyTests.cs`,
+`ProviderOfficeDeterministicSeamTests.cs`). 이와 별도로 Phase 3 exit journey는
+기존 `codex-cli` 계정으로 한 번 통과했습니다. Provider-backed chat, jailed import
+3건, Python comparison과 sealed approval, 승인 전에 보이는 Diff, UI approval,
+structural OOXML save, Activity receipt, screenshot 2장, cleanup을 확인했습니다.
+테스트는
+`windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Journeys/ProviderOfficeJourneyTests.cs`이며
+bounded evidence는 private local release evidence로 보존되고 배포되지 않습니다.
+
+Windows installer나 MSI, code signing, updater, packaged app, customer-ready
+release는 아직 없습니다. 이는 이후 roadmap 작업입니다. 위 native-shell mockup은
+계속 product roadmap이며, 그림에 있는 모든 Windows capability가 활성화되었다는
+주장이 아닙니다.
 
 ### 절충점과 비목표
 

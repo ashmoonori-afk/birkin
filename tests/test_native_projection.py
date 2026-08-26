@@ -51,6 +51,37 @@ def test_public_event_removes_integrity_and_secret_fields() -> None:
     }
 
 
+def test_public_terminal_output_preserves_vt_stream_without_secret_redaction_regression() -> None:
+    # Given
+    raw_prefix = "".join((
+        "\x1b[?90",
+        "01h\r\n\x1b]0;terminal-title\x07한글-日本語 <>& ",
+    ))
+    projected_event = _event(
+        "terminal.output",
+        {
+            "terminal_id": "terminal-raw-vt-73",
+            "sequence": 9,
+            "data": raw_prefix + _SEEDED_SECRET + "\n" + ("x" * 25_000),
+            "lease": "must-not-project",
+            "unexpected": "must-not-project",
+        },
+    )
+
+    # When
+    projected = public_workspace_event(projected_event)
+
+    # Then
+    payload = cast(dict[str, object], projected["payload"])
+    data = str(payload["data"])
+    assert data.startswith(raw_prefix + "[REDACTED]\n")
+    assert len(data) == 20_000
+    assert _SEEDED_SECRET not in data
+    assert payload.keys() == {"terminal_id", "sequence", "data"}
+    assert payload["terminal_id"] == "terminal-raw-vt-73"
+    assert payload["sequence"] == 9
+
+
 def test_public_terminal_input_event_never_contains_typed_text() -> None:
     secret = "seeded-terminal-input"
     projected = public_workspace_event(

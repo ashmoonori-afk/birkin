@@ -152,7 +152,7 @@ public static class NativeBodyValidator
     private static void ValidateError(NativeJsonObject body)
     {
         var required = Set("code", "message", "retryable");
-        var allowed = Set("code", "message", "retryable", "current_cursor", "current_revision", "limit", "approval_id", "server_protocol_versions");
+        var allowed = Set("code", "message", "retryable", "current_cursor", "current_revision", "limit", "approval_id", "server_protocol_versions", "accepted_cursor", "result_event_cursor");
         if (required.Any(key => !body.ContainsKey(key)) || body.Keys.Any(key => !allowed.Contains(key)))
         {
             throw BodyError();
@@ -165,7 +165,11 @@ public static class NativeBodyValidator
             throw BodyError();
         }
 
-        foreach (var key in new[] { "current_cursor", "current_revision", "limit" }.Where(body.ContainsKey))
+        if (body.ContainsKey("accepted_cursor") != body.ContainsKey("result_event_cursor"))
+        {
+            throw BodyError();
+        }
+        foreach (var key in new[] { "current_cursor", "current_revision", "limit", "accepted_cursor", "result_event_cursor" }.Where(body.ContainsKey))
         {
             NonNegativeInteger(body, key);
         }

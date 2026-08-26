@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
-from .. import config, transcripts, uistate, workbench
+from .. import config, store, transcripts, uistate, workbench
 from ..browser_aside_control import BrowserControlAuthority
 from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
@@ -147,7 +147,7 @@ class RuntimeWorkspaceAdapter:
             "session.compact": self._session_compact,
             "memory.write": memory_write_handler(self._session_id, self._emit),
             **self._terminal.handlers(),
-            **self._jailed_import.handlers(),
+            "file.import": self._file_import,
             **self.surface_authority.handlers(self._emit),
         }
 
@@ -423,25 +423,79 @@ class RuntimeWorkspaceAdapter:
         _ = self._emit("turn.resumed", {})
         return {"resumed": True}
 
+    def _file_import(self, payload: dict[str, object]) -> dict[str, object]:
+        imported = self._jailed_import.import_file(payload)
+        reference = cast(dict[str, object], imported["reference"])
+        display_name = reference.get("display_name")
+        suffix = (
+            Path(display_name).suffix.casefold()
+            if isinstance(display_name, str)
+            else ""
+        )
+        if suffix not in {".docx", ".xlsx", ".pptx", ".hwpx", ".pdf", ".txt"}:
+            return imported
+        _attachment, source = self._jailed_import.validate_attachment(reference)
+        registered = self.surface_authority.office.register_import(reference, source)
+        result = {
+            "reference": reference,
+            "artifact": registered["artifact"],
+            "receipt": imported["receipt"],
+        }
+        _ = self._emit("office.updated", {"surface": "office", "result": result})
+        return result
+
     def _approval_answer(self, payload: dict[str, object]) -> dict[str, object]:
+        if set(payload) - {"approval_id", "decision", "reason"}:
+            raise ValueError("approval.answer payload has unsupported fields")
         approval_id = payload.get("approval_id")
         decision = payload.get("decision")
         if not isinstance(approval_id, str):
             raise TypeError("approval_id is required")
-        result = approval_authority.decide(
-            approval_id,
-            decision=str(decision),
-            reason=str(payload.get("reason") or ""),
-        )
+        reason = str(payload.get("reason") or "")
+        record = store.get_pending(approval_id)
+        office_approval = record is not None and record.get("category") == "office"
+        if office_approval:
+            result = self.surface_authority.office.answer(
+                approval_id,
+                str(decision),
+                reason,
+            )
+        else:
+            result = approval_authority.decide(
+                approval_id,
+                decision=str(decision),
+                reason=reason,
+            )
         event_payload: dict[str, object] = {
             "approval_id": approval_id,
             "decision": str(decision),
             "outcome": str(result["outcome"]),
         }
-        receipt = result.get("receipt")
+        receipt = result.get("receipt") or result.get("receipt_ref")
         if isinstance(receipt, str):
             event_payload["receipt"] = receipt
-        _ = self._emit("approval.answered", event_payload)
+        answered = self._emit("approval.answered", event_payload)
+        if office_approval and result.get("outcome") == "approved":
+            artifact = cast(dict[str, object], result["artifact"])
+            request_command_id = result.get("request_command_id")
+            approval_command_id = answered.command_id
+            receipt_payload: dict[str, object] = {
+                "receipt_ref": result["receipt_ref"],
+                "summary": "Approved Office report saved and structurally verified",
+                "approval_id": approval_id,
+                "artifact_id": artifact["artifact_id"],
+                "draft_id": result["draft_id"],
+                "diff_id": result["diff_id"],
+                "approval_command_id": approval_command_id,
+            }
+            if isinstance(request_command_id, str) and request_command_id:
+                receipt_payload["request_command_id"] = request_command_id
+            _ = self._emit("receipt.recorded", receipt_payload)
+            _ = self._emit(
+                "office.updated",
+                {"surface": "office", "result": result},
+            )
+            result = {**result, "approval_command_id": approval_command_id}
         return {str(key): value for key, value in result.items()}
 
     def _question_answer(

@@ -1,6 +1,6 @@
 # Birkin Native Windows Architecture
 
-Status: implementation decision for the Windows development preview
+Status: implemented Phase 3 development-preview architecture
 Target framework: .NET 8
 UI: WPF on `net8.0-windows`
 Local channel: authenticated raw frames over `127.0.0.1`
@@ -71,6 +71,7 @@ windows/BirkinNativeApp/
         INativeClientConnection.cs
         LoopbackTransportConnection.cs
         NativeClientConnection.cs
+        BridgeSession.cs
     Birkin.Native.Shell/
       Birkin.Native.Shell.csproj
       Connection/
@@ -111,6 +112,10 @@ windows/BirkinNativeApp/
         ApprovalView.xaml.cs
         OfficeView.xaml
         OfficeView.xaml.cs
+        DiffView.xaml
+        DiffView.xaml.cs
+        ContextColumnView.xaml
+        PrimaryColumnView.xaml
       Accessibility/
         TextCompositionGuard.cs
   tests/
@@ -182,10 +187,14 @@ The Windows client must not:
 - turn a notification click, focus change, visible toggle, or process ID into
   authority.
 
-The projection store is a disposable cache. Presentation preferences are stored
-under the normal per-user application settings location in a schema that cannot
-contain arbitrary product JSON. There is no offline product cache in this
-architecture.
+The production composition creates exactly one disposable
+`NativeProjectionStore` and passes that same instance to one `BridgeSession`
+and the shell coordinator. `BridgeSession` owns the sole receive loop, routes
+snapshots, events, surface updates, receipts, heartbeats, and recovery signals,
+and correlates the single pending command; its public `ReceiveAsync` refuses a
+second reader. Presentation preferences may be stored under the normal per-user
+application settings location in a schema that cannot contain arbitrary
+product JSON. There is no offline product cache or second authority.
 
 ## 4. Local channel and trust boundary
 
@@ -210,18 +219,22 @@ record shape:
 The example port is illustrative; production uses the announced ephemeral port.
 The reader rejects a non-loopback host, a non-loopback transport, an invalid or
 expired record, a version set without 1, an out-of-range port, an instance that
-disagrees with the announcement, duplicate JSON keys, unknown keys, and a
-reparse-point discovery file. It reads the bootstrap secret once, connects to
-the recorded port, sends it only in `hello`, and retains neither the record nor
-the secret after `ready`.
+disagrees with the announcement, duplicate JSON keys, and unknown keys. It
+reads the bootstrap secret once, connects to the recorded port, sends it only
+in `hello`, and retains neither the record nor the secret after `ready`.
+Python's owner-only discovery directory/record plus one-shot secret are the
+currently authenticated and proven boundary. Handle-based final-path,
+reparse-point, owner, and protected-DACL verification by the C# reader is
+explicitly deferred LOW hardening; path-level checks must not be described as
+that stronger proof.
 
 Trust enforcement is layered rather than duplicated:
 
 | Layer | Enforcement |
 | --- | --- |
-| Python bridge | Binds only `127.0.0.1`, creates the private discovery directory and record, applies the protected owner-only DACL, expires and rotates the one-shot secret, mints connection-scoped capabilities, and remains the command/policy authority. |
-| Windows ACL and socket stack | Denies other accounts access to the discovery record and prevents a non-loopback destination after the client pins `127.0.0.1`. The executed Windows evidence is owner-only Full Control on both record and directory. |
-| C# protocol client | Strictly parses the announcement and record, pins loopback and protocol 1, performs `hello -> ready -> subscribe`, keeps capability material only in memory, enforces frame/body bounds, and refuses version or instance disagreement. |
+| Python bridge | Binds only `127.0.0.1`, creates the private discovery directory and record with owner-only access, expires and rotates the one-shot secret, mints connection-scoped capabilities, and remains the command/policy authority. |
+| Windows ACL and socket stack | Supports the current owner-only discovery boundary and loopback pinning. Handle-level final-path/reparse/owner/protected-DACL verification remains deferred LOW hardening. |
+| C# protocol client | Strictly parses the announcement and record, pins loopback and protocol 1, performs `hello -> ready -> subscribe`, keeps capability material only in memory, enforces frame/body bounds, and refuses version or instance disagreement. One `BridgeSession` is the sole reader. |
 | WPF shell | Enables mutations only while the connection is ready and the command is advertised; it presents bounded redacted errors and never treats a control as consent. |
 
 Named pipes are rejected. CPython has no named-pipe server, so adopting them
@@ -237,14 +250,24 @@ A connection context contains the socket, negotiated protocol version, bridge
 instance ID, session ID, current capability and expiries, last contiguous
 workspace cursor, and per-surface revisions. It exists only in memory.
 
-Connection state transitions are explicit:
+Connection and projection recovery state transitions are explicit:
 
 ```text
 Disconnected -> Connecting -> Handshaking -> Subscribing -> Ready
       ^              |             |              |          |
       +--------------+-------------+--------------+----------+
                      bounded failure or disconnect
+
+Live -> GapDetected -> ReplayInFlight -> Live
+  |       gap/desync/heartbeat; mutation revoked  |
+  +---------------- disconnect -> Disconnected
+  +------------- instance reset -> SnapshotInFlight (state discarded)
 ```
+
+One repair-episode gate ensures a cursor gap, surface gap, and
+`stream.desynchronized` burst emits exactly one canonical replay request. The
+replacement snapshot returns the shared store to `Live`; no UI or second reader
+can declare recovery complete.
 
 On any disconnect, before scheduling reconnect, the coordinator atomically:
 
@@ -280,37 +303,40 @@ but cannot restore stale authority.
 
 - **Attached external:** the announcement came from a user or QA-managed bridge.
   The app owns no process object and never terminates or restarts its PID.
-- **Running owned:** the eventual packaged launcher returned an
+- **Running owned:** development-preview startup returned an
   `IBridgeProcess` from this supervisor's injected spawn closure. That returned
   process handle, not an announced numeric PID, is the ownership proof.
 
 The supervisor may terminate only the process object returned by its own spawn
 closure. It never reopens a process by PID and never kills an externally
-announced bridge. On application shutdown it sends `goodbye`, closes the
-connection, and asks only an owned process to stop. Python remains responsible
-for any terminal process tree.
+announced bridge. On application shutdown the composition disposes the
+session/connection first and then asks only an owned process to stop. Python
+remains responsible for any terminal process tree.
 
 Unexpected owned exits are tracked with an injected monotonic clock. The fifth
 exit in a rolling 60-second window enters a bounded `Stopped(crash_loop)` state;
 there is no sixth spawn until an explicit user retry starts a new window. The
-same rule applies if a frozen one-file helper has a launcher parent: the spawn
-closure must return a wrapper around the serving child it announced, and only
-that wrapper may stop it.
+same exact-process rule must apply to any future packaged helper; packaging is
+not implemented in this preview.
 
-Phase 1 uses external attachment through the `listening` stdout line and does
-not package or own a bridge. Owned launch, helper verification, graceful
-shutdown escalation, and the five-in-sixty restart policy are implemented in
-the resilience phase before customer mutation workflows.
+External attachment still enters through the `listening` stdout line and never
+confers ownership or kill authority. Production development-preview startup may
+instead spawn an exact `OwnedBridgeProcess`; only that returned object can be
+stopped or replaced, and the supervisor stops after five exits in a rolling
+60-second window. Composition disposal stops observing replacements, disposes
+the coordinator/session connection, and only then stops the owned process.
+There is no packaged helper verification yet.
 
 ## 7. Terminal decision
 
-Phase 1 has no terminal panel, not even a disabled placeholder. Windows lacks
-`pty`, `fcntl`, and `termios`, and the bridge correctly reports a typed
-unsupported-capability result when no PTY backend exists.
+The Phase 3 window visibly includes Terminal and Browser regions because the
+user directly requested the mockup hierarchy. They are truth-telling
+placeholders, not authority: Terminal says it is unavailable on Windows, while
+Browser displays only Python-projected items and offers no invented navigation
+control.
 
-A later terminal panel is permitted only after Python owns a tested ConPTY
+Terminal can become interactive only after Python owns a tested ConPTY
 (`CreatePseudoConsole`) implementation and advertises the terminal commands.
-WPF then renders Python-projected output and sends versioned input, resize,
+WPF could then render Python-projected output and send versioned input, resize,
 signal, and close commands carrying the Python lease. The client never starts
-`cmd.exe`, PowerShell, or another shell itself. Until that Python capability is
-real, omission is the accurate UI.
+`cmd.exe`, PowerShell, a browser session, or another authority itself.

@@ -17,6 +17,16 @@ public enum NativeProjectionRepairReason
     StreamDesynchronized,
     CursorAhead,
     SurfaceGap,
+    HeartbeatMiss,
+}
+
+public enum NativeProjectionRecoveryState
+{
+    Disconnected,
+    SnapshotInFlight,
+    Live,
+    GapDetected,
+    ReplayInFlight,
 }
 
 public sealed record NativeSurfaceProjection(string Name, long Revision, NativeJsonObject Payload);
@@ -34,10 +44,20 @@ public sealed class NativeProjectionStore
 
     public NativeProjectionRepairReason? RepairReason { get; private set; }
 
+    public bool IsMutationAuthorityAvailable { get; private set; }
+
+    public NativeProjectionRecoveryState RecoveryState { get; private set; }
+
     public IReadOnlyDictionary<string, long> SurfaceRevisions =>
         new ReadOnlyDictionary<string, long>(_surfaceRevisions);
 
     public event Action<NativeProjectionState>? SnapshotApplied;
+
+    public event Action<NativeEnvelope>? CanonicalApplied;
+
+    public event Action<bool>? MutationAuthorityChanged;
+
+    public event Action<NativeProjectionRecoveryState>? RecoveryStateChanged;
 
     public void ApplySnapshot(NativeEnvelope envelope, NativeReadyIdentity readyIdentity)
     {
@@ -47,15 +67,18 @@ public sealed class NativeProjectionStore
         }
 
         NativeBodyValidator.Validate(envelope, NativeMessageOrigin.Server);
-        var replacement = new NativeProjectionState(envelope.Body, readyIdentity);
+        var normalizedBody = NativeProjectionReducer.NormalizeSnapshotBody(envelope.Body);
+        var replacement = new NativeProjectionState(normalizedBody, readyIdentity);
         State = replacement;
         Status = NativeProjectionStoreStatus.Current;
         RepairReason = null;
+        TransitionRecoveryTo(NativeProjectionRecoveryState.Live);
         _activeCommands.Clear();
         if (replacement.Composer["can_interrupt"] is NativeJsonBoolean { Value: true })
         {
             _ = _activeCommands.Add("__snapshot_active__");
         }
+        SetMutationAuthorityAvailable(true);
         SnapshotApplied?.Invoke(replacement);
     }
 
@@ -66,6 +89,11 @@ public sealed class NativeProjectionStore
             throw new NativeProtocolError("E_STATE", "projection application requires an event envelope");
         }
         NativeBodyValidator.Validate(envelope, NativeMessageOrigin.Server);
+        if (RecoveryState != NativeProjectionRecoveryState.Live)
+        {
+            return;
+        }
+
         var current = State ?? throw new NativeProtocolError("E_STATE", "event requires a projection snapshot");
         var protocolVersion = Integer(envelope.Body, "protocol_version");
         var sessionId = String(envelope.Body, "session_id");
@@ -89,6 +117,7 @@ public sealed class NativeProjectionStore
         State = NativeProjectionReducer.Reduce(current, envelope.Body, _activeCommands);
         Status = NativeProjectionStoreStatus.Current;
         RepairReason = null;
+        CanonicalApplied?.Invoke(envelope);
     }
 
     public void ApplySurface(NativeEnvelope envelope)
@@ -99,6 +128,11 @@ public sealed class NativeProjectionStore
             throw new NativeProtocolError("E_STATE", "surface application requires a surface envelope");
         }
         NativeBodyValidator.Validate(envelope, NativeMessageOrigin.Server);
+        if (RecoveryState != NativeProjectionRecoveryState.Live)
+        {
+            return;
+        }
+
         var name = String(envelope.Body, "surface");
         var revision = Integer(envelope.Body, "revision");
         var payload = envelope.Body["payload"] as NativeJsonObject ?? throw BodyError();
@@ -113,6 +147,7 @@ public sealed class NativeProjectionStore
 
         _surfaces[name] = new NativeSurfaceProjection(name, revision, payload);
         _surfaceRevisions[name] = revision;
+        CanonicalApplied?.Invoke(envelope);
     }
 
     public NativeSurfaceProjection? Surface(string name) => _surfaces.GetValueOrDefault(name);
@@ -127,10 +162,56 @@ public sealed class NativeProjectionStore
         RequestCanonicalRepair(NativeProjectionRepairReason.StreamDesynchronized);
     }
 
-    public void RequestCanonicalRepair(NativeProjectionRepairReason reason)
+    public bool RequestCanonicalRepair(NativeProjectionRepairReason reason)
     {
         Status = NativeProjectionStoreStatus.RepairRequired;
-        RepairReason = reason;
+        RepairReason ??= reason;
+        SetMutationAuthorityAvailable(false);
+        if (RecoveryState is NativeProjectionRecoveryState.GapDetected
+            or NativeProjectionRecoveryState.ReplayInFlight)
+        {
+            return false;
+        }
+
+        TransitionRecoveryTo(NativeProjectionRecoveryState.GapDetected);
+        return true;
+    }
+
+    internal bool TryBeginReplay()
+    {
+        if (RecoveryState != NativeProjectionRecoveryState.GapDetected)
+        {
+            return false;
+        }
+
+        TransitionRecoveryTo(NativeProjectionRecoveryState.ReplayInFlight);
+        return true;
+    }
+
+    internal void BeginSnapshot(NativeReadyIdentity identity)
+    {
+        if (State is { } current
+            && !string.Equals(current.InstanceId, identity.InstanceId, StringComparison.Ordinal))
+        {
+            DiscardForInstanceChange();
+        }
+
+        SetMutationAuthorityAvailable(false);
+        TransitionRecoveryTo(NativeProjectionRecoveryState.SnapshotInFlight);
+    }
+
+    public void MarkMutationAuthorityUnavailable()
+    {
+        SetMutationAuthorityAvailable(false);
+        TransitionRecoveryTo(NativeProjectionRecoveryState.Disconnected);
+    }
+
+    internal void MarkMutationAuthorityAvailable()
+    {
+        if (RecoveryState == NativeProjectionRecoveryState.Live)
+        {
+            SetMutationAuthorityAvailable(true);
+        }
     }
 
     internal void DiscardForInstanceChange()
@@ -141,6 +222,29 @@ public sealed class NativeProjectionStore
         _activeCommands.Clear();
         _surfaces.Clear();
         _surfaceRevisions.Clear();
+        SetMutationAuthorityAvailable(false);
+    }
+
+    private void TransitionRecoveryTo(NativeProjectionRecoveryState state)
+    {
+        if (RecoveryState == state)
+        {
+            return;
+        }
+
+        RecoveryState = state;
+        RecoveryStateChanged?.Invoke(state);
+    }
+
+    private void SetMutationAuthorityAvailable(bool available)
+    {
+        if (IsMutationAuthorityAvailable == available)
+        {
+            return;
+        }
+
+        IsMutationAuthorityAvailable = available;
+        MutationAuthorityChanged?.Invoke(available);
     }
 
     private static long Integer(NativeJsonObject body, string key) =>
