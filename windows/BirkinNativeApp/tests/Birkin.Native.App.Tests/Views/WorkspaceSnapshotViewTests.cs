@@ -129,6 +129,64 @@ public sealed class WorkspaceSnapshotViewTests
     }
 
     [TestMethod]
+    [TestCategory("Terminal")]
+    public async Task TerminalProjection_WhenPythonProvidesDisplay_RendersDisplayInsteadOfRawAuthorityState()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        var rendered = await sta.InvokeAsync(() =>
+        {
+            var model = new ShellPresentationModel(SynchronizationContext.Current!);
+            var view = new WorkspaceSnapshotView(model);
+            var terminal = new TerminalPresentation(
+                false,
+                "E_PROJECTION_FORBIDS_MUTATION",
+                [new TerminalItemPresentation(
+                    "terminal-projected-73",
+                    @"C:\workspace",
+                    "PYTHON_DISPLAY_OK 한글-日本語",
+                    73,
+                    "running",
+                    null,
+                    100,
+                    30,
+                    true)]);
+            model.PresentSnapshot(
+                new WorkspaceSnapshotPresentation(
+                    1,
+                    "session-terminal",
+                    73,
+                    "instance-terminal",
+                    "reconnect",
+                    "loopback",
+                    1,
+                    "connected",
+                    [],
+                    new ComposerPresentation(false, false, false, false),
+                    new WorkingMemoryPresentation(0, []),
+                    [],
+                    [],
+                    [],
+                    [],
+                    terminal,
+                    MutationAvailabilityPresentation.PhaseOne),
+                () => { });
+            view.Measure(new Size(1100, 700));
+            view.Arrange(new Rect(0, 0, 1100, 700));
+            view.UpdateLayout();
+            view.Dispatcher.Invoke(() => { }, DispatcherPriority.DataBind);
+            var output = FindByAutomationId<TextBlock>(view, "terminal.output");
+            return (output.Text, Presented: model.Workspace?.Terminal, Expected: terminal);
+        });
+
+        Assert.AreEqual("PYTHON_DISPLAY_OK 한글-日本語", rendered.Text);
+        Assert.AreSame(rendered.Expected, rendered.Presented);
+        Assert.IsTrue(rendered.Presented?.IsReadOnly);
+        Assert.IsFalse(rendered.Text.Contains('\u001b'));
+        Assert.IsFalse(rendered.Text.Contains("lease", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [TestMethod]
     public async Task MainWindow_WhenConstructed_UsesDevelopmentPreviewTitleAndAllowsKeyboardFocus()
     {
         // Given

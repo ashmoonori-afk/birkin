@@ -43,25 +43,74 @@
     <Style x:Key="DisabledActionStyle" TargetType="Button">
         <Setter Property="IsEnabled" Value="False" />
         <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
-        <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="Background" Value="#1A1C1D" />
+        <Setter Property="BorderBrush" Value="#343638" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="9,6" />
         <Setter Property="MinHeight" Value="32" />
-        <Setter Property="Opacity" Value="0.82" />
+        <Setter Property="Opacity" Value="1" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="{TemplateBinding BorderThickness}"
-                            CornerRadius="6"
-                            Padding="{TemplateBinding Padding}">
-                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <Border x:Name="FocusChrome" BorderBrush="Transparent" BorderThickness="0" CornerRadius="7">
+                        <VisualStateManager.VisualStateGroups>
+                            <VisualStateGroup x:Name="CommonStates">
+                                <VisualState x:Name="Normal"><Storyboard>
+                                    <ColorAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="(Panel.Background).(SolidColorBrush.Color)" To="#1A1C1D" Duration="0" />
+                                    <ColorAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)" To="#343638" Duration="0" />
+                                    <DoubleAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="Opacity" To="1" Duration="0" />
+                                </Storyboard></VisualState>
+                                <VisualState x:Name="MouseOver"><Storyboard>
+                                    <ColorAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="(Panel.Background).(SolidColorBrush.Color)" To="#242628" Duration="0" />
+                                    <ColorAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)" To="#E2A44F" Duration="0" />
+                                </Storyboard></VisualState>
+                                <VisualState x:Name="Pressed"><Storyboard>
+                                    <ColorAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="(Panel.Background).(SolidColorBrush.Color)" To="#30271B" Duration="0" />
+                                    <ColorAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)" To="#F0B65F" Duration="0" />
+                                </Storyboard></VisualState>
+                                <VisualState x:Name="Disabled"><Storyboard>
+                                    <ColorAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="(Panel.Background).(SolidColorBrush.Color)" To="#141617" Duration="0" />
+                                    <ColorAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)" To="#2B2D2F" Duration="0" />
+                                    <DoubleAnimation Storyboard.TargetName="ActionChrome" Storyboard.TargetProperty="Opacity" To="0.58" Duration="0" />
+                                </Storyboard></VisualState>
+                            </VisualStateGroup>
+                            <VisualStateGroup x:Name="FocusStates">
+                                <VisualState x:Name="Focused"><Storyboard>
+                                    <ColorAnimation Storyboard.TargetName="FocusChrome" Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)" To="#E2A44F" Duration="0" />
+                                    <ThicknessAnimation Storyboard.TargetName="FocusChrome" Storyboard.TargetProperty="BorderThickness" To="2" Duration="0" />
+                                </Storyboard></VisualState>
+                                <VisualState x:Name="Unfocused"><Storyboard>
+                                    <ColorAnimation Storyboard.TargetName="FocusChrome" Storyboard.TargetProperty="(Border.BorderBrush).(SolidColorBrush.Color)" To="Transparent" Duration="0" />
+                                    <ThicknessAnimation Storyboard.TargetName="FocusChrome" Storyboard.TargetProperty="BorderThickness" To="0" Duration="0" />
+                                </Storyboard></VisualState>
+                            </VisualStateGroup>
+                        </VisualStateManager.VisualStateGroups>
+                        <Border x:Name="ActionChrome"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
                     </Border>
                 </ControlTemplate>
             </Setter.Value>
         </Setter>
+    </Style>
+    <Style x:Key="OfficeExpanderHeaderFocusStyle" TargetType="Border">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="5" />
+        <Setter Property="Padding" Value="5,2" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsKeyboardFocusWithin, RelativeSource={RelativeSource AncestorType=Expander}}" Value="True">
+                <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                <Setter Property="BorderThickness" Value="2" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="EmptyStateStyle" TargetType="Border">
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />

@@ -1,6 +1,10 @@
 using System.IO;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
 using Birkin.Native.App.Startup;
 using Birkin.Native.App.Tests.Support;
+using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Transport;
 using Birkin.Native.Shell.Connection;
 using Birkin.Native.Shell.Presentation;
@@ -9,7 +13,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Birkin.Native.App.Tests.Journeys;
 
 [TestClass]
-public sealed class LiveBridgeIntegrationTests
+public sealed partial class LiveBridgeIntegrationTests
 {
     [TestMethod]
     [TestCategory("LiveBridge")]
@@ -52,8 +56,4 @@ public sealed class LiveBridgeIntegrationTests
         Console.WriteLine($"BRIDGE_PID={bridge.ProcessId}");
     }
 
-    private sealed class ImmediateSynchronizationContext : SynchronizationContext
-    {
-        public override void Post(SendOrPostCallback callback, object? state) => callback(state);
-    }
 }

@@ -14,31 +14,47 @@
                 <TextBlock Text="Conversation" Style="{StaticResource SectionTitleStyle}" />
             </StackPanel>
         </DockPanel>
-        <Grid Grid.Row="1">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <Grid MinHeight="105">
                 <ItemsControl automation:AutomationProperties.AutomationId="conversation.items" ItemsSource="{Binding Workspace.Conversation}">
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="automation:AutomationProperties.Name" Value="Conversation message" />
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate><DataTemplate>
                         <Border Background="{StaticResource RaisedBrush}" CornerRadius="8" Padding="11" Margin="0,0,0,8">
                             <StackPanel>
-                                <TextBlock Text="{Binding Kind}" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold" />
+                                <TextBlock Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="Message" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Kind}" Value="user_message"><Setter Property="Text" Value="You" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding Kind}" Value="assistant_message"><Setter Property="Text" Value="Birkin" /></DataTrigger>
+                                                <DataTrigger Binding="{Binding Kind}" Value="assistant_stream"><Setter Property="Text" Value="Birkin" /></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                                 <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,4,0,0" />
                             </StackPanel>
                         </Border>
                     </DataTemplate></ItemsControl.ItemTemplate>
                 </ItemsControl>
-            </ScrollViewer>
-            <Border>
-                <Border.Style><Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
-                    <Setter Property="Visibility" Value="Collapsed" />
-                    <Style.Triggers><DataTrigger Binding="{Binding Workspace.Conversation.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
-                </Style></Border.Style>
-                <StackPanel VerticalAlignment="Center">
-                    <TextBlock Text="&#xE8BD;" Style="{StaticResource GlyphStyle}" />
-                    <TextBlock Text="No messages yet" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,4" />
-                    <TextBlock Text="Ask Birkin to help with a task." Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
-                </StackPanel>
-            </Border>
-        </Grid>
+                <Border>
+                    <Border.Style><Style TargetType="Border" BasedOn="{StaticResource EmptyStateStyle}">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers><DataTrigger Binding="{Binding Workspace.Conversation.Count}" Value="0"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                    </Style></Border.Style>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="&#xE8BD;" Style="{StaticResource GlyphStyle}" />
+                        <TextBlock Text="No messages yet" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,4" />
+                        <TextBlock Text="Ask Birkin to help with a task." Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </ScrollViewer>
         <Border Grid.Row="2" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="11" Margin="0,10,0,0" automation:AutomationProperties.AutomationId="composer.landmark" automation:AutomationProperties.Name="Conversation composer">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -50,11 +66,11 @@
                 </Grid>
                 <DockPanel Grid.Row="1" Margin="0,8,0,0">
                     <Button x:Name="SendButton" DockPanel.Dock="Right" Content="Send" automation:AutomationProperties.AutomationId="conversation.send" automation:AutomationProperties.Name="Send message" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" Click="SendClicked" />
-                    <TextBlock Text="{Binding OfficeWorkflow.Availability.ConversationSend.DisabledReason}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" automation:AutomationProperties.AutomationId="composer.read-only-caption" />
+                    <TextBlock Text="{Binding OfficeWorkflow.Availability.ConversationSend.DisabledMessage}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" automation:AutomationProperties.AutomationId="composer.read-only-caption" />
                 </DockPanel>
-                <TextBlock Grid.Row="2" Margin="0,6,0,0" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap">
-                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding OfficeWorkflow.RefusalCode}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
-                    <Run Text="{Binding OfficeWorkflow.RefusalCode}"/><Run Text="  Cursor "/><Run Text="{Binding OfficeWorkflow.CurrentCursor}"/>
+                <TextBlock Grid.Row="2" Margin="0,6,0,0" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="composer.failure" automation:AutomationProperties.LiveSetting="Assertive">
+                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding OfficeWorkflow.UserFacingFailure}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                    <Run Text="{Binding OfficeWorkflow.UserFacingFailure, Mode=OneWay}"/>
                 </TextBlock>
             </Grid>
         </Border>

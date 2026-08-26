@@ -32,17 +32,27 @@ internal sealed class OwnedBridgeProcess : IBridgeProcess, IBridgeAnnouncementSo
     public static OwnedBridgeProcess Start(Action<IBridgeProcess> exited)
     {
         var executable = Environment.GetEnvironmentVariable("BIRKIN_EXECUTABLE") ?? "birkin";
-        var startInfo = new ProcessStartInfo(executable, "native-bridge serve --transport loopback")
-        {
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            UseShellExecute = false,
-        };
+        var executableArguments = Environment.GetEnvironmentVariable("BIRKIN_EXECUTABLE_ARGUMENTS");
+        var startInfo = CreateStartInfo(executable, executableArguments);
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("The native bridge process could not be started.");
         var ownedProcess = new OwnedBridgeProcess(process);
         ownedProcess.Exited += exited;
         return ownedProcess;
+    }
+
+    internal static ProcessStartInfo CreateStartInfo(string executable, string? executableArguments)
+    {
+        const string bridgeArguments = "native-bridge serve --transport loopback";
+        var arguments = string.IsNullOrWhiteSpace(executableArguments)
+            ? bridgeArguments
+            : $"{executableArguments} {bridgeArguments}";
+        return new ProcessStartInfo(executable, arguments)
+        {
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            UseShellExecute = false,
+        };
     }
 
     public async ValueTask<string> ReadAnnouncementAsync(CancellationToken cancellationToken) =>

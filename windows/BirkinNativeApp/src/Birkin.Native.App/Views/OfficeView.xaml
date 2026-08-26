@@ -35,7 +35,12 @@
         <ContentControl x:Name="DiffHost" Grid.Row="1" />
         <Grid Grid.Row="2" Margin="0,4,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Expander Header="New document" automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="New office document controls" Foreground="{StaticResource TextBrush}">
+            <Expander automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="New office document controls" Foreground="{StaticResource TextBrush}">
+                <Expander.Header>
+                    <Border x:Name="OfficeNewHeader" Style="{StaticResource OfficeExpanderHeaderFocusStyle}">
+                        <TextBlock Text="New document" />
+                    </Border>
+                </Expander.Header>
                 <StackPanel Margin="0,6,6,0">
                     <TextBox x:Name="OutputNameBox" automation:AutomationProperties.AutomationId="office.output-name" automation:AutomationProperties.Name="Office output file name" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" Foreground="{StaticResource TextBrush}" Padding="8,5" Text="report.docx" />
                     <TextBox x:Name="ContentBox" automation:AutomationProperties.AutomationId="office.content" automation:AutomationProperties.Name="Office document content" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" Foreground="{StaticResource TextBrush}" Padding="8,5" Text="검토 보고서" Margin="0,5,0,0" />

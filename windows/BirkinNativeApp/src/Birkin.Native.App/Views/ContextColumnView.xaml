@@ -11,19 +11,21 @@
                   VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled"
                   CanContentScroll="False">
-    <Grid x:Name="ContextColumn" automation:AutomationProperties.AutomationId="context.column">
+    <Grid x:Name="ContextColumn"
+          Height="{Binding ViewportHeight, ElementName=ContextScroll}"
+          MinHeight="535"
+          automation:AutomationProperties.AutomationId="context.column">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="3.5*" MinHeight="160" />
             <RowDefinition Height="5" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="2*" MinHeight="105" />
             <RowDefinition Height="5" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="1.5*" MinHeight="80" />
             <RowDefinition Height="5" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="3*" MinHeight="160" />
         </Grid.RowDefinitions>
 
         <Border x:Name="ApprovalsRegion"
-                MinHeight="180"
                 automation:AutomationProperties.AutomationId="approvals.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
@@ -34,6 +36,11 @@
                     <TextBlock Text="Approvals" Style="{StaticResource SectionTitleStyle}" />
                 </StackPanel>
                 <ItemsControl Grid.Row="1" automation:AutomationProperties.AutomationId="approvals.items" ItemsSource="{Binding Workspace.Approvals}">
+                    <ItemsControl.ItemContainerStyle>
+                        <Style TargetType="ContentPresenter">
+                            <Setter Property="automation:AutomationProperties.Name" Value="Approval policy item" />
+                        </Style>
+                    </ItemsControl.ItemContainerStyle>
                     <ItemsControl.ItemTemplate><DataTemplate>
                         <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="9,6" Margin="0,0,0,5">
                             <Grid>
@@ -49,7 +56,6 @@
         </Border>
 
         <Border x:Name="ActivityRegion" Grid.Row="2"
-                Height="220"
                 automation:AutomationProperties.AutomationId="activity.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
@@ -70,6 +76,11 @@
                                   HorizontalScrollBarVisibility="Disabled"
                                   CanContentScroll="False">
                         <ItemsControl automation:AutomationProperties.AutomationId="activity.items" ItemsSource="{Binding Workspace.Activity}">
+                            <ItemsControl.ItemContainerStyle>
+                                <Style TargetType="ContentPresenter">
+                                    <Setter Property="automation:AutomationProperties.Name" Value="Activity entry" />
+                                </Style>
+                            </ItemsControl.ItemContainerStyle>
                             <ItemsControl.ItemTemplate><DataTemplate>
                                 <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
                                     <TextBlock automation:AutomationProperties.AutomationId="activity.summary" Text="{Binding Summary}" TextWrapping="Wrap" />
@@ -92,7 +103,6 @@
         </Border>
 
         <Border x:Name="BrowserRegion" Grid.Row="4"
-                Height="145"
                 automation:AutomationProperties.AutomationId="browser.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
@@ -132,7 +142,6 @@
         </Border>
 
         <Border x:Name="OfficeRegion" Grid.Row="6"
-                Height="330"
                 automation:AutomationProperties.AutomationId="office.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>

@@ -5,44 +5,35 @@
     <UserControl.Resources>
         <ResourceDictionary Source="../Styles/ShellStyles.xaml" />
     </UserControl.Resources>
-    <Grid x:Name="PrimaryColumn"
-          automation:AutomationProperties.AutomationId="primary.column">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="3*" />
-            <RowDefinition Height="5" />
-            <RowDefinition Height="2*" />
-        </Grid.RowDefinitions>
+    <ScrollViewer x:Name="PrimaryScroll"
+                  automation:AutomationProperties.AutomationId="primary.scroll"
+                  automation:AutomationProperties.Name="Primary workspace panels"
+                  VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollBarVisibility="Disabled"
+                  CanContentScroll="False">
+        <Grid x:Name="PrimaryColumn"
+              Height="{Binding ViewportHeight, ElementName=PrimaryScroll}"
+              MinHeight="585"
+              automation:AutomationProperties.AutomationId="primary.column">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="3*" MinHeight="270" />
+                <RowDefinition Height="5" />
+                <RowDefinition Height="2*" MinHeight="310" />
+            </Grid.RowDefinitions>
 
-        <Border x:Name="ConversationRegion"
-                automation:AutomationProperties.AutomationId="conversation.stream"
-                Style="{StaticResource CardStyle}">
-            <ContentControl x:Name="ConversationHost" />
-        </Border>
+            <Border x:Name="ConversationRegion"
+                    automation:AutomationProperties.AutomationId="conversation.stream"
+                    Style="{StaticResource CardStyle}">
+                <ContentControl x:Name="ConversationHost" />
+            </Border>
 
-        <Border x:Name="TerminalRegion"
-                Grid.Row="2"
-                automation:AutomationProperties.AutomationId="terminal.landmark"
-                Style="{StaticResource CardStyle}">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                </Grid.RowDefinitions>
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="&gt;_" FontFamily="Consolas" FontSize="17"
-                               Foreground="{StaticResource MutedBrush}" Margin="0,0,10,0" />
-                    <TextBlock Text="Terminal" Style="{StaticResource SectionTitleStyle}" />
-                </StackPanel>
-                <Border Grid.Row="1" Background="{StaticResource TerminalBrush}" CornerRadius="7" Margin="0,10,0,0">
-                    <StackPanel VerticalAlignment="Center">
-                        <TextBlock Text="&#xE756;" Style="{StaticResource GlyphStyle}" />
-                        <TextBlock Text="Terminal unavailable on Windows"
-                                   FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,4" />
-                        <TextBlock Text="Python has no PTY backend on this platform yet."
-                                   Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
-                    </StackPanel>
-                </Border>
-            </Grid>
-        </Border>
-    </Grid>
+            <Border x:Name="TerminalRegion"
+                    Grid.Row="2"
+                    automation:AutomationProperties.AutomationId="terminal.landmark"
+                    automation:AutomationProperties.Name="Terminal workspace"
+                    Style="{StaticResource CardStyle}">
+                <ContentControl x:Name="TerminalHost" />
+            </Border>
+        </Grid>
+    </ScrollViewer>
 </UserControl>

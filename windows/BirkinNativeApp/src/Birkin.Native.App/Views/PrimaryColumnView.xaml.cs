@@ -10,8 +10,12 @@ public partial class PrimaryColumnView : UserControl
     {
         InitializeComponent();
         ConversationHost.Content = new ConversationView();
+        TerminalHost.Content = new TerminalView();
     }
 
-    public void AttachWorkflow(ShellPresentationModel presentationModel, ShellCoordinator coordinator) =>
+    public void AttachWorkflow(ShellPresentationModel presentationModel, ShellCoordinator coordinator)
+    {
         ConversationHost.Content = new ConversationView(presentationModel, coordinator);
+        TerminalHost.Content = new TerminalView(presentationModel, coordinator);
+    }
 }

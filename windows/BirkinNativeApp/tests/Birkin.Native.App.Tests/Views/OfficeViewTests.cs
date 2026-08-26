@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using Birkin.Native.App.Tests.Support;
 using Birkin.Native.App.Views;
@@ -79,62 +81,146 @@ public sealed class OfficeViewTests
             automationIds);
     }
 
-    [TestMethod]
-    public async Task ContextRail_WhenWindowIsConstrained_ScrollsCompleteOfficeActionAboveStatus()
+    [DataTestMethod]
+    [DataRow(1500, 940)]
+    [DataRow(1100, 700)]
+    public async Task ContextRail_WhenWindowIsConstrained_ScrollsCompleteOfficeActionAboveStatus(int width, int height)
     {
         // Given
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
 
-        // When
-        var geometry = await sta.InvokeAsync(() =>
+        // When / Then
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            var window = new MainWindow(fixture.Model, fixture.Coordinator)
+            {
+                Width = width,
+                Height = height,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                Left = 0,
+                Top = 0,
+            };
+            window.Show();
+            try
+            {
+                await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+                window.UpdateLayout();
+                var outer = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
+                var landmarks = new[] { "approvals.landmark", "activity.landmark", "browser.landmark", "office.landmark" }
+                    .Select(id => OfficeWorkflowViewHarness.Find<FrameworkElement>(window, id)).ToArray();
+                var viewport = new Rect(new Point(), outer.RenderSize);
+                var previousBottom = double.NegativeInfinity;
+                foreach (var landmark in landmarks)
+                {
+                    var bounds = landmark.TransformToAncestor(outer).TransformBounds(new Rect(new Point(), landmark.RenderSize));
+                    Assert.IsTrue(bounds.Top >= -1 && bounds.Bottom <= viewport.Bottom + 1,
+                        $"{AutomationProperties.GetAutomationId(landmark)} is not contained at {width}x{height}: {bounds}");
+                    Assert.IsTrue(bounds.Top >= previousBottom - 1, "context landmark order changed");
+                    previousBottom = bounds.Bottom;
+                }
+                Assert.AreEqual(0d, outer.VerticalOffset, 0.1, "outer context rail must not scroll at target sizes");
+
+                var inner = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "office.workflow-scroll");
+                OfficeWorkflowViewHarness.Find<Expander>(window, "office.new-panel").IsExpanded = true;
+                window.UpdateLayout();
+                var action = OfficeWorkflowViewHarness.Find<Button>(window, "office.create");
+                action.BringIntoView();
+                await window.Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Background);
+                var actionBounds = action.TransformToAncestor(inner).TransformBounds(new Rect(new Point(), action.RenderSize));
+                Assert.IsTrue(actionBounds.Top >= -1 && actionBounds.Bottom <= inner.ActualHeight + 1,
+                    $"Office action is unreachable in inner scroll: {actionBounds}, viewport={inner.ActualHeight}");
+                Assert.AreEqual(0d, outer.VerticalOffset, 0.1, "Office inner scroll must not move context rail");
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
+    public async Task ActivityRows_ExposeSafeAutomationNamesWithoutRecordMetadata()
+    {
+        // Given
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+
+        // When / Then
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            var window = new MainWindow(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(window);
+            var items = OfficeWorkflowViewHarness.Find<ItemsControl>(window, "activity.items");
+            var presenters = OfficeWorkflowViewHarness.All<ContentPresenter>(items).Where(p => p.Content is not null).ToArray();
+            Assert.IsTrue(presenters.Length > 0, "activity fixture must produce a row");
+            foreach (var presenter in presenters)
+            {
+                var name = AutomationProperties.GetName(presenter);
+                Assert.AreEqual("Activity entry", name);
+                AssertSafeName(name);
+            }
+            window.Close();
+        });
+    }
+
+    [TestMethod]
+    public async Task NewDocumentExpander_WhenFocused_UsesVisibleHeaderChrome()
+    {
+        // Given
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+
+        // When / Then
+        await sta.InvokeAsync(() =>
         {
             var fixture = OfficeWorkflowViewHarness.CreateAsync().GetAwaiter().GetResult();
             var window = new MainWindow(fixture.Model, fixture.Coordinator);
-            var shell = (WorkspaceSnapshotView)window.Content;
-            OfficeWorkflowViewHarness.Layout(shell, 1100, 669);
-            var scroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(shell, "context.scroll");
-            var activity = OfficeWorkflowViewHarness.Find<FrameworkElement>(shell, "activity.landmark");
-            var browser = OfficeWorkflowViewHarness.Find<FrameworkElement>(shell, "browser.landmark");
-            var office = OfficeWorkflowViewHarness.Find<FrameworkElement>(shell, "office.landmark");
-            var newPanel = OfficeWorkflowViewHarness.Find<Expander>(shell, "office.new-panel");
-            var status = OfficeWorkflowViewHarness.Find<FrameworkElement>(shell, "workspace.status");
-            newPanel.IsExpanded = true;
-            shell.UpdateLayout();
-            var action = OfficeWorkflowViewHarness.Find<Button>(shell, "office.create");
-            action.BringIntoView();
-            shell.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
-            var actionTop = action.TransformToAncestor(scroll).Transform(new Point()).Y;
-            var scrollBottom = scroll.TransformToAncestor(shell).Transform(new Point()).Y + scroll.ActualHeight;
-            var statusTop = status.TransformToAncestor(shell).Transform(new Point()).Y;
-            var result = new ContextGeometry(
-                new PanelGeometry(activity.ActualHeight, browser.ActualHeight, office.ActualHeight),
-                new ScrollGeometry(scroll.ScrollableHeight, scroll.VerticalOffset, scroll.ActualHeight),
-                new ReachGeometry(actionTop, actionTop + action.ActualHeight, statusTop - scrollBottom));
-            window.Close();
-            fixture.DisposeAsync().AsTask().GetAwaiter().GetResult();
-            return result;
+            window.Show();
+            try
+            {
+                window.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
+                var expander = OfficeWorkflowViewHarness.Find<Expander>(window, "office.new-panel");
+                var header = FindNamedBorder(expander, "OfficeNewHeader");
+                Assert.IsNotNull(header);
+                Assert.AreEqual(new Thickness(1), header.BorderThickness);
+                Assert.AreEqual(Colors.Transparent, ((SolidColorBrush)header.BorderBrush).Color);
+                Assert.IsTrue(expander.Focus());
+                window.UpdateLayout();
+                Assert.AreSame(expander, Keyboard.FocusedElement);
+                Assert.AreEqual(new Thickness(2), header.BorderThickness);
+                Assert.AreEqual(Color.FromRgb(0xE2, 0xA4, 0x4F), ((SolidColorBrush)header.BorderBrush).Color);
+                Assert.AreEqual(Color.FromRgb(0x1A, 0x1C, 0x1D), ((SolidColorBrush)header.Background).Color);
+            }
+            finally
+            {
+                window.Close();
+                fixture.DisposeAsync().AsTask().GetAwaiter().GetResult();
+            }
+            return true;
         });
-
-        // Then
-        Console.WriteLine(
-            $"CONTEXT_GEOMETRY=activity:{geometry.Panels.Activity:F0};browser:{geometry.Panels.Browser:F0};office:{geometry.Panels.Office:F0};scrollable:{geometry.Scroll.Scrollable:F0};offset:{geometry.Scroll.Offset:F0};action_top:{geometry.Reach.ActionTop:F0};action_bottom:{geometry.Reach.ActionBottom:F0};viewport:{geometry.Scroll.Viewport:F0};status_gap:{geometry.Reach.StatusGap:F0}");
-        Assert.IsTrue(geometry.Panels.Activity is >= 180 and <= 220);
-        Assert.IsTrue(geometry.Panels.Browser is >= 120 and <= 145);
-        Assert.IsTrue(geometry.Panels.Office is >= 260 and <= 330);
-        Assert.IsTrue(geometry.Scroll.Scrollable > 0);
-        Assert.IsTrue(geometry.Scroll.Offset > 0);
-        Assert.IsTrue(geometry.Reach.ActionTop >= 0);
-        Assert.IsTrue(geometry.Reach.ActionBottom <= geometry.Scroll.Viewport + 1);
-        Assert.IsTrue(geometry.Reach.StatusGap >= -1);
     }
 
-    private sealed record ContextGeometry(
-        PanelGeometry Panels,
-        ScrollGeometry Scroll,
-        ReachGeometry Reach);
+    private static Border? FindNamedBorder(DependencyObject root, string name)
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is Border border && border.Name == name) return border;
+            var match = FindNamedBorder(child, name);
+            if (match is not null) return match;
+        }
+        return null;
+    }
 
-    private sealed record PanelGeometry(double Activity, double Browser, double Office);
-    private sealed record ScrollGeometry(double Scrollable, double Offset, double Viewport);
-    private sealed record ReachGeometry(double ActionTop, double ActionBottom, double StatusGap);
+    private static void AssertSafeName(string name)
+    {
+        Assert.IsFalse(System.Text.RegularExpressions.Regex.IsMatch(name, "[0-9a-f]{32}", System.Text.RegularExpressions.RegexOptions.IgnoreCase));
+        foreach (var forbidden in new[] { "ActorId", "Cursor =", "PanelItemPresentation", "activity_log" })
+        {
+            Assert.IsFalse(name.Contains(forbidden, StringComparison.OrdinalIgnoreCase), name);
+        }
+    }
 }

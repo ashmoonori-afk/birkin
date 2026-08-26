@@ -65,7 +65,7 @@ internal static class ProviderOfficeJourneyFlow
             var diff = Object(Object(Payload(diffEvent), "result"), "diff");
             var diffId = String(diff, "diff_id");
             ProviderOfficeJourneyAssertions.AssertDeterministicDiff(artifacts, diff, diffId);
-            await RenderBarrierAsync(window);
+            await ProviderOfficeJourneyGeometry.RenderBarrierAsync(window);
             var diffView = OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "diff.landmark");
             var diffItems = OfficeWorkflowViewHarness.Find<ItemsControl>(window, "diff.items");
             Assert.AreEqual(Visibility.Visible, diffView.Visibility);
@@ -94,17 +94,25 @@ internal static class ProviderOfficeJourneyFlow
             Assert.IsTrue(Boolean(requestedPayload, "sealed"));
             Assert.IsFalse(File.Exists(outputPath), "output existed before visible approval");
 
-            await RenderBarrierAsync(window);
-            var scroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
+            await ProviderOfficeJourneyGeometry.RenderBarrierAsync(window);
+            var outerContext = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
+            var officeScroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "office.workflow-scroll");
+            var activityScroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "activity.scroll");
+            Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "outer context rail moved before Office interaction");
             diffView.BringIntoView();
-            await RenderBarrierAsync(window);
+            await ProviderOfficeJourneyGeometry.RenderBarrierAsync(window);
+            Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "Office diff moved the outer context rail");
             var oldValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.old-value")
                 .First(text => text.Text.Contains("4100", StringComparison.Ordinal));
             var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
                 .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
-            Assert.IsTrue(IsInViewport(diffView, scroll), "the Python diff was not visibly in the pre-approval viewport");
-            Assert.IsTrue(IsInViewport(oldValue, scroll) && IsInViewport(newValue, scroll),
-                "the labeled 4100 -> 4700 controls were not fully visible before approval");
+            var diffBounds = diffView.TransformToAncestor(officeScroll).TransformBounds(
+                new Rect(new Point(0, 0), diffView.RenderSize));
+            var officeViewport = new Rect(new Point(0, 0), officeScroll.RenderSize);
+            Assert.IsTrue(diffView.IsVisible && diffBounds.IntersectsWith(officeViewport),
+                "the Python diff did not intersect the Office inner viewport");
+            Assert.IsTrue(ProviderOfficeJourneyGeometry.IsInViewport(oldValue, officeScroll) && ProviderOfficeJourneyGeometry.IsInViewport(newValue, officeScroll),
+                "the labeled 4100 -> 4700 controls were not visible in the Office inner viewport");
             var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff-1500x940.png");
             var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940);
             evidence.Record("pre-approval-screenshot", new Dictionary<string, object?>
@@ -116,12 +124,14 @@ internal static class ProviderOfficeJourneyFlow
                 ["height"] = before.Height,
             });
 
-            scroll.ScrollToHome();
-            await RenderBarrierAsync(window);
+            Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "pre-approval capture moved the outer context rail");
+            await ProviderOfficeJourneyGeometry.RenderBarrierAsync(window);
             var approve = OfficeWorkflowViewHarness.FindAll<Button>(window, "approval.approve")
                 .Single(button => string.Equals(button.Tag as string, approvalId, StringComparison.Ordinal));
             Assert.IsTrue(approve.IsEnabled);
-            Assert.IsTrue(IsInViewport(approve, scroll), "the exact projected approval was not visibly actionable");
+            var approvals = OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "approvals.landmark");
+            Assert.IsTrue(ProviderOfficeJourneyGeometry.IsInViewport(approve, approvals), "the exact projected approval was not visibly actionable");
+            Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "approval interaction moved the outer context rail");
             var approval = await ProviderOfficeJourneyActions.ClickAsync(
                 composition.PresentationModel, events, approve, "approval.answer", cancellationToken);
             var receiptEvent = await events.WaitAsync("receipt.recorded", approval.CommandId, cancellationToken);
@@ -146,7 +156,7 @@ internal static class ProviderOfficeJourneyFlow
             var document = Object(Object(Payload(openedEvent), "result"), "document");
             Assert.AreEqual(String(saved, "content_hash"), String(Object(document, "source"), "sha256"));
 
-            await RenderBarrierAsync(window);
+            await ProviderOfficeJourneyGeometry.RenderBarrierAsync(window);
             var savedArtifactId = String(saved, "artifact_id");
             ProviderOfficeJourneyAssertions.AssertActivityAndOfficeUi(window, savedArtifactId);
             var receiptTraces = new ProviderOfficeCommandTrace?[] { chat, draft, approval }
@@ -158,11 +168,10 @@ internal static class ProviderOfficeJourneyFlow
                 .Single(text => text.Text == outputName);
             savedActivity.BringIntoView();
             savedReport.BringIntoView();
-            scroll.ScrollToVerticalOffset(
-                OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "approvals.landmark").ActualHeight + 5);
-            await RenderBarrierAsync(window);
-            Assert.IsTrue(IsInViewport(savedActivity, scroll), "the report-saved Activity entry was clipped");
-            Assert.IsTrue(IsInViewport(savedReport, scroll), "the saved report artifact was clipped");
+            await ProviderOfficeJourneyGeometry.RenderBarrierAsync(window);
+            Assert.IsTrue(ProviderOfficeJourneyGeometry.IsInViewport(savedActivity, activityScroll), "the report-saved Activity entry was clipped");
+            Assert.IsTrue(ProviderOfficeJourneyGeometry.IsInViewport(savedReport, officeScroll), "the saved report artifact was clipped");
+            Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "inner list scrolling moved the outer context rail");
             var afterPath = Path.Combine(evidenceRoot, "post-save-activity-office-1500x940.png");
             var after = ProviderOfficeScreenshot.CaptureRedacted(window, afterPath, 1500, 940);
             evidence.Record("post-save-screenshot", new Dictionary<string, object?>
@@ -176,10 +185,11 @@ internal static class ProviderOfficeJourneyFlow
             });
 
             savedReport.BringIntoView();
-            await RenderBarrierAsync(window);
+            await ProviderOfficeJourneyGeometry.RenderBarrierAsync(window);
             var constrainedPath = Path.Combine(evidenceRoot, "post-save-office-1100x700.png");
             var constrained = ProviderOfficeScreenshot.CaptureRedacted(
                 window, constrainedPath, 1100, 700, savedReport.BringIntoView);
+            Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "constrained Office capture moved the outer context rail");
             evidence.Record("constrained-post-save-screenshot", new Dictionary<string, object?>
             {
                 ["artifact_id"] = savedArtifactId,
@@ -207,13 +217,15 @@ internal static class ProviderOfficeJourneyFlow
         ProviderOfficeEvidence evidence,
         CancellationToken cancellationToken)
     {
-        var context = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
-        context.ScrollToEnd();
-        await RenderBarrierAsync(window);
+        var outerContext = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
+        var officeScroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "office.workflow-scroll");
+        Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "outer context rail moved before import");
         var importPanel = OfficeWorkflowViewHarness.Find<Expander>(window, "office.import-panel");
         importPanel.BringIntoView();
         importPanel.IsExpanded = true;
-        await RenderBarrierAsync(window);
+        await ProviderOfficeJourneyGeometry.RenderBarrierAsync(window);
+        Assert.IsTrue(ProviderOfficeJourneyGeometry.IsInViewport(importPanel, officeScroll), "Office import controls are outside the inner viewport");
+        Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "import controls moved the outer context rail");
         var pathBox = OfficeWorkflowViewHarness.Find<TextBox>(window, "import.path");
         var import = OfficeWorkflowViewHarness.Find<Button>(window, "import.submit");
         var artifacts = new Dictionary<string, NativeJsonObject>(StringComparer.Ordinal);
@@ -233,26 +245,8 @@ internal static class ProviderOfficeJourneyFlow
                 ["content_hash"] = String(artifact, "content_hash"),
             });
         }
+        Assert.AreEqual(0d, outerContext.VerticalOffset, 0.1, "Office imports moved the outer context rail");
         return artifacts;
-    }
-
-    private static async Task RenderBarrierAsync(Window window)
-    {
-        await window.Dispatcher.InvokeAsync(window.UpdateLayout);
-        await window.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
-        window.UpdateLayout();
-    }
-
-    private static bool IsInViewport(FrameworkElement element, FrameworkElement viewport)
-    {
-        var bounds = element.TransformToAncestor(viewport).TransformBounds(
-            new Rect(new Point(0, 0), element.RenderSize));
-        var visible = new Rect(new Point(0, 0), viewport.RenderSize);
-        return element.IsVisible
-            && bounds.Left >= visible.Left - 1
-            && bounds.Top >= visible.Top - 1
-            && bounds.Right <= visible.Right + 1
-            && bounds.Bottom <= visible.Bottom + 1;
     }
 
     private static OfficeArtifact Artifact(NativeJsonObject value) => new(
