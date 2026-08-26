@@ -14,6 +14,9 @@ from typing import cast
 import psutil
 import pytest
 
+if sys.platform != "win32":
+    pytest.skip("native Windows ConPTY acceptance", allow_module_level=True)
+
 from birkin.workspace import windows_conpty as conpty
 from birkin.workspace.windows_conpty import (
     WindowsConPtyProcess,
@@ -25,11 +28,6 @@ from tests.windows_conpty_test_support import (
     _is_process_in_job,
     _process_handle_count,
     _top_level_windows_for_pid,
-)
-
-pytestmark = pytest.mark.skipif(
-    sys.platform != "win32",
-    reason="native Windows ConPTY acceptance",
 )
 
 _TIMEOUT_SECONDS = 10.0

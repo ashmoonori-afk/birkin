@@ -10,11 +10,13 @@ from typing import final
 import pytest
 from typing_extensions import override
 
+if os.name != "nt":
+    pytest.skip("Windows ConPTY failure edges", allow_module_level=True)
+
 from birkin._winjob import WindowsJob, WindowsStartGate
 from birkin.workspace import windows_conpty as conpty
 import birkin.workspace._windows_conpty_abi as abi
 
-pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows ConPTY failure edges")
 _TIMEOUT = 2.0
 
 
