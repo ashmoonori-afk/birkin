@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from pathlib import Path
 
 from birkin.browser_aside_errors import BrowserAsideError
-from birkin.native.private_storage import (
+from birkin.private_storage import (
     harden_private_directory,
     harden_private_file,
 )

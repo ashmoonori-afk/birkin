@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import os
 import secrets
-import stat
 from pathlib import Path
 
-from birkin.native.private_storage import (
+from birkin.private_storage import (
     create_private_temp,
-    harden_private_file,
+    open_private_file_for_read,
 )
 
 _IS_WINDOWS = os.name == "nt"
@@ -26,18 +25,8 @@ def _token_file() -> Path:
 
 
 def _read_token(path: Path) -> str:
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags)
+    descriptor = open_private_file_for_read(path)
     try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise CapabilityFileError(
-                "gateway capability path is not a regular file"
-            )
-        if _IS_WINDOWS:
-            harden_private_file(path)
-        else:
-            os.chmod(descriptor, 0o600)
         payload = os.read(descriptor, 4097)
     finally:
         os.close(descriptor)

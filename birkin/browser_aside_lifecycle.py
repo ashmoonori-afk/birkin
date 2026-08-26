@@ -13,7 +13,7 @@ from birkin.browser_aside_artifacts import (
     ArtifactQuotaExceeded,
     BrowserArtifactStore,
 )
-from birkin.native.private_storage import harden_private_directory
+from birkin.private_storage import harden_private_directory
 
 __all__ = [
     "ArtifactQuotaExceeded",

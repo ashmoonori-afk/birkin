@@ -82,8 +82,6 @@ def test_workspace_profiles_and_artifacts_are_isolated(
     registry = browser_workspace_registry()
     first = registry.resolve("profile-a", "web")
     second = registry.resolve("profile-b", "agent")
-    first_status: dict[str, object]
-    second_status: dict[str, object]
     try:
         first_status, _ = first.start()
         second_status, _ = second.start()

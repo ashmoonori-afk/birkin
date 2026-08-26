@@ -19,7 +19,11 @@ def test_gateway_windows_read_hardens_before_use_without_fchmod(
 ) -> None:
     capability = tmp_path / "gateway_http_token"
     capability.write_text("complete-winner\n", encoding="utf-8")
-    hardened: list[Path] = []
+    opened: list[Path] = []
+
+    def open_hardened_handle(path: Path) -> int:
+        opened.append(path)
+        return os.open(path, os.O_RDONLY)
 
     def reject_fchmod(_descriptor: int, _mode: int) -> None:
         raise AssertionError(
@@ -34,21 +38,71 @@ def test_gateway_windows_read_hardens_before_use_without_fchmod(
     )
     monkeypatch.setattr(
         capability_file,
-        "harden_private_file",
-        hardened.append,
+        "open_private_file_for_read",
+        open_hardened_handle,
         raising=False,
     )
     monkeypatch.setattr(capability_file.os, "fchmod", reject_fchmod)
 
     assert capability_file._read_token(capability) == "complete-winner"
-    assert hardened == [capability]
+    assert opened == [capability]
+
+
+def test_gateway_windows_read_consumes_hardened_handle_after_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    capability = tmp_path / "gateway_http_token"
+    replacement = tmp_path / "replacement"
+    capability.write_text("original-secret\n", encoding="utf-8")
+    replacement.write_text("replacement-secret\n", encoding="utf-8")
+    capability.chmod(0o666)
+    replacement.chmod(0o666)
+    real_open = os.open
+    real_read = os.read
+    consumed_modes: list[int] = []
+
+    def open_hardened_handle(path: Path) -> int:
+        descriptor = real_open(path, os.O_RDONLY)
+        path.chmod(0o600)
+        os.replace(replacement, path)
+        return descriptor
+
+    def harden_replaced_path(path: Path) -> None:
+        os.replace(replacement, path)
+        path.chmod(0o600)
+
+    def observe_read(descriptor: int, size: int) -> bytes:
+        consumed_modes.append(stat.S_IMODE(os.fstat(descriptor).st_mode))
+        return real_read(descriptor, size)
+
+    monkeypatch.setattr(
+        capability_file,
+        "open_private_file_for_read",
+        open_hardened_handle,
+        raising=False,
+    )
+    monkeypatch.setattr(capability_file, "_IS_WINDOWS", True)
+    monkeypatch.setattr(
+        capability_file,
+        "harden_private_file",
+        harden_replaced_path,
+        raising=False,
+    )
+    monkeypatch.setattr(capability_file.os, "read", observe_read)
+
+    assert capability_file._read_token(capability) == "original-secret"
+    assert consumed_modes == [0o600]
+    assert capability.read_text(encoding="utf-8") == "replacement-secret\n"
+    assert stat.S_IMODE(capability.stat().st_mode) == 0o666
 
 
 def test_gateway_capability_publication_is_atomic_under_concurrency(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    home = tmp_path / "home"
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
     created = threading.Event()
     release = threading.Event()
     original_create_private_temp = private_storage.create_private_temp
@@ -75,7 +129,12 @@ def test_gateway_capability_publication_is_atomic_under_concurrency(
         delayed_private_temp,
         raising=False,
     )
-    monkeypatch.setattr(capability_file, "_IS_WINDOWS", True)
+    monkeypatch.setattr(
+        capability_file,
+        "_IS_WINDOWS",
+        True,
+        raising=False,
+    )
 
     def create_first() -> None:
         try:
@@ -104,6 +163,7 @@ def test_gateway_capability_publication_is_atomic_under_concurrency(
     assert creator_results[0] == second_result
     assert len(second_result[0]) >= 32
     assert_owner_only(second_result[1], posix_mode=0o600)
+    assert list(home.glob(".gateway_http_token.*.tmp")) == []
 
 
 @pytest.mark.parametrize(
