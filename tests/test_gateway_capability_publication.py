@@ -54,6 +54,7 @@ def test_gateway_windows_read_consumes_hardened_handle_after_replacement(
 ) -> None:
     capability = tmp_path / "gateway_http_token"
     replacement = tmp_path / "replacement"
+    displaced = tmp_path / "displaced"
     capability.write_text("original-secret\n", encoding="utf-8")
     replacement.write_text("replacement-secret\n", encoding="utf-8")
     capability.chmod(0o666)
@@ -67,7 +68,11 @@ def test_gateway_windows_read_consumes_hardened_handle_after_replacement(
         descriptor = private_storage.open_private_file_for_read(path)
         assert_owner_only(path, posix_mode=0o600)
         hardened_descriptors.add(descriptor)
+        os.replace(path, displaced)
         os.replace(replacement, path)
+        assert os.path.samestat(os.fstat(descriptor), displaced.stat())
+        assert not os.path.samestat(os.fstat(descriptor), path.stat())
+        assert_owner_only(displaced, posix_mode=0o600)
         return descriptor
 
     def harden_replaced_path(path: Path) -> None:
@@ -99,6 +104,7 @@ def test_gateway_windows_read_consumes_hardened_handle_after_replacement(
     assert hardened_before_read == [True]
     if os.name != "nt":
         assert consumed_modes == [0o600]
+    assert displaced.read_text(encoding="utf-8") == "original-secret\n"
     assert capability.read_text(encoding="utf-8") == "replacement-secret\n"
     assert stat.S_IMODE(capability.stat().st_mode) == 0o666
 
