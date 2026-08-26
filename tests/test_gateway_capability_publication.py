@@ -58,22 +58,26 @@ def test_gateway_windows_read_consumes_hardened_handle_after_replacement(
     replacement.write_text("replacement-secret\n", encoding="utf-8")
     capability.chmod(0o666)
     replacement.chmod(0o666)
-    real_open = os.open
     real_read = os.read
+    hardened_descriptors: set[int] = set()
+    hardened_before_read: list[bool] = []
     consumed_modes: list[int] = []
 
     def open_hardened_handle(path: Path) -> int:
-        descriptor = real_open(path, os.O_RDONLY)
-        path.chmod(0o600)
+        descriptor = private_storage.open_private_file_for_read(path)
+        assert_owner_only(path, posix_mode=0o600)
+        hardened_descriptors.add(descriptor)
         os.replace(replacement, path)
         return descriptor
 
     def harden_replaced_path(path: Path) -> None:
         os.replace(replacement, path)
-        path.chmod(0o600)
+        private_storage.harden_private_file(path)
 
     def observe_read(descriptor: int, size: int) -> bytes:
-        consumed_modes.append(stat.S_IMODE(os.fstat(descriptor).st_mode))
+        hardened_before_read.append(descriptor in hardened_descriptors)
+        if os.name != "nt":
+            consumed_modes.append(stat.S_IMODE(os.fstat(descriptor).st_mode))
         return real_read(descriptor, size)
 
     monkeypatch.setattr(
@@ -92,7 +96,9 @@ def test_gateway_windows_read_consumes_hardened_handle_after_replacement(
     monkeypatch.setattr(capability_file.os, "read", observe_read)
 
     assert capability_file._read_token(capability) == "original-secret"
-    assert consumed_modes == [0o600]
+    assert hardened_before_read == [True]
+    if os.name != "nt":
+        assert consumed_modes == [0o600]
     assert capability.read_text(encoding="utf-8") == "replacement-secret\n"
     assert stat.S_IMODE(capability.stat().st_mode) == 0o666
 
