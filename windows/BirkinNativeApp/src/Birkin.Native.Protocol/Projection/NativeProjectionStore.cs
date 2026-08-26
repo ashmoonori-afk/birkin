@@ -67,7 +67,8 @@ public sealed class NativeProjectionStore
         }
 
         NativeBodyValidator.Validate(envelope, NativeMessageOrigin.Server);
-        var replacement = new NativeProjectionState(envelope.Body, readyIdentity);
+        var normalizedBody = NativeProjectionReducer.NormalizeSnapshotBody(envelope.Body);
+        var replacement = new NativeProjectionState(normalizedBody, readyIdentity);
         State = replacement;
         Status = NativeProjectionStoreStatus.Current;
         RepairReason = null;

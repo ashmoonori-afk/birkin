@@ -45,6 +45,76 @@ public sealed class NativeProjectionSnapshotTests
     }
 
     [TestMethod]
+    public void ApplySnapshot_WhenTerminalHasOnlyCanonicalScreen_DerivesReadOnlyDisplayWithoutLease()
+    {
+        // Given
+        var terminal = Object(
+            ("terminal_id", new NativeJsonString("terminal-snapshot-73")),
+            ("cwd", new NativeJsonString("C:/workspace/non-default-73")),
+            ("screen", new NativeJsonString("prompt> \u001b[32m한글-日本語\u001b[0m")),
+            ("output_sequence", new NativeJsonInteger(47)),
+            ("state", new NativeJsonString("running")),
+            ("exit_status", NativeJsonNull.Value),
+            ("columns", new NativeJsonInteger(119)),
+            ("rows", new NativeJsonInteger(37)),
+            ("lease", new NativeJsonString("snapshot-lease-must-not-project-8642")),
+            ("read_only", new NativeJsonBoolean(false)));
+        var snapshot = Snapshot(("terminals", new NativeJsonArray([terminal])));
+        var store = new NativeProjectionStore();
+
+        // When
+        store.ApplySnapshot(snapshot, ReadyIdentity);
+
+        // Then
+        var projected = store.State?.Terminals.Values.Single() as NativeJsonObject;
+        Assert.IsNotNull(projected);
+        Assert.AreEqual("prompt> \u001b[32m한글-日本語\u001b[0m", String(projected, "screen"));
+        Assert.AreEqual("prompt> 한글-日本語", String(projected, "display"));
+        Assert.AreEqual(47L, Integer(projected, "output_sequence"));
+        Assert.AreEqual(119L, Integer(projected, "columns"));
+        Assert.AreEqual(37L, Integer(projected, "rows"));
+        Assert.IsTrue(Boolean(projected, "read_only"));
+        Assert.IsFalse(projected.ContainsKey("lease"));
+        Assert.AreNotSame(terminal, projected);
+    }
+
+    [TestMethod]
+    public void ApplySnapshot_WhenTerminalScreenContainsCwd_ProjectsSafeDisplay()
+    {
+        // Given
+        const string cwd = @"C:\Users\owner\AppData\Local\Temp\workspace";
+        const string raw = "\u001b[?9001h\u001b]0;C:\\Users\\owner\\python.exe\u0007"
+            + "\u001b[2J\u001b[H" + cwd + "> 한글-日本語\u001b[?25h";
+        var terminal = Object(
+            ("terminal_id", new NativeJsonString("terminal-snapshot-cwd-73")),
+            ("cwd", new NativeJsonString(cwd)),
+            ("screen", new NativeJsonString(raw)),
+            ("display", new NativeJsonString("stale display")),
+            ("output_sequence", new NativeJsonInteger(1)),
+            ("state", new NativeJsonString("running")),
+            ("exit_status", NativeJsonNull.Value),
+            ("columns", new NativeJsonInteger(100)),
+            ("rows", new NativeJsonInteger(30)),
+            ("read_only", new NativeJsonBoolean(true)));
+        var snapshot = Snapshot(("terminals", new NativeJsonArray([terminal])));
+        var store = new NativeProjectionStore();
+
+        // When
+        store.ApplySnapshot(snapshot, ReadyIdentity);
+
+        // Then
+        var projected = store.State?.Terminals.Values.Single() as NativeJsonObject;
+        Assert.IsNotNull(projected);
+        Assert.AreEqual(raw, String(projected, "screen"));
+        Assert.AreEqual("[workspace]> 한글-日本語", String(projected, "display"));
+        Assert.IsFalse(String(projected, "display").Contains('\u001b'));
+        Assert.IsFalse(String(projected, "display").Contains("&gt;", StringComparison.Ordinal));
+        Assert.IsFalse(String(projected, "display").Contains(@"C:\Users\", StringComparison.OrdinalIgnoreCase));
+        Assert.AreEqual(cwd, String(projected, "cwd"));
+        Assert.AreNotSame(terminal, projected);
+    }
+
+    [TestMethod]
     public void ApplySnapshot_WhenEnvelopeKindIsNotSnapshot_RefusesWithoutPublishing()
     {
         // Given
@@ -156,6 +226,21 @@ public sealed class NativeProjectionSnapshotTests
         }
         return new NativeEnvelope(NativeMessageKind.Snapshot, "server-1", Object(values));
     }
+
+    private static string String(NativeJsonObject value, string key) =>
+        value[key] is NativeJsonString text
+            ? text.Value
+            : throw new AssertFailedException($"{key} must be a string");
+
+    private static long Integer(NativeJsonObject value, string key) =>
+        value[key] is NativeJsonInteger integer
+            ? integer.Value
+            : throw new AssertFailedException($"{key} must be an integer");
+
+    private static bool Boolean(NativeJsonObject value, string key) =>
+        value[key] is NativeJsonBoolean boolean
+            ? boolean.Value
+            : throw new AssertFailedException($"{key} must be a boolean");
 
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) =>
         new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));

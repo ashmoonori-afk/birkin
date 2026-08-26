@@ -144,6 +144,11 @@ public sealed partial class NativeClientConnection
             throw new NativeProtocolError("E_BODY", "command refusal code is invalid");
         }
 
+        if (!TryString(body, "message", out var message))
+        {
+            throw new NativeProtocolError("E_BODY", "command refusal message is invalid");
+        }
+
         long? currentCursor = body["current_cursor"] is NativeJsonInteger cursor
             ? cursor.Value
             : null;
@@ -153,7 +158,12 @@ public sealed partial class NativeClientConnection
             throw new NativeProtocolError("E_BODY", "stale cursor refusal lacks current_cursor");
         }
 
-        return new NativeCommandRefusal(code, commandId, currentCursor);
+        var approvalId = string.Equals(code, "E_TERMINAL_APPROVAL_REQUIRED", StringComparison.Ordinal)
+            && TryString(body, "approval_id", out var receivedApprovalId)
+                ? receivedApprovalId
+                : null;
+
+        return new NativeCommandRefusal(code, message, commandId, currentCursor, approvalId);
     }
 
     private static bool TryString(NativeJsonObject body, string key, out string value)

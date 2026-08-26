@@ -86,15 +86,22 @@ public sealed class NativeCommandRequest
 
 public sealed class NativeCommandRefusal : Exception
 {
-    internal NativeCommandRefusal(string code, string commandId, long? currentCursor)
-        : base("Python authority refused the correlated command")
+    internal NativeCommandRefusal(
+        string code,
+        string message,
+        string commandId,
+        long? currentCursor,
+        string? approvalId)
+        : base(message)
     {
         Code = code;
         CommandId = commandId;
         CurrentCursor = currentCursor;
+        ApprovalId = approvalId;
     }
 
     public string Code { get; }
     public string CommandId { get; }
     public long? CurrentCursor { get; }
+    public string? ApprovalId { get; }
 }
