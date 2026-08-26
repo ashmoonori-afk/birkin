@@ -67,17 +67,45 @@ struct TerminalRenderingTests {
         #expect(renderer.screen.hasSuffix("한한한"))
     }
 
-    @Test("terminal projection sanitizes snapshots and incrementally assigned output")
+    @Test("terminal projection sanitizes snapshots and incrementally appended output")
     func projectionIntegration() {
         var terminal = NativeTerminalProjection(
             terminalID: "terminal", cwd: ".", screen: "start\u{1B}[31m red\u{1B}[0m",
             outputSequence: 0, state: "running", exitStatus: nil,
             columns: 80, rows: 24, lease: "lease", readOnly: false
         )
-        terminal.screen = terminal.screen + "\u{1B}["
-        terminal.screen = terminal.screen + "2DOK"
+        terminal.appendOutput("\u{1B}[")
+        terminal.appendOutput("2DOK")
 
         #expect(terminal.screen == "start rOK")
         #expect(!terminal.screen.contains("\u{1B}"))
+    }
+
+    @Test("terminal projection preserves a raw snapshot separately from presentation")
+    func projectionPreservesCanonicalSnapshot() {
+        let raw = "hello-native\r\n\u{1B}[31m"
+        let terminal = NativeTerminalProjection(
+            terminalID: "terminal", cwd: ".", screen: raw,
+            outputSequence: 0, state: "running", exitStatus: nil,
+            columns: 80, rows: 24, lease: "lease", readOnly: false
+        )
+
+        #expect(terminal.canonicalJSON["screen"] == .string(raw))
+        #expect(terminal.screen == "hello-native")
+    }
+
+    @Test("terminal projection preserves raw appended output separately from presentation")
+    func projectionPreservesCanonicalOutput() {
+        var terminal = NativeTerminalProjection(
+            terminalID: "terminal", cwd: ".", screen: "",
+            outputSequence: 0, state: "running", exitStatus: nil,
+            columns: 80, rows: 24, lease: "lease", readOnly: false
+        )
+        let raw = "hello-native\r\n\u{1B}[31m"
+
+        terminal.appendOutput(raw)
+
+        #expect(terminal.canonicalJSON["screen"] == .string(raw))
+        #expect(terminal.screen == "hello-native")
     }
 }
