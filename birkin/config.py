@@ -880,7 +880,8 @@ def save_config(cfg: dict[str, Any]) -> Path:
         except OSError:
             pass
         raise
-    # config.json may hold an API key — restrict to the owner where supported.
+    # config.json may hold an API key. The owner-only mode is enforced on POSIX;
+    # Windows relies on the directory's inherited ACL.
     try:
         os.chmod(path, 0o600)
     except OSError:

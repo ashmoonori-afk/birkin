@@ -41,8 +41,8 @@ def _write_json(path: Path, obj: Any) -> None:
         except OSError:
             pass
         raise
-    # State can include cron commands / pending payloads — restrict to the owner
-    # (no-op on Windows; enforced on POSIX), matching config.json.
+    # State can include cron commands / pending payloads. The owner-only mode is
+    # enforced on POSIX; Windows relies on the directory's inherited ACL.
     try:
         os.chmod(path, 0o600)
     except OSError:
