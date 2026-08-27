@@ -872,6 +872,14 @@ record에만 답하며 client가 별도의 Office approval authority를 만들�
 path를 사용하는 durable comparison-report job을 제공하기 전까지 direct
 comparison-report save는 unavailable입니다.
 
+Office mutation을 승인하기 전에 canonical macOS와 Windows card는 source
+filename, cell 단위 before/after description, destination, overwrite authority,
+risk tier, sealed state를 표시합니다. Projected authority digest로 live event와
+reconnect snapshot이 같은 reviewed identity를 유지하지만, 이 authority를
+검증하고 실행하는 유일한 주체는 계속 Python입니다.
+Approve와 reject action은 explicit confirmation state를 거치고, canonical
+projection이 반영될 때까지 decision이 전송 중임을 표시합니다.
+
 Windows installer나 MSI, packaged app, customer-ready release는 아직 없습니다.
 Installer와 updater delivery, production signing,
 provider-backed production delivery는 향후 작업으로 남아 있습니다. 공통 cross-platform shell은 별도의 향후

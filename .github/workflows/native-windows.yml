@@ -127,6 +127,12 @@ jobs:
           dotnet test ./windows/BirkinNativeApp/BirkinNativeApp.sln
           -c Release --no-build
           --logger "trx;LogFilePrefix=native-windows"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-windows-approval-card
+          path: .omo/evidence/native-shell/windows-approval-trust-card.png
+          if-no-files-found: error
+          retention-days: 14
 
   live-bridge-window:
     runs-on: windows-latest

@@ -6,24 +6,261 @@
              automation:AutomationProperties.Name="Projected approvals">
     <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
     <Grid MinHeight="54">
-        <ItemsControl x:Name="ApprovalItems" automation:AutomationProperties.AutomationId="approval.items" ItemsSource="{Binding ApprovalRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <ItemsControl Grid.Row="0" x:Name="ApprovalItems" automation:AutomationProperties.AutomationId="approval.items" ItemsSource="{Binding ApprovalRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
             <ItemsControl.ItemTemplate><DataTemplate>
-                <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="9,7" Margin="0,0,0,6">
+                <Border Background="{StaticResource RaisedBrush}"
+                        BorderBrush="{StaticResource BorderBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Padding="12,10"
+                        Margin="0,0,0,8"
+                        automation:AutomationProperties.AutomationId="{Binding CardAutomationId}">
                     <Grid>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                        <TextBlock Text="{Binding Text}" TextWrapping="Wrap" />
-                        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,7,0,0">
-                            <Button Content="Reject" Tag="{Binding Id}" Margin="0,0,5,0" automation:AutomationProperties.AutomationId="approval.reject" automation:AutomationProperties.Name="Reject requested operation" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="RejectClicked" />
-                            <Button Content="Approve" Tag="{Binding Id}" automation:AutomationProperties.AutomationId="approval.approve" automation:AutomationProperties.Name="Approve requested operation" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="ApproveClicked" />
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <WrapPanel>
+                            <Border BorderThickness="1"
+                                    CornerRadius="10"
+                                    Padding="7,2"
+                                    Margin="0,0,7,0">
+                                <Border.Style>
+                                    <Style TargetType="Border">
+                                        <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+                                        <Setter Property="BorderBrush" Value="{StaticResource FaintBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Risk}" Value="low">
+                                                <Setter Property="BorderBrush" Value="{StaticResource SuccessBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Risk}" Value="medium">
+                                                <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Risk}" Value="high">
+                                                <Setter Property="BorderBrush" Value="{StaticResource DangerBrush}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Risk}" Value="critical">
+                                                <Setter Property="BorderBrush" Value="{StaticResource CriticalBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Border.Style>
+                                <TextBlock Text="{Binding RiskLabel}"
+                                           Foreground="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=Border}}"
+                                           FontSize="11"
+                                           FontWeight="Bold"
+                                           automation:AutomationProperties.AutomationId="{Binding RiskAutomationId}"/>
+                            </Border>
+                            <TextBlock Text="{Binding CategoryLabel}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontSize="11"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,8,0"/>
+                            <TextBlock Text="{Binding SealedLabel}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       automation:AutomationProperties.AutomationId="{Binding SealedAutomationId}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Sealed}" Value="False">
+                                                <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </WrapPanel>
+                        <TextBlock Grid.Row="1"
+                                   Text="{Binding Summary}"
+                                   Foreground="{StaticResource TextBrush}"
+                                   FontSize="14"
+                                   FontWeight="SemiBold"
+                                   TextWrapping="Wrap"
+                                   Margin="0,8,0,0"/>
+                        <TextBlock Grid.Row="2"
+                                   Text="{Binding Description}"
+                                   Foreground="{StaticResource MutedBrush}"
+                                   FontSize="12"
+                                   TextWrapping="Wrap"
+                                   Margin="0,5,0,0"
+                                   automation:AutomationProperties.AutomationId="{Binding DescriptionAutomationId}"/>
+                        <StackPanel Grid.Row="3" Margin="0,8,0,0">
+                            <TextBlock Text="{Binding RequesterLabel}"
+                                       Foreground="{StaticResource TextBrush}"
+                                       FontSize="11"
+                                       FontWeight="SemiBold"
+                                       automation:AutomationProperties.AutomationId="{Binding RequesterAutomationId}"/>
+                            <TextBlock Text="{Binding ExpiryLabel}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontSize="11"
+                                       Margin="0,2,0,0"/>
+                            <TextBlock Text="{Binding RejectionResultLabel}"
+                                       Foreground="{StaticResource TextBrush}"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,4,0,0"
+                                       automation:AutomationProperties.AutomationId="{Binding RejectionAutomationId}"/>
+                        </StackPanel>
+                        <Border Grid.Row="4"
+                                Background="{StaticResource CardBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="9,7"
+                                Margin="0,9,0,0">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasTrustDetails}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel>
+                                <StackPanel Margin="0,0,0,7">
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasSourceFilename}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                    <TextBlock Text="SOURCE"
+                                               Foreground="{StaticResource MutedBrush}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding SourceFilename}"
+                                               Foreground="{StaticResource TextBrush}"
+                                               FontSize="12"
+                                               TextTrimming="CharacterEllipsis"
+                                               automation:AutomationProperties.AutomationId="{Binding SourceAutomationId}"/>
+                                </StackPanel>
+                                <StackPanel Margin="0,0,0,7">
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasDestination}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                    <TextBlock Text="DESTINATION"
+                                               Foreground="{StaticResource MutedBrush}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding DestinationDisplay}"
+                                               ToolTip="{Binding Destination}"
+                                               automation:AutomationProperties.HelpText="{Binding Destination}"
+                                               Foreground="{StaticResource TextBrush}"
+                                               FontFamily="Consolas"
+                                               FontSize="11"
+                                               TextWrapping="Wrap"
+                                               automation:AutomationProperties.AutomationId="{Binding DestinationAutomationId}"/>
+                                    <TextBlock Text="{Binding OverwriteLabel}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"
+                                               Margin="0,3,0,0"
+                                               automation:AutomationProperties.AutomationId="{Binding OverwriteAutomationId}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding OverwriteApproved}" Value="True">
+                                                        <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding OverwriteApproved}" Value="False">
+                                                        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                    <Button Content="Copy full path"
+                                            Tag="{Binding Destination}"
+                                            Foreground="{StaticResource AccentBrush}"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="0"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,4,0,0"
+                                            automation:AutomationProperties.AutomationId="{Binding CopyDestinationAutomationId}"
+                                            Click="CopyFullValueClicked"/>
+                                </StackPanel>
+                                <StackPanel>
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasAuthorityDigest}" Value="True">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                    <TextBlock Text="APPROVAL AUTHORITY"
+                                               Foreground="{StaticResource MutedBrush}"
+                                               FontSize="11"
+                                               FontWeight="SemiBold"/>
+                                    <TextBlock Text="{Binding AuthorityDigestDisplay}"
+                                               ToolTip="{Binding AuthorityDigest}"
+                                               automation:AutomationProperties.HelpText="{Binding AuthorityDigest}"
+                                               Foreground="{StaticResource TextBrush}"
+                                               FontFamily="Consolas"
+                                               FontSize="11"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <Button Content="Copy full authority digest"
+                                            Tag="{Binding AuthorityDigest}"
+                                            Foreground="{StaticResource AccentBrush}"
+                                            Background="Transparent"
+                                            BorderThickness="0"
+                                            Padding="0"
+                                            HorizontalAlignment="Left"
+                                            Margin="0,4,0,0"
+                                            automation:AutomationProperties.AutomationId="{Binding CopyAuthorityAutomationId}"
+                                            Click="CopyFullValueClicked"/>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,9,0,0">
+                            <Button Content="Reject" Tag="{Binding Id}" Margin="0,0,5,0" automation:AutomationProperties.AutomationId="{Binding RejectAutomationId}" automation:AutomationProperties.Name="Reject requested operation" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="RejectClicked" />
+                            <Button Content="Approve" Tag="{Binding Id}" automation:AutomationProperties.AutomationId="{Binding ApproveAutomationId}" automation:AutomationProperties.Name="Approve requested operation" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="ApproveClicked" />
                         </StackPanel>
                     </Grid>
                 </Border>
             </DataTemplate></ItemsControl.ItemTemplate>
         </ItemsControl>
-        <StackPanel VerticalAlignment="Center">
+        <StackPanel Grid.Row="0" VerticalAlignment="Center">
             <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding ApprovalRows.Count, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
             <TextBlock Text="&#xEA18;" Style="{StaticResource GlyphStyle}" FontSize="22" />
             <TextBlock Text="No approvals pending" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,5,0,0" />
         </StackPanel>
+        <TextBlock Grid.Row="1"
+                   x:Name="DecisionStatus"
+                   Text="Sending approval decision..."
+                   Foreground="{StaticResource AccentBrush}"
+                   FontSize="11"
+                   FontWeight="SemiBold"
+                   Visibility="Collapsed"
+                   Margin="0,5,0,0"
+                   automation:AutomationProperties.AutomationId="approval.decision-status"
+                   automation:AutomationProperties.LiveSetting="Polite"/>
     </Grid>
 </UserControl>

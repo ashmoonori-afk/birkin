@@ -212,6 +212,7 @@ class OfficeSurfaceAuthority:
     def __init__(self, service: DocumentService) -> None:
         self.service = service
         self._documents: dict[str, dict[str, object]] = {}
+        self._registered_sources: dict[tuple[str, str], dict[str, object]] = {}
         self._diffs: dict[str, dict[str, object]] = {}
         self._receipts: list[Mapping[str, object]] = []
         self._refusal: dict[str, object] | None = None
@@ -222,6 +223,33 @@ class OfficeSurfaceAuthority:
         return {"inventory": self.service.adapter_inventory(), "form": dict(self._form), "selected_artifact_id": self._selected, "documents": list(self._documents.values()), "diffs": list(self._diffs.values()), "receipts": list(self._receipts), "refusal": self._refusal}
 
     def _retain(self, artifact_id: str, document: dict[str, object], receipt: Mapping[str, object]) -> None:
+        source_filename = document.get("source_filename")
+        uri = cast(str, document["uri"])
+        source_key = (artifact_id, uri)
+        registered = self._registered_sources.get(source_key)
+        registered_filename = (
+            registered.get("source_filename")
+            if registered is not None
+            else None
+        )
+        self._registered_sources[source_key] = {
+            key: document[key]
+            for key in (
+                "artifact_id",
+                "content_hash",
+                "media_type",
+                "uri",
+                "sensitivity",
+                "acl_fingerprint",
+            )
+        }
+        self._registered_sources[source_key]["source_filename"] = (
+            source_filename
+            if isinstance(source_filename, str) and source_filename
+            else registered_filename
+            if isinstance(registered_filename, str) and registered_filename
+            else Path(cast(str, document["uri"])).name
+        )
         if artifact_id not in self._documents and len(self._documents) == MAX_OFFICE_SNAPSHOT_ITEMS:
             del self._documents[next(iter(self._documents))]
         self._documents[artifact_id] = document
@@ -242,7 +270,13 @@ class OfficeSurfaceAuthority:
     ) -> dict[str, object]:
         expected = reference.get("sha256")
         jail_name = reference.get("jail_name")
-        if not isinstance(expected, str) or not isinstance(jail_name, str):
+        display_name = reference.get("display_name")
+        if (
+            not isinstance(expected, str)
+            or not isinstance(jail_name, str)
+            or not isinstance(display_name, str)
+            or not display_name
+        ):
             raise ValueError("Office import reference is invalid")
         try:
             result = self.service.import_document(
@@ -254,6 +288,7 @@ class OfficeSurfaceAuthority:
             self._refused(exc)
             raise
         artifact = dict(cast(Mapping[str, object], result["artifact"]))
+        artifact["source_filename"] = display_name
         receipt = dict(cast(Mapping[str, object], result["receipt"]))
         artifact_id = cast(str, artifact["artifact_id"])
         self._retain(
@@ -287,6 +322,20 @@ class OfficeSurfaceAuthority:
                 "acl_fingerprint",
             )
         }
+
+    def registered_document(
+        self,
+        artifact_id: object,
+        uri: object,
+    ) -> dict[str, object]:
+        """Return the server-owned reference for one registered Office artifact."""
+        if (
+            not isinstance(artifact_id, str)
+            or not isinstance(uri, str)
+            or (artifact_id, uri) not in self._registered_sources
+        ):
+            raise ValueError("Office artifact source is not registered in this workspace")
+        return dict(self._registered_sources[(artifact_id, uri)])
 
     def compare(self, payload: dict[str, object]) -> dict[str, object]:
         _exact(

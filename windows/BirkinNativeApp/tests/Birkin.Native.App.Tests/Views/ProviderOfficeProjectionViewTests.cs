@@ -43,8 +43,10 @@ public sealed class ProviderOfficeProjectionViewTests
                     OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "diff.landmark").Visibility);
                 Assert.IsTrue(OfficeWorkflowViewHarness.Find<ItemsControl>(window, "diff.items")
                     .Items.Cast<object>().Any(item => item.ToString()!.Contains("4700", StringComparison.Ordinal)));
-                Assert.AreEqual(1, OfficeWorkflowViewHarness.FindAll<Button>(window, "approval.approve")
-                    .Count(button => string.Equals(button.Tag as string, "approval-canonical", StringComparison.Ordinal)));
+                var approve = OfficeWorkflowViewHarness.Find<Button>(
+                    window,
+                    "approval.approve.approval-canonical");
+                Assert.AreEqual("approval-canonical", approve.Tag as string);
                 Assert.IsTrue(OfficeWorkflowViewHarness.Find<ItemsControl>(window, "office.items")
                     .Items.Cast<object>().Any(item => item.ToString()!.Contains("artifact-canonical", StringComparison.Ordinal)));
             }

@@ -868,6 +868,15 @@ Office approval authority. Direct comparison-report save is unavailable until
 Python exposes a durable comparison-report job through the canonical approval,
 execution, validation, receipt, and recovery path.
 
+Before an Office mutation can be approved, the canonical macOS and Windows
+cards show the source filename, cell-level before/after description,
+destination, overwrite authority, risk tier, and sealed state. The projected
+authority digest lets the clients carry the same reviewed identity across live
+events and reconnect snapshots; Python remains the only component that verifies
+and executes that authority. Approve and reject actions pass through an explicit
+confirmation state, then surface the decision as in flight until canonical
+projection catches up.
+
 There is no Windows installer or MSI, packaged app, or customer-ready release.
 Installer and updater delivery, production
 signing, and provider-backed production delivery remain future work. A shared cross-platform shell remains

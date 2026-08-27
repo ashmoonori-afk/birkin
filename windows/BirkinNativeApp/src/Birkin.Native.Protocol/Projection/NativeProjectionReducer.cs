@@ -36,7 +36,11 @@ internal static class NativeProjectionReducer
         var panels = state.Panels.Values.Cast<NativeJsonObject>().ToList();
         var terminals = state.Terminals.Values.Cast<NativeJsonObject>().ToList();
         ApplyConversation(conversation, panels, body, type, payload, cursor);
-        if (PanelByEvent.TryGetValue(type, out var panel))
+        if (type == "approval.answered")
+        {
+            ReconcileApproval(panels, body, payload, cursor);
+        }
+        else if (PanelByEvent.TryGetValue(type, out var panel))
         {
             AppendPanel(panels, panel, PanelItem(body, type, payload, cursor));
         }
@@ -129,11 +133,14 @@ internal static class NativeProjectionReducer
             ?? String(body, "event_id");
         var status = OptionalString(payload, "outcome")
             ?? OptionalString(payload, "status")
+            ?? (type == "approval.answered"
+                ? null
+                : OptionalString(payload, "decision"))
             ?? type[(type.LastIndexOf(".", StringComparison.Ordinal) + 1)..];
         var kind = type switch
         {
             "task.updated" => "task",
-            "approval.requested" => "approval",
+            "approval.requested" or "approval.answered" => "approval",
             "receipt.recorded" or "command.completed" => "receipt",
             "integrity.warning" => "integrity_warning",
             _ => "activity",
@@ -142,6 +149,7 @@ internal static class NativeProjectionReducer
         {
             "task.updated" => "running",
             "approval.requested" => "action_needed",
+            "approval.answered" => ApprovalAnsweredState(payload),
             _ => "pending",
         };
         var pairs = new List<KeyValuePair<string, NativeJsonValue>>
@@ -153,7 +161,13 @@ internal static class NativeProjectionReducer
             new("kind", new NativeJsonString(kind)),
             new("ui_state", new NativeJsonString(uiState)),
         };
-        foreach (var field in new[] { "description", "category", "risk", "receipt_ref" })
+        foreach (var field in new[]
+        {
+            "requester", "description", "category", "target", "expected_impact",
+            "rejection_result", "related_evidence", "risk", "expires_at",
+            "receipt_ref", "snapshot_ref", "effect", "refusal_code", "session_id",
+            "name", "destination", "source_filename", "authority_digest",
+        })
         {
             if (OptionalString(payload, field) is { Length: > 0 } value)
             {
@@ -174,14 +188,103 @@ internal static class NativeProjectionReducer
                 }
             }
         }
-        foreach (var field in new[] { "sealed", "decided" })
+        foreach (var field in new[] { "sealed", "decided", "overwrite_approved" })
         {
             if (payload[field] is NativeJsonBoolean value)
             {
                 pairs.Add(new(field, value));
             }
         }
+        if (type == "approval.answered")
+        {
+            if (!pairs.Any(pair => pair.Key == "decided"))
+            {
+                pairs.Add(new(
+                    "decided",
+                    new NativeJsonBoolean(ApprovalAnswerIsResolved(payload))));
+            }
+            if (!pairs.Any(pair => pair.Key == "receipt_ref")
+                && OptionalString(payload, "receipt") is { Length: > 0 } receipt)
+            {
+                pairs.Add(new("receipt_ref", new NativeJsonString(receipt)));
+            }
+        }
         return new NativeJsonObject(pairs);
+    }
+
+    private static string ApprovalAnsweredState(NativeJsonObject payload) =>
+        OptionalString(payload, "outcome") switch
+        {
+            "approved" => "succeeded",
+            "rejected" => "blocked",
+            _ => "failed",
+        };
+
+    private static bool ApprovalAnswerIsResolved(NativeJsonObject payload) =>
+        OptionalString(payload, "outcome") is
+            "approved" or "rejected" or "answered_elsewhere";
+
+    private static void ReconcileApproval(
+        List<NativeJsonObject> panels,
+        NativeJsonObject body,
+        NativeJsonObject payload,
+        long cursor)
+    {
+        var approvalId = OptionalString(payload, "approval_id");
+        var panelIndex = panels.FindIndex(
+            panel => OptionalString(panel, "key") == "approvals");
+        if (approvalId is null
+            || panelIndex < 0
+            || panels[panelIndex]["items"] is not NativeJsonArray items)
+        {
+            return;
+        }
+        var resolved = PanelItem(body, "approval.answered", payload, cursor);
+        var values = items.Values.ToList();
+        var itemIndex = values.FindIndex(
+            item => item is NativeJsonObject approval
+                && OptionalString(approval, "id") == approvalId);
+        if (itemIndex < 0)
+        {
+            values.Add(resolved);
+        }
+        else
+        {
+            values[itemIndex] = Merge(
+                (NativeJsonObject)values[itemIndex],
+                resolved,
+                [
+                    "status", "cursor", "kind", "ui_state", "decided",
+                    "receipt_ref", "effect", "refusal_code",
+                ]);
+        }
+        panels[panelIndex] = Replace(
+            panels[panelIndex],
+            ("items", new NativeJsonArray(values)));
+    }
+
+    private static NativeJsonObject Merge(
+        NativeJsonObject original,
+        NativeJsonObject updates,
+        HashSet<string> replacementKeys)
+    {
+        var result = new List<KeyValuePair<string, NativeJsonValue>>();
+        foreach (var pair in original.Pairs)
+        {
+            var value = replacementKeys.Contains(pair.Key)
+                ? updates[pair.Key] ?? pair.Value
+                : pair.Value;
+            result.Add(new(pair.Key, value));
+        }
+        foreach (var pair in updates.Pairs)
+        {
+            if (replacementKeys.Contains(pair.Key)
+                && result.All(existing => existing.Key != pair.Key))
+            {
+                result.Add(pair);
+            }
+        }
+        return new NativeJsonObject(result);
     }
 
     private static void AppendPanel(

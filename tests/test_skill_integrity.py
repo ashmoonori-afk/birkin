@@ -141,6 +141,9 @@ def test_risk_for_known_categories():
     assert risk.risk_for("skill") == "low"
     assert risk.risk_for("cron") == "medium"
     assert risk.risk_for("shell") == "high"
+    assert risk.risk_for("office_job") == "high"
+    assert risk.risk_for("checkpoint_restore") == "high"
+    assert risk.risk_for("computer_use") == "high"
 
 
 def test_risk_for_unknown_category_defaults_medium():

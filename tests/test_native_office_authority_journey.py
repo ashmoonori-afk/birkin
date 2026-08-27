@@ -23,12 +23,16 @@ FIXTURES = (
 )
 
 
-def _single_cell_xlsx(path: Path) -> Path:
+def _single_cell_xlsx(path: Path, *, value: int = 7) -> Path:
     parts = {
         "[Content_Types].xml": b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>',
         "xl/workbook.xml": b'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Revenue" sheetId="1" r:id="rId1"/></sheets></workbook>',
         "xl/_rels/workbook.xml.rels": b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>',
-        "xl/worksheets/sheet1.xml": b'<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1"><v>7</v></c></row></sheetData></worksheet>',
+        "xl/worksheets/sheet1.xml": (
+            '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+            f'<sheetData><row r="1"><c r="A1"><v>{value}</v></c></row></sheetData>'
+            "</worksheet>"
+        ).encode(),
     }
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
         for name, payload in parts.items():
@@ -219,6 +223,14 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     service, adapter = _service(tmp_path)
     source_path = _single_cell_xlsx(tmp_path / "source.xlsx")
     source = _import(service, "import-job-source", source_path)
+    duplicate = _single_cell_xlsx(tmp_path / "same-content-different-name.xlsx")
+    _ = _import(service, "import-job-duplicate", duplicate)
+    for index in range(8):
+        filler = _single_cell_xlsx(
+            tmp_path / f"filler-{index}.xlsx",
+            value=100 + index,
+        )
+        _ = _import(service, f"import-filler-{index}", filler)
     destination = tmp_path / "workspace" / "approved.xlsx"
 
     receipt, proposed = _submit(
@@ -227,7 +239,7 @@ def test_native_office_job_request_queues_current_canonical_proposal(
         "office.job_request",
         {
             "request": "Update cell A1 in this Excel workbook",
-            "source": source,
+            "source": {**source, "source_filename": "forged-name.xlsx"},
             "outcome": "Set Comparison A1 to 9",
             "operations": [{"cell": "A1", "value": 9}],
             "destination": str(destination),
@@ -245,8 +257,11 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert approval["destination"] == str(destination)
     assert approval["allowlist_root"] == str((tmp_path / "workspace").resolve())
     assert approval["proposer"] == "native:office-journey"
+    assert approval["source_filename"] == "source.xlsx"
+    assert approval["source_filename"] != "forged-name.xlsx"
     assert isinstance(approval["job_id"], str)
     assert isinstance(approval["proposal_digest"], str)
+    assert isinstance(approval["authority_digest"], str)
     assert not destination.exists()
     assert not (adapter.surface_authority.office.service.home / "artifacts" / "staging").exists()
 
@@ -256,6 +271,34 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert requested.payload["category"] == "office_job"
     assert requested.payload["job_id"] == approval["job_id"]
     assert requested.payload["proposal_digest"] == approval["proposal_digest"]
+    assert requested.payload["authority_digest"] == approval["authority_digest"]
+    assert requested.payload["destination"] == str(destination)
+    assert requested.payload["overwrite_approved"] is False
+    assert requested.payload["source_filename"] == "source.xlsx"
+    assert requested.payload["risk"] == "high"
+    assert requested.payload["sealed"] is True
+    assert requested.payload["requester"] == "native:office-journey"
+    assert requested.payload["rejection_result"] == (
+        "Rejecting leaves the source unchanged and writes no output."
+    )
+    description = cast(str, requested.payload["description"])
+    assert "A1" in description
+    assert "7" in description
+    assert "9" in description
+    approval_panel = next(
+        panel for panel in service.snapshot().panels if panel.key == "approvals"
+    )
+    snapshot_item = next(
+        item for item in approval_panel.items if item["id"] == approval_id
+    )
+    assert snapshot_item["risk"] == requested.payload["risk"]
+    assert snapshot_item["sealed"] == requested.payload["sealed"]
+    assert snapshot_item["destination"] == requested.payload["destination"]
+    assert snapshot_item["overwrite_approved"] is False
+    assert snapshot_item["source_filename"] == requested.payload["source_filename"]
+    assert snapshot_item["authority_digest"] == requested.payload["authority_digest"]
+    assert snapshot_item["requester"] == requested.payload["requester"]
+    assert snapshot_item["rejection_result"] == requested.payload["rejection_result"]
 
     imported_path = Path(cast(str, source["uri"]))
     source_before = imported_path.read_bytes()

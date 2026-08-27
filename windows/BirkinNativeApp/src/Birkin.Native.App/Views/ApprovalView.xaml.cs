@@ -1,9 +1,6 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using Birkin.Native.Protocol.Framing;
-using Birkin.Native.Protocol.Messaging;
-using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Shell;
 using Birkin.Native.Shell.Commands;
 using Birkin.Native.Shell.Presentation;
@@ -14,8 +11,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
 {
     private readonly ShellPresentationModel? _model;
     private readonly ShellCoordinator? _coordinator;
-    private readonly Dictionary<string, ConversationRowPresentation> _canonicalApprovals = new(StringComparer.Ordinal);
-    private IReadOnlyList<ConversationRowPresentation> _approvalRows = [];
+    private IReadOnlyList<PanelItemPresentation> _approvalRows = [];
 
     public ApprovalView() => InitializeComponent();
 
@@ -25,13 +21,15 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         _coordinator = coordinator;
         DataContext = model;
         model.PropertyChanged += ModelPropertyChanged;
-        coordinator.ProjectionStore.CanonicalApplied += CanonicalApplied;
         UpdateRows();
         Unloaded += ViewUnloaded;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    public IReadOnlyList<ConversationRowPresentation> ApprovalRows
+    internal Func<PanelItemPresentation, ApprovalDecision, bool> ConfirmDecision { get; set; } =
+        ConfirmWithDialog;
+
+    public IReadOnlyList<PanelItemPresentation> ApprovalRows
     {
         get => _approvalRows;
         private set
@@ -47,15 +45,62 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
     private async void RejectClicked(object sender, RoutedEventArgs eventArgs) =>
         await AnswerAsync(sender, ApprovalDecision.Reject);
 
-    private async Task AnswerAsync(object sender, ApprovalDecision decision)
+    private void CopyFullValueClicked(object sender, RoutedEventArgs eventArgs)
     {
-        if (_coordinator is not null && sender is Button { Tag: string approvalId })
+        if (sender is Button { Tag: string value } && value.Length > 0)
         {
-            await _coordinator.AnswerApprovalAsync(
-                new ApprovalAnswerIntent(approvalId, decision),
-                CancellationToken.None);
+            Clipboard.SetText(value);
         }
     }
+
+    private async Task AnswerAsync(object sender, ApprovalDecision decision)
+    {
+        if (_coordinator is not null
+            && sender is Button
+            {
+                Tag: string approvalId,
+                DataContext: PanelItemPresentation card,
+            }
+            && ConfirmDecision(card, decision))
+        {
+            ApprovalItems.IsEnabled = false;
+            DecisionStatus.Visibility = Visibility.Visible;
+            try
+            {
+                await _coordinator.AnswerApprovalAsync(
+                    new ApprovalAnswerIntent(approvalId, decision),
+                    CancellationToken.None);
+            }
+            finally
+            {
+                DecisionStatus.Visibility = Visibility.Collapsed;
+                ApprovalItems.IsEnabled = true;
+            }
+        }
+    }
+
+    private static bool ConfirmWithDialog(
+        PanelItemPresentation card,
+        ApprovalDecision decision)
+    {
+        var action = decision == ApprovalDecision.Approve ? "approve" : "reject";
+        var result = MessageBox.Show(
+            ConfirmationMessage(card, action),
+            "Confirm approval decision",
+            MessageBoxButton.YesNo,
+            decision == ApprovalDecision.Approve
+                ? MessageBoxImage.Warning
+                : MessageBoxImage.Question);
+        return result == MessageBoxResult.Yes;
+    }
+
+    internal static string ConfirmationMessage(
+        PanelItemPresentation card,
+        string action) =>
+        $"Confirm {action}?\n\n"
+        + $"{card.Summary}\n"
+        + $"{card.Destination ?? "No destination"}\n"
+        + card.OverwriteLabel;
 
     private void ModelPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
@@ -65,53 +110,18 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
-    private void CanonicalApplied(NativeEnvelope envelope)
-    {
-        if (envelope.Kind != NativeMessageKind.Event
-            || envelope.Body["type"] is not NativeJsonString type
-            || envelope.Body["payload"] is not NativeJsonObject payload
-            || payload["approval_id"] is not NativeJsonString approvalId)
-        {
-            return;
-        }
-
-        if (type.Value == "approval.requested")
-        {
-            var summary = payload["summary"] is NativeJsonString text ? text.Value : "Approval required";
-            var cursor = envelope.Body["cursor"] is NativeJsonInteger value ? value.Value : 0;
-            _ = Dispatcher.BeginInvoke(() =>
-            {
-                _canonicalApprovals[approvalId.Value] = new ConversationRowPresentation(
-                    approvalId.Value, "approval", summary, "python:authority", cursor);
-                UpdateRows();
-            });
-        }
-        else if (type.Value == "approval.answered")
-        {
-            _ = Dispatcher.BeginInvoke(() =>
-            {
-                _ = _canonicalApprovals.Remove(approvalId.Value);
-                UpdateRows();
-            });
-        }
-    }
-
-    private void UpdateRows()
-    {
-        var projected = _model?.Workspace?.Conversation
-            .Where(row => string.Equals(row.Kind, "approval", StringComparison.Ordinal)) ?? [];
-        ApprovalRows = [.. projected, .. _canonicalApprovals.Values];
-    }
+    private void UpdateRows() =>
+        ApprovalRows = _model?.Workspace?.ApprovalRequests
+            .Where(row =>
+                string.Equals(row.Kind, "approval", StringComparison.Ordinal)
+                && !row.Decided)
+            .ToArray() ?? [];
 
     private void ViewUnloaded(object sender, RoutedEventArgs eventArgs)
     {
         if (_model is not null)
         {
             _model.PropertyChanged -= ModelPropertyChanged;
-        }
-        if (_coordinator is not null)
-        {
-            _coordinator.ProjectionStore.CanonicalApplied -= CanonicalApplied;
         }
     }
 }
