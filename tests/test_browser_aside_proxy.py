@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import base64
 import socket
-from threading import Event
+from collections.abc import Iterator
+from threading import Event, Thread
 from typing import NoReturn, cast
 from urllib.parse import urlsplit
 
@@ -158,6 +159,56 @@ def test_proxy_shutdown_interrupts_blocking_accept() -> None:
         assert listener.exited.wait(timeout=1)
         proxy._thread.join(timeout=1)
     assert listener.shutdown_calls == [socket.SHUT_RDWR]
+
+
+def test_proxy_joins_accept_loop_before_snapshotting_connections() -> None:
+    events: list[str] = []
+
+    class Listener:
+        def shutdown(self, _how: int) -> None:
+            events.append("listener_shutdown")
+
+        def close(self) -> None:
+            events.append("listener_close")
+
+    class AcceptThread:
+        def join(self, *, timeout: float) -> None:
+            assert timeout == 5
+            events.append("accept_join")
+
+        @staticmethod
+        def is_alive() -> bool:
+            return False
+
+    class Connections(set[socket.socket]):
+        def __iter__(self) -> Iterator[socket.socket]:
+            events.append("connection_snapshot")
+            return super().__iter__()
+
+    proxy = BrowserFilteringProxy(BrowserEgressPolicy())
+    proxy._listener.close()
+    proxy._listener = cast(socket.socket, cast(object, Listener()))
+    proxy._thread = cast(Thread, cast(object, AcceptThread()))
+    proxy._started = True
+    proxy._connections = Connections()
+
+    proxy.close()
+
+    assert events == [
+        "listener_shutdown",
+        "listener_close",
+        "accept_join",
+        "connection_snapshot",
+    ]
+
+
+def test_proxy_can_close_before_accept_thread_starts() -> None:
+    proxy = BrowserFilteringProxy(BrowserEgressPolicy())
+
+    proxy.close()
+    proxy.close()
+    with pytest.raises(RuntimeError, match="already closed"):
+        proxy.start()
 
 
 def test_proxy_refuses_unconditional_control_address() -> None:

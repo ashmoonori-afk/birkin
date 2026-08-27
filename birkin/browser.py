@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 import json
-import ipaddress
-import socket
 from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import Protocol, cast, final, runtime_checkable
-from urllib.parse import urlsplit
 
 from birkin.browser_contracts import (
     BrowserError,
@@ -18,6 +15,9 @@ from birkin.browser_contracts import (
     ConsoleMessage,
     NetworkEvent,
 )
+from birkin.browser_aside_errors import BrowserAsideError
+from birkin.browser_aside_policy import BrowserEgressPolicy
+from birkin.browser_policy import BrowserPolicyGate
 
 from .sandbox import PolicyRequest, SandboxPolicy, SandboxViolation, load_repo_sandbox
 from .tools._types import Tool, ToolContext, ToolResult
@@ -25,7 +25,7 @@ from .tools._types import Tool, ToolContext, ToolResult
 
 @runtime_checkable
 class BrowserDriver(Protocol):
-    def start(self, request_guard: Callable[[str], None]) -> None: ...
+    def start(self, policy: BrowserEgressPolicy) -> None: ...
     def navigate(self, url: str) -> str: ...
     def click(self, selector: str) -> None: ...
     def fill(self, selector: str, value: str) -> None: ...
@@ -34,63 +34,6 @@ class BrowserDriver(Protocol):
     def screenshot(self, path: Path, *, full_page: bool) -> None: ...
     def evidence(self) -> tuple[list[ConsoleMessage], list[NetworkEvent]]: ...
     def close(self) -> None: ...
-
-
-@dataclass(frozen=True, slots=True)
-class BrowserPolicyGate:
-    """Shared typed navigation gate for every Birkin browser adapter."""
-
-    policy: SandboxPolicy | None = None
-    allow_private_network: bool = False
-    resolver: Callable[[str], tuple[str, ...]] | None = None
-
-    def check_navigation(self, url: str) -> None:
-        parsed = urlsplit(url)
-        if parsed.scheme not in ("http", "https") or not parsed.hostname:
-            raise BrowserPolicyViolation(
-                f"browser network URL must use http or https: {url}"
-            )
-        if parsed.username is not None or parsed.password is not None:
-            raise BrowserPolicyViolation(
-                "browser network URL must not contain credentials"
-            )
-        if self.policy is not None:
-            try:
-                _ = self.policy.require(
-                    PolicyRequest(network_hosts=(parsed.hostname,))
-                )
-            except SandboxViolation as exc:
-                raise BrowserPolicyViolation(str(exc)) from exc
-        if self.allow_private_network:
-            return
-        try:
-            addresses = (
-                self.resolver(parsed.hostname)
-                if self.resolver is not None
-                else tuple({
-                    str(result[4][0])
-                    for result in socket.getaddrinfo(
-                        parsed.hostname,
-                        parsed.port,
-                        type=socket.SOCK_STREAM,
-                    )
-                })
-            )
-        except (OSError, ValueError) as exc:
-            raise BrowserPolicyViolation(
-                "browser host resolution failed closed"
-            ) from exc
-        if not addresses:
-            raise BrowserPolicyViolation(
-                "browser host resolution returned no addresses"
-            )
-        if any(
-            not ipaddress.ip_address(address).is_global
-            for address in addresses
-        ):
-            raise BrowserPolicyViolation(
-                "browser host resolves to a non-public address"
-            )
 
 
 @final
@@ -113,9 +56,14 @@ class BrowserSession:
             allow_private_network,
             resolver,
         )
+        self._egress_policy = BrowserEgressPolicy(
+            policy=policy,
+            resolver=resolver,
+            allow_private_network=allow_private_network,
+        )
         self._root = root.resolve()
         self._closed = False
-        driver.start(self._gate.check_navigation)
+        driver.start(self._egress_policy)
 
     def _require(self, request: PolicyRequest) -> None:
         try:
@@ -131,8 +79,11 @@ class BrowserSession:
     def navigate(self, url: str) -> str:
         if self._closed:
             raise BrowserError("browser session is closed")
-        # The driver invokes the same guard for this URL and every subresource.
-        return self._driver.navigate(url)
+        self._gate.check_navigation(url)
+        try:
+            return self._driver.navigate(url)
+        except BrowserAsideError as exc:
+            raise BrowserPolicyViolation(exc.message) from exc
 
     def click(self, selector: str) -> None:
         self._action()

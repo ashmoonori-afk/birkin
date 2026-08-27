@@ -13,6 +13,7 @@ from birkin.browser_aside_egress import (
     PolicyEgressGate,
 )
 from birkin.browser_aside_errors import BrowserAsideError
+from birkin.browser_contracts import BrowserPolicyViolation
 from birkin.sandbox import SandboxPolicy
 
 if TYPE_CHECKING:
@@ -29,12 +30,14 @@ class BrowserEgressPolicy:
         private_network: Sequence[tuple[str, str, int]] = (),
         resolver: Callable[[str], tuple[str, ...]] | None = None,
         control_addresses: Sequence[str] = (),
+        allow_private_network: bool = False,
     ) -> None:
         self._gate = PolicyEgressGate(
             policy or SandboxPolicy(),
             private_network=tuple(private_network),
             resolver=resolver,
             control_addresses=tuple(control_addresses),
+            allow_private_network=allow_private_network,
         )
 
     def check_navigation(self, url: str) -> None:
@@ -45,6 +48,12 @@ class BrowserEgressPolicy:
                 400,
             )
         _ = self._gate.evaluate(url)
+
+    def __call__(self, url: str) -> None:
+        try:
+            self.check_navigation(url)
+        except BrowserAsideError as exc:
+            raise BrowserPolicyViolation(exc.message) from exc
 
     def connect(self, url: str) -> tuple[BrowserDestination, str]:
         if len(url) > MAX_URL_LENGTH:

@@ -364,6 +364,8 @@ Native registry는 `browser_navigate`, `browser_click`, `browser_fill`, `browser
 
 Browser traffic은 repository의 `sandbox.network`와 `sandbox.network_allowlist` 정책을 그대로 재사용합니다. 기본값 `network: "off"`는 fail closed합니다. Local WebUI QA에는 `network`를 `allowlist`로 설정하고 `127.0.0.1`을 포함하며 screenshot path를 `sandbox.write_paths` 안에 둡니다. 모든 navigation과 page subrequest가 검사되므로 redirect, script, `fetch`, click으로 발생한 request도 allowlist를 우회하지 못합니다. Registry hook, `disabled_tools`, approval replay도 모든 native tool과 동일한 gate를 유지합니다. 정책 거부는 `BrowserPolicyViolation` error로 반환됩니다.
 
+Chromium은 loopback destination을 포함한 모든 Browser traffic을 인증된 loopback filtering proxy로 전달합니다. Proxy는 같은 sandbox policy로 각 destination을 resolve하고 policy가 검증한 address에 직접 연결하며, traffic을 relay하기 전에 DNS answer 변경 또는 connected peer 불일치를 거부합니다. Service worker는 차단되며 Chromium의 WebRTC policy는 proxy를 거치지 않는 UDP를 비활성화합니다.
+
 Birkin 자체 WebUI를 대상으로 실행할 수 있는 ouroboros 검증 절차는 다음과 같습니다.
 
 1. `birkin/web/static/index.html`을 수정한 뒤 `birkin web --no-browser`를 시작하고 private bootstrap URL을 복사합니다.
