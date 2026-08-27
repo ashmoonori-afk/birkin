@@ -127,7 +127,11 @@ def test_docx_paragraph_request_executes_through_registry_and_approval(
     # When: the registry queues and the standard approval queue executes the job.
     proposed = registry.execute("office_job_request", request)
     body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
-    result = approvals.approve(cast(str, body["id"]))
+    result = approvals.approve(
+        cast(str, body["id"]),
+        approved_by="human:test-reviewer",
+        approved_via="test:office-coordinator",
+    )
 
     # Then: the exported DOCX reopens with only the approved paragraph replacement.
     assert not proposed.is_error, body
@@ -154,15 +158,17 @@ def test_request_queues_bound_approval_without_mutating_files(
     assert {
         "job_id",
         "proposal_digest",
+        "authority_digest",
         "source_sha256",
         "destination",
         "allowlist_root",
-        "actor",
+        "proposer",
     } <= set(payload)
     assert payload["source_sha256"] == source_sha256
     assert payload["destination"] == str(destination)
     assert payload["allowlist_root"] == str(destination.parent)
-    assert payload["actor"] == "user:local-contract"
+    assert payload["proposer"] == "user:local-contract"
+    assert isinstance(payload["authority_digest"], str)
     summaries = cast("list[dict[str, str]]", payload["semantic_summaries"])
     assert len(summaries) == 1
     assert summaries[0]["location"] == "A1"
@@ -194,7 +200,11 @@ def test_approved_queue_executes_validates_materializes_and_exports(
     body, _, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
 
     # When: the canonical approval queue executes the exact proposal.
-    result = approvals.approve(cast(str, body["id"]))
+    result = approvals.approve(
+        cast(str, body["id"]),
+        approved_by="human:test-reviewer",
+        approved_via="test:office-coordinator",
+    )
 
     # Then: a validated internal artifact is exported with real hash proof.
     assert result["ok"] is True, result
@@ -210,6 +220,8 @@ def test_approved_queue_executes_validates_materializes_and_exports(
     assert _sha256(destination) == exported["output_sha256"]
     assert exported["output_sha256"] == publication["sha256"]
     assert exported["actor"] == "user:local-contract"
+    assert receipt["authority_digest"] == exported["authority_digest"]
+    assert receipt["approved_by"] == "human:test-reviewer"
 
 
 def test_digest_drift_is_denied_before_mutation(
@@ -224,10 +236,44 @@ def test_digest_drift_is_denied_before_mutation(
     )
 
     # When: the drifted record is approved through the canonical queue.
-    result = approvals.approve(cast(str, body["id"]))
+    result = approvals.approve(
+        cast(str, body["id"]),
+        approved_by="human:test-reviewer",
+        approved_via="test:office-coordinator",
+    )
 
     # Then: execution is refused before any draft or destination is written.
     assert result["ok"] is False
     assert "POLICY_DENIED" in cast(str, result["error"])
     assert _sha256(source) == source_sha256
     assert not destination.exists()
+
+
+def test_destination_drift_is_denied_before_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: a queued approval whose destination changed after review.
+    body, record, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
+    payload = cast("dict[str, object]", record["payload"])
+    drifted_destination = destination.with_name("drifted.docx")
+    record["payload"] = {
+        **payload,
+        "destination": str(drifted_destination),
+    }
+    config.pending_dir().joinpath(f"{body['id']}.json").write_text(
+        json.dumps(record), encoding="utf-8"
+    )
+
+    # When: the mutated approval record reaches the execution boundary.
+    result = approvals.approve(
+        cast(str, body["id"]),
+        approved_by="human:test-reviewer",
+        approved_via="test:office-coordinator",
+    )
+
+    # Then: authority verification rejects it before either destination changes.
+    assert result["ok"] is False
+    assert "POLICY_DENIED" in cast(str, result["error"])
+    assert _sha256(source) == source_sha256
+    assert not destination.exists()
+    assert not drifted_destination.exists()

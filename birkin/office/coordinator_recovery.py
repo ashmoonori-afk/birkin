@@ -22,6 +22,7 @@ from .export_policy import ExportRequest
 from .job import OfficeJob
 from .job_runner import DocumentServiceRunner
 from .job_types import OfficeJobState
+from .proposal_integrity import authority_digest
 from .service import DocumentService
 
 
@@ -30,14 +31,20 @@ class ApprovedAuthority:
     """Exact authority persisted by the canonical approval record."""
 
     proposal_digest: str
+    authority_digest: str
     source_sha256: str
-    actor: str
+    proposer: str
+    approved_by: str
+    approved_via: str
     destination: Path
     allowlist_root: Path
     overwrite_approved: bool
 
 
-def _authority(payload: Mapping[str, object]) -> ApprovedAuthority:
+def _authority(
+    payload: Mapping[str, object],
+    record: Mapping[str, object],
+) -> ApprovedAuthority:
     overwrite = payload.get("overwrite_approved", False)
     if not isinstance(overwrite, bool):
         raise coordinator_error(
@@ -45,8 +52,14 @@ def _authority(payload: Mapping[str, object]) -> ApprovedAuthority:
         )
     return ApprovedAuthority(
         proposal_digest=required_text(payload.get("proposal_digest"), "proposal_digest"),
+        authority_digest=required_text(
+            payload.get("authority_digest"),
+            "authority_digest",
+        ),
         source_sha256=required_text(payload.get("source_sha256"), "source_sha256"),
-        actor=required_text(payload.get("actor"), "actor"),
+        proposer=required_text(payload.get("proposer"), "proposer"),
+        approved_by=required_text(record.get("approved_by"), "approved_by"),
+        approved_via=required_text(record.get("approved_via"), "approved_via"),
         destination=Path(required_text(payload.get("destination"), "destination")),
         allowlist_root=Path(required_text(payload.get("allowlist_root"), "allowlist_root")),
         overwrite_approved=overwrite,
@@ -55,7 +68,7 @@ def _authority(payload: Mapping[str, object]) -> ApprovedAuthority:
 
 def _require_queue_authority(
     approval_id: str, payload: Mapping[str, object]
-) -> None:
+) -> Mapping[str, object]:
     from .. import store
 
     record = store.get_pending(approval_id)
@@ -69,6 +82,7 @@ def _require_queue_authority(
             DocumentErrorCode.POLICY_DENIED,
             "Office approval authority is not executing this payload",
         )
+    return record
 
 
 def _verify_snapshot(
@@ -82,6 +96,27 @@ def _verify_snapshot(
     if preview.get("source_sha256") != authority.source_sha256:
         raise coordinator_error(
             DocumentErrorCode.POLICY_DENIED, "approved Office source digest changed"
+        )
+    request = ExportRequest(
+        destination=authority.destination,
+        actor=authority.proposer,
+        proposal_digest=authority.proposal_digest,
+        operations=job_operations(snapshot),
+        overwrite_approved=authority.overwrite_approved,
+    )
+    expected_authority_digest = authority_digest(
+        authority.destination,
+        authority.source_sha256,
+        request,
+    )
+    if (
+        expected_authority_digest != authority.authority_digest
+        or snapshot.get("authority_digest") != authority.authority_digest
+        or snapshot.get("proposer") != authority.proposer
+    ):
+        raise coordinator_error(
+            DocumentErrorCode.POLICY_DENIED,
+            "approved Office authority digest changed",
         )
     match state:
         case OfficeJobState.approval_requested:
@@ -100,7 +135,10 @@ def _verify_snapshot(
             if (
                 snapshot.get("approved_digest") != authority.proposal_digest
                 or approval.get("proposal_digest") != authority.proposal_digest
-                or approval.get("actor") != authority.actor
+                or approval.get("proposer") != authority.proposer
+                or approval.get("approver") != authority.approved_by
+                or approval.get("approved_via") != authority.approved_via
+                or approval.get("authority_digest") != authority.authority_digest
                 or approval.get("decision") != "approved"
             ):
                 raise coordinator_error(
@@ -137,11 +175,18 @@ def _verify_current_source(
         )
 
 
-def _resume(job: OfficeJob, request: ExportRequest, actor: str) -> None:
+def _resume(
+    job: OfficeJob,
+    request: ExportRequest,
+    authority: ApprovedAuthority,
+) -> None:
     while True:
         match job.state:
             case OfficeJobState.approval_requested:
-                job.approve(actor=actor)
+                job.approve(
+                    approver=authority.approved_by,
+                    approved_via=authority.approved_via,
+                )
             case OfficeJobState.approved:
                 _ = job.execute()
             case OfficeJobState.executed:
@@ -192,13 +237,13 @@ def execute_approved_office_job(
             DocumentErrorCode.POLICY_DENIED,
             "Office execution requires an approved queue claim",
         )
-    _require_queue_authority(approval_id, payload)
+    _ = _require_queue_authority(approval_id, payload)
     job_id = required_text(payload.get("job_id"), "job_id")
-    authority = _authority(payload)
     home = canonical_office_home()
     journal = job_journal(home)
     with store.file_lock(journal.path_for(job_id), timeout=0):
-        _require_queue_authority(approval_id, payload)
+        record = _require_queue_authority(approval_id, payload)
+        authority = _authority(payload, record)
         service = DocumentService(home)
         runner = DocumentServiceRunner(service, export_root=authority.allowlist_root)
         job = journal.restore(job_id, runner=runner)
@@ -208,10 +253,12 @@ def execute_approved_office_job(
             _verify_current_source(service, snapshot, authority)
         request = ExportRequest(
             destination=authority.destination,
-            actor=authority.actor,
+            actor=authority.proposer,
             proposal_digest=authority.proposal_digest,
             operations=job_operations(snapshot),
             overwrite_approved=authority.overwrite_approved,
+            authority_digest=authority.authority_digest,
+            authority_source_sha256=authority.source_sha256,
         )
-        _resume(job, request, authority.actor)
+        _resume(job, request, authority)
         return canonical_json(job.receipt())

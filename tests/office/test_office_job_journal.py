@@ -87,8 +87,8 @@ def _advance_to_approved(job: OfficeJob) -> None:
     job.declare_outcome("Replace the heading")
     job.propose_operations([{"type": "replace_text", "value": "New"}])
     job.build_preview()
-    _ = job.request_approval()
-    job.approve(actor="reviewer")
+    _ = job.request_approval(proposer="test:proposer", authority_digest="a" * 64)
+    job.approve(approver="reviewer", approved_via="test:office-job")
 
 
 def _advance_to_validated(job: OfficeJob) -> None:
@@ -125,6 +125,8 @@ def test_approved_snapshot_roundtrip_preserves_every_serialized_field() -> None:
         "outcome",
         "operations",
         "preview",
+        "proposer",
+        "authority_digest",
         "approval",
         "approved_digest",
         "execution",
@@ -136,6 +138,8 @@ def test_approved_snapshot_roundtrip_preserves_every_serialized_field() -> None:
         "failure",
     }
     assert restored.to_dict() == snapshot
+    assert snapshot["proposer"] == "test:proposer"
+    assert snapshot["authority_digest"] == "a" * 64
     assert restored.state is OfficeJobState.approved
     assert restored.history == job.history
     assert restored.to_dict()["approved_digest"] == snapshot["approved_digest"]

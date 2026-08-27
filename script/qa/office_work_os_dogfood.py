@@ -92,7 +92,11 @@ def run(output_dir: Path) -> dict[str, object]:
                 "destination": str(destination),
             },
         )
-        approved = approve(cast(str, proposed["id"]))
+        approved = approve(
+            cast(str, proposed["id"]),
+            approved_by="system:qa",
+            approved_via="qa:script",
+        )
         if approved["ok"] is not True:
             raise AssertionError(f"office_job_request approval failed: {approved}")
         return artifact(destination)

@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import TypeGuard
 
 from .errors import DocumentError, DocumentErrorCode
-from .export_policy import JSONValue, ExportReceipt
+from .export_policy import JSONValue, ExportReceipt, ExportRequest
+from .proposal_integrity import authority_digest
 
 
 def _denied(message: str) -> DocumentError:
@@ -60,6 +61,13 @@ def restore_export_receipt(
     output_sha256 = value.get("output_sha256")
     actor = value.get("actor")
     proposal_digest = value.get("proposal_digest")
+    stored_authority_digest = value.get("authority_digest")
+    authority_bound = stored_authority_digest is not None
+    authority_source_sha256 = value.get(
+        "authority_source_sha256",
+        source_sha256,
+    )
+    overwrite_approved = value.get("overwrite_approved", False)
     existed = value.get("destination_existed")
     destination_sha256 = value.get("destination_sha256")
     operations = value.get("operations")
@@ -70,6 +78,10 @@ def restore_export_receipt(
     if not token_valid or not isinstance(destination, str):
         raise _denied("export receipt identity is invalid")
     source_sha256 = _required_text(source_sha256, "export receipt proof is invalid")
+    authority_source_sha256 = _required_text(
+        authority_source_sha256,
+        "export receipt authority source is invalid",
+    )
     output_sha256 = _required_text(output_sha256, "export receipt proof is invalid")
     actor = _required_text(actor, "export receipt proof is invalid")
     proposal_digest = _required_text(
@@ -77,7 +89,7 @@ def restore_export_receipt(
     )
     if not isinstance(existed, bool) or (
         destination_sha256 is not None and not isinstance(destination_sha256, str)
-    ):
+    ) or not isinstance(overwrite_approved, bool):
         raise _denied("export receipt destination state is invalid")
     if not _is_list(operations):
         raise _denied("export receipt operations are invalid")
@@ -86,14 +98,36 @@ def restore_export_receipt(
         if not _is_mapping(operation):
             raise _denied("export receipt operations are invalid")
         parsed_operations.append(_operation(operation))
+    resolved_destination = resolve_destination(Path(destination))
+    request = ExportRequest(
+        destination=resolved_destination,
+        actor=actor,
+        proposal_digest=proposal_digest,
+        operations=tuple(parsed_operations),
+        overwrite_approved=overwrite_approved,
+    )
+    expected_authority_digest = authority_digest(
+        resolved_destination,
+        authority_source_sha256,
+        request,
+    )
+    if stored_authority_digest is not None and (
+        not isinstance(stored_authority_digest, str)
+        or stored_authority_digest != expected_authority_digest
+    ):
+        raise _denied("export receipt authority digest is invalid")
     return ExportReceipt(
         rollback_token=_required_text(token, "export receipt identity is invalid"),
-        destination=resolve_destination(Path(destination)),
+        authority_digest=expected_authority_digest,
+        authority_source_sha256=authority_source_sha256,
+        authority_bound=authority_bound,
+        destination=resolved_destination,
         source_sha256=source_sha256,
         output_sha256=output_sha256,
         operations=tuple(parsed_operations),
         actor=actor,
         proposal_digest=proposal_digest,
+        overwrite_approved=overwrite_approved,
         destination_existed=existed,
         destination_sha256=destination_sha256,
         backup=backup_root / f"{token}.bak" if existed else None,

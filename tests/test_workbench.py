@@ -132,21 +132,26 @@ def test_approval_screen_separates_approve_from_execute():
 def test_resolve_approval_routes_through_python_authority(monkeypatch):
     calls = {}
 
-    def fake_approve(aid):
+    def fake_approve(aid, **identity):
         calls["id"] = aid
+        calls["identity"] = identity
         return {"ok": True, "result": "done"}
 
     from birkin import approvals
     monkeypatch.setattr(approvals, "approve", fake_approve)
     out = workbench.resolve_approval("aaaa11112222", approve=True)
     assert calls["id"] == "aaaa11112222"
+    assert calls["identity"] == {
+        "approved_by": "human:terminal",
+        "approved_via": "terminal:workbench",
+    }
     assert out["ok"] is True
 
 
 def test_resolve_approval_failure_is_reported_not_swallowed(monkeypatch):
     from birkin import approvals
 
-    def boom(aid):
+    def boom(aid, **_identity):
         raise RuntimeError("daemon unreachable")
 
     monkeypatch.setattr(approvals, "reject", boom)

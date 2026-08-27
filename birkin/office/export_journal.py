@@ -2,25 +2,29 @@
 
 from __future__ import annotations
 
-import hashlib
+import uuid
 from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 
-from .artifact_serialization import canonical_integrity_json
 from .errors import DocumentError, DocumentErrorCode
 from .export_types import ExportRequest
 from .journal_record import journal_root, read_record, write_record
+from .proposal_integrity import authority_digest
 
 _STAGE = "office_export_journal"
-_VERSION = 1
-_FIELDS = frozenset(
+_VERSION = 2
+_FIELDS_V1 = frozenset(
     {
         "version", "transaction_id", "phase", "rollback_token", "destination",
         "source_sha256", "output_sha256", "destination_existed",
         "destination_sha256", "backup", "staging", "parent_identity",
     }
 )
+_FIELDS = _FIELDS_V1 | {
+    "authority_digest",
+    "authority_source_sha256",
+}
 
 
 class ExportPhase(str, Enum):
@@ -35,6 +39,9 @@ class ExportPhase(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ExportTransaction:
     transaction_id: str
+    authority_digest: str
+    authority_source_sha256: str
+    authority_bound: bool
     phase: ExportPhase
     rollback_token: str
     destination: Path
@@ -49,10 +56,24 @@ class ExportTransaction:
     def at(self, phase: ExportPhase) -> ExportTransaction:
         return replace(self, phase=phase)
 
+    def bind_authority(
+        self,
+        digest: str,
+        source_sha256: str,
+    ) -> ExportTransaction:
+        return replace(
+            self,
+            authority_digest=digest,
+            authority_source_sha256=source_sha256,
+            authority_bound=True,
+        )
+
     def record(self) -> dict[str, object]:
         return {
             "version": _VERSION,
             "transaction_id": self.transaction_id,
+            "authority_digest": self.authority_digest,
+            "authority_source_sha256": self.authority_source_sha256,
             "phase": self.phase.value,
             "rollback_token": self.rollback_token,
             "destination": str(self.destination),
@@ -69,17 +90,8 @@ class ExportTransaction:
 def transaction_id(
     destination: Path, source_sha256: str, request: ExportRequest
 ) -> str:
-    authority = {
-        "destination": str(destination),
-        "source_sha256": source_sha256,
-        "actor": request.actor,
-        "proposal_digest": request.proposal_digest,
-        "operations": [dict(operation) for operation in request.operations],
-        "overwrite_approved": request.overwrite_approved,
-    }
-    return hashlib.sha256(
-        canonical_integrity_json(authority).encode("utf-8")
-    ).hexdigest()
+    """Compatibility name for the authority-bound export journal key."""
+    return authority_digest(destination, source_sha256, request)
 
 
 def _text(record: dict[str, object], field: str) -> str:
@@ -94,7 +106,12 @@ def _text(record: dict[str, object], field: str) -> str:
 
 
 def _parse(record: dict[str, object]) -> ExportTransaction:
-    if frozenset(record) != _FIELDS or record.get("version") != _VERSION:
+    fields = frozenset(record)
+    version = record.get("version")
+    if not (
+        (fields == _FIELDS and version == _VERSION)
+        or (fields == _FIELDS_V1 and version == 1)
+    ):
         raise DocumentError(
             DocumentErrorCode.PRECONDITION_FAILED,
             _STAGE,
@@ -108,6 +125,17 @@ def _parse(record: dict[str, object]) -> ExportTransaction:
             _STAGE,
             "export transaction phase is invalid",
         ) from exc
+    rollback_token = _text(record, "rollback_token")
+    try:
+        token_valid = uuid.UUID(rollback_token).hex == rollback_token
+    except ValueError:
+        token_valid = False
+    if not token_valid:
+        raise DocumentError(
+            DocumentErrorCode.PRECONDITION_FAILED,
+            _STAGE,
+            "export transaction rollback token is invalid",
+        )
     existed = record.get("destination_existed")
     prior = record.get("destination_sha256")
     backup_value = record.get("backup")
@@ -134,8 +162,19 @@ def _parse(record: dict[str, object]) -> ExportTransaction:
     parent_identity = tuple(identity_value)
     return ExportTransaction(
         transaction_id=_text(record, "transaction_id"),
+        authority_digest=(
+            _text(record, "authority_digest")
+            if version == _VERSION
+            else _text(record, "transaction_id")
+        ),
+        authority_source_sha256=(
+            _text(record, "authority_source_sha256")
+            if version == _VERSION
+            else _text(record, "source_sha256")
+        ),
+        authority_bound=version == _VERSION,
         phase=phase,
-        rollback_token=_text(record, "rollback_token"),
+        rollback_token=rollback_token,
         destination=Path(_text(record, "destination")),
         source_sha256=_text(record, "source_sha256"),
         output_sha256=_text(record, "output_sha256"),
@@ -199,6 +238,12 @@ class ExportJournal:
             if record is None:
                 continue
             transaction = _parse(record)
+            if path.stem != transaction.transaction_id:
+                raise DocumentError(
+                    DocumentErrorCode.PRECONDITION_FAILED,
+                    _STAGE,
+                    "export transaction path and identity differ",
+                )
             if transaction.rollback_token == token:
                 if found is not None:
                     raise DocumentError(

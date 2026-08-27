@@ -40,13 +40,28 @@ def test_resolve_action_roundtrip(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     a = _queue_pending("approve me")
     b = _queue_pending("reject me")
-    out_a = gw.resolve_action(a["id"], approve=True)
+    out_a = gw.resolve_action(
+        a["id"],
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
     assert out_a.startswith("✅")
-    out_b = gw.resolve_action(b["id"], approve=False)
+    out_b = gw.resolve_action(
+        b["id"],
+        approve=False,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
     assert out_b.startswith("❌")
     assert store.list_pending() == []          # both resolved
     # double-resolve is safe
-    assert "⚠" in gw.resolve_action(a["id"], approve=True)
+    assert "⚠" in gw.resolve_action(
+        a["id"],
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
 
 
 def test_gateway_approves_sealed_native_operation(
@@ -72,13 +87,22 @@ def test_gateway_approves_sealed_native_operation(
     approval_id = store.list_pending()[0]["id"]
 
     # When: the authorized gateway principal approves the exact operation.
-    result = gateway.resolve_action(approval_id, approve=True)
+    result = gateway.resolve_action(
+        approval_id,
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
 
     # Then: the sealed action executes once through the same approval worker.
     assert "queued for approval" in queued.content
     assert result.startswith("✅")
     assert target.read_text(encoding="utf-8") == "gateway approved"
-    assert store.get_pending(approval_id)["status"] == "approved"
+    resolved = store.get_pending(approval_id)
+    assert resolved is not None
+    assert resolved["status"] == "approved"
+    assert resolved["approved_by"] == "human:telegram:42"
+    assert resolved["approved_via"] == "gateway:telegram"
 
 
 def test_callback_tap_approves_and_acks(tmp_path, monkeypatch):

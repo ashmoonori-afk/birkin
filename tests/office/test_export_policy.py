@@ -187,3 +187,24 @@ def test_rollback_removes_destination_that_did_not_exist_before_export(
     assert rollback["restored"] is False
     assert not destination.exists()
     assert not tuple(caller_folder.iterdir())
+
+
+def test_same_runner_rollback_rejects_tampered_receipt_authority(
+    tmp_path: Path,
+) -> None:
+    # Given: a current runner caches the exact export receipt.
+    service = DocumentService(tmp_path / "office-home")
+    artifact = _validated_draft(service)
+    caller_folder = tmp_path / "caller-output"
+    caller_folder.mkdir()
+    destination = caller_folder / "new.txt"
+    runner = DocumentServiceRunner(service, export_root=caller_folder)
+    receipt = runner.export(artifact=artifact, request=_request(destination))
+    tampered = {**receipt, "actor": "attacker"}
+
+    # When: the same token is presented with changed authority fields.
+    with pytest.raises(DocumentError):
+        _ = runner.rollback_export(tampered)
+
+    # Then: cached authority does not bypass receipt validation.
+    assert destination.read_text(encoding="utf-8") == "validated result"

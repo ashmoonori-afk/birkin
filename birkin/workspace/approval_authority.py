@@ -14,10 +14,19 @@ def decide(
     """Resolve once and normalize a multi-surface losing answer."""
 
     if decision == "approve":
-        result: dict[str, object] = approvals.approve(aid)
+        result: dict[str, object] = approvals.approve(
+            aid,
+            approved_by="human:workspace",
+            approved_via="workspace:control",
+        )
         decided_status = "approved"
     elif decision == "reject":
-        result = approvals.reject(aid, reason=reason)
+        result = approvals.reject(
+            aid,
+            reason=reason,
+            rejected_by="human:workspace",
+            rejected_via="workspace:control",
+        )
         decided_status = "rejected"
     else:
         raise ValueError("decision must be approve or reject")

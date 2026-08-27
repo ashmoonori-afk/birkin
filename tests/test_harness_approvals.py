@@ -71,7 +71,7 @@ def test_global_memory_edit_requires_human_approval(cfg):
     assert len(result["queued"]) == 1
     assert harness.load("global")["entries"]["memory"] == {}
 
-    approved = approvals.approve(result["queued"][0]["id"])
+    approved = approvals.approve(result["queued"][0]["id"], approved_by="human:test", approved_via="test")
 
     assert approved["ok"] is True
     assert "global_fact" in harness.load("global")["entries"]["memory"]
@@ -94,7 +94,7 @@ def test_approving_a_queued_prompt_edit_applies_it(cfg):
                    cfg=cfg)
     aid = store.list_pending()[0]["id"]
 
-    resolved = approvals.approve(aid)
+    resolved = approvals.approve(aid, approved_by="human:test", approved_via="test")
 
     assert resolved.get("ok") is True
     entry = harness.load()["entries"]["prompt"]["check_git_status"]
@@ -106,7 +106,7 @@ def test_rejecting_a_queued_prompt_edit_leaves_the_harness_untouched(cfg):
     harness.submit(_proposal(_edit("prompt", "Sneaky")), cfg=cfg)
     aid = store.list_pending()[0]["id"]
 
-    assert approvals.reject(aid, "no thanks")["ok"] is True
+    assert approvals.reject(aid, "no thanks", rejected_by="human:test", rejected_via="test")["ok"] is True
     assert harness.load()["entries"]["prompt"] == {}
 
 

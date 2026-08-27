@@ -150,7 +150,7 @@ def test_a_prompt_edit_waits_for_review_before_it_can_steer_the_agent():
         cfg, harness_block=runtime._harness_block(cfg))
 
     aid = store.list_pending()[0]["id"]
-    assert approvals.approve(aid)["ok"] is True
+    assert approvals.approve(aid, approved_by="human:test", approved_via="test")["ok"] is True
 
     assert "Check git status" in promptgate.compose_main(
         cfg, harness_block=runtime._harness_block(cfg))

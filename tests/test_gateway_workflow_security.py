@@ -51,7 +51,7 @@ def test_cli_cannot_consume_telegram_workflow(tmp_path, monkeypatch) -> None:
     aid = workflow.queue_proposal(_proposal(), "원래 요청", "42")
 
     # When
-    result = approvals.approve(aid)
+    result = approvals.approve(aid, approved_by="human:test", approved_via="test")
 
     # Then
     assert result["ok"] is False
@@ -276,7 +276,11 @@ def test_generic_approval_ack_precedes_background_execution(
 
     class _Gateway:
         @staticmethod
-        def claim_action(_aid):
+        def claim_action(_aid, **identity):
+            assert identity == {
+                "actor_id": "human:telegram:42",
+                "via": "gateway:telegram",
+            }
             return "✅ 승인됨 — 실행 중", {"category": "shell", "payload": {}}
 
         @staticmethod

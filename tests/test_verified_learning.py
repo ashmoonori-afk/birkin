@@ -56,7 +56,7 @@ def test_create_skill_queues_when_skills_NOT_auto_approved():
     assert len(pending) == 1
     assert pending[0]["category"] == "skill"
     # approving applies the skill
-    res = approvals.approve(pending[0]["id"])
+    res = approvals.approve(pending[0]["id"], approved_by="human:test", approved_via="test")
     assert res["ok"] is True
     assert (config.user_skills_dir() / "queued-pr" / "SKILL.md").is_file()
 

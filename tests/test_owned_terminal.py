@@ -90,7 +90,7 @@ def test_terminal_approval_can_mint_only_one_lease(
     terminal = authority(tmp_path, recorder, {"auto_approve": []})
     with pytest.raises(TerminalApprovalRequired) as caught:
         terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path)})
-    assert approvals.approve(caught.value.approval_id)["ok"] is True
+    assert approvals.approve(caught.value.approval_id, approved_by="human:test", approved_via="test")["ok"] is True
 
     first = terminal.create({
         "actor_kind": "native_human",

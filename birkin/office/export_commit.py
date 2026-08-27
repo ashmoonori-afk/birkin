@@ -12,6 +12,7 @@ from .export_io import (
     copy_exact,
     current_hash,
     hash_file,
+    regular_file_identity,
     recovery_error,
     reservation_bytes,
     reservation_hash,
@@ -42,8 +43,12 @@ class ExportCommit:
                 raise recovery_error("export backup authority is incomplete")
             root = journal_root(self._backup_root, "export")
             temporary = backup.with_name(f".{backup.name}.prepare")
-            if backup.exists():
-                if not backup.is_file() or hash_file(backup) != prior:
+            if backup.exists() or backup.is_symlink():
+                if (
+                    backup.is_symlink()
+                    or not backup.is_file()
+                    or hash_file(backup) != prior
+                ):
                     raise recovery_error("export backup no longer matches destination")
             else:
                 if current_hash(transaction.destination) != prior:
@@ -52,12 +57,28 @@ class ExportCommit:
                         "export",
                         "destination changed before rollback snapshot",
                     )
-                if temporary.exists():
-                    if not temporary.is_file() or hash_file(temporary) != prior:
+                if temporary.exists() or temporary.is_symlink():
+                    if (
+                        temporary.is_symlink()
+                        or not temporary.is_file()
+                        or hash_file(temporary) != prior
+                    ):
                         raise recovery_error("partial export backup is invalid")
                 else:
                     copy_exact(transaction.destination, temporary)
+                temporary_identity = regular_file_identity(temporary)
+                if (
+                    hash_file(temporary) != prior
+                    or regular_file_identity(temporary) != temporary_identity
+                ):
+                    raise recovery_error("partial export backup is invalid")
                 os.replace(temporary, backup)
+                backup_identity = regular_file_identity(backup)
+                if (
+                    hash_file(backup) != prior
+                    or regular_file_identity(backup) != backup_identity
+                ):
+                    raise recovery_error("export backup no longer matches destination")
             self._sync(root, directory_identity(root))
         elif current_hash(transaction.destination) is not None:
             raise DocumentError(
@@ -89,7 +110,12 @@ class ExportCommit:
                 )
         else:
             self._reserve_new(transaction)
-        self._stage(transaction, source)
+        staging_identity = self._stage(transaction, source)
+        if (
+            hash_file(transaction.staging) != transaction.output_sha256
+            or regular_file_identity(transaction.staging) != staging_identity
+        ):
+            raise recovery_error("staged export changed before replacement")
         replaced = False
         try:
             os.replace(transaction.staging, destination)
@@ -118,21 +144,33 @@ class ExportCommit:
         return self._restore(transaction, preserve=True)
 
     @staticmethod
-    def _stage(transaction: ExportTransaction, source: SnapshotPath) -> None:
+    def _stage(
+        transaction: ExportTransaction,
+        source: SnapshotPath,
+    ) -> tuple[int, int]:
         staging = transaction.staging
         if staging.exists() or staging.is_symlink():
-            if not staging.is_file() or hash_file(staging) != transaction.output_sha256:
+            staging_identity = regular_file_identity(staging)
+            if (
+                hash_file(staging) != transaction.output_sha256
+                or regular_file_identity(staging) != staging_identity
+            ):
                 raise recovery_error("staged export does not match validated draft")
-            return
+            return staging_identity
         copy_exact(source, staging)
+        staging_identity = regular_file_identity(staging)
         staged_sha256 = hash_file(staging)
-        if staged_sha256 != transaction.output_sha256:
+        if (
+            staged_sha256 != transaction.output_sha256
+            or regular_file_identity(staging) != staging_identity
+        ):
             raise DocumentError(
                 DocumentErrorCode.SOURCE_CHANGED,
                 "export",
                 "export copy does not match the validated draft",
                 artifact_sha256=staged_sha256,
             )
+        return staging_identity
 
     @staticmethod
     def _reserve_new(transaction: ExportTransaction) -> None:
@@ -167,6 +205,7 @@ class ExportCommit:
             if (
                 backup is None
                 or prior is None
+                or backup.is_symlink()
                 or not backup.is_file()
                 or hash_file(backup) != prior
             ):
@@ -181,9 +220,13 @@ class ExportCommit:
                 temporary = transaction.staging.with_name(
                     f"{transaction.staging.name}.restore"
                 )
-                if not temporary.exists():
+                if not temporary.exists() and not temporary.is_symlink():
                     copy_exact(backup, temporary)
-                if hash_file(temporary) != prior:
+                temporary_identity = regular_file_identity(temporary)
+                if (
+                    hash_file(temporary) != prior
+                    or regular_file_identity(temporary) != temporary_identity
+                ):
                     raise recovery_error("staged export restoration is invalid")
                 os.replace(temporary, destination)
         elif current is not None:

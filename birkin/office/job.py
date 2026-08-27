@@ -39,6 +39,8 @@ class OfficeJob:
         self._outcome: str | None = None
         self._operations: list[dict[str, object]] = []
         self._preview: dict[str, object] | None = None
+        self._proposer: str | None = None
+        self._authority_digest: str | None = None
         self._approval: dict[str, object] | None = None
         self._approved_digest: str | None = None
         self._execution: dict[str, object] | None = None
@@ -95,7 +97,12 @@ class OfficeJob:
         self._enter(OfficeJobState.preview_ready)
         return deepcopy(preview)
 
-    def request_approval(self) -> dict[str, object]:
+    def request_approval(
+        self,
+        *,
+        proposer: str,
+        authority_digest: str,
+    ) -> dict[str, object]:
         self._require(OfficeJobState.preview_ready)
         if self._preview is None:
             raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
@@ -106,6 +113,21 @@ class OfficeJob:
                 DocumentErrorCode.PRECONDITION_FAILED,
                 "preview requires source_sha256",
             )
+        if not proposer:
+            raise self._error(
+                DocumentErrorCode.PRECONDITION_FAILED,
+                "approval proposer is required",
+            )
+        if len(authority_digest) != 64 or any(
+            character not in "0123456789abcdef"
+            for character in authority_digest
+        ):
+            raise self._error(
+                DocumentErrorCode.PRECONDITION_FAILED,
+                "approval authority digest is invalid",
+            )
+        self._proposer = proposer
+        self._authority_digest = authority_digest
         self._enter(OfficeJobState.approval_requested)
         return {
             "job_id": self._job_id,
@@ -114,28 +136,46 @@ class OfficeJob:
             "operations": deepcopy(self._operations),
             "preview": deepcopy(self._preview),
             "proposal_digest": self._proposal_digest(),
+            "authority_digest": authority_digest,
+            "proposer": proposer,
             "source_sha256": source_sha256,
         }
 
-    def approve(self, *, actor: str) -> None:
+    def approve(self, *, approver: str, approved_via: str) -> None:
         self._require(OfficeJobState.approval_requested)
+        if self._proposer is None or self._authority_digest is None:
+            raise self._error(
+                DocumentErrorCode.PRECONDITION_FAILED,
+                "approval authority is unavailable",
+            )
+        if not approver or not approved_via:
+            raise self._error(
+                DocumentErrorCode.PRECONDITION_FAILED,
+                "approval resolver identity is required",
+            )
         digest = self._proposal_digest()
         self._approved_digest = digest
         self._approval = {
             "decision": "approved",
-            "actor": actor,
+            "proposer": self._proposer,
+            "approver": approver,
+            "approved_via": approved_via,
             "at": self._now(),
             "proposal_digest": digest,
+            "authority_digest": self._authority_digest,
         }
         self._enter(OfficeJobState.approved)
 
-    def reject(self, *, actor: str, reason: str) -> None:
+    def reject(self, *, rejected_by: str, rejected_via: str, reason: str) -> None:
         self._require(OfficeJobState.approval_requested)
         self._approval = {
             "decision": "rejected",
-            "actor": actor,
+            "proposer": self._proposer,
+            "rejected_by": rejected_by,
+            "rejected_via": rejected_via,
             "at": self._now(),
             "proposal_digest": self._proposal_digest(),
+            "authority_digest": self._authority_digest,
             "reason": reason,
         }
         self._enter(OfficeJobState.rejected)
@@ -259,6 +299,11 @@ class OfficeJob:
                 "preview requires source_sha256",
             )
         return proposal_digest(self._operations, source_sha256, self._outcome)
+
+    def current_proposal_digest(self) -> str:
+        """Return the exact proposal identity before approval is requested."""
+        self._require(OfficeJobState.preview_ready)
+        return self._proposal_digest()
 
     def _operation_snapshot(self) -> tuple[Mapping[str, object], ...]:
         return tuple(deepcopy(operation) for operation in self._operations)

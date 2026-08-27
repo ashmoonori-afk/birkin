@@ -44,7 +44,11 @@ elif mode == "after_destination_replace":
     os.replace = stop_after_replace
 else:
     os._exit(99)
-approvals.approve(approval_id)
+approvals.approve(
+    approval_id,
+    approved_by="human:test",
+    approved_via="test",
+)
 os._exit(98)
 """
 
@@ -86,7 +90,7 @@ def test_real_process_crash_resumes_exactly_once(
     pending = store.get_pending(approval_id)
     assert pending is not None
     assert pending["status"] == "executing"
-    result = approvals.approve(approval_id)
+    result = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: one exported receipt survives, source stays immutable, and no phase repeats.
     assert result["ok"] is True, result

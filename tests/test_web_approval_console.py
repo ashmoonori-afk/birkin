@@ -46,11 +46,13 @@ def remote_srv():
 
 
 def request(srv, method: str, path: str, payload=None, *, token=True,
-            host="127.0.0.1"):
+            host="127.0.0.1", client_id: str | None = None):
     port, capability = srv[:2]
     headers = {"Host": host}
     if token:
         headers["X-Birkin-Token"] = capability
+    if client_id is not None:
+        headers["X-Birkin-Browser-Client"] = client_id
     body = None
     if payload is not None:
         body = json.dumps(payload).encode()
@@ -113,9 +115,13 @@ def test_approve_reject_transitions_and_action_receipt(srv, monkeypatch):
         category="cron", title="later", description="", payload={"name": "later"})
 
     assert request(srv, "POST", "/api/approvals", {
-        "id": approved["id"], "action": "approve"}) == (
+        "id": approved["id"], "action": "approve"}, client_id="browser-1") == (
             200, {"ok": True, "result": "exit 0: shipped"})
-    assert store.get_pending(approved["id"])["status"] == "approved"
+    approved_record = store.get_pending(approved["id"])
+    assert approved_record is not None
+    assert approved_record["status"] == "approved"
+    assert approved_record["approved_by"] == "principal:web:authenticated-capability"
+    assert approved_record["approved_via"] == "web:dashboard"
 
     status, receipt = request(
         srv, "GET", f"/api/actions/{approved['id']}/receipt")
@@ -127,8 +133,15 @@ def test_approve_reject_transitions_and_action_receipt(srv, monkeypatch):
     }
 
     assert request(srv, "POST", "/api/approvals", {
-        "id": rejected["id"], "action": "reject"}) == (200, {"ok": True})
-    assert store.get_pending(rejected["id"])["status"] == "rejected"
+        "id": rejected["id"], "action": "reject"}, client_id="browser-1") == (
+            200,
+            {"ok": True},
+        )
+    rejected_record = store.get_pending(rejected["id"])
+    assert rejected_record is not None
+    assert rejected_record["status"] == "rejected"
+    assert rejected_record["rejected_by"] == "principal:web:authenticated-capability"
+    assert rejected_record["rejected_via"] == "web:dashboard"
     assert request(srv, "GET", f"/api/actions/{rejected['id']}/receipt")[0] == 409
 
 
