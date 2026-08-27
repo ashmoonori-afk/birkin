@@ -25,12 +25,18 @@ def srv():
 
 
 @pytest.fixture
-def remote_srv():
+def remote_srv(monkeypatch):
     class ForcedRemoteHTTPServer(HTTPServer):
         def get_request(self):
             request, address = super().get_request()
             return request, ("198.51.100.23", address[1])
 
+    cfg = {
+        **config.DEFAULT_CONFIG,
+        "web_remote_access": True,
+        "web_external_url": "https://console.example",
+    }
+    monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
     httpd = ForcedRemoteHTTPServer(("127.0.0.1", 0), web_server.Handler)
     thread = threading.Thread(target=httpd.serve_forever, daemon=True)
     thread.start()

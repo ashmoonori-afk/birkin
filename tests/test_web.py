@@ -165,7 +165,11 @@ class _ForcedRemoteHTTPServer(HTTPServer):
 
 
 def test_remote_peer_cannot_forge_loopback_host(monkeypatch):
-    cfg = {**web_server.config.load_config(), "web_remote_access": True}
+    cfg = {
+        **web_server.config.load_config(),
+        "web_remote_access": True,
+        "web_external_url": "https://console.example",
+    }
     monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
     httpd = _ForcedRemoteHTTPServer(("127.0.0.1", 0), web_server.Handler)
     port = int(httpd.server_address[1])
@@ -200,14 +204,14 @@ def test_run_prints_secret_bootstrap_url_for_no_browser(monkeypatch, capsys):
     assert "http://127.0.0.1:8765/_bootstrap/" in output
 
 
-def test_remote_run_requires_explicit_admission_ack_before_bind(
+def test_remote_run_requires_https_external_url_before_bind(
     monkeypatch,
     capsys,
 ):
     cfg = {
         **web_server.config.load_config(),
         "web_remote_access": True,
-        "web_remote_insecure_ack": False,
+        "web_external_url": "",
     }
     monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
     monkeypatch.setattr(
@@ -219,7 +223,7 @@ def test_remote_run_requires_explicit_admission_ack_before_bind(
     )
 
     assert web_server.run(port=8765, open_browser=False) != 0
-    assert "web_remote_insecure_ack" in capsys.readouterr().err
+    assert "web_external_url" in capsys.readouterr().err
 
 
 def test_remote_run_prints_remote_bootstrap_without_consuming_it(
@@ -239,11 +243,10 @@ def test_remote_run_prints_remote_bootstrap_without_consuming_it(
     cfg = {
         **web_server.config.load_config(),
         "web_remote_access": True,
-        "web_remote_insecure_ack": True,
+        "web_external_url": "https://birkin-host.example",
     }
     monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
     monkeypatch.setattr(web_server, "HTTPServer", StoppingServer)
-    monkeypatch.setattr(socket, "getfqdn", lambda: "birkin-host.example")
     monkeypatch.setattr(
         web_server.webbrowser,
         "open",
@@ -254,10 +257,9 @@ def test_remote_run_prints_remote_bootstrap_without_consuming_it(
 
     output = capsys.readouterr().out
     assert (
-        "http://birkin-host.example:8765/_bootstrap/"
+        "https://birkin-host.example/_bootstrap/"
         in output
     )
-    assert "cleartext" in output.lower()
     assert opened == []
 
 
@@ -265,7 +267,7 @@ def test_remote_bootstrap_cookie_is_secure(monkeypatch):
     cfg = {
         **web_server.config.load_config(),
         "web_remote_access": True,
-        "web_remote_insecure_ack": True,
+        "web_external_url": "https://console.example",
     }
     monkeypatch.setattr(web_server.config, "load_config", lambda: cfg)
     httpd = _ForcedRemoteHTTPServer(

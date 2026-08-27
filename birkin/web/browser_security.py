@@ -44,15 +44,24 @@ class BrowserRequestGuard:
         port: int,
         capability: str,
         bootstrap_nonce: str,
+        external_origin: str | None = None,
         clock: Callable[[], float] = monotonic,
         bootstrap_ttl_seconds: float = 60.0,
     ) -> None:
-        self._hosts = frozenset(
-            {f"127.0.0.1:{port}", f"localhost:{port}"}
-        )
-        self._origins = frozenset(
-            {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
-        )
+        hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        origins = {
+            f"http://127.0.0.1:{port}",
+            f"http://localhost:{port}",
+        }
+        if external_origin is not None:
+            parsed = urlsplit(external_origin)
+            hosts.add(parsed.netloc)
+            if parsed.port is None:
+                default_port = 443 if parsed.scheme == "https" else 80
+                hosts.add(f"{parsed.netloc}:{default_port}")
+            origins.add(external_origin)
+        self._hosts = frozenset(hosts)
+        self._origins = frozenset(origins)
         self._capability = capability
         self._bootstrap_nonce = bootstrap_nonce
         self._clock = clock
@@ -67,13 +76,12 @@ class BrowserRequestGuard:
         nonce: str,
         *,
         host: str,
-        allow_remote_host: bool = False,
     ) -> str:
         with self._lock:
             if (
                 self._bootstrap_consumed
                 or self._clock() >= self._bootstrap_deadline
-                or (not allow_remote_host and host not in self._hosts)
+                or host.lower() not in self._hosts
                 or not secrets.compare_digest(
                     nonce,
                     self._bootstrap_nonce,
@@ -100,10 +108,10 @@ class BrowserRequestGuard:
         header_capability: str | None,
     ) -> None:
         del path
-        if host not in self._hosts:
+        if host.lower() not in self._hosts:
             raise BrowserRequestDenied(
                 "host_denied",
-                "Request Host is not the active loopback listener.",
+                "Request Host is not the configured WebUI authority.",
             )
         if method == "OPTIONS":
             raise BrowserRequestDenied(
@@ -132,7 +140,7 @@ class BrowserRequestGuard:
         if origin is not None and origin not in self._origins:
             raise BrowserRequestDenied(
                 "origin_denied",
-                "Request Origin is not the active loopback listener.",
+                "Request Origin is not the configured WebUI origin.",
             )
         if fetch_site is not None and fetch_site != "same-origin":
             raise BrowserRequestDenied(
@@ -227,6 +235,7 @@ def browser_request_guard(
     port: int,
     capability: str,
     bootstrap_nonce: str,
+    external_origin: str | None = None,
     clock: Callable[[], float] = monotonic,
     bootstrap_ttl_seconds: float = 60.0,
 ) -> BrowserRequestGuard:
@@ -234,6 +243,7 @@ def browser_request_guard(
         port=port,
         capability=capability,
         bootstrap_nonce=bootstrap_nonce,
+        external_origin=external_origin,
         clock=clock,
         bootstrap_ttl_seconds=bootstrap_ttl_seconds,
     )

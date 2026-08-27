@@ -181,8 +181,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # the per-process WebUI capability; false keeps the historical local-only
     # surface and rejects forged/non-loopback Host headers.
     "web_remote_access": False,
-    # A separate acknowledgement is required before binding beyond loopback.
-    "web_remote_insecure_ack": False,
+    # Canonical browser-visible origin. Remote binding requires an HTTPS value;
+    # reverse-proxy headers never override this trust anchor.
+    "web_external_url": "",
     # Legacy browser adapter private destinations need this plus sandbox host
     # permission. Public-only DNS remains the default.
     "browser_allow_private_network": False,

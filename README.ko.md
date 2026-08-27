@@ -501,22 +501,27 @@ receipt를 표시합니다. 상세 card에서 run을 steer, abort, resume할 수
 approval과 rejection은 `birkin review`와 동일한 file-backed authority를
 계속 사용합니다.
 
-Server는 기본적으로 loopback에서만 동작합니다. Remote bind는
-`web_remote_access`와 별도의 `web_remote_insecure_ack`가 모두 `true`일 때만
-허용됩니다. TLS termination 또는 신뢰할 수 있는 private-network tunnel을
-구성한 뒤에만 acknowledgement를 설정하십시오. 두 값이 모두 없으면 socket을
-bind하기 전에 startup이 거부됩니다. Remote mode는 모든 interface에
-bind하지만 public route를 만들지는 않습니다. Remote mode에서
-`birkin web`은 server hostname을 사용한 secret bootstrap URL을 출력하고,
-nonce가 one-time이므로 local browser에서 자동으로 열지 않습니다. 이 URL을
-remote device에서 여십시오. 해당 hostname을 remote device에서 해석할 수
-없다면 hostname 부분만 server의 신뢰할 수 있는 private-network address로
-바꾸십시오. 이 URL은 process별 capability를 HttpOnly, SameSite, Secure cookie로
-교환하며, capability가 없는 모든 remote request는 거부됩니다. Local/remote
-권한은 client가 제어하는 `Host` header가 아니라 TCP peer address에서
-결정되며, 정확한 one-time bootstrap URL만 인증되지 않은 remote 예외입니다.
-Traffic이 host 밖으로 나가면 TLS 또는 신뢰할 수 있는 private-network
-tunnel을 앞에 두십시오.
+Server는 기본적으로 loopback에서만 동작합니다. Remote bind에는
+`web_remote_access=true`와 `web_external_url`의 절대 HTTPS origin이 모두
+필요합니다. Endpoint가 없거나 HTTPS가 아니면 socket을 bind하기 전에
+startup이 거부됩니다. Legacy `web_remote_insecure_ack` key로는 더 이상
+remote bind를 허용하지 않습니다. Remote mode는 모든 interface에 bind하지만
+public route를 만들지는 않습니다. 설정한 external origin에서 TLS를 종료하고
+Birkin의 HTTP listener로 forward하십시오. Birkin은 `web_external_url`만을
+출력되는 one-time bootstrap URL, 허용되는 `Host`/`Origin`/`Referer`, 그리고
+HttpOnly, SameSite, Secure capability cookie의 public-origin authority로
+사용합니다. Client가 제어하는 forwarding header가 cookie 또는 origin
+policy를 바꾸지 못하도록 `X-Forwarded-Proto`는 의도적으로 무시합니다.
+
+SSH local forwarding에는 `web_remote_access=false`를 유지하고
+`web_external_url`을 비워 두십시오. 예를 들어
+`ssh -L 8787:127.0.0.1:8787 host`처럼 같은 local port로 loopback listener를
+forward한 뒤 출력된 `http://127.0.0.1:8787/_bootstrap/...` URL을 local에서
+여십시오. Host와 CSRF origin은 해당 listener port와 정확히 일치해야 합니다.
+이 경로의 HTTP는 신뢰할 수 있는 tunnel 안에서 전달되므로 HttpOnly,
+SameSite cookie에 `Secure`를 붙이지 않습니다. 모든 request에는 계속
+process별 capability가 필요하며 정확한 one-time bootstrap URL만 인증되지
+않은 예외입니다.
 
 ## Checkpoints
 
@@ -990,7 +995,7 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "memory_nudge_interval": 6,
   "web_port": 8787,
   "web_remote_access": false,
-  "web_remote_insecure_ack": false,
+  "web_external_url": "",
   "browser_allow_private_network": false,
   "gateway_port": 8788,
   "gateway": {

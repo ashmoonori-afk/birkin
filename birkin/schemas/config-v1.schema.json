@@ -19,6 +19,7 @@
     "max_turns": {"type": "integer", "minimum": 1},
     "context_window": {"type": "integer", "minimum": 1},
     "web_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "web_external_url": {"type": "string"},
     "gateway_port": {"type": "integer", "minimum": 1, "maximum": 65535},
     "morpheus_hour": {"type": "integer", "minimum": 0, "maximum": 23},
     "morpheus_minute": {"type": "integer", "minimum": 0, "maximum": 59},
