@@ -1147,6 +1147,8 @@ Free-form shell requests use a fixed non-login platform shell (`%SystemRoot%\Sys
 
 PowerShell is disabled by default on the model-facing native shell tool: set `allow_powershell` to `true` deliberately, or approve one exact queued operation. Other owner-controlled shell surfaces retain their existing explicit authority boundaries. Lifecycle-hook consents recorded before the managed-shell contract require one-time reapproval so old discrete-argv consent cannot silently authorize shell operators. Native macOS and Windows CI exercise commands, pipelines, redirection, quoting, Unicode and spaced working directories, environment and temporary-directory behavior, exit propagation, runtime/package-manager resolution, and descendant cleanup.
 
+When an extensionless command fails with a command-bound PowerShell execution-policy diagnostic, Birkin exhausts same-name `.com`, `.exe`, `.bat`, and `.cmd` candidates in the current directory and `PATH`; it never retries `.ps1`. The retry preserves the exact argument suffix, uses one timeout budget, remains subject to shellguard and approval authority, and does not bypass machine policy.
+
 ### Model providers and the fallback chain
 
 Alongside `anthropic`, `openai`, the CLI agents, and `claude-oauth`, three OpenAI-compatible providers are registered. Each one needs only its key; the base URL already defaults correctly.

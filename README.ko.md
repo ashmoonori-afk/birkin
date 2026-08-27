@@ -1152,6 +1152,8 @@ scheduler daemon 시작 시 pending Slack/Discord obligation을 replay합니다.
 
 모델이 호출하는 네이티브 shell tool에서는 PowerShell이 기본적으로 비활성화됩니다. `allow_powershell`을 의도적으로 `true`로 설정하거나 큐에 들어간 정확한 단일 operation을 승인해야 합니다. 다른 owner-controlled shell surface는 기존의 명시적 권한 경계를 유지합니다. Managed-shell 계약 이전에 저장된 lifecycle-hook 동의는 예전 discrete-argv 동의가 shell operator 권한으로 조용히 확대되지 않도록 한 번 다시 승인해야 합니다. 네이티브 macOS 및 Windows CI는 일반 명령, pipeline, redirection, quoting, Unicode 및 공백이 있는 작업 디렉터리, 환경/임시 디렉터리, exit 전달, runtime/package-manager 해석, descendant cleanup을 검증합니다.
 
+확장자가 없는 명령이 command-bound PowerShell execution-policy diagnostic으로 실패하면 Birkin은 현재 디렉터리와 `PATH`에서 같은 이름의 `.com`, `.exe`, `.bat`, `.cmd` 후보를 모두 시도하며 `.ps1`은 다시 시도하지 않습니다. 재시도는 정확한 argument suffix를 보존하고 하나의 timeout budget을 사용하며 shellguard와 approval authority의 적용을 받고 machine policy를 우회하지 않습니다.
+
 ### Model provider와 fallback chain
 
 `anthropic`, `openai`, CLI agent, `claude-oauth`에 더해 OpenAI 호환 provider 세 개가 등록되어 있습니다. 각각 key만 있으면 되고 base URL은 이미 올바른 기본값을 가집니다.

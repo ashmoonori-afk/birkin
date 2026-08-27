@@ -135,6 +135,37 @@ def main() -> int:
             else {}
         )
 
+        policy_marker = root / "policy-probe-attempted"
+        policy_shim = bin_dir / "birkin-policy-probe.cmd"
+        policy_script = bin_dir / "birkin-policy-probe.ps1"
+        write_script(
+            policy_shim,
+            "@echo off\r\n"
+            + f'if exist "{policy_marker}" goto native\r\n'
+            + f'type nul > "{policy_marker}"\r\n'
+            + f">&2 echo {policy_script} cannot be loaded because running "
+            + "scripts is disabled on this system.\r\n"
+            + ">&2 echo PSSecurityException\r\n"
+            + "exit /b 1\r\n"
+            + ":native\r\n"
+            + "echo native-shim-fallback-ok:%*\r\n",
+        )
+        original_path = os.environ.get("PATH", "")
+        original_pathext = os.environ.get("PATHEXT")
+        os.environ["PATH"] = f"{bin_dir}{os.pathsep}{original_path}"
+        os.environ["PATHEXT"] = ".CMD"
+        try:
+            policy_fallback = registry.execute(
+                "run_shell",
+                {"command": "birkin-policy-probe payload-한글"},
+            )
+        finally:
+            os.environ["PATH"] = original_path
+            if original_pathext is None:
+                _ = os.environ.pop("PATHEXT", None)
+            else:
+                os.environ["PATHEXT"] = original_pathext
+
         scheduler.run_job(
             {
                 "id": "qa-scheduler",
@@ -228,6 +259,7 @@ def main() -> int:
         )
 
         native_text = content_text(native.content)
+        policy_fallback_text = content_text(policy_fallback.content)
         scheduler_summary = str(scheduled["summary"])
         evidence = {
             "action": {
@@ -241,6 +273,7 @@ def main() -> int:
             "hook": hooked,
             "mcp": (mcp_result.stdout or "").strip(),
             "monitor": monitored,
+            "policy_fallback": policy_fallback_text,
             "sandbox_exit": sandbox.returncode,
             "sandbox_removed": bool(created) and not created[0].exists(),
             "scheduler": scheduler_summary,
@@ -250,6 +283,8 @@ def main() -> int:
             not native.is_error
             and "native-한글" in native_text
             and "fallback" in native_text
+            and not policy_fallback.is_error
+            and "native-shim-fallback-ok:payload-한글" in policy_fallback_text
             and approved.get("ok") is True
             and replay.get("ok") is not True
             and counter.read_text(encoding="utf-8") == "x"
