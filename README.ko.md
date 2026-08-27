@@ -200,7 +200,7 @@ Mutation에는 최신 opaque app/window/snapshot/element ref가 필요합니다.
 Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 형태로 저장합니다. Event와 journal에는 raw pixel이나 입력 text 대신 bounded·redacted metadata, digest, scope, effect, receipt만 남깁니다. Runtime은 dependency를 설치하거나 privacy settings를 열거나 permission dialog를 클릭하지 않습니다.
 
 > [!IMPORTANT]
-> 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오. Shell command는 workspace와 명시적인 `shell.extra_roots` 안에서만 실행되며 terminal/runtime 동작에 필요한 값과 `shell.env_passthrough`에 지정한 이름만 전달받습니다. Ambient credential은 기본적으로 상속하지 않습니다. `shell.env_passthrough=["*"]`는 legacy ambient environment를 명시적으로 복원합니다. Browser navigation은 기본적으로 public DNS address만 허용하며 private destination은 sandbox host policy와 `browser_allow_private_network=true`가 모두 필요합니다.
+> 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오. Shell command의 시작 directory는 workspace와 명시적인 `shell.extra_roots`로 제한됩니다. 이는 working-directory restriction일 뿐 OS sandbox가 아니므로 command는 현재 OS 계정이 접근할 수 있는 filesystem 권한을 그대로 가집니다. Command에는 terminal/runtime 동작에 필요한 값과 `shell.env_passthrough`에 지정한 이름만 전달합니다. Ambient credential은 기본적으로 상속하지 않습니다. `shell.env_passthrough=["*"]`는 legacy ambient environment를 명시적으로 복원합니다. Browser navigation은 기본적으로 public DNS address만 허용하며 private destination은 sandbox host policy와 `browser_allow_private_network=true`가 모두 필요합니다.
 
 ## Office Work OS v2
 

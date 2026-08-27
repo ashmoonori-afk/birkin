@@ -22,7 +22,10 @@ def _error(stage: str, message: str, *, retryable: bool = False) -> DocumentErro
 
 
 def journal_root(path: Path, stage: str) -> Path:
-    """Create one owner-private journal directory and durably bind its entry."""
+    """Create a POSIX owner-only journal root and durably bind its entry.
+
+    Windows relies on the directory's inherited ACL.
+    """
     root = Path(path)
     existed = root.exists()
     try:
@@ -55,7 +58,10 @@ def read_record(path: Path, stage: str) -> dict[str, object] | None:
 
 
 def write_record(path: Path, record: Mapping[str, object], stage: str) -> None:
-    """Atomically replace and sync one owner-private journal record."""
+    """Atomically replace and sync a POSIX owner-only journal record.
+
+    Windows relies on the directory's inherited ACL.
+    """
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
     payload = json.dumps(
         dict(record),

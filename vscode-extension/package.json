@@ -98,7 +98,7 @@
         "birkin.gatewayToken": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Optional `BIRKIN_HTTP_TOKEN` used by the gateway."
+          "markdownDescription": "Gateway capability required by default. If `BIRKIN_HTTP_TOKEN` is set, use that value; otherwise copy the value from the automatically created `BIRKIN_HOME/gateway_http_token` file."
         },
         "birkin.dashboardUrl": {
           "type": "string",
