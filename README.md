@@ -364,6 +364,8 @@ The native registry exposes `browser_navigate`, `browser_click`, `browser_fill`,
 
 Browser traffic reuses the repository's `sandbox.network` and `sandbox.network_allowlist` policy. The default `network: "off"` fails closed. For local WebUI QA, set `network` to `allowlist`, include `127.0.0.1`, and keep the screenshot path inside `sandbox.write_paths`. Every navigation and page subrequest is checked; redirects, scripts, `fetch`, and click-triggered requests cannot bypass the allowlist. Registry hooks, `disabled_tools`, and approval replay remain the same gates used by every native tool. Policy refusals are returned as `BrowserPolicyViolation` errors.
 
+Chromium sends all Browser traffic, including loopback destinations, through an authenticated loopback filtering proxy. The proxy resolves each destination through the same sandbox policy, dials the policy-validated address directly, and rejects DNS-answer drift or a connected-peer mismatch before relaying traffic. Service workers are blocked, and Chromium's WebRTC policy disables non-proxied UDP.
+
 A runnable ouroboros check against Birkin's own WebUI:
 
 1. Change `birkin/web/static/index.html`, then start `birkin web --no-browser` and copy its private bootstrap URL.

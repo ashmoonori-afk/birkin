@@ -39,11 +39,13 @@ class PolicyEgressGate:
         private_network: tuple[PrivateRule, ...] = (),
         resolver: Resolver | None = None,
         control_addresses: tuple[str, ...] = (),
+        allow_private_network: bool = False,
     ) -> None:
         self._policy = policy
         self._private_network = private_network
         self._resolver = resolver or self._resolve
         self._control_addresses = frozenset(control_addresses)
+        self._allow_private_network = allow_private_network
         self._pins: dict[
             str,
             tuple[ipaddress.IPv4Address | ipaddress.IPv6Address, ...],
@@ -101,7 +103,14 @@ class PolicyEgressGate:
                 400,
             )
         host = parsed.hostname.lower().rstrip(".")
-        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        except ValueError as exc:
+            raise BrowserAsideError(
+                "invalid_url",
+                "Navigation URL is not allowed.",
+                400,
+            ) from exc
         try:
             _ = self._policy.require(
                 PolicyRequest(network_hosts=(host,))
@@ -213,6 +222,8 @@ class PolicyEgressGate:
             ...,
         ],
     ) -> bool:
+        if self._allow_private_network:
+            return True
         for rule_host, cidr, rule_port in self._private_network:
             network = ipaddress.ip_network(cidr, strict=True)
             if (
