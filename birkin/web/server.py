@@ -78,6 +78,10 @@ from .browser_security import (
     BrowserRequestGuard,
     browser_request_guard,
 )
+from .external_origin import (
+    WebExternalOrigin,
+    parse_web_external_url,
+)
 
 _STATIC = Path(__file__).resolve().parent / "static"
 MAX_POST_BODY_BYTES = 65_536
@@ -216,6 +220,11 @@ _BROWSER_WORKSPACES: WeakKeyDictionary[
     object,
     BrowserApiWorkspace,
 ] = WeakKeyDictionary()
+_EXTERNAL_ORIGINS: WeakKeyDictionary[
+    object,
+    WebExternalOrigin | None,
+] = WeakKeyDictionary()
+_REMOTE_ADMISSION: WeakKeyDictionary[object, bool] = WeakKeyDictionary()
 
 
 def _consume_bootstrap(server: object) -> bool:
@@ -261,12 +270,49 @@ def _browser_guard(server: object, port: int) -> BrowserRequestGuard:
         return guard
 
 
+def _listener_external_origin(
+    server: object,
+) -> WebExternalOrigin | None:
+    with _SECURITY_LOCK:
+        if server not in _EXTERNAL_ORIGINS:
+            _EXTERNAL_ORIGINS[server] = parse_web_external_url(
+                config.load_config().get("web_external_url", "")
+            )
+        return _EXTERNAL_ORIGINS[server]
+
+
+def _set_listener_external_origin(
+    server: object,
+    external_origin: WebExternalOrigin | None,
+) -> None:
+    with _SECURITY_LOCK:
+        _EXTERNAL_ORIGINS[server] = external_origin
+
+
+def _listener_remote_access(server: object) -> bool:
+    with _SECURITY_LOCK:
+        if server not in _REMOTE_ADMISSION:
+            _REMOTE_ADMISSION[server] = bool(
+                config.load_config().get("web_remote_access", False)
+            )
+        return _REMOTE_ADMISSION[server]
+
+
+def _set_listener_remote_access(
+    server: object,
+    remote: bool,
+) -> None:
+    with _SECURITY_LOCK:
+        _REMOTE_ADMISSION[server] = remote
+
+
 def _bootstrap_nonce(server: object) -> str:
     with _SECURITY_LOCK:
         nonce = _BOOTSTRAP_NONCES.get(server)
         if nonce is None:
             nonce = secrets.token_urlsafe(24)
             _BOOTSTRAP_NONCES[server] = nonce
+            _ = _listener_remote_access(server)
             address = cast(
                 tuple[str, int],
                 cast(HTTPServer, server).server_address,
@@ -275,6 +321,11 @@ def _bootstrap_nonce(server: object) -> str:
                 port=address[1],
                 capability=_CAPABILITY_TOKEN,
                 bootstrap_nonce=nonce,
+                external_origin=(
+                    external.origin
+                    if (external := _listener_external_origin(server))
+                    else None
+                ),
             )
         return nonce
 
@@ -414,6 +465,8 @@ def start_background(port: int | None = None) -> BackgroundWebServer:
         httpd = HTTPServer(("127.0.0.1", 0), Handler)
     address = cast(tuple[str, int], httpd.server_address)
     actual_port = address[1]
+    _set_listener_external_origin(httpd, None)
+    _set_listener_remote_access(httpd, False)
     bootstrap_nonce = _bootstrap_nonce(httpd)
     os.environ["BIRKIN_BROWSER_CONTROL_ADDRESSES"] = (
         f"127.0.0.1:{actual_port},localhost:{actual_port}"
@@ -794,10 +847,29 @@ class Handler(BaseHTTPRequestHandler):
 
     def _host_ok(self) -> bool:
         peer = self.client_address[0]
-        host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
-        if peer in _LOOPBACK_PEERS:
-            return host in _ALLOWED_HOSTS
-        if not bool(config.load_config().get("web_remote_access", False)):
+        host = self.headers.get("Host", "") or ""
+        server = getattr(self, "server", None)
+        if server is None:
+            return (
+                peer in _LOOPBACK_PEERS
+                and host.rsplit(":", 1)[0] in _ALLOWED_HOSTS
+            )
+        server_port = cast(HTTPServer, server).server_port
+        local_hosts = {
+            "127.0.0.1",
+            "localhost",
+            f"127.0.0.1:{server_port}",
+            f"localhost:{server_port}",
+        }
+        external = _listener_external_origin(server)
+        normalized_host = host.lower()
+        if peer in _LOOPBACK_PEERS and normalized_host in local_hosts:
+            return True
+        if (
+            external is None
+            or normalized_host not in external.authorities
+            or not _listener_remote_access(server)
+        ):
             return False
         if self.path.startswith("/_bootstrap/"):
             nonce = self.path.removeprefix("/_bootstrap/")
@@ -878,6 +950,9 @@ class Handler(BaseHTTPRequestHandler):
             + self.headers["X-Birkin-Browser-Client"]
         )
 
+    def _approval_actor_id(self) -> str:
+        return "principal:web:authenticated-capability"
+
     def _send_browser_denial(
         self,
         denial: BrowserRequestDenied,
@@ -900,20 +975,30 @@ class Handler(BaseHTTPRequestHandler):
             return True
         if not self._cookie_capability_ok():
             return True
-        host = self.headers.get("Host", "")
-        expected_origin = f"http://{host}"
+        external = _listener_external_origin(self.server)
+        if external is not None:
+            expected_origins = frozenset({external.origin})
+        else:
+            port = cast(HTTPServer, self.server).server_port
+            expected_origins = frozenset({
+                f"http://127.0.0.1:{port}",
+                f"http://localhost:{port}",
+            })
         fetch_site = self.headers.get("Sec-Fetch-Site")
         if fetch_site not in (None, "none", "same-origin"):
             return False
         origin = self.headers.get("Origin")
-        if origin is not None and origin != expected_origin:
+        if origin is not None and origin not in expected_origins:
             return False
         referer = self.headers.get("Referer")
         if referer is not None:
             parsed = urlsplit(referer)
-            if f"{parsed.scheme}://{parsed.netloc}" != expected_origin:
+            if (
+                f"{parsed.scheme}://{parsed.netloc}"
+                not in expected_origins
+            ):
                 return False
-        if write and origin != expected_origin:
+        if write and origin not in expected_origins:
             return False
         return True
 
@@ -946,6 +1031,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if not self._host_ok():
             self._send(403, b"forbidden host", "text/plain")
+            return
+        if not self._cookie_origin_ok(write=False):
+            self._json({"error": "cross-origin capability request"}, code=403)
             return
         if is_browser_path(self.path):
             denial = self._browser_denial("GET")
@@ -984,9 +1072,6 @@ class Handler(BaseHTTPRequestHandler):
                 ).consume_bootstrap(
                     nonce,
                     host=self.headers.get("Host", ""),
-                    allow_remote_host=(
-                        self.client_address[0] not in _LOOPBACK_PEERS
-                    ),
                 )
             except BrowserRequestDenied as exc:
                 self._send_browser_denial(exc)
@@ -1009,8 +1094,14 @@ class Handler(BaseHTTPRequestHandler):
                         "SameSite=Strict; Path=/"
                         + (
                             "; Secure"
-                            if self.client_address[0]
-                            not in _LOOPBACK_PEERS
+                            if (
+                                (
+                                    external
+                                    := _listener_external_origin(self.server)
+                                )
+                                is not None
+                                and external.secure
+                            )
                             else ""
                         )
                     ),
@@ -1142,8 +1233,14 @@ class Handler(BaseHTTPRequestHandler):
             if not a2a.enabled(cfg):
                 self._send(404, b"not found", "text/plain")
                 return
+            external = _listener_external_origin(self.server)
             host = self.headers.get("Host") or "127.0.0.1"
-            self._json(a2a.agent_card(f"http://{host}", cfg))
+            base_url = (
+                external.origin
+                if external is not None
+                else f"http://{host}"
+            )
+            self._json(a2a.agent_card(base_url, cfg))
         else:
             self._send(404, b"not found", "text/plain")
 
@@ -1407,9 +1504,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(result, code=200 if result.get("ok") else 409)
             return
         result = (
-            approvals.approve(aid)
+            approvals.approve(
+                aid,
+                approved_by=self._approval_actor_id(),
+                approved_via="web:dashboard",
+            )
             if action == "approve"
-            else approvals.reject(aid)
+            else approvals.reject(
+                aid,
+                rejected_by=self._approval_actor_id(),
+                rejected_via="web:dashboard",
+            )
         )
         self._json(result)
 
@@ -1459,16 +1564,31 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
     cfg = config.load_config()
     port = port or int(cfg.get("web_port", 8787))
     remote = bool(cfg.get("web_remote_access", False))
-    if remote and cfg.get("web_remote_insecure_ack") is not True:
+    try:
+        external = parse_web_external_url(
+            cfg.get("web_external_url", "")
+        )
+    except ValueError as exc:
+        print(f"WebUI refused before bind: {exc}", file=sys.stderr)
+        return 2
+    if remote and (external is None or not external.secure):
         print(
-            "remote WebUI refused before bind: set "
-            "web_remote_insecure_ack=true only after configuring TLS "
-            "or a trusted private-network tunnel",
+            "remote WebUI refused before bind: web_external_url must "
+            "be an https:// origin",
+            file=sys.stderr,
+        )
+        return 2
+    if external is not None and not remote:
+        print(
+            "WebUI refused before bind: web_external_url requires "
+            "web_remote_access=true",
             file=sys.stderr,
         )
         return 2
     bind_host = "0.0.0.0" if remote else "127.0.0.1"
     httpd = HTTPServer((bind_host, port), Handler)
+    _set_listener_external_origin(httpd, external)
+    _set_listener_remote_access(httpd, remote)
     actual_port = int(httpd.server_address[1])
     bootstrap_nonce = _bootstrap_nonce(httpd)
     os.environ["BIRKIN_BROWSER_CONTROL_ADDRESSES"] = (
@@ -1484,15 +1604,13 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
             "bootstrap_nonce": bootstrap_nonce,
         },
     )
-    url_host = socket.getfqdn() if remote else "127.0.0.1"
-    url = f"http://{url_host}:{actual_port}"
+    url = (
+        external.origin
+        if external is not None
+        else f"http://127.0.0.1:{actual_port}"
+    )
     bootstrap_url = f"{url}/_bootstrap/{bootstrap_nonce}"
     print(f"birkin workspace running at {bootstrap_url}  (Ctrl-C to stop)")
-    if remote:
-        print(
-            "WARNING: direct remote WebUI transport is cleartext; "
-            "use TLS termination or a trusted private-network tunnel"
-        )
     if open_browser and not remote:
         try:
             _ = webbrowser.open(bootstrap_url)

@@ -18,7 +18,7 @@ def test_existing_approval_flow_grants_future_retry_without_mutation(
         action="double_click",
     )
 
-    claimed = approvals.claim(proposed.review_id)
+    claimed = approvals.claim(proposed.review_id, approved_by="human:test", approved_via="test")
     executed = approvals.execute_claimed(proposed.review_id)
 
     assert claimed["ok"] is True
@@ -53,7 +53,7 @@ def test_grant_is_session_digest_and_receipt_bound(
         prior_receipt="receipt-a",
         action="key",
     )
-    approvals.claim(proposed.review_id)
+    approvals.claim(proposed.review_id, approved_by="human:test", approved_via="test")
     approvals.execute_claimed(proposed.review_id)
 
     other_session = ApprovalBridge(session_id="session-b")

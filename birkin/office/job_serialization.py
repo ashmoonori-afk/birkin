@@ -21,6 +21,8 @@ class OfficeJobSnapshot(Protocol):
     _outcome: str | None
     _operations: list[dict[str, object]]
     _preview: dict[str, object] | None
+    _proposer: str | None
+    _authority_digest: str | None
     _approval: dict[str, object] | None
     _approved_digest: str | None
     _execution: dict[str, object] | None
@@ -48,7 +50,7 @@ class OfficeJobFactory(Protocol[_JobT]):
     ) -> _JobT: ...
 
 
-_SERIALIZED_FIELDS = frozenset(
+_SERIALIZED_FIELDS_V1 = frozenset(
     {
         "job_id",
         "format_name",
@@ -69,6 +71,10 @@ _SERIALIZED_FIELDS = frozenset(
         "failure",
     }
 )
+_SERIALIZED_FIELDS = _SERIALIZED_FIELDS_V1 | {
+    "proposer",
+    "authority_digest",
+}
 
 
 def snapshot_job(job: OfficeJobSnapshot) -> dict[str, object]:
@@ -82,6 +88,8 @@ def snapshot_job(job: OfficeJobSnapshot) -> dict[str, object]:
         "outcome": job._outcome,
         "operations": deepcopy(job._operations),
         "preview": deepcopy(job._preview),
+        "proposer": job._proposer,
+        "authority_digest": job._authority_digest,
         "approval": deepcopy(job._approval),
         "approved_digest": job._approved_digest,
         "execution": deepcopy(job._execution),
@@ -99,6 +107,13 @@ def receipt_job(job: OfficeJobSnapshot) -> dict[str, object]:
     operations: list[dict[str, object]] | None = None
     if job._outcome is not None:
         operations = deepcopy(job._operations) if job._operations else None
+    approved_by: str | None = None
+    approved_via: str | None = None
+    if job._approval is not None and job._approval.get("decision") == "approved":
+        approver = job._approval.get("approver")
+        via = job._approval.get("approved_via")
+        approved_by = approver if isinstance(approver, str) else None
+        approved_via = via if isinstance(via, str) else None
     return {
         "job_id": job._job_id,
         "format": job._format_name,
@@ -107,6 +122,10 @@ def receipt_job(job: OfficeJobSnapshot) -> dict[str, object]:
         "outcome": job._outcome,
         "operations": operations,
         "preview": deepcopy(job._preview),
+        "proposer": job._proposer,
+        "authority_digest": job._authority_digest,
+        "approved_by": approved_by,
+        "approved_via": approved_via,
         "approval": deepcopy(job._approval),
         "execution": deepcopy(job._execution),
         "validation": deepcopy(job._validation),
@@ -163,7 +182,8 @@ def restore_job(
     job_factory: OfficeJobFactory[_JobT],
 ) -> _JobT:
     """Parse an untrusted snapshot and bind a live runner without serializing it."""
-    if frozenset(snapshot) != _SERIALIZED_FIELDS:
+    fields = frozenset(snapshot)
+    if fields not in {_SERIALIZED_FIELDS, _SERIALIZED_FIELDS_V1}:
         raise _error("snapshot fields do not match the OfficeJob schema")
     state_text = _required_text(snapshot, "state")
     history_value = snapshot.get("history")
@@ -195,6 +215,16 @@ def restore_job(
     job._outcome = _optional_text(snapshot, "outcome")
     job._operations = operations
     job._preview = _optional_mapping(snapshot, "preview")
+    job._proposer = (
+        _optional_text(snapshot, "proposer")
+        if fields == _SERIALIZED_FIELDS
+        else None
+    )
+    job._authority_digest = (
+        _optional_text(snapshot, "authority_digest")
+        if fields == _SERIALIZED_FIELDS
+        else None
+    )
     job._approval = _optional_mapping(snapshot, "approval")
     job._approved_digest = _optional_text(snapshot, "approved_digest")
     job._execution = _optional_mapping(snapshot, "execution")

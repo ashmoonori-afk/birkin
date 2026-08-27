@@ -10,7 +10,8 @@ dashboard so the human can prioritize.
 Tiers (lowest → highest):
 - ``low``       — memory note or skill draft; reversible local file edit.
 - ``medium``    — cron schedule registration; persistent but bounded.
-- ``high``      — shell execution; arbitrary local effect.
+- ``high``      — shell, Office mutation, checkpoint restore, or computer use;
+  potentially broad local effect.
 - ``critical``  — reserved for future use (e.g. outbound payments, deletes).
 
 The mapping is intentionally short and explicit. New categories default to
@@ -18,6 +19,11 @@ The mapping is intentionally short and explicit. New categories default to
 """
 
 from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import TypeVar
+
+_RecordT = TypeVar("_RecordT", bound=Mapping[str, object])
 
 TIERS = ("low", "medium", "high", "critical")
 TIER_ORDER = {t: i for i, t in enumerate(TIERS)}
@@ -36,6 +42,9 @@ CATEGORY_RISK: dict[str, str] = {
     "harness": "high",
     "shell":  "high",
     "operation": "high",
+    "office_job": "high",
+    "checkpoint_restore": "high",
+    "computer_use": "high",
 }
 
 
@@ -49,9 +58,12 @@ def label(tier: str) -> str:
     return {"low": "·", "medium": "!", "high": "!!", "critical": "‼"}.get(tier, "?")
 
 
-def sort_by_risk(records: list[dict]) -> list[dict]:
+def sort_by_risk(
+    records: list[_RecordT],
+) -> list[_RecordT]:
     """Sort pending records highest-risk-first (stable within tier)."""
-    def key(rec: dict) -> int:
-        cat = (rec or {}).get("category", "")
+    def key(rec: Mapping[str, object]) -> int:
+        value = rec.get("category")
+        cat = value if isinstance(value, str) else ""
         return -TIER_ORDER.get(risk_for(cat), 1)
     return sorted(records, key=key)

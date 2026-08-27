@@ -35,6 +35,50 @@ def test_pending_lifecycle():
     assert resolved["status"] == "approved"
 
 
+def test_pending_approval_records_resolver_identity() -> None:
+    rec = store.add_pending(
+        category="cron",
+        title="t",
+        description="d",
+        payload={"a": 1},
+    )
+
+    resolved = store.resolve_pending(
+        rec["id"],
+        "approved",
+        approved_by="human:test-reviewer",
+        approved_via="test:store",
+    )
+
+    assert resolved is not None
+    assert resolved["approved_by"] == "human:test-reviewer"
+    assert resolved["approved_via"] == "test:store"
+    assert isinstance(resolved["resolved_at"], str)
+
+
+def test_reopened_pending_clears_stale_resolver_identity() -> None:
+    rec = store.add_pending(
+        category="cron",
+        title="t",
+        description="d",
+        payload={"a": 1},
+    )
+    _ = store.resolve_pending(
+        rec["id"],
+        "approving",
+        approved_by="human:test-reviewer",
+        approved_via="test:store",
+    )
+
+    reopened = store.resolve_pending(rec["id"], "pending")
+
+    assert reopened is not None
+    assert reopened["status"] == "pending"
+    assert "approved_by" not in reopened
+    assert "approved_via" not in reopened
+    assert "resolved_at" not in reopened
+
+
 def test_status_roundtrip():
     store.write_status({"daemon": True, "next_nightly": "2026-05-29T04:00:00"})
     st = store.read_status()

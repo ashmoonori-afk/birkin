@@ -259,7 +259,7 @@ def test_approval_replays_exact_sealed_file_operation(tmp_path: Path) -> None:
     approval_id = pending[0]["id"]
 
     # When: the human approves the stored operation.
-    resolution = approvals.approve(approval_id)
+    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: only the sealed write is replayed and recorded as approved.
     assert resolution["ok"] is True, resolution
@@ -301,7 +301,7 @@ def test_approved_tokscale_submit_uses_managed_workspace_temp(
     )
 
     # When
-    resolution = approvals.approve(status["id"])
+    resolution = approvals.approve(status["id"], approved_by="human:test", approved_via="test")
 
     # Then
     assert resolution["ok"] is True, resolution

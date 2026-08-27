@@ -78,6 +78,57 @@ struct NativeProjectionEventTests {
         #expect(item["cursor"] == .int(2))
     }
 
+    @Test("authority refusal stays actionable and failed")
+    func authorityRefusalStaysActionable() throws {
+        try expectAnswerOutcome(
+            "rejected_by_authority",
+            expectedDecided: false
+        )
+    }
+
+    @Test("answer elsewhere resolves with failed outcome")
+    func answerElsewhereResolvesAsFailed() throws {
+        try expectAnswerOutcome(
+            "answered_elsewhere",
+            expectedDecided: true
+        )
+    }
+
+    private func expectAnswerOutcome(
+        _ outcome: String,
+        expectedDecided: Bool
+    ) throws {
+        let store = NativeProjectionStore()
+        try store.apply(snapshot: approvalSnapshot())
+        try store.apply(event: approvalEvent(
+            cursor: 1,
+            type: "approval.requested",
+            payload: [
+                "approval_id": .string("approval-1"),
+                "summary": .string("Write reviewed workbook"),
+                "risk": .string("high"),
+                "sealed": .bool(true),
+                "decided": .bool(false),
+            ]
+        ))
+        try store.apply(event: approvalEvent(
+            cursor: 2,
+            type: "approval.answered",
+            payload: [
+                "approval_id": .string("approval-1"),
+                "decision": .string("approve"),
+                "outcome": .string(outcome),
+            ]
+        ))
+
+        let item = try #require(
+            store.projection?.panels.first { $0.key == "approvals" }?.items.first
+        )
+        #expect(item["status"] == .string(outcome))
+        #expect(item["ui_state"] == .string("failed"))
+        #expect(item["decided"] == .bool(expectedDecided))
+    }
+
     private func approvalSnapshot() -> NativeEnvelope {
         NativeEnvelope(kind: .snapshot, id: "approval-snapshot", body: [
             "protocol_version": .int(1),

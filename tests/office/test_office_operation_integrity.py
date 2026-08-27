@@ -27,7 +27,7 @@ def _proposal(value: str) -> tuple[str, str]:
     job.declare_outcome("Set the credential cell")
     job.propose_operations([{"cell": "A1", "value": value}])
     _ = job.build_preview()
-    approval = job.request_approval()
+    approval = job.request_approval(proposer="test:proposer", authority_digest="a" * 64)
     return cast(str, approval["proposal_digest"]), canonical_json(approval)
 
 
@@ -119,7 +119,7 @@ def test_legacy_redacting_digest_cannot_authorize_substituted_operation(
     )
 
     # When: the insecure legacy authority is presented for execution.
-    result = approvals.approve(cast(str, body["id"]))
+    result = approvals.approve(cast(str, body["id"]), approved_by="human:test", approved_via="test")
 
     # Then: substitution fails closed before source or destination mutation.
     assert result["ok"] is False

@@ -58,7 +58,7 @@ struct Phase12VisualReferenceTests {
         try snapshot(
             ApprovalCardView(
                 presentation: try #require(ApprovalCardPresentation(item: approvalItem)),
-                canDecide: true, approve: {}, reject: {}
+                canDecide: true, approve: { true }, reject: { true }
             ),
             named: "approvals.png", size: NSSize(width: 680, height: 300)
         )

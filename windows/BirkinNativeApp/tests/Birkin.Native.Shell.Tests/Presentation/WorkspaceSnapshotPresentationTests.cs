@@ -11,6 +11,62 @@ namespace Birkin.Native.Shell.Tests.Presentation;
 public sealed class WorkspaceSnapshotPresentationTests
 {
     [TestMethod]
+    public void DestinationDisplay_WhenPathContainsNonBmpText_PreservesScalarBoundariesAndFilename()
+    {
+        // Given
+        var path = "/" + string.Concat(Enumerable.Repeat("😀", 30)) + "/report.xlsx";
+        var item = new PanelItemPresentation(
+            "approval-unicode",
+            "approval",
+            "Unicode destination",
+            Destination: path);
+
+        // When
+        var display = item.DestinationDisplay;
+
+        // Then
+        Assert.IsNotNull(display);
+        Assert.IsFalse(display.Contains('\uFFFD'));
+        Assert.IsTrue(display.EndsWith("report.xlsx", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void FromProjection_WhenOfficeApprovalEventIsApplied_MapsTrustDetailsWithoutLoss()
+    {
+        // Given
+        var path = Path.Combine(AppContext.BaseDirectory, "GoldenVectors", "native-projection-vectors.json");
+        using var fixture = JsonDocument.Parse(File.ReadAllBytes(path));
+        var store = new NativeProjectionStore();
+        store.ApplySnapshot(
+            Decode(fixture.RootElement.GetProperty("snapshot")),
+            new NativeReadyIdentity("session-1", "instance-1", "fixture-version"));
+        foreach (var vector in fixture.RootElement.GetProperty("events").EnumerateArray())
+        {
+            store.ApplyEvent(Decode(vector));
+        }
+
+        // When
+        var presentation = WorkspaceSnapshotPresentation.FromProjection(store.State!, "loopback");
+
+        // Then
+        var approval = presentation.ApprovalRequests.Single(item =>
+            string.Equals(item.Id, "approval-vector", StringComparison.Ordinal));
+        Assert.AreEqual("approval-vector", approval.Id);
+        Assert.AreEqual("Comparison!A1: 7 to 9", approval.Description);
+        Assert.AreEqual("high", approval.Risk);
+        Assert.IsTrue(approval.Sealed);
+        Assert.IsTrue(approval.Decided);
+        Assert.AreEqual("comparison-source.xlsx", approval.SourceFilename);
+        Assert.AreEqual("/workspace/approved/comparison.xlsx", approval.Destination);
+        Assert.AreEqual(false, approval.OverwriteApproved);
+        Assert.AreEqual(new string('a', 64), approval.AuthorityDigest);
+        Assert.AreEqual("native:session-1", approval.Requester);
+        Assert.AreEqual(
+            "Rejecting leaves the source unchanged and writes no output.",
+            approval.RejectionResult);
+    }
+
+    [TestMethod]
     public void FromProjection_WhenPythonGoldenSnapshotIsApplied_MapsCanonicalShellRegionsReadOnly()
     {
         // Given
@@ -65,4 +121,7 @@ public sealed class WorkspaceSnapshotPresentationTests
         Assert.AreEqual(0, presentation.Office.Count);
         Assert.IsFalse(presentation.Terminal.IsAvailable);
     }
+
+    private static NativeEnvelope Decode(JsonElement vector) => NativeFrameCodec.Decode(
+        Convert.FromBase64String(vector.GetProperty("frame_base64").GetString()!));
 }

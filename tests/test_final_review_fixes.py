@@ -16,7 +16,7 @@ def test_approve_resolves_on_executor_error(tmp_path, monkeypatch):
                         lambda *a, **k: type("P", (), {"stdout": "ok",
                                                        "stderr": "",
                                                        "returncode": 0})())
-    out = approvals.approve(rec["id"])
+    out = approvals.approve(rec["id"], approved_by="human:test", approved_via="test")
     assert out["ok"] is True                       # bad timeout coerced, ran
     assert store.list_pending() == []              # resolved, not wedged
 
@@ -28,7 +28,7 @@ def test_approve_error_state_when_action_truly_raises(tmp_path, monkeypatch):
                             payload={}, origin="test")
     monkeypatch.setattr(approvals, "execute_action",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
-    out = approvals.approve(rec["id"])
+    out = approvals.approve(rec["id"], approved_by="human:test", approved_via="test")
     assert out["ok"] is False and "boom" in out["error"]
     assert store.list_pending() == []              # resolved to error, not stuck
 
@@ -44,8 +44,8 @@ def test_approve_twice_runs_action_once(tmp_path, monkeypatch):
     monkeypatch.setattr(approvals, "execute_action",
                         lambda *a, **k: runs.__setitem__("n", runs["n"] + 1)
                         or "done")
-    a = approvals.approve(rec["id"])
-    b = approvals.approve(rec["id"])            # second tap
+    a = approvals.approve(rec["id"], approved_by="human:test", approved_via="test")
+    b = approvals.approve(rec["id"], approved_by="human:test", approved_via="test")            # second tap
     assert a["ok"] is True and b["ok"] is False  # already resolved
     assert runs["n"] == 1                        # executed exactly once
 
@@ -58,8 +58,8 @@ def test_reject_then_approve_is_noop(tmp_path, monkeypatch):
     ran = {"n": 0}
     monkeypatch.setattr(approvals, "execute_action",
                         lambda *a, **k: ran.__setitem__("n", ran["n"] + 1))
-    assert approvals.reject(rec["id"])["ok"] is True
-    assert approvals.approve(rec["id"])["ok"] is False   # can't approve rejected
+    assert approvals.reject(rec["id"], rejected_by="human:test", rejected_via="test")["ok"] is True
+    assert approvals.approve(rec["id"], approved_by="human:test", approved_via="test")["ok"] is False   # can't approve rejected
     assert ran["n"] == 0                                 # never executed
 
 
@@ -169,11 +169,11 @@ def test_approve_claims_before_executing(tmp_path, monkeypatch):
         seen["status_during"] = store.get_pending(rec["id"])["status"]
         return "done"
     monkeypatch.setattr(approvals, "execute_action", exec_action)
-    out = approvals.approve(rec["id"])
+    out = approvals.approve(rec["id"], approved_by="human:test", approved_via="test")
     assert out["ok"] is True
     assert seen["status_during"] == "executing"       # claimed before exec
     assert store.get_pending(rec["id"])["status"] == "approved"
-    assert approvals.approve(rec["id"])["ok"] is False  # second tap refused
+    assert approvals.approve(rec["id"], approved_by="human:test", approved_via="test")["ok"] is False  # second tap refused
 
 
 # -- group 2: concurrency + correctness --------------------------------------

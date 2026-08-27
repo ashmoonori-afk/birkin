@@ -68,7 +68,7 @@ Schema version: 1
 | `memory_nudge_interval` | `integer` | `6` | Birkin 설정 `memory_nudge_interval`. |
 | `web_port` | `integer` | `8787` | Birkin 설정 `web_port`. |
 | `web_remote_access` | `boolean` | `false` | Birkin 설정 `web_remote_access`. |
-| `web_remote_insecure_ack` | `boolean` | `false` | Birkin 설정 `web_remote_insecure_ack`. |
+| `web_external_url` | `string` | `""` | Birkin 설정 `web_external_url`. |
 | `browser_allow_private_network` | `boolean` | `false` | Birkin 설정 `browser_allow_private_network`. |
 | `gateway_port` | `integer` | `8788` | Birkin 설정 `gateway_port`. |
 | `gateway` | `object` | `{"http": {"insecure_no_token": false}}` | Birkin 설정 `gateway`. |

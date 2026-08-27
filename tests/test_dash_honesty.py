@@ -103,7 +103,13 @@ def test_dump_json_carries_the_errors():
 def test_resolve_approval_returns_the_outcome(monkeypatch):
     from birkin import approvals
     monkeypatch.setattr(approvals, "approve",
-                        lambda aid: {"ok": True, "result": "실행됨: exit 0"})
+                        lambda aid, **identity: {
+                            "ok": identity == {
+                                "approved_by": "human:terminal",
+                                "approved_via": "terminal:dash",
+                            },
+                            "result": "실행됨: exit 0",
+                        })
     out = dash._resolve_approval({"id": "abc"}, approve=True)
     assert out["ok"] is True
     assert "exit 0" in str(out.get("result"))
@@ -112,7 +118,10 @@ def test_resolve_approval_returns_the_outcome(monkeypatch):
 def test_resolve_approval_surfaces_a_failure(monkeypatch):
     from birkin import approvals
     monkeypatch.setattr(approvals, "approve",
-                        lambda aid: {"ok": False, "error": "action failed: 권한 없음"})
+                        lambda aid, **_identity: {
+                            "ok": False,
+                            "error": "action failed: 권한 없음",
+                        })
     out = dash._resolve_approval({"id": "abc"}, approve=True)
     assert out["ok"] is False
     assert "권한 없음" in out["error"]
@@ -121,7 +130,7 @@ def test_resolve_approval_surfaces_a_failure(monkeypatch):
 def test_resolve_approval_survives_an_exception(monkeypatch):
     from birkin import approvals
 
-    def boom(aid):
+    def boom(aid, **_identity):
         raise RuntimeError("승인함 잠김")
     monkeypatch.setattr(approvals, "approve", boom)
     out = dash._resolve_approval({"id": "abc"}, approve=True)

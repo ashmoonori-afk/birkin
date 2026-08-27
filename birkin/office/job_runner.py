@@ -132,23 +132,19 @@ class DocumentServiceRunner:
         self, receipt: Mapping[str, object]
     ) -> dict[str, JSONValue]:
         token = _string(receipt.get("rollback_token"), "rollback token")
-        exported = self._export_receipts.get(token)
-        if exported is None:
-            policy = DocumentWorkspace(self._service.home).export_policy(
-                self._export_root or Path(_string(receipt.get("path"), "export path")).parent
-            )
-            exported = restore_export_receipt(
-                receipt,
-                self._service.home / "artifacts" / "export-backups",
-                policy.resolve_destination,
-            )
-        if receipt.get("output_sha256") != exported.output_sha256:
-            raise _precondition("export receipt output sha256 changed")
-        if receipt.get("path") != str(exported.destination):
-            raise _precondition("export receipt destination changed")
         policy = DocumentWorkspace(self._service.home).export_policy(
-            self._export_root or exported.destination.parent
+            self._export_root
+            or Path(_string(receipt.get("path"), "export path")).parent
         )
+        supplied = restore_export_receipt(
+            receipt,
+            self._service.home / "artifacts" / "export-backups",
+            policy.resolve_destination,
+        )
+        exported = self._export_receipts.get(token)
+        if exported is not None and exported != supplied:
+            raise _precondition("export receipt authority changed")
+        exported = exported or supplied
         rolled_back = policy.rollback(exported)
         _ = self._export_receipts.pop(token, None)
         return rolled_back.public()

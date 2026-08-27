@@ -6,14 +6,20 @@ import base64
 import secrets
 import select
 import socket
+from queue import Empty, SimpleQueue
 from threading import BoundedSemaphore, Event, Lock, Thread, current_thread
 from typing import cast, final
 from urllib.parse import urlsplit
 
 from birkin.browser_aside_errors import BrowserAsideError
 from birkin.browser_aside_policy import BrowserEgressPolicy
+from birkin.browser_aside_proxy_http import (
+    parse_request_header,
+    read_request_header,
+    send_auth_required,
+    send_denial,
+)
 
-MAX_PROXY_HEADER_BYTES = 65_536
 MAX_PROXY_CONNECTIONS = 32
 PROXY_IO_TIMEOUT_SECONDS = 30
 
@@ -35,13 +41,16 @@ class BrowserFilteringProxy:
         )
         self._listener.bind(("127.0.0.1", 0))
         self._listener.listen(MAX_PROXY_CONNECTIONS)
+        self._wake_reader, self._wake_writer = socket.socketpair()
         address = cast(tuple[str, int], self._listener.getsockname())
         self._port = int(address[1])
         self._stop = Event()
         self._slots = BoundedSemaphore(MAX_PROXY_CONNECTIONS)
         self._connections: set[socket.socket] = set()
         self._workers: set[Thread] = set()
+        self._denials: SimpleQueue[BrowserAsideError] = SimpleQueue()
         self._lock = Lock()
+        self._started = False
         self._thread = Thread(
             target=self._accept_loop,
             name="birkin-browser-proxy",
@@ -57,25 +66,42 @@ class BrowserFilteringProxy:
         return self._username, self._password
 
     def start(self) -> None:
-        self._thread.start()
+        with self._lock:
+            if self._stop.is_set():
+                raise RuntimeError("browser proxy is already closed")
+            self._thread.start()
+            self._started = True
 
     def close(self) -> None:
         self._stop.set()
+        try:
+            _ = self._wake_writer.send(b"\0")
+        except OSError:
+            pass
         try:
             self._listener.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
         self._listener.close()
         with self._lock:
+            started = self._started
+        if started:
+            self._thread.join(timeout=5)
+        with self._lock:
             connections = tuple(self._connections)
         for connection in connections:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
             connection.close()
-        self._thread.join(timeout=5)
         with self._lock:
             workers = tuple(self._workers)
         for worker in workers:
             worker.join(timeout=5)
-        if self._thread.is_alive() or any(
+        self._wake_reader.close()
+        self._wake_writer.close()
+        if (started and self._thread.is_alive()) or any(
             worker.is_alive() for worker in workers
         ):
             raise BrowserAsideError(
@@ -83,6 +109,12 @@ class BrowserFilteringProxy:
                 "Browser network proxy cleanup failed.",
                 500,
             )
+
+    def take_denial(self) -> BrowserAsideError | None:
+        try:
+            return self._denials.get_nowait()
+        except Empty:
+            return None
 
     def _accept_loop(self) -> None:
         while not self._stop.is_set():
@@ -121,10 +153,13 @@ class BrowserFilteringProxy:
 
     def _handle(self, client: socket.socket) -> None:
         try:
-            header, remainder = self._request_header(client)
-            request_line, headers = self._parse_header(header)
+            header, remainder = read_request_header(
+                client,
+                self._wake_reader,
+            )
+            request_line, headers = parse_request_header(header)
             if not self._authorized(headers):
-                self._auth_required(client)
+                send_auth_required(client)
                 return
             if any(line.lower().startswith(b"upgrade:") for line in headers):
                 raise BrowserAsideError("external_protocol_denied",
@@ -169,9 +204,12 @@ class BrowserFilteringProxy:
                     + b"\r\nConnection: close\r\n\r\n"
                     + remainder
                 )
-                self._relay_response(client, upstream)
-        except (BrowserAsideError, OSError, ValueError):
-            self._deny(client)
+                self._relay(client, upstream)
+        except BrowserAsideError as exc:
+            self._denials.put(exc)
+            send_denial(client)
+        except (OSError, ValueError):
+            send_denial(client)
 
     def _connect(self, url: str) -> socket.socket:
         destination, pinned_peer = self._policy.connect(url)
@@ -202,74 +240,27 @@ class BrowserFilteringProxy:
         )
         return secrets.compare_digest(value, expected)
 
-    @staticmethod
-    def _auth_required(client: socket.socket) -> None:
-        client.sendall(
-            b"HTTP/1.1 407 Proxy Authentication Required\r\n"
-            + b'Proxy-Authenticate: Basic realm="birkin-browser"\r\n'
-            + b"Content-Length: 0\r\n"
-            + b"Connection: close\r\n\r\n"
-        )
-
-    @staticmethod
-    def _request_header(
-        client: socket.socket,
-    ) -> tuple[bytes, bytes]:
-        data = bytearray()
-        while b"\r\n\r\n" not in data:
-            chunk = client.recv(8_192)
-            if not chunk:
-                raise ValueError("proxy request ended before headers")
-            data.extend(chunk)
-            if len(data) > MAX_PROXY_HEADER_BYTES:
-                raise ValueError("proxy request headers are too large")
-        header, remainder = bytes(data).split(b"\r\n\r\n", 1)
-        return header, remainder
-
-    @staticmethod
-    def _parse_header(
-        header: bytes,
-    ) -> tuple[tuple[str, str, str], list[bytes]]:
-        lines = header.split(b"\r\n")
-        parts = lines[0].decode("ascii").split(" ")
-        if len(parts) != 3 or any(b"\x00" in line for line in lines):
-            raise ValueError("invalid proxy request")
-        return (parts[0].upper(), parts[1], parts[2]), lines[1:]
-
-    @staticmethod
-    def _relay(left: socket.socket, right: socket.socket) -> None:
-        sockets = (left, right)
-        while True:
+    def _relay(self, left: socket.socket, right: socket.socket) -> None:
+        active = [left, right]
+        while active:
             readable, _, _ = select.select(
-                sockets,
+                (*active, self._wake_reader),
                 (),
                 (),
                 PROXY_IO_TIMEOUT_SECONDS,
             )
             if not readable:
                 return
+            if self._wake_reader in readable:
+                return
             for source in readable:
                 data = source.recv(65_536)
-                if not data:
-                    return
                 target = right if source is left else left
-                target.sendall(data)
-
-    @staticmethod
-    def _relay_response(
-        client: socket.socket,
-        upstream: socket.socket,
-    ) -> None:
-        while data := upstream.recv(65_536):
-            client.sendall(data)
-
-    @staticmethod
-    def _deny(client: socket.socket) -> None:
-        try:
-            client.sendall(
-                b"HTTP/1.1 403 Forbidden\r\n"
-                + b"Content-Length: 0\r\n"
-                + b"Connection: close\r\n\r\n"
-            )
-        except OSError:
-            return
+                if not data:
+                    active.remove(source)
+                    try:
+                        target.shutdown(socket.SHUT_WR)
+                    except OSError:
+                        pass
+                else:
+                    target.sendall(data)

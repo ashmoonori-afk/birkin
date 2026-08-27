@@ -11,15 +11,18 @@ from typing import final
 from .coordinator_data import (
     canonical_office_home as _office_home,
     coordinator_error as _error,
+    job_operations,
     job_journal as _journal,
     required_mapping as _mapping,
     required_sequence as _sequence,
     required_text as _text,
 )
 from .errors import DocumentError, DocumentErrorCode
+from .export_types import ExportRequest
 from .job import OfficeJob
 from .job_runner import DocumentServiceRunner
 from .preview_semantics import summarize_operations
+from .proposal_integrity import authority_digest
 from .service import DocumentService
 from .service_workspace import DocumentWorkspace
 from .skill_router import route_office_request
@@ -123,15 +126,42 @@ class OfficeCoordinator:
         )
         job.declare_outcome(request.outcome)
         job.propose_operations(request.operations)
-        _ = job.build_preview()
-        approval = job.request_approval()
+        job_preview = job.build_preview()
+        preview_source_sha256 = _text(
+            job_preview.get("source_sha256"),
+            "preview source sha256",
+        )
+        if preview_source_sha256 != source_sha256:
+            raise _error(
+                DocumentErrorCode.SOURCE_CHANGED,
+                "inspection and preview source identities differ",
+            )
+        proposal = job.current_proposal_digest()
+        operations = job_operations(job.to_dict())
+        export_request = ExportRequest(
+            destination=destination,
+            actor=self._caller.actor,
+            proposal_digest=proposal,
+            operations=operations,
+            overwrite_approved=request.overwrite_approved,
+        )
+        digest = authority_digest(
+            destination,
+            source_sha256,
+            export_request,
+        )
+        approval = job.request_approval(
+            proposer=self._caller.actor,
+            authority_digest=digest,
+        )
         payload = {
             "job_id": approval["job_id"],
             "proposal_digest": approval["proposal_digest"],
+            "authority_digest": approval["authority_digest"],
             "source_sha256": source_sha256,
             "destination": str(destination),
             "allowlist_root": str(self._caller.allowlist_root.resolve(strict=True)),
-            "actor": self._caller.actor,
+            "proposer": self._caller.actor,
             "overwrite_approved": request.overwrite_approved,
             "semantic_summaries": summaries,
         }

@@ -105,8 +105,8 @@ def main() -> int:
         approval_id = approval.get("id")
         if not isinstance(approval_id, str):
             raise TypeError("manual shell proposal has no id")
-        approved = cast(dict[str, object], approvals.approve(approval_id))
-        replay = cast(dict[str, object], approvals.approve(approval_id))
+        approved = cast(dict[str, object], approvals.approve(approval_id, approved_by="system:qa", approved_via="qa:script"))
+        replay = cast(dict[str, object], approvals.approve(approval_id, approved_by="system:qa", approved_via="qa:script"))
 
         retry_target = workspace / "approved retry"
         retry_target.mkdir()
@@ -130,7 +130,7 @@ def main() -> int:
         pending = cast(list[dict[str, object]], store.list_pending())
         pending_id = pending[0].get("id") if pending else None
         retry = (
-            cast(dict[str, object], approvals.approve(pending_id))
+            cast(dict[str, object], approvals.approve(pending_id, approved_by="system:qa", approved_via="qa:script"))
             if isinstance(pending_id, str)
             else {}
         )

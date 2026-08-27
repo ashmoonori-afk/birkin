@@ -424,8 +424,17 @@ def resolve_approval(aid: str, *, approve: bool) -> dict[str, Any]:
     """Request a resolution from the Python authority; report, never assume."""
     try:
         from . import approvals
-        fn = approvals.approve if approve else approvals.reject
-        return fn(aid) or {"ok": False, "error": "결과 없음"}
+        if approve:
+            return approvals.approve(
+                aid,
+                approved_by="human:terminal",
+                approved_via="terminal:workbench",
+            ) or {"ok": False, "error": "결과 없음"}
+        return approvals.reject(
+            aid,
+            rejected_by="human:terminal",
+            rejected_via="terminal:workbench",
+        ) or {"ok": False, "error": "결과 없음"}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:200]}
 

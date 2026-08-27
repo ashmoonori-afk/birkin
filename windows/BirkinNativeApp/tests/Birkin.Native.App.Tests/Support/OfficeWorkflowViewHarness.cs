@@ -106,6 +106,25 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
                         Object(("id", new NativeJsonString("artifact-report")), ("kind", new NativeJsonString("document")), ("summary", new NativeJsonString("report-template.docx"))),
                         Object(("id", new NativeJsonString("diff-1")), ("kind", new NativeJsonString("diff")), ("summary", new NativeJsonString("BIRKIN_P3_03_SENTINEL: 4100 -> 4700")))
                     ]))),
+                Object(
+                    ("key", new NativeJsonString("approvals")),
+                    ("items", new NativeJsonArray([
+                        Object(
+                            ("id", new NativeJsonString("approval-7")),
+                            ("kind", new NativeJsonString("approval")),
+                            ("summary", new NativeJsonString("Save reviewed workbook")),
+                            ("description", new NativeJsonString("Comparison!A1: 4100 -> 4700")),
+                            ("category", new NativeJsonString("office_job")),
+                            ("risk", new NativeJsonString("high")),
+                            ("sealed", new NativeJsonBoolean(true)),
+                            ("decided", new NativeJsonBoolean(false)),
+                            ("source_filename", new NativeJsonString("comparison-source.xlsx")),
+                            ("destination", new NativeJsonString(@"C:\workspace\approved\comparison-report.xlsx")),
+                            ("overwrite_approved", new NativeJsonBoolean(false)),
+                            ("authority_digest", new NativeJsonString(new string('a', 64))),
+                            ("requester", new NativeJsonString("native:office-journey")),
+                            ("rejection_result", new NativeJsonString("Rejecting leaves the source unchanged and writes no output.")))
+                    ]))),
                 Object(("key", new NativeJsonString("activity_logs")), ("items", new NativeJsonArray([])))
             ])),
             ("conversation", new NativeJsonArray([

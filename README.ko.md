@@ -200,13 +200,15 @@ Mutation에는 최신 opaque app/window/snapshot/element ref가 필요합니다.
 Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 형태로 저장합니다. Event와 journal에는 raw pixel이나 입력 text 대신 bounded·redacted metadata, digest, scope, effect, receipt만 남깁니다. Runtime은 dependency를 설치하거나 privacy settings를 열거나 permission dialog를 클릭하지 않습니다.
 
 > [!IMPORTANT]
-> 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오. Shell command는 workspace와 명시적인 `shell.extra_roots` 안에서만 실행되며 terminal/runtime 동작에 필요한 값과 `shell.env_passthrough`에 지정한 이름만 전달받습니다. Ambient credential은 기본적으로 상속하지 않습니다. `shell.env_passthrough=["*"]`는 legacy ambient environment를 명시적으로 복원합니다. Browser navigation은 기본적으로 public DNS address만 허용하며 private destination은 sandbox host policy와 `browser_allow_private_network=true`가 모두 필요합니다.
+> 네이티브 도구는 현재 OS 계정 권한으로 실행됩니다. gateway를 loopback 전용으로 유지하고, 배포 환경에 맞게 `shell_approval`, `fs_jail`, disabled tools, channel allowlist를 설정하며, 결과가 생기는 행동은 승인 전에 검토하십시오. Shell command의 시작 directory는 workspace와 명시적인 `shell.extra_roots`로 제한됩니다. 이는 working-directory restriction일 뿐 OS sandbox가 아니므로 command는 현재 OS 계정이 접근할 수 있는 filesystem 권한을 그대로 가집니다. Command에는 terminal/runtime 동작에 필요한 값과 `shell.env_passthrough`에 지정한 이름만 전달합니다. Ambient credential은 기본적으로 상속하지 않습니다. `shell.env_passthrough=["*"]`는 legacy ambient environment를 명시적으로 복원합니다. Browser navigation은 기본적으로 public DNS address만 허용하며 private destination은 sandbox host policy와 `browser_allow_private_network=true`가 모두 필요합니다.
 
 ## Office Work OS v2
 
 Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
 
 Office provenance는 검토된 artifact의 정확한 version과 지원 runtime range를 서로 다른 계약으로 유지합니다. 일반 환경은 선언된 range를 검증하고, locked Office CI는 설치된 정확한 version도 함께 검증합니다.
+
+Office mutation 승인은 proposer, source digest, destination, 정확한 operation, overwrite 결정을 `authority_digest`에 결합합니다. Durable receipt는 해당 digest와 승인 주체를 proposer와 분리해 보존합니다.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -362,6 +364,8 @@ Native registry는 `browser_navigate`, `browser_click`, `browser_fill`, `browser
 
 Browser traffic은 repository의 `sandbox.network`와 `sandbox.network_allowlist` 정책을 그대로 재사용합니다. 기본값 `network: "off"`는 fail closed합니다. Local WebUI QA에는 `network`를 `allowlist`로 설정하고 `127.0.0.1`을 포함하며 screenshot path를 `sandbox.write_paths` 안에 둡니다. 모든 navigation과 page subrequest가 검사되므로 redirect, script, `fetch`, click으로 발생한 request도 allowlist를 우회하지 못합니다. Registry hook, `disabled_tools`, approval replay도 모든 native tool과 동일한 gate를 유지합니다. 정책 거부는 `BrowserPolicyViolation` error로 반환됩니다.
 
+Chromium은 loopback destination을 포함한 모든 Browser traffic을 인증된 loopback filtering proxy로 전달합니다. Proxy는 같은 sandbox policy로 각 destination을 resolve하고 policy가 검증한 address에 직접 연결하며, traffic을 relay하기 전에 DNS answer 변경 또는 connected peer 불일치를 거부합니다. Service worker는 차단되며 Chromium의 WebRTC policy는 proxy를 거치지 않는 UDP를 비활성화합니다.
+
 Birkin 자체 WebUI를 대상으로 실행할 수 있는 ouroboros 검증 절차는 다음과 같습니다.
 
 1. `birkin/web/static/index.html`을 수정한 뒤 `birkin web --no-browser`를 시작하고 private bootstrap URL을 복사합니다.
@@ -497,22 +501,27 @@ receipt를 표시합니다. 상세 card에서 run을 steer, abort, resume할 수
 approval과 rejection은 `birkin review`와 동일한 file-backed authority를
 계속 사용합니다.
 
-Server는 기본적으로 loopback에서만 동작합니다. Remote bind는
-`web_remote_access`와 별도의 `web_remote_insecure_ack`가 모두 `true`일 때만
-허용됩니다. TLS termination 또는 신뢰할 수 있는 private-network tunnel을
-구성한 뒤에만 acknowledgement를 설정하십시오. 두 값이 모두 없으면 socket을
-bind하기 전에 startup이 거부됩니다. Remote mode는 모든 interface에
-bind하지만 public route를 만들지는 않습니다. Remote mode에서
-`birkin web`은 server hostname을 사용한 secret bootstrap URL을 출력하고,
-nonce가 one-time이므로 local browser에서 자동으로 열지 않습니다. 이 URL을
-remote device에서 여십시오. 해당 hostname을 remote device에서 해석할 수
-없다면 hostname 부분만 server의 신뢰할 수 있는 private-network address로
-바꾸십시오. 이 URL은 process별 capability를 HttpOnly, SameSite, Secure cookie로
-교환하며, capability가 없는 모든 remote request는 거부됩니다. Local/remote
-권한은 client가 제어하는 `Host` header가 아니라 TCP peer address에서
-결정되며, 정확한 one-time bootstrap URL만 인증되지 않은 remote 예외입니다.
-Traffic이 host 밖으로 나가면 TLS 또는 신뢰할 수 있는 private-network
-tunnel을 앞에 두십시오.
+Server는 기본적으로 loopback에서만 동작합니다. Remote bind에는
+`web_remote_access=true`와 `web_external_url`의 절대 HTTPS origin이 모두
+필요합니다. Endpoint가 없거나 HTTPS가 아니면 socket을 bind하기 전에
+startup이 거부됩니다. Legacy `web_remote_insecure_ack` key로는 더 이상
+remote bind를 허용하지 않습니다. Remote mode는 모든 interface에 bind하지만
+public route를 만들지는 않습니다. 설정한 external origin에서 TLS를 종료하고
+Birkin의 HTTP listener로 forward하십시오. Birkin은 `web_external_url`만을
+출력되는 one-time bootstrap URL, 허용되는 `Host`/`Origin`/`Referer`, 그리고
+HttpOnly, SameSite, Secure capability cookie의 public-origin authority로
+사용합니다. Client가 제어하는 forwarding header가 cookie 또는 origin
+policy를 바꾸지 못하도록 `X-Forwarded-Proto`는 의도적으로 무시합니다.
+
+SSH local forwarding에는 `web_remote_access=false`를 유지하고
+`web_external_url`을 비워 두십시오. 예를 들어
+`ssh -L 8787:127.0.0.1:8787 host`처럼 같은 local port로 loopback listener를
+forward한 뒤 출력된 `http://127.0.0.1:8787/_bootstrap/...` URL을 local에서
+여십시오. Host와 CSRF origin은 해당 listener port와 정확히 일치해야 합니다.
+이 경로의 HTTP는 신뢰할 수 있는 tunnel 안에서 전달되므로 HttpOnly,
+SameSite cookie에 `Secure`를 붙이지 않습니다. 모든 request에는 계속
+process별 capability가 필요하며 정확한 one-time bootstrap URL만 인증되지
+않은 예외입니다.
 
 ## Checkpoints
 
@@ -870,6 +879,14 @@ record에만 답하며 client가 별도의 Office approval authority를 만들�
 path를 사용하는 durable comparison-report job을 제공하기 전까지 direct
 comparison-report save는 unavailable입니다.
 
+Office mutation을 승인하기 전에 canonical macOS와 Windows card는 source
+filename, cell 단위 before/after description, destination, overwrite authority,
+risk tier, sealed state를 표시합니다. Projected authority digest로 live event와
+reconnect snapshot이 같은 reviewed identity를 유지하지만, 이 authority를
+검증하고 실행하는 유일한 주체는 계속 Python입니다.
+Approve와 reject action은 explicit confirmation state를 거치고, canonical
+projection이 반영될 때까지 decision이 전송 중임을 표시합니다.
+
 Windows installer나 MSI, packaged app, customer-ready release는 아직 없습니다.
 Installer와 updater delivery, production signing,
 provider-backed production delivery는 향후 작업으로 남아 있습니다. 공통 cross-platform shell은 별도의 향후
@@ -978,7 +995,7 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "memory_nudge_interval": 6,
   "web_port": 8787,
   "web_remote_access": false,
-  "web_remote_insecure_ack": false,
+  "web_external_url": "",
   "browser_allow_private_network": false,
   "gateway_port": 8788,
   "gateway": {

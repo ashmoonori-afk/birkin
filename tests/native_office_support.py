@@ -49,7 +49,7 @@ def approved_docx(home: Path, index: int = 0) -> dict[str, object]:
     )
     body = cast(dict[str, object], json.loads(cast(str, proposed.content)))
     assert proposed.is_error is False, body
-    approved = approvals.approve(cast(str, body["id"]))
+    approved = approvals.approve(cast(str, body["id"]), approved_by="human:test", approved_via="test")
     assert approved["ok"] is True, approved
     output_hash = hashlib.sha256(destination.read_bytes()).hexdigest()
     return {

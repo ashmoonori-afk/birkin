@@ -11,6 +11,7 @@
     <SolidColorBrush x:Key="AccentBrush" Color="#E2A44F" />
     <SolidColorBrush x:Key="SuccessBrush" Color="#55C96D" />
     <SolidColorBrush x:Key="DangerBrush" Color="#F05C61" />
+    <SolidColorBrush x:Key="CriticalBrush" Color="#B986F2" />
 
     <Style TargetType="ToolTip">
         <Setter Property="Background" Value="{StaticResource RaisedBrush}" />

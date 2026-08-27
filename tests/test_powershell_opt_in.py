@@ -133,7 +133,7 @@ def test_manual_approval_runs_exact_powershell_command_once(
     approval_id = record["id"]
     assert isinstance(approval_id, str)
 
-    resolution = approvals.approve(approval_id)
+    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     assert blocked.is_error
     assert resolution["ok"] is True, resolution

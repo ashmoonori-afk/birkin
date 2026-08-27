@@ -9,10 +9,18 @@ from typing import final
 from typing_extensions import assert_never
 
 from .errors import DocumentError, DocumentErrorCode
-from .export_io import DirectorySync, copy_exact, current_hash, hash_file, recovery_error
+from .export_io import (
+    DirectorySync,
+    copy_exact,
+    current_hash,
+    hash_file,
+    recovery_error,
+    regular_file_identity,
+)
 from .export_journal import ExportJournal, ExportPhase, ExportTransaction
-from .export_types import ExportReceipt, RollbackReceipt
+from .export_types import ExportReceipt, ExportRequest, RollbackReceipt
 from .path_security import directory_identity
+from .proposal_integrity import authority_digest
 
 
 @final
@@ -26,8 +34,18 @@ class ExportRollback:
     def run(self, receipt: ExportReceipt, destination: Path) -> RollbackReceipt:
         transaction = self._journal.find_token(receipt.rollback_token)
         if transaction is None:
-            return self._legacy(receipt, destination)
+            raise DocumentError(
+                DocumentErrorCode.PERMISSION_DENIED,
+                "rollback",
+                "durable export transaction is unavailable",
+            )
         self._verify_receipt(transaction, receipt, destination)
+        if not transaction.authority_bound:
+            transaction = transaction.bind_authority(
+                transaction.transaction_id,
+                transaction.source_sha256,
+            )
+            self._journal.write(transaction)
         if directory_identity(destination.parent) != transaction.parent_identity:
             raise DocumentError(
                 DocumentErrorCode.PERMISSION_DENIED,
@@ -57,20 +75,57 @@ class ExportRollback:
         receipt: ExportReceipt,
         destination: Path,
     ) -> None:
+        expected_staging = (
+            destination.parent
+            / f".birkin-export-{transaction.transaction_id}{destination.suffix}"
+        )
         if (
             transaction.rollback_token != receipt.rollback_token
+            or not ExportRollback._authority_matches(transaction, receipt)
             or transaction.destination != destination
             or transaction.source_sha256 != receipt.source_sha256
             or transaction.output_sha256 != receipt.output_sha256
             or transaction.destination_existed != receipt.destination_existed
             or transaction.destination_sha256 != receipt.destination_sha256
             or transaction.backup != receipt.backup
+            or transaction.staging != expected_staging
         ):
             raise DocumentError(
                 DocumentErrorCode.PERMISSION_DENIED,
                 "rollback",
                 "export transaction and receipt differ",
             )
+
+    @staticmethod
+    def _authority_matches(
+        transaction: ExportTransaction,
+        receipt: ExportReceipt,
+    ) -> bool:
+        if receipt.authority_bound:
+            return (
+                transaction.authority_digest == receipt.authority_digest
+                and transaction.authority_source_sha256
+                == receipt.authority_source_sha256
+            )
+        candidates = {
+            authority_digest(
+                receipt.destination,
+                receipt.source_sha256,
+                ExportRequest(
+                    destination=receipt.destination,
+                    actor=receipt.actor,
+                    proposal_digest=receipt.proposal_digest,
+                    operations=receipt.operations,
+                    overwrite_approved=overwrite_approved,
+                ),
+            )
+            for overwrite_approved in (False, True)
+        }
+        return (
+            transaction.transaction_id == transaction.authority_digest
+            and transaction.authority_digest in candidates
+            and transaction.authority_source_sha256 == receipt.source_sha256
+        )
 
     def _finish(
         self, transaction: ExportTransaction, receipt: ExportReceipt
@@ -92,6 +147,7 @@ class ExportRollback:
                 if (
                     current != transaction.output_sha256
                     or backup is None
+                    or backup.is_symlink()
                     or not backup.is_file()
                 ):
                     raise DocumentError(
@@ -102,9 +158,14 @@ class ExportRollback:
                 temporary = transaction.staging.with_name(
                     f"{transaction.staging.name}.rollback"
                 )
-                if not temporary.exists():
+                if not temporary.exists() and not temporary.is_symlink():
                     copy_exact(backup, temporary)
-                if hash_file(temporary) != prior:
+                temporary_identity = regular_file_identity(temporary, "rollback")
+                if (
+                    hash_file(temporary) != prior
+                    or regular_file_identity(temporary, "rollback")
+                    != temporary_identity
+                ):
                     raise recovery_error("rollback staging hash mismatch", "rollback")
                 os.replace(temporary, transaction.destination)
         elif current is not None:
@@ -129,26 +190,6 @@ class ExportRollback:
                 "rollback",
                 "rolled-back destination state changed",
             )
-
-    def _legacy(self, receipt: ExportReceipt, destination: Path) -> RollbackReceipt:
-        transaction = ExportTransaction(
-            transaction_id="0" * 64,
-            phase=ExportPhase.rolling_back,
-            rollback_token=receipt.rollback_token,
-            destination=destination,
-            source_sha256=receipt.source_sha256,
-            output_sha256=receipt.output_sha256,
-            destination_existed=receipt.destination_existed,
-            destination_sha256=receipt.destination_sha256,
-            backup=receipt.backup,
-            staging=destination.parent
-            / f".birkin-export-{receipt.rollback_token}{destination.suffix}",
-            parent_identity=directory_identity(destination.parent),
-        )
-        self._restore_state(transaction)
-        if transaction.backup is not None:
-            transaction.backup.unlink(missing_ok=True)
-        return self._receipt(receipt)
 
     @staticmethod
     def _receipt(receipt: ExportReceipt) -> RollbackReceipt:

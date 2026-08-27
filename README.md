@@ -200,13 +200,15 @@ The unified terminal and web workspace expose a dedicated Computer Use panel. Bo
 Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`; events and journals retain bounded redacted metadata, digests, scopes, effects, and receipts instead of raw pixels or typed secrets. Runtime code never installs dependencies, opens privacy settings, or clicks permission dialogs.
 
 > [!IMPORTANT]
-> Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval. Shell commands are confined to the workspace plus explicit `shell.extra_roots` and receive only terminal/runtime mechanics plus names in `shell.env_passthrough`; ambient credentials are not inherited by default. `shell.env_passthrough=["*"]` explicitly restores the legacy ambient environment. Browser navigation requires public-only DNS by default; private destinations require both the sandbox host policy and `browser_allow_private_network=true`.
+> Native tools run with your operating-system account. Keep the gateway loopback-only, configure `shell_approval`, `fs_jail`, disabled tools, and channel allowlists for your deployment, and review consequential actions before approval. Shell command launch directories are restricted to the workspace plus explicit `shell.extra_roots`. This is a working-directory restriction, not an OS sandbox: commands retain the operating-system account's filesystem access. They receive only terminal/runtime mechanics plus names in `shell.env_passthrough`; ambient credentials are not inherited by default. `shell.env_passthrough=["*"]` explicitly restores the legacy ambient environment. Browser navigation requires public-only DNS by default; private destinations require both the sandbox host policy and `browser_allow_private_network=true`.
 
 ## Office Work OS v2
 
 Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
 
 Office provenance keeps exact reviewed artifact versions and supported runtime ranges as separate contracts. Normal environments validate the declared range; the locked Office CI also verifies exact installed versions.
+
+Office mutation approval binds the proposer, source digest, destination, exact operations, and overwrite decision in an `authority_digest`. Durable receipts retain that digest and the approving principal separately from the proposer.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -362,6 +364,8 @@ The native registry exposes `browser_navigate`, `browser_click`, `browser_fill`,
 
 Browser traffic reuses the repository's `sandbox.network` and `sandbox.network_allowlist` policy. The default `network: "off"` fails closed. For local WebUI QA, set `network` to `allowlist`, include `127.0.0.1`, and keep the screenshot path inside `sandbox.write_paths`. Every navigation and page subrequest is checked; redirects, scripts, `fetch`, and click-triggered requests cannot bypass the allowlist. Registry hooks, `disabled_tools`, and approval replay remain the same gates used by every native tool. Policy refusals are returned as `BrowserPolicyViolation` errors.
 
+Chromium sends all Browser traffic, including loopback destinations, through an authenticated loopback filtering proxy. The proxy resolves each destination through the same sandbox policy, dials the policy-validated address directly, and rejects DNS-answer drift or a connected-peer mismatch before relaying traffic. Service workers are blocked, and Chromium's WebRTC policy disables non-proxied UDP.
+
 A runnable ouroboros check against Birkin's own WebUI:
 
 1. Change `birkin/web/static/index.html`, then start `birkin web --no-browser` and copy its private bootstrap URL.
@@ -496,21 +500,26 @@ proposals, action diffs, and execution receipts. A run can be steered, aborted,
 or resumed from its detail card; approval and rejection continue to use the
 same file-backed authority as `birkin review`.
 
-The server remains loopback-only by default. Remote binding is admitted only
-when both `web_remote_access` and the separate `web_remote_insecure_ack` are
-`true`; set the acknowledgement only after TLS termination or a trusted
-private-network tunnel is configured. Without both values, startup refuses
-before binding a socket. Remote mode binds on all interfaces but does **not**
-create a public route. In remote mode, `birkin web` prints a secret
-bootstrap URL using the server hostname and does not open it locally, because
-the nonce is one-time. Open that URL on the remote device; if the hostname is
-not resolvable there, replace only the hostname with the server's trusted
-private-network address. The URL exchanges the per-process capability for an
-HttpOnly, SameSite, Secure cookie, and every remote request without that capability is
-rejected. Local versus remote authority is derived from the TCP peer address,
-not the client-controlled `Host` header; the exact one-time bootstrap URL is the
-only unauthenticated remote exception. Put TLS or a trusted private-network
-tunnel in front when traffic leaves the host.
+The server remains loopback-only by default. Remote binding requires
+`web_remote_access=true` and an absolute HTTPS origin in `web_external_url`;
+startup refuses before binding when that endpoint is absent or not HTTPS.
+The legacy `web_remote_insecure_ack` key no longer admits remote binding.
+Remote mode binds on all interfaces but does **not** create a public route.
+Terminate TLS at the configured external origin and forward to Birkin's HTTP
+listener. Birkin treats `web_external_url` as the sole public-origin authority
+for the printed one-time bootstrap URL, accepted `Host`/`Origin`/`Referer`
+values, and the HttpOnly, SameSite, Secure capability cookie. It deliberately
+ignores `X-Forwarded-Proto`, so a client-controlled forwarding header cannot
+change cookie or origin policy.
+
+For SSH local forwarding, keep `web_remote_access=false` and leave
+`web_external_url` empty. Map the same local port, for example
+`ssh -L 8787:127.0.0.1:8787 host`, then open the printed
+`http://127.0.0.1:8787/_bootstrap/...` URL locally. Host and CSRF origins are
+matched to that exact listener port. This path uses an HttpOnly, SameSite
+cookie without `Secure` because HTTP is carried inside the trusted tunnel.
+Every request still needs the per-process capability, and the exact one-time
+bootstrap URL is the only unauthenticated exception.
 
 ## Checkpoints
 
@@ -866,6 +875,15 @@ Office approval authority. Direct comparison-report save is unavailable until
 Python exposes a durable comparison-report job through the canonical approval,
 execution, validation, receipt, and recovery path.
 
+Before an Office mutation can be approved, the canonical macOS and Windows
+cards show the source filename, cell-level before/after description,
+destination, overwrite authority, risk tier, and sealed state. The projected
+authority digest lets the clients carry the same reviewed identity across live
+events and reconnect snapshots; Python remains the only component that verifies
+and executes that authority. Approve and reject actions pass through an explicit
+confirmation state, then surface the decision as in flight until canonical
+projection catches up.
+
 There is no Windows installer or MSI, packaged app, or customer-ready release.
 Installer and updater delivery, production
 signing, and provider-backed production delivery remain future work. A shared cross-platform shell remains
@@ -975,7 +993,7 @@ This native design does **not** propose:
   "memory_nudge_interval": 6,
   "web_port": 8787,
   "web_remote_access": false,
-  "web_remote_insecure_ack": false,
+  "web_external_url": "",
   "browser_allow_private_network": false,
   "gateway_port": 8788,
   "gateway": {

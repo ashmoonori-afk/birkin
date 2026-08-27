@@ -499,9 +499,9 @@ public struct NativeShellView: View {
         _ card: ApprovalCardPresentation,
         decision: ApprovalDecision,
         availability: MutationAvailability
-    ) {
-        guard let session = Self.readySession(in: connectionState) else { return }
-        _ = card.submit(
+    ) -> Bool {
+        guard let session = Self.readySession(in: connectionState) else { return false }
+        return card.submit(
             decision, availability: availability,
             commandAdvertised: approvalAnswerAdvertised,
             expectedCursor: store.latestAppliedCursor ?? 0,

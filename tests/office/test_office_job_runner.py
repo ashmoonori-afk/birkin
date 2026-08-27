@@ -96,11 +96,11 @@ def test_document_service_runner_four_format_contract(
     preview = job.build_preview()
     assert isinstance(preview["source_sha256"], str)
     before_approval = set((service.home / "artifacts" / "drafts").iterdir())
-    _ = job.request_approval()
+    _ = job.request_approval(proposer="test:proposer", authority_digest="a" * 64)
     assert not output_path.exists()
     assert set((service.home / "artifacts" / "drafts").iterdir()) == before_approval
 
-    job.approve(actor="contract-test")
+    job.approve(approver="contract-test", approved_via="test:office-job")
     execution = job.execute()
     draft = cast("Mapping[str, object]", execution["artifact"])
     assert Path(cast(str, draft["uri"])).is_file()

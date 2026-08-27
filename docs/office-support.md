@@ -87,7 +87,7 @@ Request a mutation through the canonical coordinator:
 }
 ```
 
-The request first inspects the exact source, builds a structured preview and semantic operation summaries, binds the source hash, proposal digest, destination, allowlisted root, and actor, persists the job, and creates a standard `office_job` approval record. Requesting the job does not mutate the source or destination.
+The request first inspects the exact source, builds a structured preview and semantic operation summaries, and binds the source hash, proposal digest, destination, exact operations, overwrite decision, and proposer in an `authority_digest`. It persists the job and creates a standard `office_job` approval record; the approving principal is recorded separately when that record is resolved. Requesting the job does not mutate the source or destination.
 
 Only an executing claim from the canonical approval queue may resume that exact payload. Recovery restores the journaled job under its process lock, rechecks the queue payload, proposal and source digests, then executes, validates, publishes, exports, and returns the durable receipt. Changed authority or source bytes fail closed; rejected, failed, rolled-back, or otherwise non-resumable states are not silently retried.
 

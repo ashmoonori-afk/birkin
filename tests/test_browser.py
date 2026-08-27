@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable
 
 import pytest
 
+from birkin.browser_aside_errors import BrowserAsideError
+from birkin.browser_aside_policy import BrowserEgressPolicy
 from birkin.browser import (
     BrowserPolicyGate,
     BrowserPolicyViolation,
@@ -20,7 +21,7 @@ from birkin.tools import ToolContext, build_registry
 class FakeDriver:
     def __init__(self) -> None:
         self.actions: list[tuple[str, tuple[object, ...]]] = []
-        self.guard: Callable[[str], None] | None = None
+        self.policy: BrowserEgressPolicy | None = None
         self.console = [ConsoleMessage("log", "dashboard ready")]
         self.network = [
             NetworkEvent("request", "GET", "http://127.0.0.1:8787/", None, "document"),
@@ -28,12 +29,11 @@ class FakeDriver:
         ]
         self.closed = False
 
-    def start(self, request_guard: Callable[[str], None]) -> None:
-        self.guard = request_guard
+    def start(self, policy: BrowserEgressPolicy) -> None:
+        self.policy = policy
 
     def navigate(self, url: str) -> str:
-        assert self.guard is not None
-        self.guard(url)
+        assert self.policy is not None
         self.actions.append(("navigate", (url,)))
         return "Birkin"
 
@@ -60,6 +60,13 @@ class FakeDriver:
 
     def close(self) -> None:
         self.closed = True
+
+
+class ConnectingFakeDriver(FakeDriver):
+    def navigate(self, url: str) -> str:
+        assert self.policy is not None
+        _destination, _pinned = self.policy.connect(url)
+        return url
 
 
 def _policy(*hosts: str, writes: tuple[str, ...] = (".",)) -> SandboxPolicy:
@@ -119,6 +126,11 @@ def test_allowed_host_navigates_and_denied_host_fails_closed(tmp_path: Path) -> 
     )
 
     assert browser.navigate("http://127.0.0.1:8787/") == "Birkin"
+    assert driver.policy is not None
+    driver.policy("http://127.0.0.1:8787/")
+    driver.policy.check_navigation("http://127.0.0.1:8787/")
+    with pytest.raises(BrowserPolicyViolation, match="not allowed"):
+        driver.policy("https://example.com/")
     with pytest.raises(BrowserPolicyViolation, match="not allowlisted"):
         browser.navigate("https://example.com/")
 
@@ -133,6 +145,18 @@ def test_legacy_browser_rejects_mixed_public_private_dns_answers() -> None:
 
     with pytest.raises(BrowserPolicyViolation, match="non-public"):
         gate.check_navigation("https://mixed.example/")
+
+
+def test_default_browser_translates_malformed_port(tmp_path: Path) -> None:
+    browser = BrowserSession(
+        ConnectingFakeDriver(),
+        _policy("example.com"),
+        tmp_path,
+        allow_private_network=True,
+    )
+
+    with pytest.raises(BrowserPolicyViolation, match="not allowed"):
+        browser.navigate("http://example.com:not-a-port/")
 
 
 def test_private_navigation_needs_policy_and_explicit_config() -> None:
@@ -163,9 +187,33 @@ def test_driver_subrequests_use_the_same_policy_guard(tmp_path: Path) -> None:
     driver = FakeDriver()
     BrowserSession(driver, _policy("localhost"), tmp_path)
 
-    assert driver.guard is not None
-    with pytest.raises(BrowserPolicyViolation, match="cdn.example.com"):
-        driver.guard("https://cdn.example.com/app.js")
+    assert driver.policy is not None
+    with pytest.raises(BrowserAsideError) as captured:
+        driver.policy.check_navigation("https://cdn.example.com/app.js")
+
+    assert captured.value.code == "network_policy_denied"
+
+
+def test_default_browser_rejects_rebinding_before_connect(
+    tmp_path: Path,
+) -> None:
+    answers = iter((
+        ("93.184.216.34",),
+        ("93.184.216.34",),
+        ("127.0.0.1",),
+    ))
+    browser = BrowserSession(
+        ConnectingFakeDriver(),
+        _policy("rebind.example"),
+        tmp_path,
+        resolver=lambda _host: next(answers),
+    )
+
+    with pytest.raises(
+        BrowserPolicyViolation,
+        match="changed after destination validation",
+    ):
+        browser.navigate("https://rebind.example/")
 
 
 def test_console_and_network_evidence_is_aggregated(tmp_path: Path) -> None:

@@ -59,10 +59,19 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
     category = str(record.get("category") or "")
     payload = record.get("payload")
     sealed = (
-        category == "operation"
-        and _is_object_mapping(payload)
-        and isinstance(payload.get("digest"), str)
-        and bool(payload["digest"])
+        _is_object_mapping(payload)
+        and (
+            (
+                category == "operation"
+                and isinstance(payload.get("digest"), str)
+                and bool(payload["digest"])
+            )
+            or (
+                category == "office_job"
+                and isinstance(payload.get("proposal_digest"), str)
+                and bool(payload["proposal_digest"])
+            )
+        )
     )
     item: dict[str, object] = {
         "id": str(record.get("id") or ""),
@@ -80,6 +89,25 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
     resolved_at = record.get("resolved_at")
     if isinstance(resolved_at, str) and resolved_at:
         item["resolved_at"] = resolved_at
+    if _is_object_mapping(payload):
+        for field in (
+            "destination",
+            "source_filename",
+            "authority_digest",
+            "rejection_result",
+        ):
+            value = payload.get(field)
+            if isinstance(value, str) and value:
+                item[field] = value
+        requester = payload.get("proposer")
+        if isinstance(requester, str) and requester:
+            item["requester"] = requester
+        overwrite_approved = payload.get("overwrite_approved")
+        if isinstance(overwrite_approved, bool):
+            item["overwrite_approved"] = overwrite_approved
+    expires_at = record.get("expires_at")
+    if isinstance(expires_at, str) and expires_at:
+        item["expires_at"] = expires_at
     return item
 
 

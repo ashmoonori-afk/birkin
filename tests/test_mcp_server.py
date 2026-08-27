@@ -209,7 +209,7 @@ def test_mcp_load_sees_skill_after_external_manual_approval(
          "body": "UNIQUE-APPROVED-LATER"})
     pending_id = store.list_pending()[0]["id"]
 
-    assert approvals.approve(pending_id)["ok"] is True
+    assert approvals.approve(pending_id, approved_by="human:test", approved_via="test")["ok"] is True
     text, err = tools["load_skill"]["handler"]({"name": "approved-later"})
 
     assert err is False

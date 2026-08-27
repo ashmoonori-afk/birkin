@@ -41,8 +41,8 @@ def _write_json(path: Path, obj: Any) -> None:
         except OSError:
             pass
         raise
-    # State can include cron commands / pending payloads — restrict to the owner
-    # (no-op on Windows; enforced on POSIX), matching config.json.
+    # State can include cron commands / pending payloads. The owner-only mode is
+    # enforced on POSIX; Windows relies on the directory's inherited ACL.
     try:
         os.chmod(path, 0o600)
     except OSError:
@@ -272,7 +272,25 @@ def get_pending(aid: str) -> dict[str, Any] | None:
 def resolve_pending(aid: str, status: str,
                     reason: str = "",
                     updates: dict[str, Any] | None = None,
-                    details: dict[str, Any] | None = None) -> dict[str, Any] | None:
+                    details: dict[str, Any] | None = None,
+                    *,
+                    approved_by: str | None = None,
+                    approved_via: str | None = None,
+                    rejected_by: str | None = None,
+                    rejected_via: str | None = None) -> dict[str, Any] | None:
+    approval_identity = (approved_by, approved_via)
+    rejection_identity = (rejected_by, rejected_via)
+    if (approved_by is None) != (approved_via is None):
+        raise ValueError("approved_by and approved_via must be provided together")
+    if (rejected_by is None) != (rejected_via is None):
+        raise ValueError("rejected_by and rejected_via must be provided together")
+    if all(value is not None for value in approval_identity) and all(
+        value is not None for value in rejection_identity
+    ):
+        raise ValueError("one resolver identity is allowed per transition")
+    for value in (*approval_identity, *rejection_identity):
+        if value is not None and not value.strip():
+            raise ValueError("resolver identity values must be non-empty")
     if not valid_pending_id(aid):
         return None
     path = config.pending_dir() / f"{aid}.json"
@@ -280,13 +298,35 @@ def resolve_pending(aid: str, status: str,
     if not rec:
         return None
     rec["status"] = status
-    rec["resolved_at"] = _now()
+    if status == "pending":
+        for field in (
+            "resolved_at",
+            "approved_by",
+            "approved_via",
+            "rejected_by",
+            "rejected_via",
+        ):
+            rec.pop(field, None)
+    elif "resolved_at" not in rec or approved_by is not None or rejected_by is not None:
+        rec["resolved_at"] = _now()
+    if approved_by is not None and approved_via is not None:
+        rec.pop("rejected_by", None)
+        rec.pop("rejected_via", None)
+        rec["approved_by"] = approved_by
+        rec["approved_via"] = approved_via
+    if rejected_by is not None and rejected_via is not None:
+        rec.pop("approved_by", None)
+        rec.pop("approved_via", None)
+        rec["rejected_by"] = rejected_by
+        rec["rejected_via"] = rejected_via
     if reason:
         rec["deny_reason"] = reason[:300]
     merged_updates = {**(updates or {}), **(details or {})}
     if merged_updates:
         reserved = {"id", "created", "category", "title", "description",
-                    "payload", "origin", "status", "resolved_at"}
+                    "payload", "origin", "status", "resolved_at",
+                    "approved_by", "approved_via", "rejected_by",
+                    "rejected_via"}
         overwritten = reserved & set(merged_updates)
         if overwritten:
             raise ValueError(

@@ -16,6 +16,16 @@ struct ApprovalPresentationTests {
 
         #expect(approval.risk == .high)
         #expect(approval.isSealed)
+        #expect(approval.sourceFilename == "release-source.xlsx")
+        #expect(approval.destination?.hasSuffix("/exports/quarterly-release.xlsx") == true)
+        #expect(approval.destinationDisplay?.count == 48)
+        #expect(approval.destinationDisplay?.contains("...") == true)
+        #expect(approval.destinationDisplay?.hasSuffix("quarterly-release.xlsx") == true)
+        #expect(approval.overwriteApproved == false)
+        #expect(approval.authorityDigest == String(repeating: "a", count: 64))
+        #expect(approval.authorityDigestDisplay == "aaaaaaaaaaaa...aaaaaaaaaaaa")
+        #expect(approval.requester == "native:office-journey")
+        #expect(approval.rejectionResult == "Rejecting leaves the source unchanged and writes no output.")
         #expect(approval.submit(
             .approve, availability: availability, commandAdvertised: true,
             expectedCursor: 12, sessionCapability: "capability",
@@ -72,30 +82,50 @@ struct ApprovalPresentationTests {
     @Test("approval card renders screenshot evidence")
     func screenshotEvidence() throws {
         let approval = try #require(ApprovalCardPresentation(item: approvalItem()))
-        let view = ApprovalCardView(
-            presentation: approval, canDecide: true,
-            approve: {}, reject: {}
-        ).frame(width: 520, height: 260)
-        let renderer = ImageRenderer(content: view)
-        let image = try #require(renderer.nsImage)
-        let bitmap = try #require(image.tiffRepresentation.flatMap(NSBitmapImageRep.init))
-        let png = try #require(bitmap.representation(using: .png, properties: [:]))
-        let output = evidenceDirectory().appendingPathComponent("approval-risk-card.png")
-        try FileManager.default.createDirectory(
-            at: output.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try png.write(to: output, options: .atomic)
-        #expect(png.count > 8_000)
+        for (scheme, name) in [
+            (ColorScheme.light, "approval-risk-card.png"),
+            (ColorScheme.dark, "approval-risk-card-dark.png"),
+        ] {
+            let view = ApprovalCardView(
+                presentation: approval, canDecide: true,
+                approve: { true }, reject: { true }
+            )
+            .padding(20)
+            .frame(width: 340, height: 520, alignment: .topLeading)
+            .background(scheme == .light ? Color.white : Color.black)
+            .environment(\.colorScheme, scheme)
+            let renderer = ImageRenderer(content: view)
+            let image = try #require(renderer.nsImage)
+            let bitmap = try #require(image.tiffRepresentation.flatMap(NSBitmapImageRep.init))
+            let png = try #require(bitmap.representation(using: .png, properties: [:]))
+            let output = evidenceDirectory().appendingPathComponent(name)
+            try FileManager.default.createDirectory(
+                at: output.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try png.write(to: output, options: .atomic)
+            #expect(png.count > 8_000)
+        }
     }
 
     private func approvalItem() -> NativeJSONObject {
         [
-            "id": .string("approval-1"), "summary": .string("Write release manifest"),
-            "description": .string("One digest-bound file write"),
-            "category": .string("operation"), "risk": .string("high"),
+            "id": .string("approval-1"), "summary": .string("Save reviewed workbook"),
+            "description": .string("Comparison!A1: 4100 to 4700"),
+            "category": .string("office_job"), "risk": .string("high"),
             "sealed": .bool(true), "decided": .bool(false),
             "status": .string("pending"), "kind": .string("approval"),
             "ui_state": .string("action_needed"), "created": .string("2026-08-20T00:00:00Z"),
+            "source_filename": .string("release-source.xlsx"),
+            "destination": .string(
+                "/Users/reviewer/Library/Containers/dev.birkin/Data/Documents/"
+                    + "exports/quarterly-release.xlsx"
+            ),
+            "overwrite_approved": .bool(false),
+            "authority_digest": .string(String(repeating: "a", count: 64)),
+            "requester": .string("native:office-journey"),
+            "rejection_result": .string(
+                "Rejecting leaves the source unchanged and writes no output."
+            ),
         ]
     }
 

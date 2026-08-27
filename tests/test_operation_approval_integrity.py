@@ -62,7 +62,7 @@ def test_tampered_sealed_operation_fails_closed(tmp_path: Path) -> None:
     record_path.write_text(json.dumps(record), encoding="utf-8")
 
     # When: approval executes the now-mismatched record.
-    resolution = approvals.approve(approval_id)
+    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: digest verification rejects it without side effects.
     assert resolution["ok"] is False
@@ -96,7 +96,7 @@ def test_approved_permission_failure_does_not_requeue(
     approval_id = store.list_pending()[0]["id"]
 
     # When: the one approved retry reaches the same OS boundary.
-    resolution = approvals.approve(approval_id)
+    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: it terminates as an error and creates no recursive approval.
     assert resolution["ok"] is False
@@ -149,7 +149,7 @@ def test_control_plane_write_requires_then_honors_approval(
     assert not target.exists()
 
     # When: a human approves that exact control-plane write.
-    resolution = approvals.approve(pending[0]["id"])
+    resolution = approvals.approve(pending[0]["id"], approved_by="human:test", approved_via="test")
 
     # Then: the sealed operation is applied once.
     assert resolution["ok"] is True, resolution
@@ -217,7 +217,7 @@ def test_approved_temp_policy_retry_uses_local_scoped_directories(
     approval_id = store.list_pending()[0]["id"]
 
     # When: the human approves the sealed local-temp retry profile.
-    resolution = approvals.approve(approval_id)
+    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: one retry receives only workspace-local environment overrides.
     assert "queued for approval" in queued.content
@@ -237,7 +237,7 @@ def test_approved_replay_does_not_queue_a_second_policy_gate(
     approval_id = store.list_pending()[0]["id"]
 
     # When: the tool-policy approval reaches shellguard during replay.
-    resolution = approvals.approve(approval_id)
+    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: the second gate is terminal and cannot recursively enqueue itself.
     assert resolution["ok"] is False
