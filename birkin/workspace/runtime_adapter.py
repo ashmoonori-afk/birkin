@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
-from .. import approvals, config, transcripts, uistate, workbench
+from .. import approvals, config, risk, transcripts, uistate, workbench
 from ..browser_aside_control import BrowserControlAuthority
 from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
@@ -485,6 +485,11 @@ class RuntimeWorkspaceAdapter:
             raise ValueError("office.job_request destination must be non-empty")
         if not isinstance(overwrite_approved, bool):
             raise ValueError("office.job_request overwrite_approved must be boolean")
+        client_source = cast(dict[str, object], source)
+        source_mapping = self.surface_authority.office.registered_document(
+            client_source.get("artifact_id"),
+            client_source.get("uri"),
+        )
 
         approval = OfficeCoordinator(
             OfficeCaller(
@@ -494,12 +499,17 @@ class RuntimeWorkspaceAdapter:
         ).request(
             OfficeMutationRequest(
                 request_text=request,
-                source=cast(dict[str, object], source),
+                source=source_mapping,
                 outcome=outcome,
                 operations=tuple(parsed_operations),
                 destination=Path(destination),
                 overwrite_approved=overwrite_approved,
             )
+        )
+        source_filename = cast(str, source_mapping["source_filename"])
+        approval["source_filename"] = source_filename
+        approval["rejection_result"] = (
+            "Rejecting leaves the source unchanged and writes no output."
         )
         queued = approvals.propose(
             category="office_job",
@@ -524,10 +534,17 @@ class RuntimeWorkspaceAdapter:
                 ),
                 "category": "office_job",
                 "status": "pending",
-                "sealed": True,
+                "risk": risk.risk_for("office_job"),
+                "sealed": bool(approval["proposal_digest"]),
                 "decided": False,
+                "requester": approval["proposer"],
+                "rejection_result": approval["rejection_result"],
                 "job_id": approval["job_id"],
                 "proposal_digest": approval["proposal_digest"],
+                "authority_digest": approval["authority_digest"],
+                "destination": approval["destination"],
+                "overwrite_approved": approval["overwrite_approved"],
+                "source_filename": source_filename,
             },
         )
         return {**queued, "category": "office_job", "approval": approval}

@@ -47,6 +47,22 @@ _PANEL_BY_EVENT = {
 }
 
 
+def _approval_answer_ui_state(outcome: object) -> str:
+    if outcome == "approved":
+        return "succeeded"
+    if outcome == "rejected":
+        return "blocked"
+    return "failed"
+
+
+def _approval_answer_decided(outcome: object) -> bool:
+    return isinstance(outcome, str) and outcome in {
+        "approved",
+        "rejected",
+        "answered_elsewhere",
+    }
+
+
 def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
     summary = event.payload.get("summary")
     kind = {
@@ -66,13 +82,7 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
     outcome = event.payload.get("outcome")
     default_state = {
         "approval.requested": "action_needed",
-        "approval.answered": (
-            "failed"
-            if outcome == "failed"
-            else "succeeded"
-            if outcome in {"approved", "answered_elsewhere"}
-            else "blocked"
-        ),
+        "approval.answered": _approval_answer_ui_state(outcome),
         "question.requested": "action_needed",
         "question.answered": "succeeded",
         "task.updated": "running",
@@ -83,6 +93,9 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "tool.failed": "failed",
         "computer.updated": str(event.payload.get("ui_state") or "pending"),
     }.get(event.type, "pending")
+    status = event.payload.get("outcome") or event.payload.get("status")
+    if status is None and event.type != "approval.answered":
+        status = event.payload.get("decision")
     item: dict[str, object] = {
         "id": str(
             event.event_id
@@ -99,12 +112,7 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
             if isinstance(summary, str)
             else str(event.payload.get("name") or event.type)
         ),
-        "status": str(
-            event.payload.get("outcome")
-            or event.payload.get("status")
-            or event.payload.get("decision")
-            or event.type.rsplit(".", 1)[-1]
-        ),
+        "status": str(status or event.type.rsplit(".", 1)[-1]),
         "cursor": event.cursor,
         "kind": kind,
         "ui_state": str(event.payload.get("ui_state") or default_state),
@@ -125,6 +133,9 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "refusal_code",
         "session_id",
         "name",
+        "destination",
+        "source_filename",
+        "authority_digest",
     ):
         value = event.payload.get(field)
         if isinstance(value, str) and value:
@@ -145,12 +156,12 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         value = event.payload.get(field)
         if isinstance(value, int) and not isinstance(value, bool):
             item[field] = value
-    for field in ("sealed", "decided"):
+    for field in ("sealed", "decided", "overwrite_approved"):
         value = event.payload.get(field)
         if isinstance(value, bool):
             item[field] = value
     if event.type == "approval.answered":
-        item["decided"] = True
+        item["decided"] = _approval_answer_decided(outcome)
         receipt = event.payload.get("receipt")
         if isinstance(receipt, str) and receipt:
             item["receipt_ref"] = receipt

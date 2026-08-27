@@ -92,6 +92,7 @@ public sealed class WorkspaceSnapshotViewTests
                     [],
                     [],
                     [],
+                    [],
                     new TerminalPresentation(false, 0),
                     MutationAvailabilityPresentation.PhaseOne),
                 () => { });

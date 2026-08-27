@@ -253,7 +253,8 @@ enum NativeProjectionReducer {
             ?? payload.string("task_id") ?? payload.string("evidence_id")
             ?? payload.string("checkpoint_id") ?? event.eventID
         let summary = payload.string("summary") ?? payload.string("name") ?? event.type
-        let status = payload.string("outcome") ?? payload.string("status") ?? decision
+        let status = payload.string("outcome") ?? payload.string("status")
+            ?? (event.type == "approval.answered" ? nil : decision)
             ?? event.type.split(separator: ".").last.map(String.init)!
         let kind = [
             "task.updated": "task", "approval.requested": "approval",
@@ -263,7 +264,7 @@ enum NativeProjectionReducer {
             "computer.updated": "computer_use", "receipt.recorded": "receipt",
             "command.completed": "receipt", "integrity.warning": "integrity_warning",
         ][event.type] ?? "activity"
-        let defaultState = defaultUIState(event.type, decision: decision, payload: payload)
+        let defaultState = defaultUIState(event.type, payload: payload)
         var item: NativeJSONObject = [
             "id": .string(id), "summary": .string(summary), "status": .string(status),
             "cursor": .int(event.cursor), "kind": .string(kind),
@@ -272,19 +273,22 @@ enum NativeProjectionReducer {
         for field in [
             "requester", "description", "category", "target", "expected_impact", "rejection_result",
             "related_evidence", "risk", "expires_at", "receipt_ref", "snapshot_ref",
-            "effect", "refusal_code",
+            "effect", "refusal_code", "source_filename", "destination", "authority_digest",
         ] {
             if let value = payload.string(field), !value.isEmpty {
                 try? item.append(key: field, value: .string(value))
             }
         }
-        for field in ["sealed", "decided"] {
+        for field in ["sealed", "decided", "overwrite_approved"] {
             if case .bool(let value) = payload[field] {
                 try? item.append(key: field, value: .bool(value))
             }
         }
         if event.type == "approval.answered", item["decided"] == nil {
-            try? item.append(key: "decided", value: .bool(true))
+            try? item.append(
+                key: "decided",
+                value: .bool(approvalAnswerIsResolved(payload.string("outcome")))
+            )
         }
         if let receipt = payload.string("receipt") {
             try? item.append(key: "receipt_ref", value: .string(receipt))
@@ -300,16 +304,15 @@ enum NativeProjectionReducer {
 
     private static func defaultUIState(
         _ type: String,
-        decision: String?,
         payload: NativeJSONObject
     ) -> String {
         switch type {
         case "approval.requested", "question.requested": return "action_needed"
         case "approval.answered":
             switch payload.string("outcome") {
-            case "approved", "answered_elsewhere": return "succeeded"
-            case "failed": return "failed"
-            default: return decision == "approve" ? "succeeded" : "blocked"
+            case "approved": return "succeeded"
+            case "rejected": return "blocked"
+            default: return "failed"
             }
         case "question.answered", "evidence.added", "checkpoint.restored": return "succeeded"
         case "task.updated", "tool.started": return "running"
@@ -317,6 +320,13 @@ enum NativeProjectionReducer {
         case "tool.failed": return "failed"
         case "computer.updated": return payload.string("ui_state") ?? "pending"
         default: return "pending"
+        }
+    }
+
+    private static func approvalAnswerIsResolved(_ outcome: String?) -> Bool {
+        switch outcome {
+        case "approved", "rejected", "answered_elsewhere": true
+        default: false
         }
     }
 }

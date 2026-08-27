@@ -28,7 +28,10 @@ public sealed class OfficeWorkflowJourneyTests
             // When
             OfficeWorkflowViewHarness.Find<Button>(window, "conversation.send").RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
             await fixture.ResolveLastAsync();
-            OfficeWorkflowViewHarness.Find<Button>(window, "approval.approve").RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+            OfficeWorkflowViewHarness.Find<Button>(
+                window,
+                "approval.approve.approval-7"
+            ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
 
             // Then
             CollectionAssert.AreEqual(new[] { "chat.send", "approval.answer" }, fixture.Connection.Sent.Select(item => item.CommandType).ToArray());

@@ -18,9 +18,11 @@ public sealed class NativeProjectionGapTests
         using var fixture = LoadFixture();
         var store = new NativeProjectionStore();
         store.ApplySnapshot(Decode(fixture.RootElement.GetProperty("snapshot")), ReadyIdentity);
+        var expectedCursor = 0L;
         foreach (var vector in fixture.RootElement.GetProperty("events").EnumerateArray())
         {
             store.ApplyEvent(Decode(vector));
+            expectedCursor = vector.GetProperty("cursor").GetInt64();
         }
         var previous = store.State;
 
@@ -29,7 +31,7 @@ public sealed class NativeProjectionGapTests
 
         // Then
         Assert.AreSame(previous, store.State);
-        Assert.AreEqual(16L, store.State!.Cursor);
+        Assert.AreEqual(expectedCursor, store.State!.Cursor);
         Assert.AreEqual(NativeProjectionStoreStatus.RepairRequired, store.Status);
         Assert.AreEqual(NativeProjectionRepairReason.CursorGap, store.RepairReason);
         var replay = NativeReconnect.Prepare(store, ReadyIdentity);

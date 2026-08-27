@@ -150,10 +150,40 @@ def render_fixture() -> str:
             "summary": "Interrupted receipt sealed", "status": "warning",
         }),
         event(16, "approval.requested", {
-            "approval_id": "approval-vector", "summary": "Write manifest",
-            "description": "Digest-bound write", "category": "operation",
+            "approval_id": "approval-vector", "summary": "Save reviewed workbook",
+            "description": "Comparison!A1: 7 to 9", "category": "office_job",
             "status": "pending", "risk": "high", "sealed": True,
             "decided": False,
+            "source_filename": "comparison-source.xlsx",
+            "destination": "/workspace/approved/comparison.xlsx",
+            "overwrite_approved": False,
+            "authority_digest": "a" * 64,
+            "requester": "native:session-1",
+            "rejection_result": "Rejecting leaves the source unchanged and writes no output.",
+        }),
+        event(17, "approval.answered", {
+            "approval_id": "approval-vector", "decision": "approve",
+            "outcome": "approved", "receipt": "receipt:approval-vector",
+        }),
+        event(18, "approval.requested", {
+            "approval_id": "approval-refused",
+            "summary": "Save while authority is unavailable",
+            "category": "office_job", "status": "pending", "risk": "high",
+            "sealed": True, "decided": False,
+        }),
+        event(19, "approval.answered", {
+            "approval_id": "approval-refused", "decision": "approve",
+            "outcome": "rejected_by_authority",
+        }),
+        event(20, "approval.requested", {
+            "approval_id": "approval-elsewhere",
+            "summary": "Save answered by another reviewer",
+            "category": "office_job", "status": "pending", "risk": "high",
+            "sealed": True, "decided": False,
+        }),
+        event(21, "approval.answered", {
+            "approval_id": "approval-elsewhere", "decision": "approve",
+            "outcome": "answered_elsewhere",
         }),
     ]
     factory = NativeMessageFactory(
@@ -198,7 +228,7 @@ def render_fixture() -> str:
             }
         )
 
-    gap = event(18, "message.user", {"text": "must be discarded"})
+    gap = event(applied[-1].cursor + 2, "message.user", {"text": "must be discarded"})
     gap_message = factory.message("event", body=public_workspace_event(gap))
     document = {
         "generated_by": "scripts/native/generate_projection_vectors.py",

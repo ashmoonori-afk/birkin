@@ -54,7 +54,8 @@ public sealed class OfficeViewTests
                 "navigation.sessions", "working-memory.landmark", "conversation.stream",
                 "terminal.landmark", "approvals.landmark", "activity.landmark",
                 "browser.landmark", "office.landmark", "conversation.send",
-                "office.import-panel", "approval.approve", "office.new-panel", "diff.landmark",
+                "office.import-panel", "approval.approve.approval-7",
+                "office.new-panel", "diff.landmark",
             };
             var result = ids.Select(id => AutomationProperties.GetAutomationId(
                 OfficeWorkflowViewHarness.Find<FrameworkElement>(shell, id))).ToArray();
@@ -70,7 +71,8 @@ public sealed class OfficeViewTests
                 "navigation.sessions", "working-memory.landmark", "conversation.stream",
                 "terminal.landmark", "approvals.landmark", "activity.landmark",
                 "browser.landmark", "office.landmark", "conversation.send",
-                "office.import-panel", "approval.approve", "office.new-panel", "diff.landmark",
+                "office.import-panel", "approval.approve.approval-7",
+                "office.new-panel", "diff.landmark",
             },
             automationIds);
     }

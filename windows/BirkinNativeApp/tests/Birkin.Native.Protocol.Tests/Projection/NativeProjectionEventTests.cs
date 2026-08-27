@@ -31,15 +31,18 @@ public sealed class NativeProjectionEventTests
                 vector.GetProperty("expected_state").GetRawText()));
             var state = store.State;
             Assert.IsNotNull(state);
+            var expectedBytes = NativeJsonSerializer.Serialize(expected);
+            var actualBytes = NativeJsonSerializer.Serialize(StateJson(state));
             CollectionAssert.AreEqual(
-                NativeJsonSerializer.Serialize(expected),
-                NativeJsonSerializer.Serialize(StateJson(state)),
-                $"cursor {vector.GetProperty("cursor").GetInt64()}");
+                expectedBytes,
+                actualBytes,
+                $"cursor {vector.GetProperty("cursor").GetInt64()} "
+                + FirstDifference(expectedBytes, actualBytes));
             Assert.AreEqual(vector.GetProperty("cursor").GetInt64(), state.Cursor);
             Assert.AreEqual(NativeProjectionStoreStatus.Current, store.Status);
         }
 
-        Assert.AreEqual(14, consumed);
+        Assert.AreEqual(19, consumed);
     }
 
     private static NativeJsonObject StateJson(NativeProjectionState state) => new([
@@ -57,6 +60,22 @@ public sealed class NativeProjectionEventTests
 
     private static JsonDocument LoadFixture() => JsonDocument.Parse(File.ReadAllBytes(
         Path.Combine(AppContext.BaseDirectory, "GoldenVectors", "native-projection-vectors.json")));
+
+    private static string FirstDifference(byte[] expected, byte[] actual)
+    {
+        var index = Enumerable.Range(0, Math.Min(expected.Length, actual.Length))
+            .FirstOrDefault(offset => expected[offset] != actual[offset], -1);
+        if (index < 0)
+        {
+            return $"length expected={expected.Length} actual={actual.Length}";
+        }
+        var start = Math.Max(0, index - 48);
+        var expectedCount = Math.Min(expected.Length - start, 96);
+        var actualCount = Math.Min(actual.Length - start, 96);
+        return $"difference={index} "
+            + $"expected={Encoding.UTF8.GetString(expected, start, expectedCount)} "
+            + $"actual={Encoding.UTF8.GetString(actual, start, actualCount)}";
+    }
 
     private static NativeEnvelope Decode(JsonElement vector) => NativeFrameCodec.Decode(
         Convert.FromBase64String(vector.GetProperty("frame_base64").GetString()!));

@@ -31,6 +31,7 @@ internal static class WorkspaceProjectionMapper
                 false),
             WorkingMemory(state.WorkingMemory),
             ApprovalRows(state.ApprovalPolicy),
+            PanelItems(state.Panels, "approvals"),
             PanelItems(state.Panels, "activity_logs"),
             PanelItems(state.Panels, "browser_aside", "browser", "computer_use"),
             PanelItems(state.Panels, "office", "files_evidence"),
@@ -120,7 +121,19 @@ internal static class WorkspaceProjectionMapper
             new PanelItemPresentation(
                 Text(item, "id"),
                 Text(item, "kind"),
-                Text(item, "summary") ?? Text(item, "text"))));
+                Text(item, "summary") ?? Text(item, "text"),
+                Text(item, "description"),
+                Text(item, "category"),
+                Text(item, "risk"),
+                Flag(item, "sealed"),
+                Flag(item, "decided"),
+                Text(item, "source_filename"),
+                Text(item, "destination"),
+                OptionalFlag(item, "overwrite_approved"),
+                Text(item, "authority_digest"),
+                Text(item, "requester"),
+                Text(item, "rejection_result"),
+                Text(item, "expires_at"))));
     }
 
     private static IEnumerable<string> Values(NativeJsonObject value, string key) =>
@@ -142,6 +155,9 @@ internal static class WorkspaceProjectionMapper
 
     private static bool Flag(NativeJsonObject value, string key) =>
         value[key] is NativeJsonBoolean { Value: true };
+
+    private static bool? OptionalFlag(NativeJsonObject value, string key) =>
+        value[key] is NativeJsonBoolean flag ? flag.Value : null;
 
     private static ReadOnlyCollection<T> ReadOnly<T>(IEnumerable<T> values) =>
         Array.AsReadOnly(values.ToArray());

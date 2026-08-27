@@ -136,8 +136,10 @@ internal static class ProviderOfficeJourneyFlow
 
             scroll.ScrollToHome();
             await RenderBarrierAsync(window);
-            var approve = OfficeWorkflowViewHarness.FindAll<Button>(window, "approval.approve")
-                .Single(button => string.Equals(button.Tag as string, approvalId, StringComparison.Ordinal));
+            var approve = OfficeWorkflowViewHarness.Find<Button>(
+                window,
+                $"approval.approve.{approvalId}");
+            Assert.AreEqual(approvalId, approve.Tag as string);
             Assert.IsTrue(approve.IsEnabled);
             Assert.IsTrue(IsInViewport(approve, scroll), "the exact projected approval was not visibly actionable");
             var approval = await ProviderOfficeJourneyActions.ClickAsync(

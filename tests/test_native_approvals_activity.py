@@ -42,6 +42,48 @@ def test_snapshot_projects_pending_risk_and_sealed_approval(
     assert item["ui_state"] == "action_needed"
 
 
+def test_snapshot_projects_office_approval_trust_details(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        pending_id="0ff1ce123456",
+        category="office_job",
+        title="Save reviewed workbook",
+        description="Comparison!A1: 7 -> 9",
+        payload={
+            "proposal_digest": "a" * 64,
+            "authority_digest": "b" * 64,
+            "destination": str(tmp_path / "approved.xlsx"),
+            "overwrite_approved": True,
+            "source_filename": "comparison-source.xlsx",
+            "proposer": "native:session-1",
+            "rejection_result": (
+                "Rejecting leaves the source unchanged and writes no output."
+            ),
+        },
+        origin="test",
+    )
+    service = WorkspaceService(
+        root=tmp_path / "journal",
+        session_id="session-1",
+        handlers={},
+    )
+
+    item = next(item for item in _approval_items(service) if item["id"] == record["id"])
+
+    assert item["risk"] == "high"
+    assert item["sealed"] is True
+    assert item["destination"] == str(tmp_path / "approved.xlsx")
+    assert item["overwrite_approved"] is True
+    assert item["source_filename"] == "comparison-source.xlsx"
+    assert item["authority_digest"] == "b" * 64
+    assert item["requester"] == "native:session-1"
+    assert item["rejection_result"] == (
+        "Rejecting leaves the source unchanged and writes no output."
+    )
+
+
 def test_live_approval_event_preserves_risk_and_sealed_state() -> None:
     event = WorkspaceEvent(
         protocol_version=1, session_id="session-1", cursor=1,
@@ -51,7 +93,9 @@ def test_live_approval_event_preserves_risk_and_sealed_state() -> None:
             "approval_id": "abc123def456", "summary": "Write manifest",
             "description": "Digest-bound write", "category": "operation",
             "status": "pending", "risk": "high", "sealed": True,
-            "decided": False,
+            "decided": False, "destination": "/workspace/release.json",
+            "overwrite_approved": False, "source_filename": "release.json",
+            "authority_digest": "c" * 64,
         },
     )
 
@@ -62,6 +106,10 @@ def test_live_approval_event_preserves_risk_and_sealed_state() -> None:
     assert item["sealed"] is True
     assert item["decided"] is False
     assert item["category"] == "operation"
+    assert item["destination"] == "/workspace/release.json"
+    assert item["overwrite_approved"] is False
+    assert item["source_filename"] == "release.json"
+    assert item["authority_digest"] == "c" * 64
 
 
 def test_snapshot_reconciles_answered_approval_without_losing_request_details() -> None:
@@ -106,6 +154,49 @@ def test_snapshot_reconciles_answered_approval_without_losing_request_details() 
         "decided": True,
         "receipt_ref": "exit 0: approved",
     }
+
+
+@pytest.mark.parametrize(
+    ("outcome", "expected_state", "expected_decided"),
+    [
+        ("answered_elsewhere", "failed", True),
+        ("rejected_by_authority", "failed", False),
+    ],
+)
+def test_snapshot_uses_authority_outcome_for_answer_state(
+    outcome: str,
+    expected_state: str,
+    expected_decided: bool,
+) -> None:
+    requested = WorkspaceEvent(
+        protocol_version=1, session_id="session-1", cursor=1,
+        event_id="approval-requested", type="approval.requested",
+        timestamp="2026-08-20T00:00:00Z", actor_id="python",
+        command_id="command-1", payload={
+            "approval_id": "abc123def456", "summary": "Write manifest",
+            "status": "pending", "risk": "high", "sealed": True,
+            "decided": False,
+        },
+    )
+    answered = WorkspaceEvent(
+        protocol_version=1, session_id="session-1", cursor=2,
+        event_id="approval-answered", type="approval.answered",
+        timestamp="2026-08-20T00:00:01Z", actor_id="python",
+        command_id="command-2", payload={
+            "approval_id": "abc123def456",
+            "decision": "approve",
+            "outcome": outcome,
+        },
+    )
+
+    snapshot = reduce_snapshot("session-1", (requested, answered))
+    item = next(
+        panel.items[0] for panel in snapshot.panels if panel.key == "approvals"
+    )
+
+    assert item["status"] == outcome
+    assert item["ui_state"] == expected_state
+    assert item["decided"] is expected_decided
 
 
 def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(

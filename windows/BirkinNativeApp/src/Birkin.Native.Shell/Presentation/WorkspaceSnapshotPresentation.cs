@@ -28,6 +28,7 @@ public sealed record WorkspaceSnapshotPresentation
             [],
             [],
             [],
+            [],
             new TerminalPresentation(false, 0),
             MutationAvailabilityPresentation.PhaseOne)
     {
@@ -46,6 +47,7 @@ public sealed record WorkspaceSnapshotPresentation
         ComposerPresentation Composer,
         WorkingMemoryPresentation WorkingMemory,
         IReadOnlyList<ApprovalPolicyRowPresentation> Approvals,
+        IReadOnlyList<PanelItemPresentation> ApprovalRequests,
         IReadOnlyList<PanelItemPresentation> Activity,
         IReadOnlyList<PanelItemPresentation> Browser,
         IReadOnlyList<PanelItemPresentation> Office,
@@ -64,6 +66,7 @@ public sealed record WorkspaceSnapshotPresentation
         this.Composer = Composer;
         this.WorkingMemory = WorkingMemory;
         this.Approvals = Approvals;
+        this.ApprovalRequests = ApprovalRequests;
         this.Activity = Activity;
         this.Browser = Browser;
         this.Office = Office;
@@ -83,6 +86,7 @@ public sealed record WorkspaceSnapshotPresentation
     public ComposerPresentation Composer { get; }
     public WorkingMemoryPresentation WorkingMemory { get; }
     public IReadOnlyList<ApprovalPolicyRowPresentation> Approvals { get; }
+    public IReadOnlyList<PanelItemPresentation> ApprovalRequests { get; }
     public IReadOnlyList<PanelItemPresentation> Activity { get; }
     public IReadOnlyList<PanelItemPresentation> Browser { get; }
     public IReadOnlyList<PanelItemPresentation> Office { get; }
