@@ -582,7 +582,16 @@ def _open_session(session, row):
 def _resolve_approval(row, *, approve: bool) -> dict[str, Any]:
     try:
         from . import approvals
-        fn = approvals.approve if approve else approvals.reject
-        return fn(row["id"]) or {"ok": False, "error": "결과 없음"}
+        if approve:
+            return approvals.approve(
+                row["id"],
+                approved_by="human:terminal",
+                approved_via="terminal:dash",
+            ) or {"ok": False, "error": "결과 없음"}
+        return approvals.reject(
+            row["id"],
+            rejected_by="human:terminal",
+            rejected_via="terminal:dash",
+        ) or {"ok": False, "error": "결과 없음"}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:120]}

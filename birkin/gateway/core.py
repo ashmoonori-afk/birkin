@@ -808,7 +808,11 @@ class Gateway:
                     return "OMO control is restricted to configured Telegram chat IDs."
                 return self._omo_controller.handle(text)
             if cmd == "deny":
-                return self.deny_command(cmd_arg)
+                return self.deny_command(
+                    cmd_arg,
+                    actor_id=f"human:{channel}:{sender_id or chat_id}",
+                    via=f"gateway:{channel}",
+                )
             if cmd == "remind":
                 return self.remind_command(cmd_arg, channel, str(chat_id))
             if cmd in ("commitment", "checkin", "companion"):
@@ -1275,30 +1279,50 @@ class Gateway:
         return (f"⏰ {cron.schedule_display(job)}에 알려드릴게요: "
                 f"\"{prompt[:60]}\" (id {job['id']}, 취소는 /remind del {job['id']})")
 
-    def resolve_action(self, aid: str, approve: bool) -> str:
+    def resolve_action(
+        self,
+        aid: str,
+        approve: bool,
+        *,
+        actor_id: str,
+        via: str,
+    ) -> str:
         """Approve/reject one pending action (the button-tap handler).
         Callers must gate on a trusted channel first."""
         from .. import approvals
         if approve:
-            out = approvals.approve(aid)
+            out = approvals.approve(
+                aid,
+                approved_by=actor_id,
+                approved_via=via,
+            )
             if not out.get("ok"):
                 return f"⚠ {out.get('error', 'approve failed')}"
             store.append_activity(f"approval[{aid}]: approved via gateway")
             return f"✅ approved — {out.get('result', '')}"[:500]
-        out = approvals.reject(aid)
+        out = approvals.reject(
+            aid,
+            rejected_by=actor_id,
+            rejected_via=via,
+        )
         if not out.get("ok"):
             return "⚠ not found or already resolved"
         store.append_activity(f"approval[{aid}]: rejected via gateway")
         return "❌ rejected"
 
-    def deny_command(self, arg: str) -> str:
+    def deny_command(self, arg: str, *, actor_id: str, via: str) -> str:
         """/deny <id> <reason> — refuse, and tell the agent why."""
         from .. import approvals
         parts = (arg or "").strip().split(None, 1)
         if not parts:
             return "형식: /deny <id> <이유>  (대기 목록은 /pending)"
         aid, reason = parts[0], (parts[1] if len(parts) > 1 else "")
-        out = approvals.reject(aid, reason=reason)
+        out = approvals.reject(
+            aid,
+            reason=reason,
+            rejected_by=actor_id,
+            rejected_via=via,
+        )
         if not out.get("ok"):
             return "⚠ not found or already resolved"
         store.append_activity(
@@ -1307,9 +1331,19 @@ class Gateway:
         return ("❌ 거부했습니다." if not reason
                 else f"❌ 거부했습니다 — 사유를 에이전트에게 전달합니다: {reason[:200]}")
 
-    def claim_action(self, aid: str) -> tuple[str, bool]:
+    def claim_action(
+        self,
+        aid: str,
+        *,
+        actor_id: str,
+        via: str,
+    ) -> tuple[str, bool]:
         from .. import approvals
-        out = approvals.claim(aid)
+        out = approvals.claim(
+            aid,
+            approved_by=actor_id,
+            approved_via=via,
+        )
         if not out.get("ok"):
             return f"⚠ {out.get('error', 'approve failed')}", False
         return "✅ approved — 실행 중", True

@@ -22,7 +22,12 @@ def _pending_path(approval_id: str) -> Path:
     return config.pending_dir() / f"{approval_id}.json"
 
 
-def claim(approval_id: str) -> dict[str, Any]:
+def claim(
+    approval_id: str,
+    *,
+    approved_by: str,
+    approved_via: str,
+) -> dict[str, Any]:
     """Atomically claim pending authority or re-enter an Office recovery."""
     if not store.valid_pending_id(approval_id):
         return {"ok": False, "error": "invalid approval id"}
@@ -36,6 +41,11 @@ def claim(approval_id: str) -> dict[str, Any]:
                 and record.get("category") == "office_job"
             )
             if resuming_office:
+                if not record.get("approved_by") or not record.get("approved_via"):
+                    return {
+                        "ok": False,
+                        "error": "Office approval authority is incomplete",
+                    }
                 return {"ok": True}
             if record.get("status") != "pending":
                 return {"ok": False, "error": "not found or already resolved"}
@@ -46,7 +56,12 @@ def claim(approval_id: str) -> dict[str, Any]:
                     "ok": False,
                     "error": "Telegram workflow requires its origin chat",
                 }
-            store.resolve_pending(approval_id, "approving")
+            store.resolve_pending(
+                approval_id,
+                "approving",
+                approved_by=approved_by,
+                approved_via=approved_via,
+            )
     except store.FileLockTimeout:
         return {"ok": False, "error": "approval store is busy"}
     return {"ok": True}
@@ -191,14 +206,27 @@ def approve(
     approval_id: str,
     executor: ActionExecutor,
     on_event: Any = None,
+    *,
+    approved_by: str,
+    approved_via: str,
 ) -> dict[str, Any]:
-    claimed = claim(approval_id)
+    claimed = claim(
+        approval_id,
+        approved_by=approved_by,
+        approved_via=approved_via,
+    )
     if not claimed.get("ok"):
         return claimed
     return execute_claimed(approval_id, executor, on_event=on_event)
 
 
-def reject(approval_id: str, reason: str = "") -> dict[str, Any]:
+def reject(
+    approval_id: str,
+    reason: str = "",
+    *,
+    rejected_by: str,
+    rejected_via: str,
+) -> dict[str, Any]:
     if not store.valid_pending_id(approval_id):
         return {"ok": False}
     try:
@@ -206,7 +234,13 @@ def reject(approval_id: str, reason: str = "") -> dict[str, Any]:
             record = store.get_pending(approval_id)
             if not record or record.get("status") != "pending":
                 return {"ok": False}
-            store.resolve_pending(approval_id, "rejected", reason=reason)
+            store.resolve_pending(
+                approval_id,
+                "rejected",
+                reason=reason,
+                rejected_by=rejected_by,
+                rejected_via=rejected_via,
+            )
     except store.FileLockTimeout:
         return {"ok": False}
     return {"ok": True}

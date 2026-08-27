@@ -46,7 +46,7 @@ def test_approval_activates_the_commitment():
     _bound()
     status = companion.propose_checkin(outcome="ship the draft",
                                        check_in_at=AT, cfg={})
-    resolved = approvals.approve(status["id"])
+    resolved = approvals.approve(status["id"], approved_by="human:test", approved_via="test")
     assert resolved.get("ok"), resolved
     record = companion.get_commitment(status["commitment_id"])
     assert record["status"] == "active"

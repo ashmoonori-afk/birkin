@@ -244,7 +244,7 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert approval["source_sha256"] == source["content_hash"]
     assert approval["destination"] == str(destination)
     assert approval["allowlist_root"] == str((tmp_path / "workspace").resolve())
-    assert approval["actor"] == "native:office-journey"
+    assert approval["proposer"] == "native:office-journey"
     assert isinstance(approval["job_id"], str)
     assert isinstance(approval["proposal_digest"], str)
     assert not destination.exists()

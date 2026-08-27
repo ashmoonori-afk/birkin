@@ -82,7 +82,11 @@ def propose(*, category: str, title: str, description: str,
                             origin=origin,
                             continuation=parsed_continuation)
     if auto:
-        resolved = approve(rec["id"])
+        resolved = approve(
+            rec["id"],
+            approved_by="system:auto-approval",
+            approved_via="policy:auto-approve",
+        )
         return {"auto": True, "ok": bool(resolved.get("ok")),
                 "id": rec["id"], "category": category,
                 "result": resolved.get("result", resolved.get("error", ""))}
@@ -160,8 +164,17 @@ def reviewable_pending() -> list[dict[str, Any]]:
             if rec.get("category") != "workflow"]
 
 
-def claim(aid: str) -> dict[str, Any]:
-    return approval_execution.claim(aid)
+def claim(
+    aid: str,
+    *,
+    approved_by: str,
+    approved_via: str,
+) -> dict[str, Any]:
+    return approval_execution.claim(
+        aid,
+        approved_by=approved_by,
+        approved_via=approved_via,
+    )
 
 
 def execute_claimed(aid: str, on_event: Any = None) -> dict[str, Any]:
@@ -178,12 +191,35 @@ def restore_claim(aid: str) -> bool:
     return approval_execution.restore_claim(aid)
 
 
-def approve(aid: str, on_event: Any = None) -> dict[str, Any]:
-    return approval_execution.approve(aid, execute_action, on_event=on_event)
+def approve(
+    aid: str,
+    on_event: Any = None,
+    *,
+    approved_by: str,
+    approved_via: str,
+) -> dict[str, Any]:
+    return approval_execution.approve(
+        aid,
+        execute_action,
+        on_event=on_event,
+        approved_by=approved_by,
+        approved_via=approved_via,
+    )
 
 
-def reject(aid: str, reason: str = "") -> dict[str, Any]:
-    return approval_execution.reject(aid, reason=reason)
+def reject(
+    aid: str,
+    reason: str = "",
+    *,
+    rejected_by: str,
+    rejected_via: str,
+) -> dict[str, Any]:
+    return approval_execution.reject(
+        aid,
+        reason=reason,
+        rejected_by=rejected_by,
+        rejected_via=rejected_via,
+    )
 
 
 def denial_reason_for(command: str) -> str:
@@ -228,7 +264,11 @@ def review_cli() -> int:
             print("\nstopped.")
             break
         if choice in ("y", "yes"):
-            res = approve(rec["id"])
+            res = approve(
+                rec["id"],
+                approved_by="human:terminal",
+                approved_via="terminal:review",
+            )
             print(f"   ✓ {res.get('result', res)}\n")
         elif choice in ("n", "no"):
             why = ""
@@ -237,7 +277,12 @@ def review_cli() -> int:
                             ).strip()
             except (EOFError, KeyboardInterrupt):
                 why = ""
-            reject(rec["id"], reason=why)
+            reject(
+                rec["id"],
+                reason=why,
+                rejected_by="human:terminal",
+                rejected_via="terminal:review",
+            )
             print("   ✗ rejected\n")
         else:
             print("   … skipped\n")

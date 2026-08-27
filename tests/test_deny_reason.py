@@ -21,7 +21,7 @@ def _proposed(cfg) -> str:
 def test_reject_persists_the_reason(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     aid = _proposed({"auto_approve": []})
-    assert approvals.reject(aid, reason="build/ is checked in here")["ok"]
+    assert approvals.reject(aid, reason="build/ is checked in here", rejected_by="human:test", rejected_via="test")["ok"]
     rec = store.get_pending(aid)
     assert rec["status"] == "rejected"
     assert rec["deny_reason"] == "build/ is checked in here"
@@ -30,14 +30,14 @@ def test_reject_persists_the_reason(tmp_path, monkeypatch):
 def test_reject_without_a_reason_still_works(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     aid = _proposed({"auto_approve": []})
-    assert approvals.reject(aid)["ok"]
+    assert approvals.reject(aid, rejected_by="human:test", rejected_via="test")["ok"]
     assert "deny_reason" not in store.get_pending(aid)
 
 
 def test_denial_reason_is_looked_up_by_exact_command(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     aid = _proposed({"auto_approve": []})
-    approvals.reject(aid, reason="build/ is checked in here")
+    approvals.reject(aid, reason="build/ is checked in here", rejected_by="human:test", rejected_via="test")
     assert approvals.denial_reason_for("rm -rf build") == \
         "build/ is checked in here"
     assert approvals.denial_reason_for("rm -rf dist") == ""
@@ -48,7 +48,7 @@ def test_shellguard_hands_the_prior_reason_back_to_the_model(tmp_path,
                                                              monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     cfg = {"auto_approve": []}
-    approvals.reject(_proposed(cfg), reason="build/ is checked in here")
+    approvals.reject(_proposed(cfg), reason="build/ is checked in here", rejected_by="human:test", rejected_via="test")
 
     from birkin import shellguard
     result = shellguard._queue_for_approval("rm -rf build", "destructive", cfg)
@@ -63,11 +63,23 @@ def test_gateway_deny_command_parses_id_and_reason(tmp_path, monkeypatch):
     from birkin.gateway.core import Gateway
     gw = Gateway.__new__(Gateway)
 
-    assert "형식" in gw.deny_command("")
-    out = gw.deny_command(f"{aid} 그 디렉터리는 커밋돼 있어요")
+    assert "형식" in gw.deny_command(
+        "",
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
+    out = gw.deny_command(
+        f"{aid} 그 디렉터리는 커밋돼 있어요",
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
     assert "거부" in out
     assert store.get_pending(aid)["deny_reason"] == "그 디렉터리는 커밋돼 있어요"
-    assert "already resolved" in gw.deny_command(f"{aid} 다시")
+    assert "already resolved" in gw.deny_command(
+        f"{aid} 다시",
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
 
 
 def test_deny_is_a_privileged_gateway_command():

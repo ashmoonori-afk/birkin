@@ -50,12 +50,9 @@ def run(decision: str) -> int:
                 )
                 before = store.get_pending(queued["id"])
                 if decision == "approve":
-                    result = approvals.approve(queued["id"], on_event=on_event)
+                    result = approvals.approve(queued["id"], on_event=on_event, approved_by="system:qa", approved_via="qa:script")
                 else:
-                    result = approvals.reject(
-                        queued["id"],
-                        reason="qa rejection",
-                    )
+                    result = approvals.reject(queued["id"], reason="qa rejection", rejected_by="system:qa", rejected_via="qa:script")
                 final = store.get_pending(queued["id"])
         finally:
             if previous_home is None:

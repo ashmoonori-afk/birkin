@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
+import stat
 from collections.abc import Callable
 from pathlib import Path
 
@@ -31,6 +32,16 @@ def recovery_error(message: str, stage: str = "export") -> DocumentError:
         retryable=True,
         details={"reason": "recovery_required"},
     )
+
+
+def regular_file_identity(path: Path, stage: str = "export") -> tuple[int, int]:
+    try:
+        metadata = path.stat(follow_symlinks=False)
+    except OSError as exc:
+        raise recovery_error("export helper identity is unavailable", stage) from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        raise recovery_error("export helper must remain a regular file", stage)
+    return metadata.st_dev, metadata.st_ino
 
 
 def copy_exact(source: Path | SnapshotPath, target: Path) -> None:

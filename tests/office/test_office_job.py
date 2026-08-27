@@ -103,7 +103,7 @@ def _advance_to_approval(job: OfficeJob) -> None:
     job.declare_outcome("Replace the heading")
     job.propose_operations([{"type": "replace_text", "value": "New"}])
     job.build_preview()
-    job.request_approval()
+    job.request_approval(proposer="test:proposer", authority_digest="a" * 64)
 
 
 def _assert_error_code(caught: pytest.ExceptionInfo[DocumentError], code: DocumentErrorCode) -> None:
@@ -117,12 +117,12 @@ def test_approval_request_binds_preview_source_and_proposal_digest() -> None:
     job.declare_outcome("Replace the heading")
     job.propose_operations([{"type": "replace_text", "value": "New"}])
     job.build_preview()
-    request = job.request_approval()
+    request = job.request_approval(proposer="test:proposer", authority_digest="a" * 64)
 
     assert request["source_sha256"] == "source-sha"
     assert isinstance(request["proposal_digest"], str)
 
-    job.approve(actor="reviewer")
+    job.approve(approver="reviewer", approved_via="test:office-job")
     approval = job.receipt()["approval"]
     assert isinstance(approval, dict)
     assert request["proposal_digest"] == approval["proposal_digest"]
@@ -132,7 +132,7 @@ def test_happy_path_has_exact_state_sequence() -> None:
     job, runner = _job()
 
     _advance_to_approval(job)
-    job.approve(actor="reviewer")
+    job.approve(approver="reviewer", approved_via="test:office-job")
     job.execute()
     job.validate()
     publication = job.publish(output_name="final.docx")
@@ -164,7 +164,7 @@ def test_happy_path_has_exact_state_sequence() -> None:
 def test_export_requires_validated_internal_publication() -> None:
     job, runner = _job()
     _advance_to_approval(job)
-    job.approve(actor="reviewer")
+    job.approve(approver="reviewer", approved_via="test:office-job")
     job.execute()
     job.validate()
 
@@ -179,7 +179,7 @@ def test_export_requires_validated_internal_publication() -> None:
 def test_rollback_returns_exported_job_to_validated_with_receipts() -> None:
     job, runner = _job()
     _advance_to_approval(job)
-    job.approve(actor="reviewer")
+    job.approve(approver="reviewer", approved_via="test:office-job")
     job.execute()
     job.validate()
     job.publish(output_name="final.docx")
@@ -219,7 +219,7 @@ def test_skipping_states_and_empty_operations_are_rejected() -> None:
 def test_cannot_return_to_operations_after_approval() -> None:
     job, _runner = _job()
     _advance_to_approval(job)
-    job.approve(actor="reviewer")
+    job.approve(approver="reviewer", approved_via="test:office-job")
 
     with pytest.raises(DocumentError) as caught:
         job.propose_operations([{"type": "other"}])
@@ -243,7 +243,7 @@ def test_execution_without_approval_is_policy_denied_without_runner_call() -> No
 def test_rejection_is_terminal() -> None:
     job, runner = _job()
     _advance_to_approval(job)
-    job.reject(actor="reviewer", reason="Needs revision")
+    job.reject(rejected_by="reviewer", rejected_via="test:office-job", reason="Needs revision")
 
     with pytest.raises(DocumentError) as caught:
         job.execute()
@@ -256,7 +256,7 @@ def test_rejection_is_terminal() -> None:
 def test_changed_operations_after_approval_are_rejected_without_runner_call() -> None:
     job, runner = _job()
     _advance_to_approval(job)
-    job.approve(actor="reviewer")
+    job.approve(approver="reviewer", approved_via="test:office-job")
     job._operations.append({"type": "injected"})
 
     with pytest.raises(DocumentError) as caught:
@@ -270,7 +270,7 @@ def test_changed_operations_after_approval_are_rejected_without_runner_call() ->
 def test_failed_validation_blocks_publication_without_runner_call() -> None:
     job, runner = _job(validation_status="fail")
     _advance_to_approval(job)
-    job.approve(actor="reviewer")
+    job.approve(approver="reviewer", approved_via="test:office-job")
     job.execute()
 
     report = job.validate()

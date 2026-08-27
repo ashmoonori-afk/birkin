@@ -21,6 +21,7 @@ from .export_journal import (
 from .export_rollback import ExportRollback
 from .export_types import ExportReceipt, ExportRequest, RollbackReceipt
 from .path_security import directory_identity
+from .proposal_integrity import authority_digest
 
 
 @final
@@ -40,10 +41,16 @@ class ExportTransactionRunner:
         transaction = self._journal.load(key)
         if transaction is None:
             transaction = self._begin(destination, source_sha256, request)
-        elif transaction.phase is ExportPhase.rolled_back:
-            self._retire(transaction)
-            transaction = self._begin(destination, source_sha256, request)
-        self._verify_identity(transaction, destination, source_sha256)
+        else:
+            transaction = self._verify_identity(
+                transaction,
+                destination,
+                source_sha256,
+                request,
+            )
+            if transaction.phase is ExportPhase.rolled_back:
+                self._retire(transaction)
+                transaction = self._begin(destination, source_sha256, request)
         commit = ExportCommit(self._backup_root, self._journal, self._sync)
         match transaction.phase:
             case ExportPhase.intent:
@@ -89,9 +96,17 @@ class ExportTransactionRunner:
                 "export destination must be a regular file",
             )
         key = transaction_id(destination, source_sha256, request)
+        digest, authority_source_sha256 = self._approved_authority(
+            destination,
+            source_sha256,
+            request,
+        )
         token = uuid.uuid4().hex
         transaction = ExportTransaction(
             transaction_id=key,
+            authority_digest=digest,
+            authority_source_sha256=authority_source_sha256,
+            authority_bound=True,
             phase=ExportPhase.intent,
             rollback_token=token,
             destination=destination,
@@ -111,16 +126,40 @@ class ExportTransactionRunner:
         transaction: ExportTransaction,
         destination: Path,
         source_sha256: str,
-    ) -> None:
+        request: ExportRequest,
+    ) -> ExportTransaction:
+        expected_authority_digest, authority_source_sha256 = (
+            self._approved_authority(
+                destination,
+                source_sha256,
+                request,
+            )
+        )
+        expected_staging = (
+            destination.parent
+            / f".birkin-export-{transaction.transaction_id}{destination.suffix}"
+        )
+        expected_backup = (
+            self._backup_root / f"{transaction.rollback_token}.bak"
+            if transaction.destination_existed
+            else None
+        )
         if (
             transaction.destination != destination
             or transaction.source_sha256 != source_sha256
             or transaction.output_sha256 != source_sha256
-            or transaction.staging.parent != destination.parent
+            or transaction.transaction_id
+            != transaction_id(destination, source_sha256, request)
+            or transaction.staging != expected_staging
+            or transaction.backup != expected_backup
             or directory_identity(destination.parent) != transaction.parent_identity
             or (
-                transaction.backup is not None
-                and transaction.backup.parent != self._backup_root
+                transaction.authority_bound
+                and (
+                    transaction.authority_digest != expected_authority_digest
+                    or transaction.authority_source_sha256
+                    != authority_source_sha256
+                )
             )
         ):
             raise DocumentError(
@@ -128,6 +167,14 @@ class ExportTransactionRunner:
                 "export",
                 "export transaction does not match approved authority",
             )
+        if transaction.authority_bound:
+            return transaction
+        upgraded = transaction.bind_authority(
+            expected_authority_digest,
+            authority_source_sha256,
+        )
+        self._journal.write(upgraded)
+        return upgraded
 
     @staticmethod
     def _retire(transaction: ExportTransaction) -> None:
@@ -156,6 +203,7 @@ class ExportTransactionRunner:
             )
         if transaction.destination_existed and (
             transaction.backup is None
+            or transaction.backup.is_symlink()
             or not transaction.backup.is_file()
             or hash_file(transaction.backup) != transaction.destination_sha256
         ):
@@ -167,13 +215,35 @@ class ExportTransactionRunner:
     ) -> ExportReceipt:
         return ExportReceipt(
             rollback_token=transaction.rollback_token,
+            authority_digest=transaction.authority_digest,
+            authority_source_sha256=transaction.authority_source_sha256,
+            authority_bound=True,
             destination=transaction.destination,
             source_sha256=transaction.source_sha256,
             output_sha256=transaction.output_sha256,
             operations=tuple(dict(operation) for operation in request.operations),
             actor=request.actor,
             proposal_digest=request.proposal_digest,
+            overwrite_approved=request.overwrite_approved,
             destination_existed=transaction.destination_existed,
             destination_sha256=transaction.destination_sha256,
             backup=transaction.backup,
         )
+
+    @staticmethod
+    def _approved_authority(
+        destination: Path,
+        export_source_sha256: str,
+        request: ExportRequest,
+    ) -> tuple[str, str]:
+        source_sha256 = request.authority_source_sha256 or export_source_sha256
+        expected = authority_digest(destination, source_sha256, request)
+        if request.authority_digest is not None and (
+            request.authority_digest != expected
+        ):
+            raise DocumentError(
+                DocumentErrorCode.POLICY_DENIED,
+                "export",
+                "export request authority digest changed",
+            )
+        return expected, source_sha256

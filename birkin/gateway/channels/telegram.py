@@ -803,7 +803,12 @@ class TelegramChannel(Channel):
 
         claimed = False
         if verb == "rej":
-            result = gateway.resolve_action(aid, approve=False)
+            result = gateway.resolve_action(
+                aid,
+                approve=False,
+                actor_id=f"human:telegram:{from_id}",
+                via="gateway:telegram",
+            )
         else:
             prev = self._workers.get(chat_id)
             action = self._action_workers.get(chat_id)
@@ -811,7 +816,11 @@ class TelegramChannel(Channel):
                     or (action is not None and action.is_alive())):
                 self._answer_callback(cq_id, "다른 작업이 진행 중입니다")
                 return
-            result, claimed = gateway.claim_action(aid)
+            result, claimed = gateway.claim_action(
+                aid,
+                actor_id=f"human:telegram:{from_id}",
+                via="gateway:telegram",
+            )
         self._answer_callback(cq_id, result[:190])
         mid = str(msg.get("message_id", ""))
         old = str(msg.get("text", ""))

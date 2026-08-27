@@ -66,7 +66,7 @@ class TestTheExecutorForwardsEvents:
         rec = approvals.propose(category="moirai", title="t", description="d",
                                 payload={"script": "hard-task", "task": "x"},
                                 cfg={})
-        approvals.claim(rec["id"])
+        approvals.claim(rec["id"], approved_by="human:test", approved_via="test")
         events: list[str] = []
         out = approvals.execute_claimed(rec["id"],
                                         on_event=lambda e, p: events.append(e))

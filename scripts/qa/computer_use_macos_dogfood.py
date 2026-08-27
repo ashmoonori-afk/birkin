@@ -203,7 +203,7 @@ def run(binary: Path, evidence_root: Path) -> int:
             }
             background = service.execute(background_request)
             approval = background["approval"]
-            claimed = approvals.claim(approval["review_id"])
+            claimed = approvals.claim(approval["review_id"], approved_by="system:qa", approved_via="qa:script")
             approved = approvals.execute_claimed(approval["review_id"])
             if not claimed.get("ok") or not approved.get("ok"):
                 raise RuntimeError("Foreground approval bridge failed.")

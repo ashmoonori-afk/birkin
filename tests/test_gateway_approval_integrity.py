@@ -20,7 +20,7 @@ def test_claimed_action_executes_only_its_stored_payload(
         payload={"value": "stored"},
         origin="test",
     )
-    assert approvals.claim(rec["id"])["ok"] is True
+    assert approvals.claim(rec["id"], approved_by="human:test", approved_via="test")["ok"] is True
     executed: list[tuple[str, dict]] = []
     monkeypatch.setattr(
         approvals,
@@ -62,7 +62,11 @@ def test_generic_approval_worker_has_a_dedicated_slot(monkeypatch) -> None:
 
     class _Gateway:
         @staticmethod
-        def claim_action(_aid):
+        def claim_action(_aid, **identity):
+            assert identity == {
+                "actor_id": "human:telegram:42",
+                "via": "gateway:telegram",
+            }
             return "running", True
 
         @staticmethod
@@ -133,7 +137,14 @@ def test_approval_transitions_preserve_busy_contract_on_lock_timeout(
 
     monkeypatch.setattr(store, "file_lock", lambda _path: _TimeoutLock())
 
-    result = getattr(approvals, transition)(rec["id"])
+    resolver_kwargs = {
+        "claim": {"approved_by": "human:test", "approved_via": "test"},
+        "reject": {"rejected_by": "human:test", "rejected_via": "test"},
+    }
+    result = getattr(approvals, transition)(
+        rec["id"],
+        **resolver_kwargs.get(transition, {}),
+    )
 
     assert result == expected
     assert pending_path.read_bytes() == before
@@ -153,7 +164,7 @@ def test_manual_cron_approval_restores_pending_on_cron_lock_timeout(
             store.FileLockTimeout("cron store is busy; retry.")),
     )
 
-    result = approvals.approve(rec["id"])
+    result = approvals.approve(rec["id"], approved_by="human:test", approved_via="test")
 
     assert result == {"ok": False, "error": "cron store is busy; retry."}
     assert store.get_pending(rec["id"])["status"] == "pending"

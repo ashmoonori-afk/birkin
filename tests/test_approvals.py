@@ -1,5 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from functools import partial
+from inspect import Parameter, signature
 from pathlib import Path
 
 import pytest
@@ -33,6 +35,20 @@ def test_propose_consequential_is_queued():
     assert pending[0]["title"] == "Digest"
 
 
+def test_public_resolution_api_requires_explicit_identity() -> None:
+    required = {
+        approvals.approve: ("approved_by", "approved_via"),
+        approvals.reject: ("rejected_by", "rejected_via"),
+        approvals.claim: ("approved_by", "approved_via"),
+    }
+    for resolver, parameters in required.items():
+        resolver_signature = signature(resolver)
+        assert all(
+            resolver_signature.parameters[name].default is Parameter.empty
+            for name in parameters
+        )
+
+
 def test_failed_auto_skill_proposal_is_audited_as_error():
     cfg = {"auto_approve": ["skill"]}
     res = approvals.propose(
@@ -49,7 +65,7 @@ def test_approve_executes_and_clears():
                       payload={"name": "digest", "hour": 9, "minute": 0,
                                "type": "prompt", "value": "go"}, cfg=cfg)
     pid = store.list_pending()[0]["id"]
-    res = approvals.approve(pid)
+    res = approvals.approve(pid, approved_by="human:test", approved_via="test")
     assert res["ok"] is True
     assert store.list_pending() == []
     jobs = cron.load_jobs()
@@ -61,7 +77,7 @@ def test_reject_clears_without_executing():
     approvals.propose(category="cron", title="X", description="",
                       payload={"name": "x", "hour": 1, "minute": 0}, cfg=cfg)
     pid = store.list_pending()[0]["id"]
-    assert approvals.reject(pid)["ok"] is True
+    assert approvals.reject(pid, rejected_by="human:test", rejected_via="test")["ok"] is True
     assert store.list_pending() == []
     assert cron.load_jobs() == []
 
@@ -184,7 +200,11 @@ def test_concurrent_shell_approval_executes_exactly_once(
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(
             pool.map(
-                approvals.approve,
+                partial(
+                    approvals.approve,
+                    approved_by="human:test",
+                    approved_via="test",
+                ),
                 [proposal["id"], proposal["id"]],
             )
         )
@@ -223,7 +243,7 @@ def test_terminal_lease_approval_skips_placeholder_shell(
     approval_id = proposal.get("id")
     assert isinstance(approval_id, str)
 
-    result = approvals.approve(approval_id)
+    result = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     assert result == {"ok": True, "result": "Approved native terminal lease."}
     assert calls == []
@@ -260,7 +280,7 @@ def test_forged_terminal_lease_marker_cannot_bypass_shell_dispatch(
     approval_id = proposal.get("id")
     assert isinstance(approval_id, str)
 
-    result = approvals.approve(approval_id)
+    result = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     assert result == {
         "ok": False,
@@ -324,7 +344,7 @@ def test_structured_action_rejects_legacy_approval_bypass():
         origin="test",
     )
 
-    result = approvals.approve(action["id"])
+    result = approvals.approve(action["id"], approved_by="human:test", approved_via="test")
 
     assert result == {
         "ok": False,
@@ -347,7 +367,7 @@ def test_rejected_structured_action_cannot_be_answered():
         }],
         origin="test",
     )
-    assert approvals.reject(action["id"])["ok"] is True
+    assert approvals.reject(action["id"], rejected_by="human:test", rejected_via="test")["ok"] is True
 
     result = approvals.answer(
         action["id"], answers={"target": "staging"}, source="web:user")
@@ -570,7 +590,7 @@ def test_execute_claimed_unknown_category_marks_error():
         payload={},
     )
     aid = rec["id"]
-    assert approvals.claim(aid)["ok"] is True
+    assert approvals.claim(aid, approved_by="human:test", approved_via="test")["ok"] is True
 
     result = approvals.execute_claimed(aid)
 

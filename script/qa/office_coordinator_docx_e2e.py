@@ -163,7 +163,7 @@ def _denial_probes(root: Path) -> dict[str, object]:
 
     overwrite = _flow(root, "overwrite")
     body = _propose(overwrite, _request(overwrite, overwrite=False))
-    denied = approvals.approve(cast(str, body["id"]))
+    denied = approvals.approve(cast(str, body["id"]), approved_by="system:qa", approved_via="qa:script")
     assert denied["ok"] is False and "OUTPUT_EXISTS" in cast(str, denied["error"])
     records["overwrite"] = {"code": "OUTPUT_EXISTS", "unchanged": _unchanged(overwrite)}
 
@@ -177,7 +177,7 @@ def _denial_probes(root: Path) -> dict[str, object]:
     config.pending_dir().joinpath(f"{approval_id}.json").write_text(
         json.dumps(record), encoding="utf-8"
     )
-    denied = approvals.approve(approval_id)
+    denied = approvals.approve(approval_id, approved_by="system:qa", approved_via="qa:script")
     assert denied["ok"] is False and "POLICY_DENIED" in cast(str, denied["error"])
     records["digest_drift"] = {"code": "POLICY_DENIED", "unchanged": _unchanged(drift)}
     expected = {
@@ -214,7 +214,8 @@ def run(out: Path) -> dict[str, object]:
         }
         assert approval["source_sha256"] == flow.source_sha256
         assert approval["destination"] == str(flow.destination)
-        assert approval["actor"] == ACTOR
+        assert approval["proposer"] == ACTOR
+        assert isinstance(approval["authority_digest"], str)
         actions.append("semantic preview captured and approval binding verified")
         pending = cast("dict[str, object]", approval_record["payload"])
         try:
@@ -224,8 +225,16 @@ def run(out: Path) -> dict[str, object]:
         else:
             raise AssertionError("preapproval execution was not denied")
         actions.append("preapproval execution denied with POLICY_DENIED")
-        approved = approvals.approve(approval_id)
+        approved = approvals.approve(
+            approval_id,
+            approved_by="system:qa",
+            approved_via="qa:office-coordinator-docx",
+        )
         assert approved["ok"] is True, approved
+        approval_record = store.get_pending(approval_id)
+        assert approval_record is not None
+        assert approval_record["approved_by"] == "system:qa"
+        assert approval_record["approved_via"] == "qa:office-coordinator-docx"
         receipt = cast("dict[str, object]", json.loads(cast(str, approved["result"])))
         assert Document(str(flow.destination)).paragraphs[0].text == AFTER
         exported_sha = _sha256(flow.destination)
@@ -239,7 +248,16 @@ def run(out: Path) -> dict[str, object]:
         actions.append("durable job restored and destination rolled back byte-for-byte")
         final_receipt = job.receipt()
         export = cast("dict[str, object]", final_receipt["export"])
-        assert {"source_sha256", "output_sha256", "operations", "actor", "proposal_digest"} <= set(export)
+        assert {
+            "authority_digest",
+            "source_sha256",
+            "output_sha256",
+            "operations",
+            "actor",
+            "proposal_digest",
+        } <= set(export)
+        assert final_receipt["authority_digest"] == export["authority_digest"]
+        assert final_receipt["approved_by"] == "system:qa"
         _write_json(out / "approval-record.json", approval_record)
         _write_json(out / "policy-denied.json", _denial_probes(runtime_path))
         _write_json(out / "receipt.json", final_receipt)

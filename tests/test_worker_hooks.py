@@ -52,7 +52,7 @@ def test_approved_worker_hook_executes_and_resumes_once(
     assert pending["status"] == "pending"
     assert pending["continuation"] == _continuation()
 
-    result = approvals.approve(queued["id"], on_event=on_event)
+    result = approvals.approve(queued["id"], on_event=on_event, approved_by="human:test", approved_via="test")
 
     assert result["ok"] is True
     assert result["result"] == "shell:step"
@@ -88,9 +88,9 @@ def test_rejected_worker_hook_never_executes_or_resumes(
     )
 
     assert calls == []
-    assert approvals.reject(queued["id"], reason="not now") == {"ok": True}
+    assert approvals.reject(queued["id"], reason="not now", rejected_by="human:test", rejected_via="test") == {"ok": True}
     assert calls == []
-    assert approvals.approve(queued["id"], on_event=on_event)["ok"] is False
+    assert approvals.approve(queued["id"], on_event=on_event, approved_by="human:test", approved_via="test")["ok"] is False
     assert calls == []
     resolved = store.get_pending(queued["id"])
     assert resolved is not None
@@ -121,8 +121,8 @@ def test_repeated_worker_hook_approval_is_at_most_once(
         continuation=_continuation(),
     )
 
-    first = approvals.approve(queued["id"], on_event=on_event)
-    second = approvals.approve(queued["id"], on_event=on_event)
+    first = approvals.approve(queued["id"], on_event=on_event, approved_by="human:test", approved_via="test")
+    second = approvals.approve(queued["id"], on_event=on_event, approved_by="human:test", approved_via="test")
 
     assert first["ok"] is True
     assert second["ok"] is False
@@ -162,7 +162,7 @@ def test_worker_hook_preserves_worker_authority_boundaries(
         pending = store.get_pending(queued["id"])
         assert pending is not None
         assert pending["continuation"]["worker"] == worker
-        assert approvals.reject(queued["id"]) == {"ok": True}
+        assert approvals.reject(queued["id"], rejected_by="human:test", rejected_via="test") == {"ok": True}
 
     try:
         approvals.propose(

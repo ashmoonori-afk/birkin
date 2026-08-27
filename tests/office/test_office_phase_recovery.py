@@ -35,11 +35,11 @@ def test_executing_approval_claim_is_resumable_after_restart(
     # Given: a process that durably claimed approval and died before coordinator entry.
     body, record, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
     approval_id = cast(str, body["id"])
-    assert approvals.claim(approval_id)["ok"] is True
+    assert approvals.claim(approval_id, approved_by="human:test", approved_via="test")["ok"] is True
     _ = store.resolve_pending(approval_id, "executing")
 
     # When: a restarted process approves the same durable authority.
-    result = approvals.approve(approval_id)
+    result = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: it resumes once rather than stranding or duplicating the mutation.
     assert result["ok"] is True, result
@@ -51,6 +51,34 @@ def test_executing_approval_claim_is_resumable_after_restart(
     assert restored.history.count(OfficeJobState.exported) == 1
     assert _sha256(source) == source_sha256
     assert destination.is_file()
+
+
+def test_executing_office_claim_without_resolver_identity_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: an Office record says executing but has no durable approver identity.
+    body, _, _, destination, _ = _queue(tmp_path, monkeypatch)
+    approval_id = cast(str, body["id"])
+    _ = store.resolve_pending(approval_id, "executing")
+
+    # When: another principal attempts to resume the record.
+    result = approvals.approve(
+        approval_id,
+        approved_by="human:terminal",
+        approved_via="terminal:review",
+    )
+
+    # Then: the resumer is not misattributed as the original approver.
+    record = store.get_pending(approval_id)
+    assert result == {
+        "ok": False,
+        "error": "Office approval authority is incomplete",
+    }
+    assert record is not None
+    assert "approved_by" not in record
+    assert "approved_via" not in record
+    assert not destination.exists()
 
 
 @pytest.mark.parametrize(
@@ -82,14 +110,14 @@ def test_each_durable_job_checkpoint_resumes_without_repeating_state(
 
     monkeypatch.setattr(OfficeJobJournal, "append", crash_after_checkpoint)
     with pytest.raises(SimulatedCrash):
-        _ = approvals.approve(approval_id)
+        _ = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
     monkeypatch.setattr(OfficeJobJournal, "append", real_append)
     pending = store.get_pending(approval_id)
     assert pending is not None
     assert pending["status"] == "executing"
 
     # When: a new coordinator resumes from the latest complete snapshot.
-    result = approvals.approve(approval_id)
+    result = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: every completed phase remains singular and the export finishes.
     assert result["ok"] is True, result
@@ -125,11 +153,11 @@ def test_publication_commit_before_job_snapshot_is_reconciled(
 
     monkeypatch.setattr(DocumentServiceRunner, "publish", crash_after_publish)
     with pytest.raises(SimulatedCrash):
-        _ = approvals.approve(approval_id)
+        _ = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
     monkeypatch.setattr(DocumentServiceRunner, "publish", real_publish)
 
     # When: restart resumes a validated job with its deterministic output present.
-    result = approvals.approve(approval_id)
+    result = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
 
     # Then: publication is reconciled and export reaches the exact destination.
     assert result["ok"] is True, result
@@ -146,7 +174,7 @@ def test_rollback_commit_before_job_snapshot_is_reconciled(
     # Given: an exported job whose destination rollback commits before process exit.
     body, record, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
     approval_id = cast(str, body["id"])
-    assert approvals.approve(approval_id)["ok"] is True
+    assert approvals.approve(approval_id, approved_by="human:test", approved_via="test")["ok"] is True
     payload = cast("dict[str, object]", record["payload"])
     job = _restore(payload)
     real_rollback = DocumentServiceRunner.rollback_export

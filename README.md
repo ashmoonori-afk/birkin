@@ -208,6 +208,8 @@ Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supp
 
 Office provenance keeps exact reviewed artifact versions and supported runtime ranges as separate contracts. Normal environments validate the declared range; the locked Office CI also verifies exact installed versions.
 
+Office mutation approval binds the proposer, source digest, destination, exact operations, and overwrite decision in an `authority_digest`. Durable receipts retain that digest and the approving principal separately from the proposer.
+
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
 |---|---|---|---|---|---|---|---|---|

@@ -878,6 +878,9 @@ class Handler(BaseHTTPRequestHandler):
             + self.headers["X-Birkin-Browser-Client"]
         )
 
+    def _approval_actor_id(self) -> str:
+        return "principal:web:authenticated-capability"
+
     def _send_browser_denial(
         self,
         denial: BrowserRequestDenied,
@@ -1407,9 +1410,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(result, code=200 if result.get("ok") else 409)
             return
         result = (
-            approvals.approve(aid)
+            approvals.approve(
+                aid,
+                approved_by=self._approval_actor_id(),
+                approved_via="web:dashboard",
+            )
             if action == "approve"
-            else approvals.reject(aid)
+            else approvals.reject(
+                aid,
+                rejected_by=self._approval_actor_id(),
+                rejected_via="web:dashboard",
+            )
         )
         self._json(result)
 
