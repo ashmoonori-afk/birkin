@@ -500,21 +500,26 @@ proposals, action diffs, and execution receipts. A run can be steered, aborted,
 or resumed from its detail card; approval and rejection continue to use the
 same file-backed authority as `birkin review`.
 
-The server remains loopback-only by default. Remote binding is admitted only
-when both `web_remote_access` and the separate `web_remote_insecure_ack` are
-`true`; set the acknowledgement only after TLS termination or a trusted
-private-network tunnel is configured. Without both values, startup refuses
-before binding a socket. Remote mode binds on all interfaces but does **not**
-create a public route. In remote mode, `birkin web` prints a secret
-bootstrap URL using the server hostname and does not open it locally, because
-the nonce is one-time. Open that URL on the remote device; if the hostname is
-not resolvable there, replace only the hostname with the server's trusted
-private-network address. The URL exchanges the per-process capability for an
-HttpOnly, SameSite, Secure cookie, and every remote request without that capability is
-rejected. Local versus remote authority is derived from the TCP peer address,
-not the client-controlled `Host` header; the exact one-time bootstrap URL is the
-only unauthenticated remote exception. Put TLS or a trusted private-network
-tunnel in front when traffic leaves the host.
+The server remains loopback-only by default. Remote binding requires
+`web_remote_access=true` and an absolute HTTPS origin in `web_external_url`;
+startup refuses before binding when that endpoint is absent or not HTTPS.
+The legacy `web_remote_insecure_ack` key no longer admits remote binding.
+Remote mode binds on all interfaces but does **not** create a public route.
+Terminate TLS at the configured external origin and forward to Birkin's HTTP
+listener. Birkin treats `web_external_url` as the sole public-origin authority
+for the printed one-time bootstrap URL, accepted `Host`/`Origin`/`Referer`
+values, and the HttpOnly, SameSite, Secure capability cookie. It deliberately
+ignores `X-Forwarded-Proto`, so a client-controlled forwarding header cannot
+change cookie or origin policy.
+
+For SSH local forwarding, keep `web_remote_access=false` and leave
+`web_external_url` empty. Map the same local port, for example
+`ssh -L 8787:127.0.0.1:8787 host`, then open the printed
+`http://127.0.0.1:8787/_bootstrap/...` URL locally. Host and CSRF origins are
+matched to that exact listener port. This path uses an HttpOnly, SameSite
+cookie without `Secure` because HTTP is carried inside the trusted tunnel.
+Every request still needs the per-process capability, and the exact one-time
+bootstrap URL is the only unauthenticated exception.
 
 ## Checkpoints
 
@@ -988,7 +993,7 @@ This native design does **not** propose:
   "memory_nudge_interval": 6,
   "web_port": 8787,
   "web_remote_access": false,
-  "web_remote_insecure_ack": false,
+  "web_external_url": "",
   "browser_allow_private_network": false,
   "gateway_port": 8788,
   "gateway": {
