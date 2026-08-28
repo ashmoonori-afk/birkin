@@ -8,6 +8,8 @@ import uuid
 from collections.abc import Mapping
 from pathlib import Path
 
+from birkin.private_storage import open_private_file_for_read
+
 from .errors import DocumentError, DocumentErrorCode
 from .path_security import directory_identity, sync_directory
 
@@ -42,12 +44,12 @@ def journal_root(path: Path, stage: str) -> Path:
 
 def read_record(path: Path, stage: str) -> dict[str, object] | None:
     """Parse one complete journal record without accepting malformed fallback."""
-    if not path.exists():
-        return None
-    if path.is_symlink() or not path.is_file():
-        raise _error(stage, "journal record must be a regular file")
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        descriptor = open_private_file_for_read(path)
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            raw = json.load(handle)
+    except FileNotFoundError:
+        return None
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise _error(stage, "journal record is malformed") from exc
     except OSError as exc:

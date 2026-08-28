@@ -10,12 +10,13 @@ from typing import Final, Protocol, final
 
 from birkin.private_storage_windows import (
     _current_windows_owner_sid,
-    _owner_only_dacl,
+    _owner_only_security_parts,
 )
 
 _GENERIC_READ: Final = 0x80000000
 _READ_CONTROL: Final = 0x00020000
 _WRITE_DAC: Final = 0x00040000
+_WRITE_OWNER: Final = 0x00080000
 _FILE_SHARE_READ: Final = 0x00000001
 _FILE_SHARE_WRITE: Final = 0x00000002
 _FILE_SHARE_DELETE: Final = 0x00000004
@@ -27,6 +28,7 @@ _FILE_FLAG_OPEN_REPARSE_POINT: Final = 0x00200000
 _FILE_TYPE_DISK: Final = 1
 _FILE_ATTRIBUTE_TAG_INFO_CLASS: Final = 9
 _SE_FILE_OBJECT: Final = 1
+_OWNER_SECURITY_INFORMATION: Final = 0x00000001
 _DACL_SECURITY_INFORMATION: Final = 0x00000004
 _PROTECTED_DACL_SECURITY_INFORMATION: Final = 0x80000000
 
@@ -46,7 +48,12 @@ class _WindowsFileApi(Protocol):
 
     def get_file_attributes(self, handle: int) -> int: ...
 
-    def set_owner_only_dacl(self, handle: int) -> None: ...
+    def set_owner_only_dacl(
+        self,
+        handle: int,
+        *,
+        directory: bool,
+    ) -> None: ...
 
     def open_osfhandle(self, handle: int) -> int: ...
 
@@ -131,8 +138,17 @@ class _CtypesWindowsFileApi:
             raise ctypes.WinError()
         return information.file_attributes
 
-    def set_owner_only_dacl(self, handle: int) -> None:
-        with _owner_only_dacl(self._sid, directory=False) as dacl:
+    def set_owner_only_dacl(
+        self,
+        handle: int,
+        *,
+        directory: bool,
+    ) -> None:
+        with _owner_only_security_parts(
+            self._sid,
+            directory=directory,
+        ) as security:
+            owner, dacl = security
             set_info = ctypes.windll.advapi32.SetSecurityInfo
             set_info.argtypes = [
                 wintypes.HANDLE,
@@ -147,9 +163,10 @@ class _CtypesWindowsFileApi:
             result = set_info(
                 handle,
                 _SE_FILE_OBJECT,
-                _DACL_SECURITY_INFORMATION
+                _OWNER_SECURITY_INFORMATION
+                | _DACL_SECURITY_INFORMATION
                 | _PROTECTED_DACL_SECURITY_INFORMATION,
-                None,
+                owner,
                 None,
                 dacl,
                 None,
@@ -170,13 +187,30 @@ class _CtypesWindowsFileApi:
             raise ctypes.WinError()
 
 
+FILE_ATTRIBUTE_DIRECTORY = _FILE_ATTRIBUTE_DIRECTORY
+FILE_ATTRIBUTE_REPARSE_POINT = _FILE_ATTRIBUTE_REPARSE_POINT
+FILE_FLAG_OPEN_REPARSE_POINT = _FILE_FLAG_OPEN_REPARSE_POINT
+FILE_SHARE_DELETE = _FILE_SHARE_DELETE
+FILE_SHARE_READ = _FILE_SHARE_READ
+FILE_SHARE_WRITE = _FILE_SHARE_WRITE
+FILE_TYPE_DISK = _FILE_TYPE_DISK
+OPEN_EXISTING = _OPEN_EXISTING
+READ_CONTROL = _READ_CONTROL
+WRITE_DAC = _WRITE_DAC
+WRITE_OWNER = _WRITE_OWNER
+WindowsFileApi = _WindowsFileApi
+CtypesWindowsFileApi = _CtypesWindowsFileApi
+
+
 def _open_windows_private_file(
     path: Path,
     api: _WindowsFileApi,
 ) -> int:
     handle = api.create_file(
         path,
-        desired_access=_GENERIC_READ | _READ_CONTROL | _WRITE_DAC,
+        desired_access=(
+            _GENERIC_READ | _READ_CONTROL | _WRITE_DAC | _WRITE_OWNER
+        ),
         share_mode=(
             _FILE_SHARE_READ | _FILE_SHARE_WRITE | _FILE_SHARE_DELETE
         ),
@@ -194,7 +228,7 @@ def _open_windows_private_file(
             raise OSError("private storage path is a reparse point")
         if attributes & _FILE_ATTRIBUTE_DIRECTORY:
             raise OSError("private storage path is not a regular file")
-        api.set_owner_only_dacl(handle)
+        api.set_owner_only_dacl(handle, directory=False)
         descriptor = api.open_osfhandle(handle)
         transferred = True
         return descriptor

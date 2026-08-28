@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.export_policy import ExportRequest
 from birkin.office.job_runner import DocumentServiceRunner
+from birkin.office.receipt_auth import sign_receipt
 from birkin.office.service import DocumentService
 from birkin.office.service_types import ArtifactRef
 from birkin.office.service_workspace import DocumentWorkspace
@@ -30,6 +32,35 @@ def _request(destination: Path, *, overwrite_approved: bool = False) -> ExportRe
         proposal_digest="proposal-sha256",
         operations=({"operation": "replace_text", "value": "approved"},),
         overwrite_approved=overwrite_approved,
+    )
+
+
+def _assert_safe_helpers(
+    folder: Path,
+    destination: Path | None,
+    published: bytes,
+) -> None:
+    helpers = tuple(
+        path
+        for path in folder.iterdir()
+        if destination is None or path != destination
+    )
+    assert helpers
+    assert all(
+        path.name.startswith(".birkin-export-")
+        and path.read_bytes() in {b"", published}
+        for path in helpers
+    )
+
+
+def _assert_retired_backups(backup_root: Path) -> None:
+    entries = tuple(backup_root.iterdir())
+    assert entries
+    assert all(
+        path.name.startswith(".")
+        and path.name.endswith(".bak.purge")
+        and path.stat().st_size == 0
+        for path in entries
     )
 
 
@@ -62,7 +93,7 @@ def test_export_places_copy_at_exact_caller_path_and_preserves_validated_draft(
     ]
     assert receipt["actor"] == "reviewer:one"
     assert receipt["proposal_digest"] == "proposal-sha256"
-    assert sorted(path.name for path in caller_folder.iterdir()) == [destination.name]
+    _assert_safe_helpers(caller_folder, destination, source_before)
 
 
 def test_export_denies_destination_outside_allowlisted_root_without_writing(
@@ -133,13 +164,17 @@ def test_rollback_restores_overwritten_destination_byte_for_byte_without_residue
     )
     rollback = runner.rollback_export(receipt)
 
-    # Then: the destination is identical to before and no helper files remain.
+    # Then: the destination is identical and backup bytes are retired.
     assert destination.read_bytes() == original
     assert rollback["destination_sha256"] == hashlib.sha256(original).hexdigest()
     assert rollback["restored"] is True
-    assert sorted(path.name for path in caller_folder.iterdir()) == [destination.name]
+    _assert_safe_helpers(
+        caller_folder,
+        destination,
+        b"new validated bytes",
+    )
     backup_root = service.home / "artifacts" / "export-backups"
-    assert not backup_root.exists() or not tuple(backup_root.iterdir())
+    _assert_retired_backups(backup_root)
 
 
 def test_export_receipt_rolls_back_after_runner_restart(tmp_path: Path) -> None:
@@ -161,11 +196,11 @@ def test_export_receipt_rolls_back_after_runner_restart(tmp_path: Path) -> None:
         service, export_root=caller_folder
     ).rollback_export(receipt)
 
-    # Then: the caller's original bytes are restored without backup residue.
+    # Then: the caller's original bytes are restored and backup bytes retired.
     assert rollback["restored"] is True
     assert destination.read_bytes() == original
     backup_root = service.home / "artifacts" / "export-backups"
-    assert not tuple(backup_root.iterdir())
+    _assert_retired_backups(backup_root)
 
 
 def test_rollback_removes_destination_that_did_not_exist_before_export(
@@ -186,7 +221,36 @@ def test_rollback_removes_destination_that_did_not_exist_before_export(
     # Then: the caller folder returns to its exact prior contents.
     assert rollback["restored"] is False
     assert not destination.exists()
-    assert not tuple(caller_folder.iterdir())
+    _assert_safe_helpers(
+        caller_folder,
+        None,
+        b"validated result",
+    )
+
+
+def test_identical_export_can_run_after_rollback(
+    tmp_path: Path,
+) -> None:
+    # Given: one approved export was rolled back completely.
+    service = DocumentService(tmp_path / "office-home")
+    artifact = _validated_draft(service, "repeatable export")
+    caller_folder = tmp_path / "caller-output"
+    caller_folder.mkdir()
+    destination = caller_folder / "result.txt"
+    _ = destination.write_text("original", encoding="utf-8")
+    runner = DocumentServiceRunner(service, export_root=caller_folder)
+    request = _request(destination, overwrite_approved=True)
+    first = runner.export(artifact=artifact, request=request)
+    _ = runner.rollback_export(first)
+
+    # When: the same authority exports the same validated bytes again.
+    second = runner.export(artifact=artifact, request=request)
+
+    # Then: the renewed transaction publishes and remains rollback-capable.
+    assert destination.read_text(encoding="utf-8") == "repeatable export"
+    assert second["rollback_token"] != first["rollback_token"]
+    _ = runner.rollback_export(second)
+    assert destination.read_text(encoding="utf-8") == "original"
 
 
 def test_same_runner_rollback_rejects_tampered_receipt_authority(
@@ -207,4 +271,94 @@ def test_same_runner_rollback_rejects_tampered_receipt_authority(
         _ = runner.rollback_export(tampered)
 
     # Then: cached authority does not bypass receipt validation.
+    assert destination.read_text(encoding="utf-8") == "validated result"
+
+
+def test_export_receipt_is_hmac_authenticated(
+    tmp_path: Path,
+) -> None:
+    service = DocumentService(tmp_path / "office-home")
+    artifact = _validated_draft(service)
+    caller_folder = tmp_path / "caller-output"
+    caller_folder.mkdir()
+    destination = caller_folder / "new.txt"
+    receipt = DocumentServiceRunner(
+        service,
+        export_root=caller_folder,
+    ).export(
+        artifact=artifact,
+        request=_request(destination),
+    )
+
+    assert len(receipt["receipt_hmac"]) == 64
+    assert receipt["issued_at"].endswith("Z")
+    assert receipt["expires_at"].endswith("Z")
+    if os.name == "posix":
+        assert (
+            service.home.joinpath("receipt_hmac_key").stat().st_mode & 0o777
+            == 0o600
+        )
+
+
+def test_fresh_runner_rejects_forged_receipt_hmac(
+    tmp_path: Path,
+) -> None:
+    service = DocumentService(tmp_path / "office-home")
+    artifact = _validated_draft(service)
+    caller_folder = tmp_path / "caller-output"
+    caller_folder.mkdir()
+    destination = caller_folder / "new.txt"
+    receipt = DocumentServiceRunner(
+        service,
+        export_root=caller_folder,
+    ).export(
+        artifact=artifact,
+        request=_request(destination),
+    )
+    forged = {**receipt, "actor": "forged-actor"}
+
+    with pytest.raises(DocumentError, match="authentication"):
+        _ = DocumentServiceRunner(
+            service,
+            export_root=caller_folder,
+        ).rollback_export(forged)
+
+    assert destination.read_text(encoding="utf-8") == "validated result"
+
+
+def test_rollback_rejects_expired_receipt(
+    tmp_path: Path,
+) -> None:
+    service = DocumentService(tmp_path / "office-home")
+    artifact = _validated_draft(service)
+    caller_folder = tmp_path / "caller-output"
+    caller_folder.mkdir()
+    destination = caller_folder / "new.txt"
+    receipt = DocumentServiceRunner(
+        service,
+        export_root=caller_folder,
+    ).export(
+        artifact=artifact,
+        request=_request(destination),
+    )
+    expired = {
+        **receipt,
+        "issued_at": "2020-01-01T00:00:00Z",
+        "expires_at": "2020-01-02T00:00:00Z",
+    }
+    expired["receipt_hmac"] = sign_receipt(
+        {
+            key: value
+            for key, value in expired.items()
+            if key != "receipt_hmac"
+        },
+        service.home,
+    )
+
+    with pytest.raises(DocumentError, match="retention window expired"):
+        _ = DocumentServiceRunner(
+            service,
+            export_root=caller_folder,
+        ).rollback_export(expired)
+
     assert destination.read_text(encoding="utf-8") == "validated result"

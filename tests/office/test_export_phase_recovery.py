@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from birkin.office import export_commit
+from birkin.office import export_atomic_publish
 from birkin.office.artifact_snapshot import SnapshotPath
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.export_commit import ExportCommit
@@ -145,6 +146,10 @@ def test_v1_export_journal_checkpoint_upgrades_before_resume(
     record["version"] = 1
     del record["authority_digest"]
     del record["authority_source_sha256"]
+    del record["receipt_authenticated"]
+    del record["receipt_issued_at"]
+    del record["receipt_expires_at"]
+    del record["receipt_hmac"]
     journal_path.write_text(json.dumps(record), encoding="utf-8")
 
     # When: the authority-bearing request resumes the old transaction.
@@ -154,7 +159,7 @@ def test_v1_export_journal_checkpoint_upgrades_before_resume(
     upgraded = json.loads(journal_path.read_text(encoding="utf-8"))
     assert receipt["authority_digest"] == request.authority_digest
     assert receipt["authority_source_sha256"] == original_source_sha256
-    assert upgraded["version"] == 2
+    assert upgraded["version"] == 4
     assert upgraded["authority_digest"] == request.authority_digest
     assert upgraded["authority_source_sha256"] == original_source_sha256
     assert fixture.destination.read_text(encoding="utf-8") == "validated phase bytes"
@@ -225,7 +230,7 @@ def test_export_rejects_matching_staging_symlink(
 ) -> None:
     # Given: the deterministic staging path is preempted by matching symlink bytes.
     fixture = _fixture(tmp_path, overwrite=True)
-    real_stage = ExportCommit._stage
+    real_stage = ExportCommit.stage
 
     def inject_symlink(
         transaction: ExportTransaction,
@@ -234,7 +239,7 @@ def test_export_rejects_matching_staging_symlink(
         transaction.staging.symlink_to(Path(source))
         real_stage(transaction, source)
 
-    monkeypatch.setattr(ExportCommit, "_stage", staticmethod(inject_symlink))
+    monkeypatch.setattr(ExportCommit, "stage", staticmethod(inject_symlink))
 
     # When: export attempts to reuse the preempted staging path.
     with pytest.raises(DocumentError):
@@ -285,7 +290,11 @@ def test_export_rejects_staging_swapped_during_hash(
 
     def swap_during_hash(path: Path) -> str:
         nonlocal swapped
-        if path.parent == fixture.caller and path.name.startswith(".birkin-export-"):
+        if (
+            path.parent == fixture.caller
+            and path.name.startswith(".birkin-export-")
+            and not path.name.endswith(".displaced")
+        ):
             path.unlink()
             path.symlink_to(artifact)
             swapped = True
@@ -309,30 +318,40 @@ def test_export_rejects_staging_swapped_after_final_hash(
 ) -> None:
     # Given: staging becomes a matching symlink after the final hash returns.
     fixture = _fixture(tmp_path, overwrite=True)
-    real_hash = export_commit.hash_file
+    real_hash = export_atomic_publish.publication_descriptor_hash
     artifact = Path(str(fixture.artifact["uri"]))
     staging_hashes = 0
 
-    def swap_after_final_hash(path: Path) -> str:
+    def swap_after_final_hash(descriptor: int) -> str:
         nonlocal staging_hashes
-        digest = real_hash(path)
-        if path.parent == fixture.caller and path.name.startswith(".birkin-export-"):
-            staging_hashes += 1
-            if staging_hashes == 2:
-                path.unlink()
-                path.symlink_to(artifact)
+        digest = real_hash(descriptor)
+        path = next(
+            candidate
+            for candidate in fixture.caller.glob(".birkin-export-*")
+            if not candidate.name.endswith(".displaced")
+        )
+        staging_hashes += 1
+        if staging_hashes == 1:
+            path.unlink()
+            path.symlink_to(artifact)
         return digest
 
-    monkeypatch.setattr(export_commit, "hash_file", swap_after_final_hash)
+    monkeypatch.setattr(
+        export_atomic_publish,
+        "publication_descriptor_hash",
+        swap_after_final_hash,
+    )
 
     # When: export reaches atomic replacement after final verification.
-    with pytest.raises(DocumentError):
+    with pytest.raises(DocumentError) as captured:
         _ = _resume(fixture)
 
     # Then: the changed inode is not published.
-    assert staging_hashes == 2
+    assert staging_hashes == 1
+    assert captured.value.retryable is True
     assert not fixture.destination.is_symlink()
-    assert fixture.destination.read_bytes() == fixture.original
+    assert fixture.destination.read_bytes() == b"validated phase bytes"
+    assert tuple(fixture.caller.glob("*.displaced"))
 
 
 def test_export_rejects_backup_swapped_after_copy(
@@ -418,7 +437,7 @@ def test_precommit_files_are_reused_after_crash(
             ExportCommit, "_reserve_new", staticmethod(crash_after_reservation)
         )
     else:
-        original_stage = ExportCommit._stage
+        original_stage = ExportCommit.stage
 
         def crash_after_staging(
             transaction: ExportTransaction, source: SnapshotPath
@@ -429,7 +448,7 @@ def test_precommit_files_are_reused_after_crash(
                 crashed = True
                 raise SimulatedCrash
 
-        monkeypatch.setattr(ExportCommit, "_stage", staticmethod(crash_after_staging))
+        monkeypatch.setattr(ExportCommit, "stage", staticmethod(crash_after_staging))
 
     # When: the first process exits and a fresh runner resumes.
     with pytest.raises(SimulatedCrash):
@@ -437,9 +456,14 @@ def test_precommit_files_are_reused_after_crash(
     monkeypatch.undo()
     receipt = _resume(fixture)
 
-    # Then: no helper path is stranded and the exact export is rollback-capable.
+    # Then: helper bytes are retired and the exact export is rollback-capable.
     assert fixture.destination.read_text(encoding="utf-8") == "validated phase bytes"
-    assert not tuple(fixture.caller.glob(".birkin-export-*"))
+    helpers = tuple(fixture.caller.glob(".birkin-export-*"))
+    assert helpers
+    assert all(
+        path.read_bytes() in {b"", b"validated phase bytes"}
+        for path in helpers
+    )
     rollback = DocumentServiceRunner(
         fixture.service, export_root=fixture.caller
     ).rollback_export(receipt)

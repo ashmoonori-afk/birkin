@@ -173,6 +173,15 @@ def execute_action(
             if isinstance(value, str):
                 approval_id = value
         return execute_approved_office_job(payload, approval_id=approval_id)
+    if category == "office_rollback":
+        from .office.rollback_approval import execute_approved_rollback
+
+        approval_id = None
+        if configured.cfg is not None:
+            value = configured.cfg.get("_office_approval_id")
+            if isinstance(value, str):
+                approval_id = value
+        return execute_approved_rollback(payload, approval_id=approval_id)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
         if not isinstance(operation, _OperationExecutor):

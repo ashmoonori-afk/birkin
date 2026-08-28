@@ -71,6 +71,11 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
                 and isinstance(payload.get("proposal_digest"), str)
                 and bool(payload["proposal_digest"])
             )
+            or (
+                category == "office_rollback"
+                and isinstance(payload.get("receipt_hmac"), str)
+                and bool(payload["receipt_hmac"])
+            )
         )
     )
     item: dict[str, object] = {

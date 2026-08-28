@@ -9,20 +9,14 @@ from pathlib import Path
 import pytest
 
 from birkin.office import export_policy
-from birkin.office import export_rollback
+from birkin.office import export_rollback_state
 from birkin.office.errors import DocumentError
-from birkin.office.export_journal import ExportTransaction
-from birkin.office.export_rollback import ExportRollback
 from birkin.office.job_runner import DocumentServiceRunner
 from birkin.office.service import DocumentService
 from tests.office.test_export_policy import _request, _validated_draft
 
 
-class SimulatedCrash(BaseException):
-    """Hard exit after a filesystem side effect, before its next checkpoint."""
-
-
-def test_directory_sync_failure_restores_overwritten_destination(
+def test_directory_sync_failure_retains_recoverable_publication(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given: an approved overwrite and a one-shot destination-directory fsync fault.
@@ -52,11 +46,13 @@ def test_directory_sync_failure_restores_overwritten_destination(
             request=_request(destination, overwrite_approved=True),
         )
 
-    # Then: the original is restored atomically and no rollback material is needed.
+    # Then: published bytes and exact rollback authority remain durable.
     assert caught.value.retryable is True
-    assert destination.read_bytes() == original
+    assert destination.read_bytes() == b"new validated bytes"
     backup_root = service.home / "artifacts" / "export-backups"
-    assert not backup_root.exists() or not tuple(backup_root.iterdir())
+    backups = tuple(backup_root.glob("*.bak"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == original
 
 
 def test_failed_compensation_keeps_rollback_material_and_resumes(
@@ -85,9 +81,9 @@ def test_failed_compensation_keeps_rollback_material_and_resumes(
     with pytest.raises(DocumentError) as caught:
         _ = runner.export(artifact=artifact, request=request)
 
-    # Then: original bytes and a durable recovery record remain available.
+    # Then: published bytes and a durable recovery record remain available.
     assert caught.value.retryable is True
-    assert destination.read_bytes() == original
+    assert destination.read_bytes() == b"new validated bytes"
     backups = tuple((service.home / "artifacts" / "export-backups").glob("*.bak"))
     transactions = tuple((service.home / "artifacts" / "export-journal").glob("*.json"))
     assert len(backups) == 1
@@ -112,7 +108,6 @@ def test_failed_compensation_keeps_rollback_material_and_resumes(
 
 def test_v1_overwrite_rollback_upgrades_authority_before_restore(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given: a legacy rolling-back checkpoint and receipt for an approved overwrite.
     service = DocumentService(tmp_path / "office-home")
@@ -135,34 +130,27 @@ def test_v1_overwrite_rollback_upgrades_authority_before_restore(
     record["phase"] = "rolling_back"
     del record["authority_digest"]
     del record["authority_source_sha256"]
+    del record["receipt_authenticated"]
+    del record["receipt_issued_at"]
+    del record["receipt_expires_at"]
+    del record["receipt_hmac"]
     journal_path.write_text(json.dumps(record), encoding="utf-8")
     legacy_receipt = dict(receipt)
     del legacy_receipt["authority_digest"]
     del legacy_receipt["authority_source_sha256"]
     del legacy_receipt["overwrite_approved"]
-    observed_versions: list[int] = []
-    real_restore = ExportRollback._restore_state
+    del legacy_receipt["issued_at"]
+    del legacy_receipt["expires_at"]
+    del legacy_receipt["receipt_hmac"]
+    # When: rollback presents unauthenticated V1 authority.
+    with pytest.raises(DocumentError, match="legacy unsigned rollback"):
+        _ = DocumentServiceRunner(
+            service,
+            export_root=caller,
+        ).rollback_export(legacy_receipt)
 
-    def observe_upgrade(
-        self: ExportRollback,
-        transaction: ExportTransaction,
-    ) -> None:
-        upgraded = json.loads(journal_path.read_text(encoding="utf-8"))
-        observed_versions.append(upgraded["version"])
-        real_restore(self, transaction)
-
-    monkeypatch.setattr(ExportRollback, "_restore_state", observe_upgrade)
-
-    # When: rollback resumes from the V1 checkpoint.
-    rollback = DocumentServiceRunner(
-        service,
-        export_root=caller,
-    ).rollback_export(legacy_receipt)
-
-    # Then: authority is V2 before restoration and exact original bytes return.
-    assert observed_versions == [2]
-    assert rollback["restored"] is True
-    assert destination.read_bytes() == original
+    # Then: legacy rollback fails closed without restoring attacker-selected bytes.
+    assert destination.read_text(encoding="utf-8") == "new validated bytes"
 
 
 def test_rollback_rejects_tampered_staging_before_restore(
@@ -315,7 +303,7 @@ def test_rollback_rejects_temporary_swapped_after_hash(
         artifact=artifact,
         request=_request(destination, overwrite_approved=True),
     )
-    real_hash = export_rollback.hash_file
+    real_hash = export_rollback_state.state_file_hash
 
     def swap_after_hash(path: Path) -> str:
         digest = real_hash(path)
@@ -328,7 +316,11 @@ def test_rollback_rejects_temporary_swapped_after_hash(
             path.symlink_to(Path(record["backup"]))
         return digest
 
-    monkeypatch.setattr(export_rollback, "hash_file", swap_after_hash)
+    monkeypatch.setattr(
+        export_rollback_state,
+        "state_file_hash",
+        swap_after_hash,
+    )
 
     # When: rollback reaches replacement after hashing the temporary.
     with pytest.raises(DocumentError):
@@ -339,7 +331,7 @@ def test_rollback_rejects_temporary_swapped_after_hash(
     assert destination.read_text(encoding="utf-8") == "new validated bytes"
 
 
-def test_crash_after_backup_cleanup_keeps_export_resumable(
+def test_atomic_sync_compensation_keeps_export_resumable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given: commit fsync fails, compensation restores original bytes, then cleanup crashes.
@@ -360,26 +352,15 @@ def test_crash_after_backup_cleanup_keeps_export_resumable(
             raise OSError(errno.EIO, "injected commit directory fsync failure")
         real_sync(path, identity)
 
-    real_unlink = Path.unlink
-    crashed = False
-
-    def crash_after_backup_unlink(path: Path, missing_ok: bool = False) -> None:
-        nonlocal crashed
-        real_unlink(path, missing_ok=missing_ok)
-        if path.suffix == ".bak" and not crashed:
-            crashed = True
-            raise SimulatedCrash
-
     monkeypatch.setattr(export_policy, "sync_directory", fail_commit_sync)
-    monkeypatch.setattr(Path, "unlink", crash_after_backup_unlink)
     request = _request(destination, overwrite_approved=True)
 
-    # When: the process exits after deleting backup bytes but before journal cleanup.
-    with pytest.raises(SimulatedCrash):
+    # When: publication durability fails and atomic compensation restores prior bytes.
+    with pytest.raises(DocumentError) as caught:
         _ = DocumentServiceRunner(service, export_root=caller).export(
             artifact=artifact, request=request
         )
-    monkeypatch.setattr(Path, "unlink", real_unlink)
+    assert caught.value.retryable is True
     monkeypatch.setattr(export_policy, "sync_directory", real_sync)
 
     # Then: a fresh runner recognizes completed compensation and safely commits once.

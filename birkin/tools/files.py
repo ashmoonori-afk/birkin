@@ -133,10 +133,38 @@ _INTEGRITY_DIRS = {
     "pending": "~/.birkin/pending contains digest-bound approval records and cannot "
                "be changed through native file tools.",
 }
+_OFFICE_AUTHORITY_PATHS = (
+    ("office", "receipt_hmac_key"),
+    ("office", "jobs"),
+    ("office", "artifacts", "drafts"),
+    ("office", "artifacts", "export-backups"),
+    ("office", "artifacts", "export-journal"),
+    ("office", "artifacts", "export-locks"),
+)
+
+
+def _integrity_plane_error(p: Path) -> str:
+    try:
+        from .. import config
+        home = Path(os.path.realpath(config.birkin_home()))
+    except Exception:
+        return ""
+    rp = Path(os.path.realpath(p))
+    for parts in _OFFICE_AUTHORITY_PATHS:
+        root = home.joinpath(*parts)
+        if rp == root or root in rp.parents:
+            return (
+                "integrity-protected: Office authority is accessible only "
+                "through registered document tools."
+            )
+    return ""
 
 
 def _control_plane_error(p: Path, ctx: ToolContext) -> str:
     """Why this path must not be written, or "" if it is ordinary."""
+    integrity = _integrity_plane_error(p)
+    if integrity:
+        return integrity
     try:
         from .. import config
         home = Path(os.path.realpath(config.birkin_home()))
@@ -193,6 +221,9 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 def _read_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     path = _resolve(ctx, inp.get("path", ""))
+    blocked = _integrity_plane_error(path)
+    if blocked:
+        return ToolResult(blocked, is_error=True)
     if not path.is_file():
         return ToolResult(f"No such file: {path}", is_error=True)
     data = path.read_bytes()
@@ -273,6 +304,9 @@ def _write_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
 
 def _list_files(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     base = _resolve(ctx, inp.get("path", "."))
+    blocked = _integrity_plane_error(base)
+    if blocked:
+        return ToolResult(blocked, is_error=True)
     if not base.exists():
         return ToolResult(f"No such path: {base}", is_error=True)
     if base.is_file():

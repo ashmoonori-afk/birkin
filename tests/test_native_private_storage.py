@@ -9,6 +9,7 @@ from typing import cast
 
 import pytest
 
+from birkin import config, private_storage as private_storage_core, store
 from birkin.native import private_storage
 
 _WINDOWS_ONLY = pytest.mark.skipif(
@@ -55,6 +56,8 @@ def _windows_access_rules(path: Path) -> dict[str, object]:
                 "inherited=$_.IsInherited"
                 "} }); "
                 "[PSCustomObject]@{"
+                "owner=$acl.GetOwner("
+                "[System.Security.Principal.SecurityIdentifier]).Value;"
                 "protected=$acl.AreAccessRulesProtected;"
                 "rules=$rules"
                 "} | ConvertTo-Json -Compress -Depth 3"
@@ -74,6 +77,7 @@ def _windows_access_rules(path: Path) -> dict[str, object]:
 
 def _assert_windows_owner_only(path: Path, *, sid: str) -> None:
     assert _windows_access_rules(path) == {
+        "owner": sid,
         "protected": True,
         "rules": [
             {
@@ -161,6 +165,84 @@ def test_windows_private_temp_is_owner_only_at_creation(
     finally:
         path.unlink(missing_ok=True)
         published.unlink(missing_ok=True)
+
+
+@_WINDOWS_ONLY
+def test_windows_private_temp_publishes_no_replace_with_owner_dacl(
+    tmp_path: Path,
+) -> None:
+    descriptor, name = private_storage_core.create_private_temp(
+        tmp_path,
+        prefix=".receipt-key.",
+    )
+    temporary = Path(name)
+    destination = tmp_path / "receipt_hmac_key"
+    try:
+        _ = os.write(descriptor, b"new-key")
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    _ = destination.write_bytes(b"existing-key")
+    assert not private_storage_core.publish_private_temp(
+        temporary,
+        destination,
+    )
+    assert destination.read_bytes() == b"existing-key"
+    destination.unlink()
+
+    assert private_storage_core.publish_private_temp(
+        temporary,
+        destination,
+    )
+    assert not temporary.exists()
+    assert destination.read_bytes() == b"new-key"
+    system = Path(os.environ["SystemRoot"]) / "System32"
+    _assert_windows_owner_only(
+        destination,
+        sid=_windows_owner_sid(system),
+    )
+
+
+@_WINDOWS_ONLY
+def test_birkin_home_dacl_covers_secret_descendants(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "birkin-home"
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    config.clear_birkin_home_cache()
+    home.mkdir()
+    targets = (
+        home / "config.json",
+        home / "web_session.json",
+        home / "pending" / "approval.json",
+        home / "office" / "jobs" / "job.json",
+        home / "office" / "artifacts" / "export-backups" / "token.bak",
+        home / "office" / "receipt_hmac_key",
+    )
+    for target in targets:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.suffix == ".json":
+            store._write_json(target, {"secret": "value"})
+        else:
+            _ = target.write_bytes(b"secret")
+
+    system = Path(os.environ["SystemRoot"]) / "System32"
+    subprocess.run(
+        [
+            str(system / "icacls.exe"),
+            str(home),
+            "/grant",
+            "*S-1-1-0:(OI)(CI)F",
+        ],
+        check=True,
+        capture_output=True,
+    )
+    assert config.birkin_home() == home
+    sid = _windows_owner_sid(system)
+    _assert_windows_owner_only(home, sid=sid)
+    for target in targets:
+        _assert_windows_owner_only(target, sid=sid)
 
 
 @_WINDOWS_ONLY

@@ -17,6 +17,7 @@ NAMES = (
     "render_artifact",
     "validate_artifact",
     "office_job_request",
+    "office_rollback_request",
 )
 
 _ARTIFACT = {
@@ -117,6 +118,26 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     origin=ctx.record_source,
                 )
                 result = {**queued, "category": "office_job", "approval": approval}
+            elif name == "office_rollback_request":
+                from ..office.rollback_approval import prepare_rollback
+
+                rollback = prepare_rollback(cast("str", payload["job_id"]))
+                queued = approvals.propose(
+                    category="office_rollback",
+                    title="Rollback Office export",
+                    description=(
+                        "Restore the pre-export destination state at "
+                        f"{rollback['destination']}."
+                    ),
+                    payload=rollback,
+                    cfg={},
+                    origin=ctx.record_source,
+                )
+                result = {
+                    **queued,
+                    "category": "office_rollback",
+                    "approval": rollback,
+                }
             else:
                 methods: dict[str, Callable[..., object]] = {
                     "inspect_document": service.inspect_document,
@@ -176,6 +197,15 @@ def tools() -> list[Tool]:
                 "overwrite_approved": {"type": "boolean"},
             },
             ["request", "source", "outcome", "operations", "destination"],
+        ),
+        "office_rollback_request": _object(
+            {
+                "job_id": {
+                    "type": "string",
+                    "pattern": "^[0-9a-f]{32}$",
+                },
+            },
+            ["job_id"],
         ),
     }
     return [

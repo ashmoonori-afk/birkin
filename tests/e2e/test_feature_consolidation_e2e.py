@@ -8,6 +8,7 @@ import subprocess
 import sys
 import urllib.request
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pytest
@@ -115,8 +116,21 @@ def test_plugin_manifest_rejects_non_activatable_kinds(
         load_manifest(manifest)
 
 
-def test_worker_hook_cli_is_a_deprecated_driver_alias(tmp_path: Path) -> None:
-    result = _cli(tmp_path, "worker-hook-qa", "--decision", "approve")
+def test_worker_hook_cli_is_a_deprecated_driver_alias() -> None:
+    with TemporaryDirectory(
+        prefix="birkin-worker-hook-",
+        dir=Path(__file__).resolve().parents[2],
+    ) as private_parent_raw:
+        private_parent = Path(private_parent_raw)
+        if os.name != "nt":
+            private_parent.chmod(0o700)
+            assert private_parent.stat().st_mode & 0o022 == 0
+        result = _cli(
+            private_parent / "home",
+            "worker-hook-qa",
+            "--decision",
+            "approve",
+        )
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "deprecated" in result.stderr.lower()

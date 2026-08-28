@@ -119,6 +119,38 @@ def test_user_skills_remain_writable(ctx):
     assert not res.is_error, "the refusal is too broad — it caught user skills"
 
 
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "office/receipt_hmac_key",
+        "office/jobs/job.jsonl",
+        "office/artifacts/drafts/validated.docx",
+        "office/artifacts/export-backups/token.bak",
+        "office/artifacts/export-journal/transaction.json",
+        "office/artifacts/export-locks/destination.lock",
+    ],
+)
+def test_office_authority_refuses_model_file_access(
+    ctx,
+    relative,
+) -> None:
+    target = config.birkin_home() / relative
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("authority", encoding="utf-8")
+
+    read = files._read_file({"path": str(target)}, ctx)
+    write = files._write_file(
+        {"path": str(target), "content": "changed"},
+        ctx,
+    )
+    listing = files._list_files({"path": str(target)}, ctx)
+
+    assert read.is_error and "integrity-protected" in read.content
+    assert write.is_error and "integrity-protected" in write.content
+    assert listing.is_error and "integrity-protected" in listing.content
+    assert target.read_text(encoding="utf-8") == "authority"
+
+
 def test_a_file_merely_named_like_one_elsewhere_is_fine(ctx, tmp_path):
     """Only ~/.birkin's own control plane is protected — a project's own
     config.json is ordinary content."""

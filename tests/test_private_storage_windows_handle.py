@@ -16,6 +16,7 @@ class _FakeWindowsFileApi:
         self.create_arguments: tuple[int, int, int, int] | None = None
         self.events: list[str] = []
         self.closed_handles: list[int] = []
+        self.dacl_directories: list[bool] = []
 
     def create_file(
         self,
@@ -46,9 +47,15 @@ class _FakeWindowsFileApi:
         self.events.append("attributes")
         return self.attributes
 
-    def set_owner_only_dacl(self, handle: int) -> None:
+    def set_owner_only_dacl(
+        self,
+        handle: int,
+        *,
+        directory: bool,
+    ) -> None:
         del handle
         self.events.append("dacl")
+        self.dacl_directories.append(directory)
         if self.dacl_error is not None:
             raise self.dacl_error
 
@@ -76,7 +83,8 @@ def test_windows_private_read_requests_read_and_dacl_access() -> None:
     assert api.create_arguments == (
         private_storage_windows_handle._GENERIC_READ
         | private_storage_windows_handle._READ_CONTROL
-        | private_storage_windows_handle._WRITE_DAC,
+        | private_storage_windows_handle._WRITE_DAC
+        | private_storage_windows_handle._WRITE_OWNER,
         private_storage_windows_handle._FILE_SHARE_READ
         | private_storage_windows_handle._FILE_SHARE_WRITE
         | private_storage_windows_handle._FILE_SHARE_DELETE,
