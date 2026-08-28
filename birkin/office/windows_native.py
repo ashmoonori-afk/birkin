@@ -22,6 +22,7 @@ class _WindowsApi:
     FILE_SHARE_READ = 0x00000001
     FILE_SHARE_WRITE = 0x00000002
     FILE_SHARE_DELETE = 0x00000004
+    CREATE_NEW = 1
     OPEN_EXISTING = 3
     FILE_ATTRIBUTE_DIRECTORY = 0x00000010
     FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
@@ -131,13 +132,26 @@ def handle_identity(handle: int) -> tuple[int, int]:
     return int(information.dwVolumeSerialNumber), file_id
 
 
-def open_handle(path: Path, *, directory: bool, access: int, share: int) -> int:
+def open_handle(
+    path: Path,
+    *,
+    directory: bool,
+    access: int,
+    share: int,
+    disposition: int | None = None,
+) -> int:
     native = api()
     flags = native.FILE_FLAG_OPEN_REPARSE_POINT | native.FILE_FLAG_BACKUP_SEMANTICS
     handle = cast(
         "int | None",
         native.create_file(
-            windows_path(path), access, share, None, native.OPEN_EXISTING, flags, None
+            windows_path(path),
+            access,
+            share,
+            None,
+            native.OPEN_EXISTING if disposition is None else disposition,
+            flags,
+            None,
         ),
     )
     if handle is None or handle == native.invalid_handle:

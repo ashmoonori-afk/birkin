@@ -11,6 +11,17 @@ from typing import Any
 
 from ..operation_policy import ApprovalRequiredError
 from ._types import Tool, ToolContext, ToolResult
+from .file_target import (
+    OpenedTarget,
+    UnsafeTargetError,
+    close_target,
+    open_existing,
+    open_for_write,
+    read_bytes,
+    replace_bytes,
+)
+from .file_listing import render_tree
+from .file_atomic_replace import replace_bytes_atomic
 from .hashline import annotate, edit_text
 
 MAX_READ_BYTES = 200_000
@@ -133,10 +144,85 @@ _INTEGRITY_DIRS = {
     "pending": "~/.birkin/pending contains digest-bound approval records and cannot "
                "be changed through native file tools.",
 }
+_OFFICE_AUTHORITY_PATHS = (
+    ("office", "receipt_hmac_key"),
+    ("office", "jobs"),
+    ("office", "artifacts", "drafts"),
+    ("office", "artifacts", "export-backups"),
+    ("office", "artifacts", "export-journal"),
+    ("office", "artifacts", "export-locks"),
+)
+
+
+def _integrity_plane_error(p: Path) -> str:
+    try:
+        from .. import config
+        home = Path(os.path.realpath(config.birkin_home()))
+    except Exception:
+        return ""
+    rp = Path(os.path.realpath(p))
+    if (
+        rp.parent == home / "office"
+        and rp.name.startswith(".receipt_hmac_key.")
+    ):
+        return (
+            "integrity-protected: Office authority is accessible only "
+            "through registered document tools."
+        )
+    for parts in _OFFICE_AUTHORITY_PATHS:
+        root = home.joinpath(*parts)
+        if rp == root or root in rp.parents:
+            return (
+                "integrity-protected: Office authority is accessible only "
+                "through registered document tools."
+            )
+    return ""
+
+
+def _integrity_target_error(target: OpenedTarget) -> str:
+    metadata = os.fstat(target.descriptor)
+    if metadata.st_nlink == 1:
+        return ""
+    try:
+        from .. import config
+
+        home = Path(os.path.realpath(config.birkin_home()))
+        expected = (metadata.st_dev, metadata.st_ino)
+        roots = tuple(
+            home.joinpath(*parts)
+            for parts in _OFFICE_AUTHORITY_PATHS
+        )
+        for root in roots:
+            if root.is_file() and _path_identity(root) == expected:
+                return _integrity_plane_error(root)
+            if not root.is_dir():
+                continue
+            for directory, _names, files_in_directory in os.walk(root):
+                for name in files_in_directory:
+                    candidate = Path(directory) / name
+                    if _path_identity(candidate) == expected:
+                        return _integrity_plane_error(candidate)
+    except OSError:
+        return (
+            "integrity-protected: Office authority identity could not "
+            "be verified."
+        )
+    return ""
+
+
+def _path_identity(path: Path) -> tuple[int, int] | None:
+    try:
+        metadata = path.stat(follow_symlinks=False)
+    except FileNotFoundError:
+        return None
+    return metadata.st_dev, metadata.st_ino
 
 
 def _control_plane_error(p: Path, ctx: ToolContext) -> str:
     """Why this path must not be written, or "" if it is ordinary."""
+    integrity = _integrity_plane_error(p)
+    if integrity:
+        return integrity
     try:
         from .. import config
         home = Path(os.path.realpath(config.birkin_home()))
@@ -193,9 +279,29 @@ def _atomic_write_text(path: Path, text: str) -> None:
 
 def _read_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     path = _resolve(ctx, inp.get("path", ""))
-    if not path.is_file():
+    blocked = _integrity_plane_error(path)
+    if blocked:
+        return ToolResult(blocked, is_error=True)
+    try:
+        target = open_existing(
+            path,
+            writable=False,
+            policy=_integrity_plane_error,
+        )
+        identity_blocked = _integrity_target_error(target)
+        if identity_blocked:
+            close_target(target)
+            return ToolResult(identity_blocked, is_error=True)
+    except UnsafeTargetError as exc:
+        return ToolResult(str(exc.strerror), is_error=True)
+    except PermissionError:
+        raise
+    except OSError:
         return ToolResult(f"No such file: {path}", is_error=True)
-    data = path.read_bytes()
+    try:
+        data = read_bytes(target)
+    finally:
+        close_target(target)
     try:
         offset = max(0, int(inp.get("offset", 0) or 0))
     except (TypeError, ValueError):
@@ -233,20 +339,48 @@ def _edit_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
         if not blocked.startswith("integrity-protected:"):
             blocked = f"approval-required[control_plane]: {blocked}"
         return ToolResult(blocked, is_error=True)
-    if not path.is_file():
-        return ToolResult(f"No such file: {path}", is_error=True)
     edits = inp.get("edits") or []
     if not isinstance(edits, list) or not edits:
         return ToolResult("Provide a non-empty 'edits' list "
                           "({line, hash, new}).", is_error=True)
-    original = _normalize_newlines(path.read_bytes().decode("utf-8", "replace"))
-    new_text, errors = edit_text(original, edits)
-    if errors:
-        return ToolResult(
-            "Edit rejected — file left UNCHANGED:\n- " + "\n- ".join(errors)
-            + "\nRe-read the file with read_file annotate=true for fresh hashes.",
-            is_error=True)
-    _atomic_write_text(path, new_text)
+    try:
+        target = open_existing(
+            path,
+            writable=True,
+            policy=lambda opened: _control_plane_error(opened, ctx),
+        )
+        identity_blocked = _integrity_target_error(target)
+        if identity_blocked:
+            close_target(target)
+            return ToolResult(identity_blocked, is_error=True)
+    except UnsafeTargetError as exc:
+        blocked = str(exc.strerror)
+        if not blocked.startswith("integrity-protected:"):
+            blocked = f"approval-required[control_plane]: {blocked}"
+        return ToolResult(blocked, is_error=True)
+    except PermissionError:
+        raise
+    except OSError:
+        return ToolResult(f"No such file: {path}", is_error=True)
+    try:
+        original = _normalize_newlines(
+            read_bytes(target).decode("utf-8", "replace")
+        )
+        new_text, errors = edit_text(original, edits)
+        if errors:
+            return ToolResult(
+                "Edit rejected — file left UNCHANGED:\n- "
+                + "\n- ".join(errors)
+                + "\nRe-read the file with read_file annotate=true for fresh hashes.",
+                is_error=True,
+            )
+        replace_bytes_atomic(
+            target,
+            new_text.encode("utf-8"),
+            lambda opened: _control_plane_error(opened, ctx),
+        )
+    finally:
+        close_target(target)
     applied = f"Applied {len(edits)} edit(s) to {path}."
     # Say whether the file still compiles, while the agent is still on
     # this turn. Off unless lsp_servers maps the suffix, and a server
@@ -266,39 +400,64 @@ def _write_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             blocked = f"approval-required[control_plane]: {blocked}"
         return ToolResult(blocked, is_error=True)
     content = inp.get("content", "")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
+    try:
+        target = open_for_write(
+            path,
+            lambda opened: _control_plane_error(opened, ctx),
+        )
+        identity_blocked = _integrity_target_error(target)
+        if identity_blocked:
+            close_target(target)
+            return ToolResult(identity_blocked, is_error=True)
+    except UnsafeTargetError as exc:
+        blocked = str(exc.strerror)
+        if not blocked.startswith("integrity-protected:"):
+            blocked = f"approval-required[control_plane]: {blocked}"
+        return ToolResult(blocked, is_error=True)
+    except PermissionError:
+        raise
+    except OSError as exc:
+        return ToolResult(f"Unsafe file path: {exc}", is_error=True)
+    try:
+        replace_bytes(target, content.encode("utf-8"))
+    finally:
+        close_target(target)
     return ToolResult(f"Wrote {len(content)} chars to {path}")
 
 
 def _list_files(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
     base = _resolve(ctx, inp.get("path", "."))
+    blocked = _integrity_plane_error(base)
+    if blocked:
+        return ToolResult(blocked, is_error=True)
     if not base.exists():
         return ToolResult(f"No such path: {base}", is_error=True)
     if base.is_file():
+        try:
+            target = open_existing(
+                base,
+                writable=False,
+                policy=_integrity_plane_error,
+            )
+        except (UnsafeTargetError, OSError) as exc:
+            if isinstance(exc, PermissionError):
+                raise
+            return ToolResult(str(exc), is_error=True)
+        close_target(target)
         return ToolResult(str(base))
     depth = int(inp.get("depth", 1))
-    lines: list[str] = []
-
-    def walk(d: Path, level: int, prefix: str) -> None:
-        if level > depth:
-            return
-        try:
-            entries = sorted(d.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-        except OSError as exc:
-            lines.append(f"{prefix}[error: {exc}]")
-            return
-        for e in entries:
-            if e.name.startswith(".") and e.name not in (".birkin",):
-                continue
-            mark = "/" if e.is_dir() else ""
-            lines.append(f"{prefix}{e.name}{mark}")
-            if e.is_dir():
-                walk(e, level + 1, prefix + "  ")
-
-    lines.append(f"{base}/")
-    walk(base, 1, "  ")
-    return ToolResult("\n".join(lines) if lines else "(empty)")
+    try:
+        return ToolResult(
+            render_tree(
+                base,
+                depth=depth,
+                policy=_integrity_plane_error,
+            )
+        )
+    except (UnsafeTargetError, OSError) as exc:
+        if isinstance(exc, PermissionError):
+            raise
+        return ToolResult(str(exc), is_error=True)
 
 
 def tools() -> list[Tool]:

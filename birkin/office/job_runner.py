@@ -139,6 +139,7 @@ class DocumentServiceRunner:
         supplied = restore_export_receipt(
             receipt,
             self._service.home / "artifacts" / "export-backups",
+            self._service.home,
             policy.resolve_destination,
         )
         exported = self._export_receipts.get(token)

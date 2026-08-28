@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import errno
+import os
 from pathlib import Path
 
+import pytest
+
 from birkin.tools import ToolContext
+from birkin.tools import file_atomic_replace
+from birkin.tools import file_target_windows
 from birkin.tools import files as files_mod
 from birkin.tools import hashline
 
@@ -86,6 +92,197 @@ def test_read_file_annotate_then_edit_roundtrip(tmp_path: Path):
     assert not res.is_error and "Applied 1 edit" in res.content
     assert (tmp_path / "f.txt").read_text(encoding="utf-8") == "one\nTWO\nthree"
     assert not list(tmp_path.glob("*.tmp"))            # atomic write left no temp
+
+
+def test_edit_file_atomic_replace_failure_preserves_original(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "f.txt"
+    target.write_text("one\ntwo", encoding="utf-8")
+
+    def fail_replace(*args, **kwargs) -> None:
+        del args, kwargs
+        raise OSError(errno.EIO, "injected atomic replace failure")
+
+    monkeypatch.setattr(
+        file_target_windows if os.name == "nt" else file_atomic_replace,
+        "replace_with_backup" if os.name == "nt" else "exchange_between",
+        fail_replace,
+    )
+
+    with pytest.raises(OSError):
+        _ = _tool("edit_file")(
+            {
+                "path": "f.txt",
+                "edits": [
+                    {
+                        "line": 2,
+                        "hash": hashline.line_hash("two"),
+                        "new": "changed",
+                    }
+                ],
+            },
+            _ctx(tmp_path),
+        )
+
+    assert target.read_text(encoding="utf-8") == "one\ntwo"
+
+
+@pytest.mark.skipif(
+    os.name == "nt",
+    reason="POSIX atomic exchange injection",
+)
+def test_edit_file_preserves_concurrent_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "f.txt"
+    saved = tmp_path / "saved-original.txt"
+    target.write_text("one\ntwo", encoding="utf-8")
+    exchange = file_atomic_replace.exchange_between
+    raced = False
+
+    def replace_before_exchange(
+        directory: int,
+        first_name: str,
+        second_name: str,
+    ) -> None:
+        nonlocal raced
+        if not raced:
+            raced = True
+            os.rename(
+                second_name,
+                saved.name,
+                src_dir_fd=directory,
+                dst_dir_fd=directory,
+            )
+            replacement = os.open(
+                second_name,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+                dir_fd=directory,
+            )
+            try:
+                _ = os.write(replacement, b"concurrent")
+            finally:
+                os.close(replacement)
+        exchange(directory, first_name, second_name)
+
+    monkeypatch.setattr(
+        file_atomic_replace,
+        "exchange_between",
+        replace_before_exchange,
+    )
+
+    with pytest.raises(OSError, match="changed during atomic edit"):
+        _ = _tool("edit_file")(
+            {
+                "path": "f.txt",
+                "edits": [
+                    {
+                        "line": 2,
+                        "hash": hashline.line_hash("two"),
+                        "new": "changed",
+                    }
+                ],
+            },
+            _ctx(tmp_path),
+        )
+
+    assert target.read_bytes() == b"concurrent"
+    assert saved.read_text(encoding="utf-8") == "one\ntwo"
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows ReplaceFile backup injection",
+)
+def test_edit_file_windows_preserves_concurrent_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    target = tmp_path / "f.txt"
+    saved = tmp_path / "saved-original.txt"
+    target.write_text("one\ntwo", encoding="utf-8")
+    replace = file_target_windows.replace_with_backup
+    open_existing = file_target_windows.open_existing_deletable
+    raced = False
+    backup_swapped = False
+
+    def replace_after_swap(
+        target_path: Path,
+        replacement: Path,
+        backup: Path,
+    ) -> None:
+        nonlocal raced
+        if not raced:
+            raced = True
+            target_path.rename(saved)
+            concurrent = file_target_windows.open_created(target_path)
+            try:
+                _ = os.write(concurrent, b"concurrent")
+                os.fsync(concurrent)
+                replace(target_path, replacement, backup)
+            finally:
+                os.close(concurrent)
+            return
+        replace(target_path, replacement, backup)
+
+    def swap_backup_after_open(path: Path) -> int:
+        nonlocal backup_swapped
+        descriptor = open_existing(path)
+        if "birkin-edit-backup" in path.name and not backup_swapped:
+            backup_swapped = True
+            attacker = open_existing(path)
+            try:
+                file_target_windows.move_open_descriptor_no_replace(
+                    attacker,
+                    tmp_path / "saved-concurrent.txt",
+                )
+            finally:
+                os.close(attacker)
+            decoy = file_target_windows.open_created(path)
+            try:
+                _ = os.write(decoy, b"attacker backup")
+                os.fsync(decoy)
+            finally:
+                os.close(decoy)
+        return descriptor
+
+    monkeypatch.setattr(
+        file_target_windows,
+        "replace_with_backup",
+        replace_after_swap,
+    )
+    monkeypatch.setattr(
+        file_target_windows,
+        "open_existing_deletable",
+        swap_backup_after_open,
+    )
+
+    with pytest.raises(OSError, match="changed during atomic edit"):
+        _ = _tool("edit_file")(
+            {
+                "path": "f.txt",
+                "edits": [
+                    {
+                        "line": 2,
+                        "hash": hashline.line_hash("two"),
+                        "new": "changed",
+                    }
+                ],
+            },
+            _ctx(tmp_path),
+        )
+
+    assert raced is True
+    assert backup_swapped is True
+    assert target.read_bytes() == b"concurrent"
+    assert saved.read_text(encoding="utf-8") == "one\ntwo"
+    attacker = tuple(tmp_path.glob(".f.txt.birkin-edit-backup-*"))
+    assert len(attacker) == 1
+    assert attacker[0].read_bytes() == b"attacker backup"
 
 
 def test_edit_file_rejects_stale_and_leaves_file_untouched(tmp_path: Path):

@@ -13,7 +13,10 @@ from birkin.office.job_journal import OfficeJobJournal
 from birkin.office.job_runner import DocumentServiceRunner
 from birkin.office.job_types import OfficeJobState
 from birkin.office.service import DocumentService
-from tests.office.test_office_coordinator import _queue, _sha256
+from tests.office.test_office_coordinator import (
+    _sha256,
+    queue_office_job as _queue,
+)
 
 
 _CRASH_DRIVER = r"""
@@ -21,6 +24,7 @@ import os
 import sys
 from pathlib import Path
 from birkin import approvals
+from birkin.office import export_atomic_publish
 from birkin.office.job_runner import DocumentServiceRunner
 
 mode, approval_id, destination = sys.argv[1:]
@@ -34,14 +38,15 @@ elif mode == "after_execution":
         original(self, **kwargs)
         os._exit(72)
     DocumentServiceRunner.execute = stop_after_execution
-elif mode == "after_destination_replace":
-    original = os.replace
+elif mode == "after_destination_publish":
+    original = export_atomic_publish.publication_from_descriptor
     wanted = Path(destination)
-    def stop_after_replace(source, target):
-        original(source, target)
+    def stop_after_publish(source_descriptor, target):
+        result = original(source_descriptor, target)
         if Path(target) == wanted:
             os._exit(73)
-    os.replace = stop_after_replace
+        return result
+    export_atomic_publish.publication_from_descriptor = stop_after_publish
 else:
     os._exit(99)
 approvals.approve(
@@ -58,7 +63,7 @@ os._exit(98)
     [
         ("before_coordinator", 71),
         ("after_execution", 72),
-        ("after_destination_replace", 73),
+        ("after_destination_publish", 73),
     ],
 )
 def test_real_process_crash_resumes_exactly_once(

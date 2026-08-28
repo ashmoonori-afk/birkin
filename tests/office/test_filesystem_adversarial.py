@@ -235,7 +235,15 @@ def test_windows_native_snapshot_guard_shares_for_reads_only(
     native = Native()
     calls: list[tuple[Path, bool, int, int]] = []
 
-    def open_handle(path: Path, *, directory: bool, access: int, share: int) -> int:
+    def open_handle(
+        path: Path,
+        *,
+        directory: bool,
+        access: int,
+        share: int,
+        disposition: int | None = None,
+    ) -> int:
+        del disposition
         calls.append((path, directory, access, share))
         return 71
 

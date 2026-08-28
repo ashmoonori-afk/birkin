@@ -23,6 +23,7 @@ from .job import OfficeJob
 from .job_runner import DocumentServiceRunner
 from .preview_semantics import summarize_operations
 from .proposal_integrity import authority_digest
+from .retention import purge_expired_office_state
 from .service import DocumentService
 from .service_workspace import DocumentWorkspace
 from .skill_router import route_office_request
@@ -94,6 +95,7 @@ class OfficeCoordinator:
         self._caller = caller
         self._home = _office_home()
         self._service = DocumentService(self._home)
+        _ = purge_expired_office_state(self._home)
 
     def request(self, request: OfficeMutationRequest) -> dict[str, object]:
         """Inspect, preview, summarize, persist, and queue one canonical approval."""

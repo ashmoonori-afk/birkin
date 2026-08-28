@@ -10,6 +10,7 @@ from typing import TypeGuard
 from .errors import DocumentError, DocumentErrorCode
 from .export_policy import JSONValue, ExportReceipt, ExportRequest
 from .proposal_integrity import authority_digest
+from .receipt_auth import authenticate_receipt
 
 
 def _denied(message: str) -> DocumentError:
@@ -52,9 +53,13 @@ def _required_text(value: object, message: str) -> str:
 def restore_export_receipt(
     value: Mapping[str, object],
     backup_root: Path,
+    office_home: Path,
     resolve_destination: Callable[[Path], Path],
 ) -> ExportReceipt:
     """Restore private rollback state from one durable public receipt."""
+    receipt_authenticated = authenticate_receipt(value, office_home)
+    if not receipt_authenticated:
+        raise _denied("legacy unsigned rollback is unavailable")
     token = value.get("rollback_token")
     destination = value.get("path")
     source_sha256 = value.get("source_sha256")
@@ -71,6 +76,9 @@ def restore_export_receipt(
     existed = value.get("destination_existed")
     destination_sha256 = value.get("destination_sha256")
     operations = value.get("operations")
+    issued_at = value.get("issued_at", "")
+    expires_at = value.get("expires_at", "")
+    receipt_hmac = value.get("receipt_hmac", "")
     try:
         token_valid = isinstance(token, str) and uuid.UUID(token).hex == token
     except ValueError:
@@ -93,6 +101,19 @@ def restore_export_receipt(
         raise _denied("export receipt destination state is invalid")
     if not _is_list(operations):
         raise _denied("export receipt operations are invalid")
+    if receipt_authenticated:
+        issued_at = _required_text(
+            issued_at,
+            "export receipt retention timestamp is invalid",
+        )
+        expires_at = _required_text(
+            expires_at,
+            "export receipt retention timestamp is invalid",
+        )
+        receipt_hmac = _required_text(
+            receipt_hmac,
+            "export receipt authentication is invalid",
+        )
     parsed_operations: list[dict[str, JSONValue]] = []
     for operation in operations:
         if not _is_mapping(operation):
@@ -121,6 +142,10 @@ def restore_export_receipt(
         authority_digest=expected_authority_digest,
         authority_source_sha256=authority_source_sha256,
         authority_bound=authority_bound,
+        receipt_authenticated=receipt_authenticated,
+        issued_at=issued_at if isinstance(issued_at, str) else "",
+        expires_at=expires_at if isinstance(expires_at, str) else "",
+        receipt_hmac=receipt_hmac if isinstance(receipt_hmac, str) else "",
         destination=resolved_destination,
         source_sha256=source_sha256,
         output_sha256=output_sha256,

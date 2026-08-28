@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from birkin.private_storage_windows import (
     create_windows_private_temp,
-    harden_windows_path,
     windows_owner_sid,
 )
 from birkin.private_storage_windows_handle import open_windows_private_file
+from birkin.private_storage_windows_hardening import (
+    harden_windows_path_by_handle as harden_windows_path,
+)
 
 __all__ = [
     "create_windows_private_temp",

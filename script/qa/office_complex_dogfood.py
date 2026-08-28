@@ -353,6 +353,49 @@ def run(output_dir: Path) -> dict[str, object]:
                 f"legacy {ext} external engine was not permanently refused"
             )
         legacy[ext] = {"identity": preflight.to_dict(), "conversion": receipt.to_dict(), "source_immutable": sha256(source) == preflight.source_sha256}
+    rollback_destination = coordinated / "rollback-probe.docx"
+    rollback_source = artifact(paths["docx"])
+    shutil.copy2(Path(rollback_source["uri"]), rollback_destination)
+    rollback_original = rollback_destination.read_bytes()
+    rollback_export = call(
+        "office_job_request",
+        {
+            "request": REQUESTS["docx"],
+            "source": rollback_source,
+            "outcome": "Apply and roll back the approved DOCX edit",
+            "operations": [PATCH["docx"]],
+            "destination": str(rollback_destination),
+            "overwrite_approved": True,
+        },
+    )
+    approved_export = approve(
+        cast(str, rollback_export["id"]),
+        approved_by="system:qa",
+        approved_via="qa:script",
+    )
+    if approved_export["ok"] is not True:
+        raise AssertionError(
+            f"rollback probe export approval failed: {approved_export}"
+        )
+    export_receipt = cast(
+        dict[str, object],
+        json.loads(cast(str, approved_export["result"])),
+    )
+    rollback = call(
+        "office_rollback_request",
+        {"job_id": cast(str, export_receipt["job_id"])},
+    )
+    approved_rollback = approve(
+        cast(str, rollback["id"]),
+        approved_by="system:qa",
+        approved_via="qa:script",
+    )
+    if approved_rollback["ok"] is not True:
+        raise AssertionError(
+            f"office_rollback_request approval failed: {approved_rollback}"
+        )
+    if rollback_destination.read_bytes() != rollback_original:
+        raise AssertionError("approved rollback did not restore exact bytes")
     shutil.rmtree(temporary)
     cleanup = {"temporary_paths_removed": [str(temporary)], "temporary_paths_remaining": [str(temporary)] if temporary.exists() else [], "artifacts_retained": True}
     ok = all(item["source_sha256_before"] == item["source_sha256_after"] for item in records.values()) and not cleanup["temporary_paths_remaining"] and all(cast(dict[str, object], item)["status"] == "unsupported" for item in unsupported.values())

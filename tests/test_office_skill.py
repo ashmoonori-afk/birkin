@@ -34,6 +34,7 @@ REQUIRED_ARGUMENTS = {
         "operations",
         "destination",
     ],
+    "office_rollback_request": ["job_id"],
 }
 SENTINEL_SECTIONS = {
     "When to Use",

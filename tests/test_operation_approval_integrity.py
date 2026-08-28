@@ -9,6 +9,7 @@ import pytest
 
 from birkin import approvals, config, store
 from birkin.tools import ToolContext, build_registry
+from birkin.tools import files
 from birkin.tools import shell as shell_mod
 
 
@@ -77,17 +78,15 @@ def test_approved_permission_failure_does_not_requeue(
 ) -> None:
     # Given: the OS denies both the original and explicitly approved retry.
     target = tmp_path / "denied.txt"
-    original_write_text = Path.write_text
     attempts = 0
 
-    def deny_target(path: Path, *args, **kwargs) -> int:
+    def deny_target(*args, **kwargs):
         nonlocal attempts
-        if path == target:
-            attempts += 1
-            raise PermissionError("Access is denied")
-        return original_write_text(path, *args, **kwargs)
+        del args, kwargs
+        attempts += 1
+        raise PermissionError("Access is denied")
 
-    monkeypatch.setattr(Path, "write_text", deny_target)
+    monkeypatch.setattr(files, "open_for_write", deny_target)
     registry = _registry(tmp_path)
     registry.execute(
         "write_file",

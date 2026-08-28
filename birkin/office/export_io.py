@@ -36,6 +36,10 @@ def recovery_error(message: str, stage: str = "export") -> DocumentError:
 
 def regular_file_identity(path: Path, stage: str = "export") -> tuple[int, int]:
     try:
+        if os.name == "nt":
+            from .path_identity import regular_path_identity
+
+            return regular_path_identity(path)
         metadata = path.stat(follow_symlinks=False)
     except OSError as exc:
         raise recovery_error("export helper identity is unavailable", stage) from exc

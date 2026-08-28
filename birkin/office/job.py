@@ -257,12 +257,32 @@ class OfficeJob:
         self._enter(OfficeJobState.exported)
         return deepcopy(receipt)
 
-    def rollback_export(self) -> dict[str, object]:
+    def rollback_export(
+        self,
+        *,
+        approval_id: str | None = None,
+        approved_by: str | None = None,
+        approved_via: str | None = None,
+    ) -> dict[str, object]:
         self._require(OfficeJobState.exported)
         if self._export is None:
             raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
                               "export receipt is unavailable")
         receipt = dict(self._runner.rollback_export(deepcopy(self._export)))
+        binding = (approval_id, approved_by, approved_via)
+        if any(value is not None for value in binding):
+            if not all(isinstance(value, str) and value for value in binding):
+                raise self._error(
+                    DocumentErrorCode.PRECONDITION_FAILED,
+                    "rollback approval authority is incomplete",
+                )
+            receipt.update(
+                {
+                    "approval_id": approval_id,
+                    "approved_by": approved_by,
+                    "approved_via": approved_via,
+                }
+            )
         self._rollback = deepcopy(receipt)
         self._enter(OfficeJobState.validated)
         return deepcopy(receipt)

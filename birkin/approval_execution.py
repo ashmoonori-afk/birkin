@@ -7,6 +7,8 @@ from typing import Any, Protocol
 
 from . import config, store, worker_hooks
 
+_OFFICE_CATEGORIES = frozenset({"office_job", "office_rollback"})
+
 
 class ActionExecutor(Protocol):
     def __call__(
@@ -38,7 +40,7 @@ def claim(
                 return {"ok": False, "error": "not found or already resolved"}
             resuming_office = (
                 record.get("status") == "executing"
-                and record.get("category") == "office_job"
+                and record.get("category") in _OFFICE_CATEGORIES
             )
             if resuming_office:
                 if not record.get("approved_by") or not record.get("approved_via"):
@@ -82,7 +84,7 @@ def execute_claimed(
                 return {"ok": False, "error": "approval is not claimed"}
             resuming_office = (
                 record.get("status") == "executing"
-                and record.get("category") == "office_job"
+                and record.get("category") in _OFFICE_CATEGORIES
             )
             if record.get("status") != "approving" and not resuming_office:
                 return {"ok": False, "error": "approval is not claimed"}
@@ -107,7 +109,7 @@ def execute_claimed(
     except store.FileLockTimeout:
         return {"ok": False, "error": "approval store is busy"}
     try:
-        if record["category"] == "office_job":
+        if record["category"] in _OFFICE_CATEGORIES:
             result = executor(
                 record["category"],
                 record.get("payload", {}),
@@ -120,7 +122,7 @@ def execute_claimed(
         else:
             result = executor(record["category"], record.get("payload", {}))
     except store.FileLockTimeout:
-        if record["category"] == "office_job":
+        if record["category"] in _OFFICE_CATEGORIES:
             return {"ok": False, "error": "Office job is already executing"}
         try:
             with store.file_lock(_pending_path(approval_id)):
@@ -132,7 +134,7 @@ def execute_claimed(
             return {"ok": False, "error": "approval store is busy"}
         return {"ok": False, "error": "cron store is busy; retry."}
     except Exception as exc:
-        if record["category"] == "office_job":
+        if record["category"] in _OFFICE_CATEGORIES:
             from .office.errors import DocumentError
 
             match exc:
