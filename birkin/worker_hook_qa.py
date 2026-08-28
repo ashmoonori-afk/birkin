@@ -13,6 +13,10 @@ from unittest.mock import patch
 from . import approvals, store
 
 
+def _owner_home() -> Path:
+    return Path.home()
+
+
 def run(decision: str) -> int:
     """Exercise approval and continuation without executing a real action."""
     if decision not in {"approve", "reject"}:
@@ -30,8 +34,12 @@ def run(decision: str) -> int:
 
     previous_home = os.environ.get("BIRKIN_HOME")
     summary: dict[str, Any]
-    with tempfile.TemporaryDirectory(prefix="birkin-worker-hook-qa-") as home:
-        os.environ["BIRKIN_HOME"] = home
+    with tempfile.TemporaryDirectory(
+        prefix="birkin-worker-hook-qa-",
+        dir=_owner_home(),
+    ) as home_raw:
+        home = Path(home_raw)
+        os.environ["BIRKIN_HOME"] = str(home)
         try:
             with patch.object(approvals, "execute_action", execute_action):
                 queued = approvals.propose(
@@ -68,7 +76,7 @@ def run(decision: str) -> int:
             ),
             "ok": bool(result.get("ok")),
         }
-    summary["cleaned"] = not Path(home).exists()
+    summary["cleaned"] = not home.exists()
     print(json.dumps(summary, sort_keys=True))
     return 0 if summary["ok"] and summary["cleaned"] else 1
 

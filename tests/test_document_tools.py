@@ -32,6 +32,7 @@ NAMES = {
     "render_artifact",
     "validate_artifact",
     "office_job_request",
+    "office_rollback_request",
 }
 REMOVED_MUTATIONS = {
     "create_document",
@@ -75,6 +76,46 @@ def test_registry_removes_direct_mutations_and_keeps_one_coordinator(
     # Then: only reads and the approval coordinator can reach Office work.
     assert names == NAMES
     assert names.isdisjoint(REMOVED_MUTATIONS)
+
+
+def test_office_rollback_is_queued_for_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin import approvals
+    from birkin.office import rollback_approval
+
+    job_id = "a" * 32
+    monkeypatch.setattr(
+        rollback_approval,
+        "prepare_rollback",
+        lambda received: {
+            "job_id": received,
+            "destination": str(tmp_path / "result.docx"),
+            "receipt_hmac": "a" * 64,
+        },
+    )
+    proposed: list[dict[str, object]] = []
+
+    def propose(**kwargs: object) -> dict[str, object]:
+        proposed.append(kwargs)
+        return {"id": "approval-1", "status": "pending"}
+
+    monkeypatch.setattr(approvals, "propose", propose)
+    registry = build_registry(_ctx(tmp_path), include={"documents"})
+
+    result = registry.execute(
+        "office_rollback_request",
+        {"job_id": job_id},
+    )
+
+    assert not result.is_error
+    assert proposed[0]["category"] == "office_rollback"
+    assert proposed[0]["payload"] == {
+        "job_id": job_id,
+        "destination": str(tmp_path / "result.docx"),
+        "receipt_hmac": "a" * 64,
+    }
 
 
 def test_document_tool_rejects_hashed_source_outside_dedicated_office_home(

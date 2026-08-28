@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from pathlib import Path
 from typing import TYPE_CHECKING, cast, final
+
+from birkin.private_storage import (
+    harden_private_file,
+    open_private_file_for_read,
+)
 
 from .errors import DocumentError, DocumentErrorCode
 from .job_serialization import (
@@ -26,12 +32,18 @@ if TYPE_CHECKING:
 _TERMINAL_STATE_VALUES = frozenset({"exported", "rejected", "failed"})
 
 
-def _error(message: str, *, retryable: bool = False) -> DocumentError:
+def _error(
+    message: str,
+    *,
+    retryable: bool = False,
+    kind: str | None = None,
+) -> DocumentError:
     return DocumentError(
         DocumentErrorCode.PRECONDITION_FAILED,
         "office_job_journal",
         message,
         retryable=retryable,
+        details={} if kind is None else {"kind": kind},
     )
 
 
@@ -58,6 +70,8 @@ class OfficeJobJournal:
         created = not self.root.exists()
         try:
             self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if self.root.is_symlink() or not self.root.is_dir():
+                raise OSError("job journal root must be a real directory")
             os.chmod(self.root, 0o700)
             self._root_identity = directory_identity(self.root)
             if created:
@@ -82,12 +96,24 @@ class OfficeJobJournal:
             allow_nan=False,
         )
         try:
+            if os.name == "nt":
+                try:
+                    harden_private_file(path)
+                except FileNotFoundError:
+                    pass
             descriptor = os.open(
-                path, os.O_APPEND | os.O_CREAT | os.O_WRONLY, 0o600
+                path,
+                os.O_APPEND
+                | os.O_CREAT
+                | os.O_WRONLY
+                | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
             )
             with os.fdopen(
                 descriptor, "a", encoding="utf-8", newline="\n"
             ) as handle:
+                if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                    raise OSError("job journal path is not a regular file")
                 os.chmod(path, 0o600)
                 _ = handle.write(record + "\n")
                 handle.flush()
@@ -98,13 +124,16 @@ class OfficeJobJournal:
 
     def _complete(self, job_id: str) -> tuple[dict[str, object], ...]:
         path = self.path_for(job_id)
-        if not path.is_file():
-            raise _error(f"job {job_id!r} has no durable snapshot")
         try:
-            content = path.read_bytes()
+            descriptor = open_private_file_for_read(path)
+            with os.fdopen(descriptor, "rb") as handle:
+                content = handle.read()
             complete = content.split(b"\n")[:-1]
             if not complete:
-                raise _error(f"job {job_id!r} has no complete snapshot")
+                raise _error(
+                    f"job {job_id!r} has no complete snapshot",
+                    kind="incomplete_tail",
+                )
             snapshots: list[dict[str, object]] = []
             for line in complete:
                 if not line:
@@ -113,6 +142,10 @@ class OfficeJobJournal:
                 if not isinstance(raw, dict):
                     raise _error(f"job {job_id!r} snapshot must be an object")
                 snapshots.append(dict(cast("dict[str, object]", raw)))
+        except FileNotFoundError as exc:
+            raise _error(f"job {job_id!r} has no durable snapshot") from exc
+        except OSError as exc:
+            raise _error(f"job {job_id!r} snapshot is unavailable") from exc
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise _error(f"job {job_id!r} contains a malformed complete snapshot") from exc
         return tuple(snapshots)
@@ -130,6 +163,19 @@ class OfficeJobJournal:
         job._journal = self
         return job
 
+    def latest(self, job_id: str) -> dict[str, object]:
+        return dict(self._latest(job_id))
+
+    def remove(self, job_id: str) -> None:
+        try:
+            self.path_for(job_id).unlink(missing_ok=True)
+            sync_directory(self.root, self._root_identity)
+        except OSError as exc:
+            raise _error(
+                "job journal cleanup failed",
+                retryable=True,
+            ) from exc
+
     def _listed(self, *, terminal: bool) -> tuple[str, ...]:
         job_ids: list[str] = []
         for path in self.root.glob("*.jsonl"):
@@ -146,3 +192,8 @@ class OfficeJobJournal:
 
     def list_incomplete(self) -> tuple[str, ...]:
         return self._listed(terminal=False)
+
+    def list_all(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(path.stem for path in self.root.glob("*.jsonl"))
+        )

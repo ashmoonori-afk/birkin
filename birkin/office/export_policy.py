@@ -14,7 +14,11 @@ from .export_types import (
     ExportRequest,
     RollbackReceipt,
 )
-from .path_security import directory_identity, ensure_directory_identity, sync_directory
+from .path_security import (
+    directory_identity,
+    ensure_directory_identity,
+    sync_directory as sync_directory,
+)
 
 
 @final

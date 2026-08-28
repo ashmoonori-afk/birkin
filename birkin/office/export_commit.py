@@ -4,9 +4,21 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import final
 
 from .artifact_snapshot import SnapshotPath
 from .errors import DocumentError, DocumentErrorCode
+from .export_atomic_publish import (
+    finish_published_checkpoint,
+    has_valid_displacement,
+    publish_staged,
+)
+from .export_commit_state import (
+    require_destination_state,
+    reserve_new,
+    restore_export,
+    stage_export,
+)
 from .export_io import (
     DirectorySync,
     copy_exact,
@@ -14,14 +26,18 @@ from .export_io import (
     hash_file,
     regular_file_identity,
     recovery_error,
-    reservation_bytes,
-    reservation_hash,
 )
+from .export_helper_retire import retire_authenticated_file
 from .export_journal import ExportJournal, ExportPhase, ExportTransaction
 from .journal_record import journal_root
-from .path_security import directory_identity
+from .path_security import (
+    close_guard,
+    directory_identity,
+    open_identity_guard,
+)
 
 
+@final
 class ExportCommit:
     """Prepare, commit, or compensate one journaled destination replacement."""
 
@@ -96,158 +112,71 @@ class ExportCommit:
         destination = transaction.destination
         current = current_hash(destination)
         if current == transaction.output_sha256:
+            finish_published_checkpoint(transaction, self._sync)
             self._sync(destination.parent, transaction.parent_identity)
             committed = transaction.at(ExportPhase.committed)
             self._journal.write(committed)
-            transaction.staging.unlink(missing_ok=True)
+            _ = retire_authenticated_file(
+                transaction.staging,
+                transaction.output_sha256,
+                protected_identity=regular_file_identity(destination),
+                required=False,
+            )
             return committed
+        checkpointed = has_valid_displacement(transaction)
         if transaction.destination_existed:
-            if current != transaction.destination_sha256:
+            if current != transaction.destination_sha256 and not checkpointed:
                 raise DocumentError(
                     DocumentErrorCode.SOURCE_CHANGED,
                     "export",
                     "destination changed after its rollback snapshot",
                 )
-        else:
+        elif not checkpointed:
             self._reserve_new(transaction)
-        staging_identity = self._stage(transaction, source)
+        staging_identity = self.stage(transaction, source)
         if (
             hash_file(transaction.staging) != transaction.output_sha256
             or regular_file_identity(transaction.staging) != staging_identity
         ):
             raise recovery_error("staged export changed before replacement")
-        replaced = False
+        staging_guard = (
+            open_identity_guard(transaction.staging, staging_identity)
+            if os.name != "nt"
+            else -1
+        )
         try:
-            os.replace(transaction.staging, destination)
-            replaced = True
-            self._sync(destination.parent, transaction.parent_identity)
-        except (DocumentError, OSError) as failure:
-            if not replaced:
-                raise recovery_error("export commit failed before replacement") from failure
-            restoring = transaction.at(ExportPhase.restoring)
-            self._journal.write(restoring)
-            try:
-                _ = self._restore(restoring, preserve=False)
-            except (DocumentError, OSError) as restoration:
-                raise recovery_error(
-                    "export restoration failed; rollback material was retained"
-                ) from restoration
-            raise recovery_error(
-                "export directory sync failed; original destination was restored"
-            ) from failure
+            self.require_destination_state(transaction)
+            publish_staged(transaction, staging_identity, self._sync)
+        finally:
+            if staging_guard >= 0:
+                close_guard(staging_guard)
         committed = transaction.at(ExportPhase.committed)
         self._journal.write(committed)
         return committed
 
+    @staticmethod
+    def require_destination_state(
+        transaction: ExportTransaction,
+    ) -> None:
+        require_destination_state(transaction)
+
     def restore(self, transaction: ExportTransaction) -> ExportTransaction:
         """Finish a previously interrupted compensation, preserving retry state."""
-        return self._restore(transaction, preserve=True)
+        return restore_export(
+            transaction,
+            preserve=True,
+            force=False,
+            journal=self._journal,
+            sync_directory=self._sync,
+        )
 
     @staticmethod
-    def _stage(
+    def stage(
         transaction: ExportTransaction,
         source: SnapshotPath,
     ) -> tuple[int, int]:
-        staging = transaction.staging
-        if staging.exists() or staging.is_symlink():
-            staging_identity = regular_file_identity(staging)
-            if (
-                hash_file(staging) != transaction.output_sha256
-                or regular_file_identity(staging) != staging_identity
-            ):
-                raise recovery_error("staged export does not match validated draft")
-            return staging_identity
-        copy_exact(source, staging)
-        staging_identity = regular_file_identity(staging)
-        staged_sha256 = hash_file(staging)
-        if (
-            staged_sha256 != transaction.output_sha256
-            or regular_file_identity(staging) != staging_identity
-        ):
-            raise DocumentError(
-                DocumentErrorCode.SOURCE_CHANGED,
-                "export",
-                "export copy does not match the validated draft",
-                artifact_sha256=staged_sha256,
-            )
-        return staging_identity
+        return stage_export(transaction, source)
 
     @staticmethod
     def _reserve_new(transaction: ExportTransaction) -> None:
-        destination = transaction.destination
-        marker = reservation_bytes(transaction)
-        if destination.exists() or destination.is_symlink():
-            if (
-                destination.is_symlink()
-                or not destination.is_file()
-                or destination.read_bytes() != marker
-            ):
-                raise DocumentError(
-                    DocumentErrorCode.SOURCE_CHANGED,
-                    "export",
-                    "new destination was occupied during export",
-                )
-            return
-        descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        with os.fdopen(descriptor, "wb") as handle:
-            _ = handle.write(marker)
-            handle.flush()
-            os.fsync(handle.fileno())
-
-    def _restore(
-        self, transaction: ExportTransaction, *, preserve: bool
-    ) -> ExportTransaction:
-        destination = transaction.destination
-        current = current_hash(destination)
-        if transaction.destination_existed:
-            backup = transaction.backup
-            prior = transaction.destination_sha256
-            if (
-                backup is None
-                or prior is None
-                or backup.is_symlink()
-                or not backup.is_file()
-                or hash_file(backup) != prior
-            ):
-                raise recovery_error("rollback backup is unavailable or changed")
-            if current != prior:
-                if current != transaction.output_sha256:
-                    raise DocumentError(
-                        DocumentErrorCode.SOURCE_CHANGED,
-                        "export",
-                        "destination changed during export compensation",
-                    )
-                temporary = transaction.staging.with_name(
-                    f"{transaction.staging.name}.restore"
-                )
-                if not temporary.exists() and not temporary.is_symlink():
-                    copy_exact(backup, temporary)
-                temporary_identity = regular_file_identity(temporary)
-                if (
-                    hash_file(temporary) != prior
-                    or regular_file_identity(temporary) != temporary_identity
-                ):
-                    raise recovery_error("staged export restoration is invalid")
-                os.replace(temporary, destination)
-        elif current is not None:
-            if current not in {
-                transaction.output_sha256,
-                reservation_hash(transaction),
-            }:
-                raise DocumentError(
-                    DocumentErrorCode.SOURCE_CHANGED,
-                    "export",
-                    "new destination changed during export compensation",
-                )
-            destination.unlink()
-        self._sync(destination.parent, transaction.parent_identity)
-        if preserve:
-            prepared = transaction.at(ExportPhase.prepared)
-            self._journal.write(prepared)
-            return prepared
-        retired = transaction.at(ExportPhase.rolled_back)
-        self._journal.write(retired)
-        transaction.staging.unlink(missing_ok=True)
-        if transaction.backup is not None:
-            transaction.backup.unlink(missing_ok=True)
-        return retired
+        reserve_new(transaction)

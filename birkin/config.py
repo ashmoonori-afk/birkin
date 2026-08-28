@@ -14,9 +14,11 @@ from __future__ import annotations
 import copy
 import json
 import os
+import stat
 import uuid
 import warnings
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -519,12 +521,62 @@ KNOWN_MODELS = {
 
 # --- Paths ----------------------------------------------------------------
 
+@lru_cache(maxsize=None)
+def harden_birkin_home(home: Path) -> tuple[int, int]:
+    from .private_storage import harden_private_directory, harden_private_tree
+
+    _require_owner_controlled_parent(home)
+    harden_private_directory(home)
+    harden_private_tree(home)
+    metadata = home.stat(follow_symlinks=False)
+    return metadata.st_dev, metadata.st_ino
+
+
+@lru_cache(maxsize=None)
+def _configured_birkin_home(
+    raw: str | None,
+    fallback: str,
+) -> Path:
+    configured = Path(raw).expanduser() if raw else Path(fallback) / ".birkin"
+    return configured.absolute()
+
+
+def clear_birkin_home_cache() -> None:
+    _configured_birkin_home.cache_clear()
+    harden_birkin_home.cache_clear()
+
+
 def birkin_home() -> Path:
-    """Return the birkin home directory, creating it if necessary."""
+    """Return the hardened birkin home directory, creating it if necessary."""
     raw = os.environ.get("BIRKIN_HOME")
-    home = Path(raw).expanduser() if raw else Path.home() / ".birkin"
-    home.mkdir(parents=True, exist_ok=True)
+    home = _configured_birkin_home(raw, str(Path.home()))
+    expected_identity = harden_birkin_home(home)
+    metadata = home.stat(follow_symlinks=False)
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or (metadata.st_dev, metadata.st_ino) != expected_identity
+    ):
+        raise OSError("private storage root changed after hardening")
     return home
+
+
+def _require_owner_controlled_parent(home: Path) -> None:
+    parent = home.parent
+    while not parent.exists():
+        if parent.is_symlink() or parent == parent.parent:
+            raise OSError("BIRKIN_HOME parent must be owner-controlled")
+        parent = parent.parent
+    metadata = parent.stat(follow_symlinks=False)
+    if (
+        parent.is_symlink()
+        or not stat.S_ISDIR(metadata.st_mode)
+        or (
+            os.name != "nt"
+            and metadata.st_mode
+            & (stat.S_IWGRP | stat.S_IWOTH)
+        )
+    ):
+        raise OSError("BIRKIN_HOME parent must be owner-controlled")
 
 
 def config_path() -> Path:
