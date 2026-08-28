@@ -16,9 +16,9 @@ from typing import final
 
 _WINDOWS_SID = re.compile(rb"S-\d-\d+(?:-\d+)+")
 _SDDL_REVISION_1 = 1
-_SE_FILE_OBJECT = 1
-_DACL_SECURITY_INFORMATION = 0x00000004
-_PROTECTED_DACL_SECURITY_INFORMATION = 0x80000000
+_ERROR_FILE_EXISTS = 80
+_ERROR_ALREADY_EXISTS = 183
+_MOVEFILE_WRITE_THROUGH = 0x00000008
 
 
 @final
@@ -28,37 +28,6 @@ class _SecurityAttributes(ctypes.Structure):
         ("security_descriptor", ctypes.c_void_p),
         ("inherit_handle", wintypes.BOOL),
     ]
-
-
-def harden_windows_path(path: Path, *, directory: bool) -> None:
-    system_root = os.environ.get("SystemRoot")
-    if not system_root:
-        raise OSError("cannot locate Windows security tools")
-    sid = _current_windows_owner_sid(system_root)
-    with _owner_only_dacl(sid, directory=directory) as dacl:
-        set_info = ctypes.windll.advapi32.SetNamedSecurityInfoW
-        set_info.argtypes = [
-            wintypes.LPWSTR,
-            wintypes.DWORD,
-            wintypes.DWORD,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-            ctypes.c_void_p,
-        ]
-        set_info.restype = wintypes.DWORD
-        result = set_info(
-            str(path),
-            _SE_FILE_OBJECT,
-            _DACL_SECURITY_INFORMATION
-            | _PROTECTED_DACL_SECURITY_INFORMATION,
-            None,
-            None,
-            dacl,
-            None,
-        )
-        if result != 0:
-            raise ctypes.WinError(result)
 
 
 def windows_owner_sid(output: bytes) -> str:
@@ -74,6 +43,9 @@ def _current_windows_owner_sid(system_root: str) -> str:
     return windows_owner_sid(
         _run([str(whoami), "/user", "/fo", "csv", "/nh"])
     )
+
+
+current_windows_owner_sid = _current_windows_owner_sid
 
 
 @contextmanager
@@ -96,7 +68,7 @@ def _owner_only_security_descriptor(
     ]
     convert.restype = wintypes.BOOL
     inheritance = "OICI" if directory else ""
-    sddl = f"D:P(A;{inheritance};FA;;;{sid})"
+    sddl = f"O:{sid}D:P(A;{inheritance};FA;;;{sid})"
     if not convert(
         sddl,
         _SDDL_REVISION_1,
@@ -114,15 +86,30 @@ def _owner_only_security_descriptor(
 
 
 @contextmanager
-def _owner_only_dacl(
+def _owner_only_security_parts(
     sid: str,
     *,
     directory: bool,
-) -> Generator[ctypes.c_void_p]:
+) -> Generator[tuple[ctypes.c_void_p, ctypes.c_void_p]]:
     with _owner_only_security_descriptor(
         sid,
         directory=directory,
     ) as descriptor:
+        owner = ctypes.c_void_p()
+        owner_defaulted = wintypes.BOOL()
+        get_owner = ctypes.windll.advapi32.GetSecurityDescriptorOwner
+        get_owner.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(wintypes.BOOL),
+        ]
+        get_owner.restype = wintypes.BOOL
+        if not get_owner(
+            descriptor,
+            ctypes.byref(owner),
+            ctypes.byref(owner_defaulted),
+        ) or not owner:
+            raise ctypes.WinError()
         dacl_present = wintypes.BOOL()
         dacl_defaulted = wintypes.BOOL()
         dacl = ctypes.c_void_p()
@@ -141,7 +128,7 @@ def _owner_only_dacl(
             ctypes.byref(dacl_defaulted),
         ) or not dacl_present:
             raise ctypes.WinError()
-        yield dacl
+        yield owner, dacl
 
 
 def create_windows_private_temp(
@@ -203,6 +190,30 @@ def create_windows_private_temp(
                 close_handle.restype = wintypes.BOOL
                 _ = close_handle(handle)
                 path.unlink(missing_ok=True)
+
+
+def publish_windows_private_temp(
+    temporary: Path,
+    destination: Path,
+) -> bool:
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    move = kernel32.MoveFileExW
+    move.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+    ]
+    move.restype = wintypes.BOOL
+    if move(
+        str(temporary),
+        str(destination),
+        _MOVEFILE_WRITE_THROUGH,
+    ):
+        return True
+    error = ctypes.get_last_error()
+    if error in {_ERROR_FILE_EXISTS, _ERROR_ALREADY_EXISTS}:
+        return False
+    raise ctypes.WinError(error)
 
 
 def _run(command: list[str]) -> bytes:

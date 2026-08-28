@@ -68,7 +68,10 @@ def canonical_working_memory() -> dict[str, object]:
     """Build deterministic fixture data through the real Python authorities."""
 
     previous_home = os.environ.get("BIRKIN_HOME")
-    with tempfile.TemporaryDirectory(prefix="birkin-native-vectors-") as root:
+    with tempfile.TemporaryDirectory(
+        prefix="birkin-native-vectors-",
+        dir=Path.home(),
+    ) as root:
         os.environ["BIRKIN_HOME"] = root
         try:
             _ = goals.set_goal("Ship native Working Memory", session_id="session-1")

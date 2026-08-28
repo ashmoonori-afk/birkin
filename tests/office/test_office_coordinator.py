@@ -51,7 +51,7 @@ def _request(home: Path, destination: Path) -> tuple[dict[str, object], Path, st
     )
 
 
-def _queue(
+def queue_office_job(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> tuple[dict[str, object], dict[str, object], Path, Path, str]:
     home = tmp_path / "home"
@@ -146,7 +146,7 @@ def test_request_queues_bound_approval_without_mutating_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given: one source and a caller-owned allowlisted destination.
-    body, record, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
+    body, record, source, destination, source_sha256 = queue_office_job(tmp_path, monkeypatch)
 
     # When: the canonical approval request is inspected before approval.
     payload = cast("dict[str, object]", record["payload"])
@@ -180,7 +180,7 @@ def test_direct_resume_is_policy_denied_without_file_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given: a durable Office job still waiting in the canonical queue.
-    _, record, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
+    _, record, source, destination, source_sha256 = queue_office_job(tmp_path, monkeypatch)
     payload = cast("dict[str, object]", record["payload"])
 
     # When: execution is attempted outside the approved queue transition.
@@ -197,7 +197,7 @@ def test_approved_queue_executes_validates_materializes_and_exports(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given: a bound Office proposal and unchanged source/destination hashes.
-    body, _, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
+    body, _, source, destination, source_sha256 = queue_office_job(tmp_path, monkeypatch)
 
     # When: the canonical approval queue executes the exact proposal.
     result = approvals.approve(
@@ -228,7 +228,7 @@ def test_digest_drift_is_denied_before_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given: a queued record whose approved digest no longer matches its durable job.
-    body, record, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
+    body, record, source, destination, source_sha256 = queue_office_job(tmp_path, monkeypatch)
     payload = cast("dict[str, object]", record["payload"])
     record["payload"] = {**payload, "proposal_digest": "0" * 64}
     config.pending_dir().joinpath(f"{body['id']}.json").write_text(
@@ -253,7 +253,7 @@ def test_destination_drift_is_denied_before_mutation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # Given: a queued approval whose destination changed after review.
-    body, record, source, destination, source_sha256 = _queue(tmp_path, monkeypatch)
+    body, record, source, destination, source_sha256 = queue_office_job(tmp_path, monkeypatch)
     payload = cast("dict[str, object]", record["payload"])
     drifted_destination = destination.with_name("drifted.docx")
     record["payload"] = {

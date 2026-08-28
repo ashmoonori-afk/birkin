@@ -157,8 +157,8 @@ def append_turn(channel: str, chat_id: str, user_text: str, reply_text: str,
         redact = bool(cfg.get("autosave_redact_secrets", True))
         max_chars = int(cfg.get("autosave_max_chars", 4000))
         model = model or cfg.get("model") or None
-        path = config.sessions_dir() / f"{auto_stem(channel, chat_id)}.json"
         with _append_lock:
+            path = config.sessions_dir() / f"{auto_stem(channel, chat_id)}.json"
             existing = store._read_json(path, [])
             if not isinstance(existing, list):
                 existing = []

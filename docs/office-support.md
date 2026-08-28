@@ -43,7 +43,7 @@ Trusted Korean and English Office requests are routed before model execution fro
 
 ## Registered tools and arguments
 
-The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, and `office_job_request`.
+The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
 
 | Tool | Required arguments | Important optional arguments/behavior |
 |---|---|---|
@@ -54,8 +54,9 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `render_artifact` | `artifact` | `output_format` is `structured_preview`, `pdf`, `png`, or `thumbnail`; `page` is optional. |
 | `validate_artifact` | `artifact` | Reports package, schema-root, formula, openability, security, and fidelity layers. |
 | `office_job_request` | `request`, `source`, `outcome`, `operations`, `destination` | Creates a durable proposal; only canonical approval execution may mutate or export. |
+| `office_rollback_request` | `job_id` | Queues a second high-risk approval for one HMAC-authenticated, unexpired export receipt. |
 
-The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`. Their machine metadata requires the same ten-tool set.
+The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`. Their machine metadata requires the same eight-tool set.
 
 ## Workspace input jail
 
@@ -63,7 +64,7 @@ The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word
 
 The durable job journal remains at `BIRKIN_HOME/office/jobs`. A pending job created with a source outside the dedicated Office jail is not migrated or resumed: re-import the source into `BIRKIN_HOME/office` and submit a new approval proposal. This fail-closed rule prevents legacy source descriptors from reaching configuration or vault files.
 
-Read-only inspection, extraction, comparison, validation, and structured preview do not create mutation authority. Consequential mutation or export has one public entry point: `office_job_request`. Its destination must resolve beneath the caller's allowlisted root; mutation remains copy-on-write and publication is no-replace unless the exact approval authorizes overwrite.
+Read-only inspection, extraction, comparison, validation, and structured preview do not create mutation authority. Generic model file tools cannot access Office receipt keys, durable jobs, validated drafts, export backups, transaction journals, or destination locks. Consequential mutation or export has one public entry point: `office_job_request`. Its destination must resolve beneath the caller's allowlisted root; mutation remains copy-on-write and publication is no-replace unless the exact approval authorizes overwrite. Rollback is never implicit: `office_rollback_request` creates a separate approval for the durable job. Signed receipts expire after 30 days; the next Office request purges expired active backup paths and transaction/job journals. Legacy unsigned receipts cannot authorize rollback. Authenticated helper and backup names are namespace-retired into a private `.birkin-retire` directory instead of being truncated or deleted by pathname. POSIX cannot safely erase those inode bytes while preserving a concurrently added hard link, so quarantined bytes may remain; they are excluded from active state and cannot authorize rollback.
 
 Inspect and extract inside the jail:
 

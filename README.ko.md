@@ -222,9 +222,11 @@ Office mutation 승인은 proposer, source digest, destination, 정확한 operat
 
 `layered` 비교는 byte hash뿐 아니라 범위가 제한된 정규화 semantic text와 가능한 경우 ZIP package entry 변경도 각각 보고합니다. PDF에는 ZIP package 계층이 없습니다. `structured-preview`는 `output_format: "structured_preview"`일 때만 `render_artifact`가 성공한다는 뜻입니다. Visual `pdf`, `png`, `thumbnail` 요청은 `RENDER_UNAVAILABLE`을 반환합니다. Spreadsheet 재계산과 일반 form 처리는 지원하지 않습니다.
 
-등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, 그리고 정식 승인 코디네이터 `office_job_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
+등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, 정식 승인 코디네이터 `office_job_request`, 그리고 별도 승인을 거치는 `office_rollback_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
 
-문서 입력은 config, vault, session, native bootstrap 파일과 분리된 전용 `BIRKIN_HOME/office` jail 안에 있어야 합니다. `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/office/artifacts/incoming` 아래로 복사하거나 import해야 하며, 다른 위치의 path는 hash가 일치해도 거부됩니다. Durable job은 `BIRKIN_HOME/office/jobs`에 유지됩니다. 결과를 만드는 mutation과 export는 caller가 승인한 allowlist root 아래 destination을 사용하는 `office_job_request`로만 요청합니다.
+문서 입력은 config, vault, session, native bootstrap 파일과 분리된 전용 `BIRKIN_HOME/office` jail 안에 있어야 합니다. `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/office/artifacts/incoming` 아래로 복사하거나 import해야 하며, 다른 위치의 path는 hash가 일치해도 거부됩니다. Durable job은 `BIRKIN_HOME/office/jobs`에 유지되며 generic model file tool은 Office receipt key, job, validated draft, backup, transaction journal, destination lock을 읽거나 나열하거나 다시 쓸 수 없습니다. 결과를 만드는 mutation과 export는 caller가 승인한 allowlist root 아래 destination을 사용하는 `office_job_request`로만 요청합니다. Rollback은 `office_rollback_request`를 통한 두 번째 high-risk 승인이며, export receipt에는 HMAC이 적용되고 30일 뒤 만료됩니다. 만료된 receipt, 활성 backup path, transaction/job journal은 다음 Office request에서 purge됩니다. Legacy unsigned receipt는 rollback authority로 허용되지 않습니다. Check-to-unlink race와 concurrent hard-link race를 피하기 위해 인증된 helper와 backup name은 private `.birkin-retire` directory로 namespace-retire됩니다. POSIX에서는 동시에 추가된 hard link를 보존하면서 해당 inode byte를 안전하게 지울 수 없으므로 격리된 byte가 남을 수 있지만, 이는 active state가 아니며 rollback authority를 부여하지 않습니다.
+
+Windows에서는 Birkin이 `BIRKIN_HOME`을 처음 열 때 owner-only 상속 DACL을 한 번 적용하고 기존 하위 항목의 owner와 DACL도 교정합니다. Config API key, WebUI session capability, pending approval, Office job receipt, export backup, HMAC key와 rollback token은 이 경계를 상속합니다. POSIX에서는 계속 owner-only mode를 사용하며 shared-writable parent 아래의 `BIRKIN_HOME`을 거부합니다. 상대 경로 override는 process lifetime 동안 최초로 해석된 절대 경로에 고정됩니다.
 
 ```json
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
@@ -251,7 +253,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 1. 필요한 tier를 설치합니다. DOCX/XLSX/PPTX/HWPX 생성과 bounded package 수정은 `python -m pip install ".[office]"`, PDF 추출과 deep reopen 추가는 `python -m pip install ".[office-advanced]"`, 별도 docling path는 `python -m pip install ".[office-docling]"`입니다.
 2. 원본을 전용 Office jail 안에 둡니다. 모든 입력 경로는 `BIRKIN_HOME/office` 아래에 있어야 하며, `BIRKIN_HOME=/workspace/.birkin`이면 `/workspace/.birkin/office/artifacts/incoming/`으로 복사하거나 import합니다. `BIRKIN_HOME`의 다른 위치도 hash가 일치하더라도 거부됩니다.
 3. `list_document_adapters`로 사용 가능한 adapter를 확인하고, 무엇을 바꾸기 전에 `inspect_document`로 원본을 먼저 점검합니다.
-4. 등록된 read-only 호출로 읽습니다. 결과를 만드는 mutation 또는 export는 `office_job_request`로만 요청하며, durable journal은 `BIRKIN_HOME/office/jobs`에 있고 destination은 caller allowlist 아래로 제한되며 원본은 제자리에서 수정하지 않습니다.
+4. 등록된 read-only 호출로 읽습니다. 결과를 만드는 mutation 또는 export는 `office_job_request`로, rollback은 별도의 `office_rollback_request`로 요청합니다. Durable journal은 `BIRKIN_HOME/office/jobs`에 있고 destination은 caller allowlist 아래로 제한되며 원본은 제자리에서 수정하지 않습니다.
 
 Word 파일에서 텍스트를 추출합니다.
 

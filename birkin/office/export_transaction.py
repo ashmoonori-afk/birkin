@@ -11,7 +11,9 @@ from typing_extensions import assert_never
 from .artifact_snapshot import SnapshotPath
 from .errors import DocumentError, DocumentErrorCode
 from .export_commit import ExportCommit
+from .export_destination_lock import export_transaction_lock
 from .export_io import DirectorySync, current_hash, hash_file, recovery_error
+from .export_helper_retire import retire_authenticated_file
 from .export_journal import (
     ExportJournal,
     ExportPhase,
@@ -19,9 +21,14 @@ from .export_journal import (
     transaction_id,
 )
 from .export_rollback import ExportRollback
+from .export_paths import staging_path, valid_staging_paths
+from .export_transaction_receipt import (
+    approved_export_authority,
+    seal_transaction_receipt,
+    transaction_receipt,
+)
 from .export_types import ExportReceipt, ExportRequest, RollbackReceipt
 from .path_security import directory_identity
-from .proposal_integrity import authority_digest
 
 
 @final
@@ -38,6 +45,19 @@ class ExportTransactionRunner:
     ) -> ExportReceipt:
         source_sha256 = source.sha256()
         key = transaction_id(destination, source_sha256, request)
+        with export_transaction_lock(self._backup_root, destination, self._journal, key):
+            return self._export_locked(
+                source, destination, request, source_sha256, key
+            )
+
+    def _export_locked(
+        self,
+        source: SnapshotPath,
+        destination: Path,
+        request: ExportRequest,
+        source_sha256: str,
+        key: str,
+    ) -> ExportReceipt:
         transaction = self._journal.load(key)
         if transaction is None:
             transaction = self._begin(destination, source_sha256, request)
@@ -51,6 +71,14 @@ class ExportTransactionRunner:
             if transaction.phase is ExportPhase.rolled_back:
                 self._retire(transaction)
                 transaction = self._begin(destination, source_sha256, request)
+        sealed = seal_transaction_receipt(
+            transaction,
+            request,
+            self._backup_root.parents[1],
+        )
+        if sealed != transaction:
+            self._journal.write(sealed)
+        transaction = sealed
         commit = ExportCommit(self._backup_root, self._journal, self._sync)
         match transaction.phase:
             case ExportPhase.intent:
@@ -61,19 +89,23 @@ class ExportTransactionRunner:
                 transaction = commit.restore(transaction)
             case ExportPhase.committed:
                 self._require_output(transaction)
-                return self._receipt(transaction, request)
+                return transaction_receipt(transaction, request)
             case ExportPhase.rolling_back:
                 raise recovery_error("export rollback must finish before publication")
             case ExportPhase.rolled_back:
                 raise recovery_error("rolled-back export transaction was not renewed")
             case unreachable:
                 assert_never(unreachable)
-        return self._receipt(commit.commit(transaction, source), request)
+        return transaction_receipt(commit.commit(transaction, source), request)
 
     def rollback(
         self, receipt: ExportReceipt, destination: Path
     ) -> RollbackReceipt:
-        return ExportRollback(self._journal, self._sync).run(receipt, destination)
+        return ExportRollback(
+            self._backup_root,
+            self._journal,
+            self._sync,
+        ).run(receipt, destination)
 
     def _begin(
         self,
@@ -96,7 +128,7 @@ class ExportTransactionRunner:
                 "export destination must be a regular file",
             )
         key = transaction_id(destination, source_sha256, request)
-        digest, authority_source_sha256 = self._approved_authority(
+        digest, authority_source_sha256 = approved_export_authority(
             destination,
             source_sha256,
             request,
@@ -107,6 +139,10 @@ class ExportTransactionRunner:
             authority_digest=digest,
             authority_source_sha256=authority_source_sha256,
             authority_bound=True,
+            receipt_authenticated=True,
+            receipt_issued_at=None,
+            receipt_expires_at=None,
+            receipt_hmac=None,
             phase=ExportPhase.intent,
             rollback_token=token,
             destination=destination,
@@ -115,8 +151,13 @@ class ExportTransactionRunner:
             destination_existed=existed,
             destination_sha256=hash_file(destination) if existed else None,
             backup=self._backup_root / f"{token}.bak" if existed else None,
-            staging=destination.parent / f".birkin-export-{key}{destination.suffix}",
+            staging=staging_path(destination, key, token),
             parent_identity=directory_identity(destination.parent),
+        )
+        transaction = seal_transaction_receipt(
+            transaction,
+            request,
+            self._backup_root.parents[1],
         )
         self._journal.write(transaction)
         return transaction
@@ -129,15 +170,16 @@ class ExportTransactionRunner:
         request: ExportRequest,
     ) -> ExportTransaction:
         expected_authority_digest, authority_source_sha256 = (
-            self._approved_authority(
+            approved_export_authority(
                 destination,
                 source_sha256,
                 request,
             )
         )
-        expected_staging = (
-            destination.parent
-            / f".birkin-export-{transaction.transaction_id}{destination.suffix}"
+        expected_staging = valid_staging_paths(
+            destination,
+            transaction.transaction_id,
+            transaction.rollback_token,
         )
         expected_backup = (
             self._backup_root / f"{transaction.rollback_token}.bak"
@@ -150,7 +192,7 @@ class ExportTransactionRunner:
             or transaction.output_sha256 != source_sha256
             or transaction.transaction_id
             != transaction_id(destination, source_sha256, request)
-            or transaction.staging != expected_staging
+            or transaction.staging not in expected_staging
             or transaction.backup != expected_backup
             or directory_identity(destination.parent) != transaction.parent_identity
             or (
@@ -189,9 +231,19 @@ class ExportTransactionRunner:
                 "export",
                 "compensated export destination changed",
             )
-        transaction.staging.unlink(missing_ok=True)
+        _ = retire_authenticated_file(
+            transaction.staging,
+            transaction.output_sha256,
+            required=False,
+        )
         if transaction.backup is not None:
-            transaction.backup.unlink(missing_ok=True)
+            prior = transaction.destination_sha256
+            if prior is not None:
+                _ = retire_authenticated_file(
+                    transaction.backup,
+                    prior,
+                    required=False,
+                )
 
     @staticmethod
     def _require_output(transaction: ExportTransaction) -> None:
@@ -208,42 +260,3 @@ class ExportTransactionRunner:
             or hash_file(transaction.backup) != transaction.destination_sha256
         ):
             raise recovery_error("committed export rollback material is unavailable")
-
-    @staticmethod
-    def _receipt(
-        transaction: ExportTransaction, request: ExportRequest
-    ) -> ExportReceipt:
-        return ExportReceipt(
-            rollback_token=transaction.rollback_token,
-            authority_digest=transaction.authority_digest,
-            authority_source_sha256=transaction.authority_source_sha256,
-            authority_bound=True,
-            destination=transaction.destination,
-            source_sha256=transaction.source_sha256,
-            output_sha256=transaction.output_sha256,
-            operations=tuple(dict(operation) for operation in request.operations),
-            actor=request.actor,
-            proposal_digest=request.proposal_digest,
-            overwrite_approved=request.overwrite_approved,
-            destination_existed=transaction.destination_existed,
-            destination_sha256=transaction.destination_sha256,
-            backup=transaction.backup,
-        )
-
-    @staticmethod
-    def _approved_authority(
-        destination: Path,
-        export_source_sha256: str,
-        request: ExportRequest,
-    ) -> tuple[str, str]:
-        source_sha256 = request.authority_source_sha256 or export_source_sha256
-        expected = authority_digest(destination, source_sha256, request)
-        if request.authority_digest is not None and (
-            request.authority_digest != expected
-        ):
-            raise DocumentError(
-                DocumentErrorCode.POLICY_DENIED,
-                "export",
-                "export request authority digest changed",
-            )
-        return expected, source_sha256

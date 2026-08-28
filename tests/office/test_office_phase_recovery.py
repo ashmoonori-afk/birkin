@@ -12,7 +12,10 @@ from birkin.office.job_journal import OfficeJobJournal
 from birkin.office.job_runner import DocumentServiceRunner
 from birkin.office.job_types import OfficeJobState
 from birkin.office.service import DocumentService
-from tests.office.test_office_coordinator import _queue, _sha256
+from tests.office.test_office_coordinator import (
+    _sha256,
+    queue_office_job as _queue,
+)
 
 
 class SimulatedCrash(BaseException):

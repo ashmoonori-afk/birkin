@@ -31,6 +31,10 @@ class ExportReceipt:
     authority_digest: str
     authority_source_sha256: str
     authority_bound: bool
+    receipt_authenticated: bool
+    issued_at: str
+    expires_at: str
+    receipt_hmac: str
     destination: Path
     source_sha256: str
     output_sha256: str
@@ -42,7 +46,7 @@ class ExportReceipt:
     destination_sha256: str | None
     backup: Path | None
 
-    def public(self) -> dict[str, JSONValue]:
+    def authenticated_payload(self) -> dict[str, JSONValue]:
         return {
             "path": str(self.destination),
             "authority_digest": self.authority_digest,
@@ -55,7 +59,17 @@ class ExportReceipt:
             "destination_existed": self.destination_existed,
             "destination_sha256": self.destination_sha256,
             "rollback_token": self.rollback_token,
+            "issued_at": self.issued_at,
+            "expires_at": self.expires_at,
         }
+
+    def public(self) -> dict[str, JSONValue]:
+        value = self.authenticated_payload()
+        if not self.receipt_authenticated:
+            value.pop("issued_at")
+            value.pop("expires_at")
+            return value
+        return {**value, "receipt_hmac": self.receipt_hmac}
 
 
 @dataclass(frozen=True, slots=True)

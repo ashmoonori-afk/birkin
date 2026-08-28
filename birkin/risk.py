@@ -43,6 +43,7 @@ CATEGORY_RISK: dict[str, str] = {
     "shell":  "high",
     "operation": "high",
     "office_job": "high",
+    "office_rollback": "high",
     "checkpoint_restore": "high",
     "computer_use": "high",
 }
