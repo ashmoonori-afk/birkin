@@ -206,6 +206,15 @@ Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 
 
 Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
 
+`office_job_request`는 이제 `content.paragraphs`를 사용하는 source 없는 DOCX
+생성 proposal도 받습니다. 별도 `office_create` approval이 결합된 proposal을
+실행하기 전에는 managed draft와 호출자 destination 모두에 파일을 쓰지
+않습니다. 반환된 durable `job_id`는 기존 `office_rollback_request` 승인·receipt
+흐름에 사용할 수 있습니다.
+overwrite 권한 없이 기존 destination을 만나면 해당 파일을 변경하지 않고
+`기존 파일을 덮어쓸까요?` 후속 승인을 생성합니다. 이 승인을 누르면 같은
+작업을 overwrite 권한에 다시 결합해 한 번 재시도합니다.
+
 Office provenance는 검토된 artifact의 정확한 version과 지원 runtime range를 서로 다른 계약으로 유지합니다. 일반 환경은 선언된 range를 검증하고, locked Office CI는 설치된 정확한 version도 함께 검증합니다.
 
 Office mutation 승인은 proposer, source digest, destination, 정확한 operation, overwrite 결정을 `authority_digest`에 결합합니다. Durable receipt는 해당 digest와 승인 주체를 proposer와 분리해 보존합니다.

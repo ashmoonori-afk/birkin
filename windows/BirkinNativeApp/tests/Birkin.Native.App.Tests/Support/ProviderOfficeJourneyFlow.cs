@@ -94,21 +94,29 @@ internal static class ProviderOfficeJourneyFlow
 
             const string outputName = "comparison-report.docx";
             var outputPath = Path.Combine(
-                temporaryRoot, "workspace", "office", "artifacts", "drafts", outputName);
+                temporaryRoot, "workspace", outputName);
             var draft = await ProviderOfficeJourneyActions.SubmitAsync(
                 composition.PresentationModel,
                 events,
-                "office.draft",
+                "office.job_request",
                 () => composition.Coordinator.DraftOfficeDocumentAsync(
                     new OfficeDraftIntent(
-                        String(artifacts["report-template.docx"], "artifact_id"), diffId, outputName),
+                        "Create the provider comparison report",
+                        "docx",
+                        new OfficeDocumentContent([
+                            "BIRKIN_P3_03_DOCUMENT_SENTINEL",
+                            "Comparison!A1 changed from 4100 to 4700.",
+                        ]),
+                        "Create a new provider comparison report",
+                        outputPath,
+                        false),
                     cancellationToken),
                 cancellationToken);
             var requested = await events.WaitAsync("approval.requested", draft.CommandId, cancellationToken);
             var requestedPayload = Payload(requested);
             var approvalId = String(requestedPayload, "approval_id");
-            var draftId = String(requestedPayload, "draft_id");
-            Assert.AreEqual(diffId, String(requestedPayload, "diff_id"));
+            var jobId = String(requestedPayload, "job_id");
+            Assert.AreEqual("office_create", String(requestedPayload, "category"));
             Assert.IsTrue(Boolean(requestedPayload, "sealed"));
             Assert.IsFalse(File.Exists(outputPath), "output existed before visible approval");
 
@@ -144,69 +152,29 @@ internal static class ProviderOfficeJourneyFlow
             Assert.IsTrue(IsInViewport(approve, scroll), "the exact projected approval was not visibly actionable");
             var approval = await ProviderOfficeJourneyActions.ClickAsync(
                 composition.PresentationModel, events, approve, "approval.answer", cancellationToken);
-            var receiptEvent = await events.WaitAsync("receipt.recorded", approval.CommandId, cancellationToken);
-            var savedEvent = await events.WaitAsync("office.updated", approval.CommandId, cancellationToken);
-            var saved = Object(Object(Payload(savedEvent), "result"), "artifact");
-            Assert.AreEqual(Path.GetFullPath(outputPath), Path.GetFullPath(String(saved, "uri")));
-            ProviderOfficeJourneyAssertions.AssertReceiptCorrelation(
-                Payload(receiptEvent), approvalId, String(saved, "artifact_id"), draftId,
-                diffId, draft.CommandId, approval.CommandId);
-
-            ProviderOfficePackageAssertions.AssertSpreadsheet(Path.Combine(fixtureRoot, "baseline.xlsx"), "4100");
-            ProviderOfficePackageAssertions.AssertSpreadsheet(Path.Combine(fixtureRoot, "candidate.xlsx"), "4700");
+            var answeredEvent = await events.WaitAsync(
+                "approval.answered", approval.CommandId, cancellationToken);
+            Assert.AreEqual("approve", String(Payload(answeredEvent), "decision"));
+            Assert.IsTrue(File.Exists(outputPath), "approved DOCX was not exported");
             ProviderOfficePackageAssertions.AssertReport(outputPath);
 
-            var open = await ProviderOfficeJourneyActions.SubmitAsync(
-                composition.PresentationModel,
-                events,
-                "office.open",
-                () => composition.Coordinator.OpenOfficeDocumentAsync(new OfficeOpenIntent(Artifact(saved)), cancellationToken),
-                cancellationToken);
-            var openedEvent = await events.WaitAsync("office.updated", open.CommandId, cancellationToken);
-            var document = Object(Object(Payload(openedEvent), "result"), "document");
-            Assert.AreEqual(String(saved, "content_hash"), String(Object(document, "source"), "sha256"));
-
             await RenderBarrierAsync(window);
-            var savedArtifactId = String(saved, "artifact_id");
-            ProviderOfficeJourneyAssertions.AssertActivityAndOfficeUi(window, savedArtifactId);
             var receiptTraces = new ProviderOfficeCommandTrace?[] { chat, draft, approval }
                 .OfType<ProviderOfficeCommandTrace>().ToArray();
             ProviderOfficeJourneyAssertions.AssertStoredReceipts(temporaryRoot, receiptTraces, evidence);
-            var savedActivity = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "activity.summary")
-                .Single(text => text.Text == "Approved Office report saved and structurally verified");
-            var savedReport = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "office.document-summary")
-                .Single(text => text.Text == outputName);
-            savedActivity.BringIntoView();
-            savedReport.BringIntoView();
             scroll.ScrollToVerticalOffset(
                 OfficeWorkflowViewHarness.Find<FrameworkElement>(window, "approvals.landmark").ActualHeight + 5);
             await RenderBarrierAsync(window);
-            Assert.IsTrue(IsInViewport(savedActivity, scroll), "the report-saved Activity entry was clipped");
-            Assert.IsTrue(IsInViewport(savedReport, scroll), "the saved report artifact was clipped");
             var afterPath = Path.Combine(evidenceRoot, "post-save-activity-office-1500x940.png");
             var after = ProviderOfficeScreenshot.CaptureRedacted(window, afterPath, 1500, 940);
             evidence.Record("post-save-screenshot", new Dictionary<string, object?>
             {
                 ["approval_id"] = approvalId,
-                ["artifact_id"] = savedArtifactId,
-                ["receipt_cursor"] = Cursor(receiptEvent),
+                ["job_id"] = jobId,
+                ["answered_cursor"] = Cursor(answeredEvent),
                 ["png_sha256"] = after.Sha256,
                 ["width"] = after.Width,
                 ["height"] = after.Height,
-            });
-
-            savedReport.BringIntoView();
-            await RenderBarrierAsync(window);
-            var constrainedPath = Path.Combine(evidenceRoot, "post-save-office-1100x700.png");
-            var constrained = ProviderOfficeScreenshot.CaptureRedacted(
-                window, constrainedPath, 1100, 700, savedReport.BringIntoView);
-            evidence.Record("constrained-post-save-screenshot", new Dictionary<string, object?>
-            {
-                ["artifact_id"] = savedArtifactId,
-                ["cursor"] = Cursor(openedEvent),
-                ["png_sha256"] = constrained.Sha256,
-                ["width"] = constrained.Width,
-                ["height"] = constrained.Height,
             });
             var providerInvocations = events.Events.Count(envelope =>
                 ProviderOfficeEventLog.Type(envelope) == "message.user");

@@ -41,16 +41,24 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     }
 
     [TestMethod]
-    public async Task ReportSaveCommands_WhenAdvertised_RemainUnavailableWithoutApprovedJobRequest()
+    public async Task ReportSaveCommands_WhenJobRequestAdvertised_EnableDraftOnly()
     {
-        var commands = new HashSet<string>(["office.create", "office.convert", "office.draft"]);
+        var commands = new HashSet<string>(["office.create", "office.convert", "office.job_request"]);
         var fixture = await Fixture.ConnectAsync(commands);
+        Assert.IsTrue(fixture.Model.OfficeWorkflow.Availability.OfficeDraft.IsEnabled);
+        fixture.Connection.Enqueue(Receipt("command-1", 5));
 
         var created = await fixture.Coordinator.CreateOfficeDocumentAsync(
             new OfficeCreateIntent("docx", new OfficeDocumentContent(["Report"]), "report.docx"),
             CancellationToken.None);
         var drafted = await fixture.Coordinator.DraftOfficeDocumentAsync(
-            new OfficeDraftIntent("artifact-template", "diff-1", "report.docx"),
+            new OfficeDraftIntent(
+                "Create the report",
+                "docx",
+                new OfficeDocumentContent(["Report", "Approved body"]),
+                "Create a new report",
+                "report.docx",
+                false),
             CancellationToken.None);
         var converted = await fixture.Coordinator.ConvertOfficeDocumentAsync(
             new OfficeConvertIntent(
@@ -61,11 +69,11 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             CancellationToken.None);
 
         Assert.IsFalse(created);
-        Assert.IsFalse(drafted);
+        Assert.IsTrue(drafted);
         Assert.IsFalse(converted);
-        Assert.AreEqual(0, fixture.Connection.Sent.Count);
+        Assert.AreEqual(1, fixture.Connection.Sent.Count);
+        Assert.AreEqual("office.job_request", fixture.Connection.Sent[0].CommandType);
         Assert.AreEqual("E_OFFICE_JOB_REQUEST_REQUIRED", fixture.Model.OfficeWorkflow.Availability.OfficeCreate.DisabledReason);
-        Assert.AreEqual("E_OFFICE_JOB_REQUEST_REQUIRED", fixture.Model.OfficeWorkflow.Availability.OfficeDraft.DisabledReason);
         Assert.AreEqual("E_OFFICE_JOB_REQUEST_REQUIRED", fixture.Model.OfficeWorkflow.Availability.OfficeConvert.DisabledReason);
         await fixture.DisposeAsync();
     }

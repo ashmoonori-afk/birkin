@@ -62,11 +62,27 @@ def _operations(value: object) -> tuple[Mapping[str, object], ...]:
     return tuple(_payload(item) for item in value)
 
 
+def _strings(value: object, name: str) -> tuple[str, ...]:
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise TypeError(f"{name} must be an array")
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise TypeError(f"{name} items must be strings")
+        items.append(item)
+    return tuple(items)
+
+
 def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
     def run(data: ToolInput, ctx: ToolContext) -> ToolResult:
         from .. import approvals
         from ..office.coordinator import OfficeCaller, OfficeCoordinator, OfficeMutationRequest
         from ..office.coordinator_data import canonical_office_home
+        from ..office.create_approval import (
+            OfficeCreationCaller,
+            OfficeCreationCoordinator,
+            OfficeCreationRequest,
+        )
         from ..office.errors import DocumentError, DocumentErrorCode
         from ..office.service import DocumentService
 
@@ -90,34 +106,76 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                         page=cast("int | None", payload.get("page")),
                     )
             elif name == "office_job_request":
-                coordinator = OfficeCoordinator(
-                    OfficeCaller(
-                        allowlist_root=ctx.cwd,
-                        actor=ctx.record_source,
+                if "source" in payload:
+                    coordinator = OfficeCoordinator(
+                        OfficeCaller(
+                            allowlist_root=ctx.cwd,
+                            actor=ctx.record_source,
+                        )
                     )
-                )
-                approval = coordinator.request(
-                    OfficeMutationRequest(
-                        request_text=cast("str", payload["request"]),
-                        source=cast("Mapping[str, object]", payload["source"]),
-                        outcome=cast("str", payload["outcome"]),
-                        operations=_operations(payload["operations"]),
-                        destination=Path(cast("str", payload["destination"])),
-                        overwrite_approved=cast("bool", payload.get("overwrite_approved", False)),
+                    approval = coordinator.request(
+                        OfficeMutationRequest(
+                            request_text=cast("str", payload["request"]),
+                            source=cast("Mapping[str, object]", payload["source"]),
+                            outcome=cast("str", payload["outcome"]),
+                            operations=_operations(payload["operations"]),
+                            destination=Path(cast("str", payload["destination"])),
+                            overwrite_approved=cast(
+                                "bool",
+                                payload.get("overwrite_approved", False),
+                            ),
+                        )
                     )
-                )
-                queued = approvals.propose(
-                    category="office_job",
-                    title=f"Office mutation: {payload['outcome']}",
-                    description="\n".join(
+                    title = f"Office mutation: {payload['outcome']}"
+                    description = "\n".join(
                         cast("str", item["summary"])
-                        for item in cast("list[dict[str, object]]", approval["semantic_summaries"])
-                    ),
+                        for item in cast(
+                            "list[dict[str, object]]",
+                            approval["semantic_summaries"],
+                        )
+                    )
+                    approval_category = "office_job"
+                else:
+                    raw_content = _payload(payload["content"])
+                    paragraphs = _strings(
+                        raw_content["paragraphs"],
+                        "content paragraphs",
+                    )
+                    coordinator = OfficeCreationCoordinator(
+                        OfficeCreationCaller(
+                            allowlist_root=ctx.cwd,
+                            actor=ctx.record_source,
+                        )
+                    )
+                    approval = coordinator.request(OfficeCreationRequest(
+                        request_text=cast("str", payload["request"]),
+                        paragraphs=paragraphs,
+                        outcome=cast("str", payload["outcome"]),
+                        destination=Path(cast("str", payload["destination"])),
+                        overwrite_approved=cast(
+                            "bool",
+                            payload.get("overwrite_approved", False),
+                        ),
+                    ))
+                    title = f"Office creation: {payload['outcome']}"
+                    description = (
+                        f"Create a DOCX with {len(paragraphs)} paragraph(s) at "
+                        f"{approval['destination']}."
+                    )
+                    approval_category = "office_create"
+                queued = approvals.propose(
+                    category=approval_category,
+                    title=title,
+                    description=description,
                     payload=approval,
                     cfg={},
                     origin=ctx.record_source,
                 )
-                result = {**queued, "category": "office_job", "approval": approval}
+                result = {
+                    **queued,
+                    "category": approval_category,
+                    "approval": approval,
+                }
             elif name == "office_rollback_request":
                 from ..office.rollback_approval import prepare_rollback
 
@@ -187,17 +245,41 @@ def tools() -> list[Tool]:
             ["artifact"],
         ),
         "validate_artifact": _object({"artifact": _ARTIFACT}, ["artifact"]),
-        "office_job_request": _object(
-            {
-                "request": {"type": "string", "minLength": 1},
-                "source": _ARTIFACT,
-                "outcome": {"type": "string", "minLength": 1},
-                "operations": {"type": "array", "minItems": 1, "items": PATCH_OPERATION_SCHEMA},
-                "destination": {"type": "string", "minLength": 1},
-                "overwrite_approved": {"type": "boolean"},
-            },
-            ["request", "source", "outcome", "operations", "destination"],
-        ),
+        "office_job_request": {
+            **_object(
+                {
+                    "request": {"type": "string", "minLength": 1},
+                    "source": _ARTIFACT,
+                    "format": {"type": "string", "enum": ["docx"]},
+                    "content": _object(
+                        {
+                            "paragraphs": {
+                                "type": "array",
+                                "minItems": 1,
+                                "items": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                },
+                            },
+                        },
+                        ["paragraphs"],
+                    ),
+                    "outcome": {"type": "string", "minLength": 1},
+                    "operations": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": PATCH_OPERATION_SCHEMA,
+                    },
+                    "destination": {"type": "string", "minLength": 1},
+                    "overwrite_approved": {"type": "boolean"},
+                },
+                ["request", "outcome", "destination"],
+            ),
+            "oneOf": [
+                {"required": ["source", "operations"]},
+                {"required": ["format", "content"]},
+            ],
+        },
         "office_rollback_request": _object(
             {
                 "job_id": {

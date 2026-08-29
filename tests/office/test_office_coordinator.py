@@ -13,6 +13,7 @@ from birkin import approvals, config, store
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.tools import build_registry
 from birkin.tools._types import ToolContext
+from birkin.workspace.approval_projection import approval_item
 
 
 def _xlsx(path: Path) -> Path:
@@ -163,12 +164,21 @@ def test_request_queues_bound_approval_without_mutating_files(
         "destination",
         "allowlist_root",
         "proposer",
+        "source_filename",
+        "rejection_result",
     } <= set(payload)
     assert payload["source_sha256"] == source_sha256
     assert payload["destination"] == str(destination)
     assert payload["allowlist_root"] == str(destination.parent)
     assert payload["proposer"] == "user:local-contract"
+    assert payload["source_filename"] == "source.xlsx"
+    assert payload["rejection_result"] == (
+        "Rejecting leaves the source unchanged and writes no output."
+    )
     assert isinstance(payload["authority_digest"], str)
+    card = approval_item(record)
+    assert card["source_filename"] == payload["source_filename"]
+    assert card["rejection_result"] == payload["rejection_result"]
     summaries = cast("list[dict[str, str]]", payload["semantic_summaries"])
     assert len(summaries) == 1
     assert summaries[0]["location"] == "A1"

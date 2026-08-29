@@ -38,6 +38,14 @@ def decide(
         if "result" in result:
             response["receipt"] = str(result["result"])
         return response
+    follow_up_approval_id = result.get("follow_up_approval_id")
+    if isinstance(follow_up_approval_id, str):
+        return {
+            "outcome": "follow_up_required",
+            "approval_id": aid,
+            "follow_up_approval_id": follow_up_approval_id,
+            "question": str(result.get("error") or ""),
+        }
     current: dict[str, object] | None = store.get_pending(aid)
     if current is not None and current.get("status") != "pending":
         return {"outcome": "answered_elsewhere", "approval_id": aid}

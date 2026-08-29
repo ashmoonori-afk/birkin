@@ -18,15 +18,20 @@ from birkin.tools.documents import NAMES as DOCUMENT_TOOL_NAMES
 
 
 PHRASES = {
+    "보고서 만들어줘": "word-documents",
+    "리포트 작성해줘": "word-documents",
     "이 워드 문서 검토해줘": "word-documents",
     "Review this Word document": "word-documents",
     "엑셀 예산표 만들어줘": "spreadsheets",
     "Create an Excel budget spreadsheet": "spreadsheets",
     "이 PPT 발표자료 점검해줘": "presentations",
+    "파워포인트 만들어줘": "presentations",
+    "피피티 검토해줘": "presentations",
     "Check this PowerPoint presentation": "presentations",
     "PDF 검증해줘": "pdf-documents",
     "Validate this PDF": "pdf-documents",
     "HWPX 서식 채워줘": "korean-hwp-documents",
+    "한글파일 작성해줘": "korean-hwp-documents",
     "Fill this HWPX form": "korean-hwp-documents",
     "사무 문서 작업 도와줘": "office-work-os",
     "Help me with general Office document work": "office-work-os",
@@ -184,6 +189,18 @@ def test_production_gateway_injects_exact_office_skill_and_document_tools(
         )
         assert "inspect-first" in model.systems[-1].lower()
         assert "copy-on-write" in model.systems[-1].lower()
+
+
+def test_mixed_office_formats_inject_clarification_question(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    session, model = _session(tmp_path, monkeypatch)
+    monkeypatch.setattr(gateway_core, "build_session", lambda _cfg: session)
+    gateway = gateway_core.Gateway(dict(session.cfg))
+
+    assert gateway.handle("http", "local", "엑셀 비교해서 워드 보고서로") == "office-ok"
+    assert "어느 포맷으로 저장할까요?" in model.systems[-1]
 
 
 def test_untrusted_channel_does_not_gain_office_skills_or_tools(

@@ -10,6 +10,8 @@ from typing import cast
 from birkin import config, store
 
 from .coordinator_data import canonical_office_home, job_journal
+from .create_journal import CreationJobJournal
+from .create_rollback import execute_creation_rollback
 from .errors import DocumentError, DocumentErrorCode
 from .export_io import current_hash
 from .job_runner import DocumentServiceRunner
@@ -63,7 +65,13 @@ def execute_approved_rollback(
     home = canonical_office_home()
     service = DocumentService(home)
     journal = job_journal(home)
-    path = journal.path_for(job_id)
+    creation_journal = CreationJobJournal(home)
+    creation_record = creation_journal.latest(job_id)
+    path = (
+        creation_journal.path_for(job_id)
+        if creation_record
+        else journal.path_for(job_id)
+    )
     approval_path = config.pending_dir() / f"{approval_id}.json"
     with store.file_lock(approval_path, timeout=0):
         authority = _queue_authority(approval_id, payload)
@@ -83,6 +91,17 @@ def execute_approved_rollback(
                     DocumentErrorCode.PERMISSION_DENIED,
                     "approved rollback destination changed",
                 )
+            if record.get("kind") == "office_create":
+                return _json(execute_creation_rollback(
+                    job_id=job_id,
+                    record=record,
+                    export=export,
+                    destination=destination,
+                    approval_id=approval_id,
+                    authority=authority,
+                    service=service,
+                    journal=creation_journal,
+                ))
             if record.get("state") == "validated":
                 rollback = _mapping(
                     record.get("rollback"),
@@ -165,6 +184,14 @@ def _json(value: Mapping[str, object]) -> str:
 
 
 def _job_record(home: Path, job_id: str) -> dict[str, object]:
+    creation = CreationJobJournal(home).latest(job_id)
+    if creation:
+        if creation.get("job_id") != job_id:
+            raise _error(
+                DocumentErrorCode.PRECONDITION_FAILED,
+                "durable Office creation job is unavailable",
+            )
+        return creation
     record = job_journal(home).latest(job_id)
     if record.get("job_id") != job_id:
         raise _error(

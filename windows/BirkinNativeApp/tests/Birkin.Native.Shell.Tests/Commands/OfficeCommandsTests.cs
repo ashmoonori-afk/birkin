@@ -54,4 +54,31 @@ public sealed class OfficeCommandsTests
             new[] { "artifact", "target_format", "output_name", "loss_budget" }, request.Payload.Keys.ToArray());
         Assert.AreEqual(10, ((NativeJsonObject)request.Payload["loss_budget"]!).Count);
     }
+
+    [TestMethod]
+    public void Draft_WhenCreationPlanGiven_BuildsOfficeJobRequestPayload()
+    {
+        // Given / When
+        var request = OfficeCommands.Draft(
+            new OfficeDraftIntent(
+                "Create the quarterly report",
+                "docx",
+                new OfficeDocumentContent(["Quarterly report", "Revenue increased."]),
+                "Create a new quarterly report",
+                "quarterly-report.docx",
+                false),
+            Context);
+
+        // Then
+        Assert.AreEqual("office.job_request", request.CommandType);
+        CollectionAssert.AreEquivalent(
+            new[] { "request", "format", "content", "outcome", "destination", "overwrite_approved" },
+            request.Payload.Keys.ToArray());
+        var content = (NativeJsonObject)request.Payload["content"]!;
+        var paragraphs = (NativeJsonArray)content["paragraphs"]!;
+        Assert.AreEqual("Quarterly report", ((NativeJsonString)paragraphs.Values[0]).Value);
+        Assert.AreEqual("Revenue increased.", ((NativeJsonString)paragraphs.Values[1]).Value);
+        Assert.AreEqual("quarterly-report.docx", ((NativeJsonString)request.Payload["destination"]!).Value);
+        Assert.IsFalse(((NativeJsonBoolean)request.Payload["overwrite_approved"]!).Value);
+    }
 }

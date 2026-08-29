@@ -7,7 +7,13 @@ from typing import Any, Protocol
 
 from . import config, store, worker_hooks
 
-_OFFICE_CATEGORIES = frozenset({"office_job", "office_rollback"})
+_OFFICE_CATEGORIES = frozenset(
+    {
+        "office_create",
+        "office_job",
+        "office_rollback",
+    }
+)
 
 
 class ActionExecutor(Protocol):
@@ -135,9 +141,49 @@ def execute_claimed(
         return {"ok": False, "error": "cron store is busy; retry."}
     except Exception as exc:
         if record["category"] in _OFFICE_CATEGORIES:
-            from .office.errors import DocumentError
+            from .office.errors import DocumentError, DocumentErrorCode
 
             match exc:
+                case DocumentError(code=DocumentErrorCode.OUTPUT_EXISTS):
+                    from .office.overwrite_retry import (
+                        OVERWRITE_QUESTION,
+                        queue_overwrite_follow_up,
+                    )
+
+                    try:
+                        follow_up = queue_overwrite_follow_up(
+                            approval_id=approval_id,
+                            category=record["category"],
+                            payload=record.get("payload", {}),
+                        )
+                    except Exception as follow_up_error:
+                        store.resolve_pending(
+                            approval_id,
+                            "error",
+                            updates={
+                                "failure_stage": "overwrite_follow_up",
+                                "failure_code": DocumentErrorCode.OUTPUT_EXISTS.value,
+                            },
+                        )
+                        return {
+                            "ok": False,
+                            "error": (f"overwrite follow-up failed: {follow_up_error}"),
+                        }
+                    follow_up_id = str(follow_up["id"])
+                    store.resolve_pending(
+                        approval_id,
+                        "error",
+                        updates={
+                            "failure_stage": "action",
+                            "failure_code": DocumentErrorCode.OUTPUT_EXISTS.value,
+                            "follow_up_approval_id": follow_up_id,
+                        },
+                    )
+                    return {
+                        "ok": False,
+                        "error": OVERWRITE_QUESTION,
+                        "follow_up_approval_id": follow_up_id,
+                    }
                 case DocumentError(retryable=True):
                     return {
                         "ok": False,
@@ -145,9 +191,7 @@ def execute_claimed(
                     }
                 case _:
                     pass
-        store.resolve_pending(
-            approval_id, "error", updates={"failure_stage": "action"}
-        )
+        store.resolve_pending(approval_id, "error", updates={"failure_stage": "action"})
         return {"ok": False, "error": f"action failed: {exc}"}
     if continuation is not None:
         store.resolve_pending(
@@ -157,15 +201,11 @@ def execute_claimed(
         if resumed.get("ok"):
             resumed["result"] = result
         return resumed
-    store.resolve_pending(
-        approval_id, "approved", updates={"action_receipt": result}
-    )
+    store.resolve_pending(approval_id, "approved", updates={"action_receipt": result})
     return {"ok": True, "result": result}
 
 
-def execute_continuation(
-    approval_id: str, on_event: Any = None
-) -> dict[str, Any]:
+def execute_continuation(approval_id: str, on_event: Any = None) -> dict[str, Any]:
     if not store.valid_pending_id(approval_id):
         return {"ok": False, "error": "invalid approval id"}
     try:

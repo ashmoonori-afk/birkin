@@ -42,6 +42,7 @@ CATEGORY_RISK: dict[str, str] = {
     "harness": "high",
     "shell":  "high",
     "operation": "high",
+    "office_create": "high",
     "office_job": "high",
     "office_rollback": "high",
     "checkpoint_restore": "high",
