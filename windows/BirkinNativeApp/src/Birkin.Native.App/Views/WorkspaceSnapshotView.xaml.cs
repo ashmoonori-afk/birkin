@@ -43,11 +43,16 @@ public partial class WorkspaceSnapshotView : UserControl
         }
 
         button.IsEnabled = false;
-        _presentationModel.ClearStartupFailure();
+        await System.Windows.Threading.Dispatcher.Yield(
+            System.Windows.Threading.DispatcherPriority.Render);
         try
         {
             var failure = await _startupRecovery.RetryAsync();
-            if (failure is not null)
+            if (failure is null)
+            {
+                _presentationModel.ClearStartupFailure();
+            }
+            else
             {
                 _presentationModel.PresentStartupFailure(failure);
             }
@@ -74,13 +79,18 @@ public partial class WorkspaceSnapshotView : UserControl
         }
 
         button.IsEnabled = false;
-        _presentationModel.ClearStartupFailure();
+        await System.Windows.Threading.Dispatcher.Yield(
+            System.Windows.Threading.DispatcherPriority.Render);
         try
         {
             var failure =
                 await _startupRecovery.ConfigureExecutableAndRetryAsync(
                     ExecutablePathInput.Text);
-            if (failure is not null)
+            if (failure is null)
+            {
+                _presentationModel.ClearStartupFailure();
+            }
+            else
             {
                 _presentationModel.PresentStartupFailure(failure);
             }

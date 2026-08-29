@@ -29,6 +29,7 @@ public sealed class WorkspaceSnapshotViewTests
             var model = new ShellPresentationModel(
                 SynchronizationContext.Current!);
             var view = new WorkspaceSnapshotView(model);
+            OfficeWorkflowViewHarness.Layout(view);
             var indicator = FindByAutomationId<Ellipse>(
                 view,
                 "ConnectionStatusIndicator");
@@ -147,7 +148,10 @@ public sealed class WorkspaceSnapshotViewTests
                 FindByAutomationId<ItemsControl>(view, "working-memory.items").ItemsSource,
                 FindByAutomationId<ItemsControl>(view, "approvals.items").ItemsSource,
                 RegionAutomationIds(view),
-                Descendants<Button>(view).Select(button => button.IsEnabled).ToArray(),
+                Descendants<Button>(view)
+                    .Where(button => button.IsVisible)
+                    .Select(button => button.IsEnabled)
+                    .ToArray(),
                 FindByAutomationId<TextBox>(view, "conversation.draft").IsEnabled,
                 AutomationProperties.GetAutomationId(
                     FindByAutomationId<TextBlock>(view, "composer.read-only-caption")));
