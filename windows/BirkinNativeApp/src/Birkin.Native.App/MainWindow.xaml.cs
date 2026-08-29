@@ -2,6 +2,7 @@ using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Input;
 using Birkin.Native.App.Startup;
+using Birkin.Native.App.Views;
 using Birkin.Native.Shell;
 using Birkin.Native.Shell.Presentation;
 
