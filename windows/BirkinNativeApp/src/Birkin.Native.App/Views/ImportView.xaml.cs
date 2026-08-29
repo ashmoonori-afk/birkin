@@ -22,7 +22,7 @@ public partial class ImportView : UserControl
         InitializeComponent();
     }
 
-    public ImportView(
+    internal ImportView(
         ShellPresentationModel model,
         ShellCoordinator coordinator,
         IOfficeFilePicker? picker = null)
