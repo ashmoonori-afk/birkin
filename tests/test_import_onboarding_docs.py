@@ -83,11 +83,27 @@ def test_fresh_windows_journey_runs_installer_and_local_chat() -> None:
     assert "birkin definitely-not-a-command" in workflow
     assert "birkin setup" in workflow
     assert "Codex CLI가 설치되어 있지 않습니다." in workflow
+    assert "OfficeAuthorityBridgeIntegrationTests" in workflow
+    assert "setup-provider-choice.txt" in workflow
+    assert "uv sync --frozen --all-extras" in workflow
+    assert workflow.index("setup-provider-choice.txt") < workflow.index(
+        "OfficeAuthorityBridgeIntegrationTests"
+    )
+    assert workflow.index("OfficeAuthorityBridgeIntegrationTests") < workflow.index(
+        "birkin chat"
+    )
+    assert '"1`n2`n4`n$modelChoice' in workflow
+    assert "[IO.File]::WriteAllText($configPath" not in workflow
+    assert "JOURNEY_STARTED_AT" in workflow
+    assert "provider_selected_at" in workflow
+    assert "$importCompletedAt -lt $providerSelectedAt" in workflow
+    assert "$elapsedSeconds -gt 600" in workflow
+    assert "journey-timing.json" in workflow
     assert "qwen2.5:0.5b" in workflow
     assert "birkin chat" in workflow
     assert "fresh-windows-first-chat" in workflow
-    assert 'base_url = "http://127.0.0.1:11434"' in workflow
-    assert 'base_url = "http://127.0.0.1:11434/v1"' not in workflow
+    assert '$configured.base_url -ne "http://localhost:11434"' in workflow
+    assert '$configured.base_url -ne "http://localhost:11434/v1"' not in workflow
     assert "ErrorDataReceived" in workflow
     assert "BeginErrorReadLine" in workflow
     assert "$server.Kill($true)" in workflow

@@ -181,7 +181,7 @@ def apply_selection(cfg: dict[str, Any], model: Model) -> None:
         cfg["base_url"] = ""
     elif model.is_ollama:
         cfg["provider"] = "openai"
-        cfg["base_url"] = f"{OLLAMA_HOST}/v1"
+        cfg["base_url"] = OLLAMA_HOST
         cfg["model"] = model.id
         if not config.get_api_key(cfg) or config.get_api_key(cfg) == "cli":
             cfg["api_key"] = "ollama"

@@ -33,6 +33,8 @@ jobs:
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "EVIDENCE_DIR=$env:RUNNER_TEMP\fresh-windows-evidence" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "JOURNEY_STARTED_AT=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install from the checked-out revision
         shell: pwsh
@@ -112,7 +114,7 @@ jobs:
             --logger "trx;LogFileName=office-import.trx" `
             --results-directory $env:EVIDENCE_DIR
 
-      - name: Start a credential-free local model and complete the first chat
+      - name: Select local provider, import, and complete the first chat
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -211,17 +213,62 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw "Ollama model download failed with exit code $LASTEXITCODE."
             }
-            New-Item -ItemType Directory -Force $env:BIRKIN_HOME | Out-Null
-            @{
-              provider = "openai"
-              model = "qwen2.5:0.5b"
-              base_url = "http://127.0.0.1:11434"
-              api_key = "ollama"
-              max_tokens = 256
-              max_turns = 2
-              autosave_transcripts = $true
-            } | ConvertTo-Json |
-              Set-Content "$env:BIRKIN_HOME\config.json" -Encoding utf8
+            $modelListing = & birkin models 2>&1
+            $modelListing | Set-Content `
+              "$env:EVIDENCE_DIR\models.txt" `
+              -Encoding utf8
+            $modelLine = $modelListing |
+              Where-Object { $_ -match "qwen2\.5:0\.5b.*ollama" } |
+              Select-Object -First 1
+            if (-not $modelLine) {
+              throw "The setup model picker did not advertise qwen2.5:0.5b."
+            }
+            $modelMatch = [regex]::Match(
+              [string]$modelLine,
+              "^\s*(\d+)\.")
+            if (-not $modelMatch.Success) {
+              throw "The setup model choice had no stable menu index."
+            }
+            $modelChoice = $modelMatch.Groups[1].Value
+            $setupAnswers = "1`n2`n4`n$modelChoice`n`n`n`n`n`n"
+            $setupAnswers |
+              birkin setup *>&1 |
+              Tee-Object -FilePath `
+                "$env:EVIDENCE_DIR\setup-provider-choice.txt"
+            if ($LASTEXITCODE -ne 0) {
+              throw "birkin setup failed with exit code $LASTEXITCODE."
+            }
+            $configured = Get-Content `
+              "$env:BIRKIN_HOME\config.json" `
+              -Raw |
+              ConvertFrom-Json
+            if (
+              $configured.provider -ne "openai" -or
+              $configured.model -ne "qwen2.5:0.5b" -or
+              $configured.base_url -ne "http://localhost:11434" -or
+              $configured.api_key -ne "ollama"
+            ) {
+              throw "birkin setup did not persist the selected local provider."
+            }
+            $providerSelectedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+            uv sync --frozen --all-extras
+            if ($LASTEXITCODE -ne 0) {
+              throw "uv sync failed with exit code $LASTEXITCODE."
+            }
+            $protocolProject = (
+              ".\windows\BirkinNativeApp\tests"
+              + "\Birkin.Native.Protocol.Tests"
+              + "\Birkin.Native.Protocol.Tests.csproj"
+            )
+            dotnet test $protocolProject -c Release `
+              --filter "FullyQualifiedName~OfficeAuthorityBridgeIntegrationTests" `
+              --logger "trx;LogFileName=office-real-bridge-import.trx" `
+              --results-directory $env:EVIDENCE_DIR
+            if ($LASTEXITCODE -ne 0) {
+              throw "The real-bridge import tests failed with exit code $LASTEXITCODE."
+            }
+            $importCompletedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
             "안녕하세요. 한국어로 자연스럽게 인사해 주세요.`n" |
               birkin chat *>&1 |
@@ -253,6 +300,29 @@ jobs:
             $reply | Set-Content `
               "$env:EVIDENCE_DIR\assistant-reply.txt" `
               -Encoding utf8
+            $completedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+            $startedAt = [long]$env:JOURNEY_STARTED_AT
+            $elapsedSeconds = $completedAt - $startedAt
+            if (
+              $providerSelectedAt -lt $startedAt -or
+              $importCompletedAt -lt $providerSelectedAt -or
+              $completedAt -lt $importCompletedAt
+            ) {
+              throw "The install, provider, import, and chat timestamps are unordered."
+            }
+            if ($elapsedSeconds -gt 600) {
+              throw "The first import journey exceeded 600 seconds."
+            }
+            @{
+              started_at = $startedAt
+              provider_selected_at = $providerSelectedAt
+              import_completed_at = $importCompletedAt
+              chat_completed_at = $completedAt
+              elapsed_seconds = $elapsedSeconds
+            } | ConvertTo-Json |
+              Set-Content `
+                "$env:EVIDENCE_DIR\journey-timing.json" `
+                -Encoding utf8
           } finally {
             if ($server) {
               if (-not $server.HasExited) {

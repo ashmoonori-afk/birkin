@@ -132,7 +132,7 @@ def test_apply_selection_ollama_rewires_openai_with_local_endpoint():
     m = models.Model("llama3.1:8b", "ollama", "local · ollama")
     models.apply_selection(cfg, m)
     assert cfg["provider"] == "openai"
-    assert cfg["base_url"].endswith("/v1")
+    assert cfg["base_url"] == models.OLLAMA_HOST
     assert cfg["model"] == "llama3.1:8b"
     assert cfg.get("api_key") == "ollama"
 

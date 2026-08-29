@@ -10,18 +10,20 @@ internal interface IOfficeFilePicker
 
 internal sealed class OfficeFilePicker : IOfficeFilePicker
 {
-    private const string Filter =
-        "Office documents|*.docx;*.xlsx;*.pptx;*.pdf;*.hwpx;*.txt"
-        + "|All files|*.*";
+    internal const string FileFilter =
+        "Excel and Word documents|*.xlsx;*.docx"
+        + "|Excel workbooks|*.xlsx"
+        + "|Word documents|*.docx";
+    internal const string DialogTitle = "가져올 Excel 또는 Word 파일 선택";
 
     public string? SelectOfficeFile(Window? owner)
     {
         var dialog = new OpenFileDialog
         {
             CheckFileExists = true,
-            Filter = Filter,
+            Filter = FileFilter,
             Multiselect = false,
-            Title = "Choose an Office file to import",
+            Title = DialogTitle,
         };
         return dialog.ShowDialog(owner) is true
             ? dialog.FileName

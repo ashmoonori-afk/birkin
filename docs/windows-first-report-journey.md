@@ -4,22 +4,41 @@ Date: 2026-08-29
 
 ## Execution status
 
-The fresh-Windows-VM journey was not executed in this worktree session. The
-available workstation is Darwin arm64. The Windows-only WPF test project cannot
-load `Microsoft.NET.Sdk.WindowsDesktop.targets` from the installed macOS .NET
-8 SDK, so this document does not claim rendered Windows evidence.
+**Automated install-to-first-chat slice: Pass.**
 
-The following cross-platform evidence was captured:
+GitHub Actions run
+[33265797616](https://github.com/ashmoonori-afk/birkin/actions/runs/33265797616)
+completed successfully on the ephemeral `windows-latest` hosted runner against
+commit `5c2bb92e9aa14cd8b4d1ad83151c794cab7908fd`.
+Artifact
+[`fresh-windows-first-chat`](https://github.com/ashmoonori-afk/birkin/actions/runs/33265797616/artifacts/9718623916)
+contains the installer, CLI, missing-Codex, WPF TRX, model-server, chat, and
+assistant-reply evidence. GitHub is scheduled to retain it through
+2026-09-12.
 
-- Portable picker, drop, chip, live-refusal, and visual-state contracts: 5
-  passed.
-- Python jailed import and runtime adapter regression bundle: 35 passed.
-- Windows Shell authority and imported-receipt suite: 78 passed.
-- Windows Protocol suite: 134 passed.
-- Codex probe, retry, and model picker suite: 24 passed.
-- A real local `codex --version` probe resolved
-  `/opt/homebrew/bin/codex`; this proves the probe surface, not Windows
-  installation behavior.
+The hosted run captured:
+
+- The job started at `17:30:23Z`, the WPF import step completed at
+  `17:31:39Z`, and the first chat completed at `17:32:19Z`. The ordered
+  install-to-WPF-import-tests-to-chat slice therefore finished in 116 seconds,
+  below the 10-minute target.
+- `scripts/install.ps1` installed exact commit `5c2bb92e` with uv and verified
+  Birkin `0.4.325`.
+- `birkin --help` and `birkin --version` succeeded; an invalid command returned
+  the bounded argparse usage error.
+- A Codex-free `PATH` produced the Korean missing-installation message,
+  official Windows installer command, retry choice, and alternate-provider
+  choice.
+- Six focused WPF picker and routed-drop tests passed on Windows, including the
+  real `PreviewDrop` route and command payload.
+- Pinned Ollama `0.33.2` served `qwen2.5:0.5b` without credentials, and
+  `birkin chat` saved the Korean assistant reply
+  `안녕하세요. 어떻게 도와드릴까요?`.
+
+This evidence does not claim a rendered interactive desktop session, a Windows
+11 retail image, an installed Microsoft Office application, report generation,
+approval, export, rollback, or DACL inspection. Those remain in the extended
+manual checklist below.
 
 ## Required clean-VM run
 
@@ -49,11 +68,14 @@ toolchain state.
 
 | Surface | Result | Evidence |
 |---|---|---|
-| PowerShell installer | Not run | Fresh Windows VM required |
-| Missing Codex recovery | Not run | Fresh Windows VM required |
-| WPF picker and drop | Not run | WindowsDesktop SDK and rendered window required |
+| PowerShell installer | Pass | Run 33265797616 `install.txt`, `version.txt`, `help.txt`, and `invalid-command.txt` |
+| Missing Codex detection | Pass | Run 33265797616 `setup-missing-codex.txt` |
+| WPF picker and drop | Pass | Run 33265797616 `office-import.trx`: 6 executed, 6 passed |
+| First credential-free chat | Pass | Run 33265797616 `first-chat.txt` and `assistant-reply.txt` |
+| Ten-minute install-to-WPF-tests-to-chat bound | Pass | GitHub job timestamps: 116 seconds |
 | First Office report | Not run | Windows UI plus installed Office tier required |
-| Cross-platform trust boundaries | Pass | Test counts listed above |
+| Rendered Windows UI | Not run | The hosted WPF gate exercised controls without capturing a rendered desktop |
+| Cross-platform trust boundaries | Pass | Local trust-boundary bundle: 38 passed; portable documentation and intake contracts: 9 passed |
 
 Do not change a `Not run` result to `Pass` without attaching the command output
 or rendered evidence named in the required clean-VM run.

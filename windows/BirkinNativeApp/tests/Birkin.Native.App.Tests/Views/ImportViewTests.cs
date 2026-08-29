@@ -13,6 +13,19 @@ namespace Birkin.Native.App.Tests.Views;
 [TestCategory("OfficeWorkflow")]
 public sealed class ImportViewTests
 {
+    [Fact]
+    public void PickerFilterOffersOnlyFirstReportFormats()
+    {
+        Assert.AreEqual(
+            "Excel and Word documents|*.xlsx;*.docx"
+                + "|Excel workbooks|*.xlsx"
+                + "|Word documents|*.docx",
+            OfficeFilePicker.FileFilter);
+        Assert.AreEqual(
+            "가져올 Excel 또는 Word 파일 선택",
+            OfficeFilePicker.DialogTitle);
+    }
+
     [TestMethod]
     public async Task Browse_WhenFileIsChosen_SelectsPathWithoutReadingFile()
     {

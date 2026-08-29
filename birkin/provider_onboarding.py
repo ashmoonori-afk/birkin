@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import shutil
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
 from typing import Final, Protocol, final
@@ -46,11 +48,19 @@ class CommandResolver(Protocol):
     def resolve(self, command: str) -> CommandResolution: ...
 
 
+WhichCommand = Callable[[str], str | None]
+
+
 def probe_codex(
     resolver: CommandResolver | None = None,
+    *,
+    which: WhichCommand | None = None,
 ) -> CodexProviderStatus:
     """Execute ``codex --version`` and classify the observed result."""
-    resolution = (resolver or ExecutableResolver()).resolve("codex")
+    selected_path = (which or shutil.which)("codex")
+    if selected_path is None:
+        return CodexProviderStatus(False, None, CodexProbeIssue.NOT_FOUND)
+    resolution = (resolver or ExecutableResolver()).resolve(selected_path)
     if resolution.usable:
         return CodexProviderStatus(True, resolution.selected_path, None)
     if not resolution.attempts:

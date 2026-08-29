@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from birkin.executable_resolution import (
     CommandResolution,
     OutputMatch,
@@ -38,7 +40,10 @@ def test_codex_probe_reports_executed_binary_as_ready() -> None:
             assert command == "codex"
             return _resolution(selected_path=r"C:\tools\codex.exe")
 
-    status = provider_onboarding.probe_codex(Resolver())
+    status = provider_onboarding.probe_codex(
+        Resolver(),
+        which=lambda _: "codex",
+    )
 
     assert status.usable is True
     assert status.path == r"C:\tools\codex.exe"
@@ -56,7 +61,10 @@ def test_codex_probe_distinguishes_nonfunctional_windows_shim() -> None:
                 failure=ProbeFailureKind.NON_FUNCTIONAL_SHIM,
             )
 
-    status = provider_onboarding.probe_codex(Resolver())
+    status = provider_onboarding.probe_codex(
+        Resolver(),
+        which=lambda _: "codex",
+    )
 
     assert status.usable is False
     assert status.issue is provider_onboarding.CodexProbeIssue.NON_FUNCTIONAL_SHIM
@@ -76,6 +84,27 @@ def test_codex_probe_reports_missing_installation() -> None:
                     OutputMatch.NONEMPTY_VERSION_OUTPUT,
                 ),
             )
+
+    status = provider_onboarding.probe_codex(
+        Resolver(),
+        which=lambda _: "codex",
+    )
+
+    assert status.usable is False
+    assert status.path is None
+    assert status.issue is provider_onboarding.CodexProbeIssue.NOT_FOUND
+
+
+def test_codex_probe_stops_when_shutil_which_finds_no_binary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin import provider_onboarding
+
+    class Resolver:
+        def resolve(self, command: str) -> CommandResolution:
+            raise AssertionError(f"resolver must not run for missing {command}")
+
+    monkeypatch.setattr(provider_onboarding.shutil, "which", lambda _: None)
 
     status = provider_onboarding.probe_codex(Resolver())
 
