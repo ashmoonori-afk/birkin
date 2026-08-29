@@ -149,7 +149,11 @@ public sealed class WorkspaceSnapshotViewTests
                 FindByAutomationId<ItemsControl>(view, "approvals.items").ItemsSource,
                 RegionAutomationIds(view),
                 Descendants<Button>(view)
-                    .Where(button => button.IsVisible)
+                    .Where(button => !AutomationProperties
+                        .GetAutomationId(button)
+                        .StartsWith(
+                            "startup.failure.",
+                            StringComparison.Ordinal))
                     .Select(button => button.IsEnabled)
                     .ToArray(),
                 FindByAutomationId<TextBox>(view, "conversation.draft").IsEnabled,

@@ -44,7 +44,7 @@ public partial class WorkspaceSnapshotView : UserControl
 
         button.IsEnabled = false;
         await System.Windows.Threading.Dispatcher.Yield(
-            System.Windows.Threading.DispatcherPriority.Render);
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         try
         {
             var failure = await _startupRecovery.RetryAsync();
@@ -80,7 +80,7 @@ public partial class WorkspaceSnapshotView : UserControl
 
         button.IsEnabled = false;
         await System.Windows.Threading.Dispatcher.Yield(
-            System.Windows.Threading.DispatcherPriority.Render);
+            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
         try
         {
             var failure =

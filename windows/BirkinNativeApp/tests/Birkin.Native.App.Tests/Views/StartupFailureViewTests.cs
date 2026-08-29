@@ -143,6 +143,9 @@ public sealed class StartupFailureViewTests
             // When
             configure.RaiseEvent(
                 new System.Windows.RoutedEventArgs(Button.ClickEvent));
+            view.Dispatcher.Invoke(
+                () => { },
+                System.Windows.Threading.DispatcherPriority.ContextIdle);
 
             // Then
             Assert.AreEqual(
@@ -164,6 +167,9 @@ public sealed class StartupFailureViewTests
 
             // When
             retry.RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+            view.Dispatcher.Invoke(
+                () => { },
+                System.Windows.Threading.DispatcherPriority.ContextIdle);
 
             // Then
             Assert.AreEqual(1, recovery.RetryCalls);
