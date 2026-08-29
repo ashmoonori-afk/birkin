@@ -209,8 +209,9 @@ def run(out: Path) -> dict[str, object]:
         summaries = cast("list[dict[str, str]]", approval["semantic_summaries"])
         assert len(summaries) == 1
         assert summaries[0] == {
-            "location": "docx paragraph 1", "before": BEFORE, "after": AFTER,
-            "summary": f"Replace docx paragraph 1: {BEFORE} -> {AFTER}",
+            "location": "docx paragraph 1",
+            "before": BEFORE,
+            "after": AFTER,
         }
         assert approval["source_sha256"] == flow.source_sha256
         assert approval["destination"] == str(flow.destination)

@@ -66,7 +66,7 @@ public sealed class DiffViewTests
             Assert.IsTrue(Descendants<TextBlock>(view).Any(text => text.Text == "4100"));
             Assert.IsTrue(Descendants<TextBlock>(view).Any(text => text.Text == "4700"));
             var state = OfficeWorkflowViewHarness.Find<TextBlock>(view, "diff.state");
-            Assert.AreEqual("BEFORE APPROVAL", state.Text);
+            Assert.AreEqual("승인 전", state.Text);
 
             fixture.ApplyCanonical("receipt.recorded", Object(
                 ("diff_id", Text("diff-canonical")),
@@ -74,7 +74,7 @@ public sealed class DiffViewTests
                 ("artifact_id", Text("artifact-report"))));
             await view.Dispatcher.InvokeAsync(view.UpdateLayout);
 
-            Assert.AreEqual("APPROVED", state.Text);
+            Assert.AreEqual("승인됨", state.Text);
         });
     }
 

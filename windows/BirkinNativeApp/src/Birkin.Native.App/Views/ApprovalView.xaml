@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
              automation:AutomationProperties.AutomationId="approval.workflow"
-             automation:AutomationProperties.Name="Projected approvals">
+             automation:AutomationProperties.Name="{DynamicResource ApprovalSurfaceName}">
     <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
     <Grid MinHeight="54">
         <Grid.RowDefinitions>
@@ -53,28 +53,40 @@
                                         </Style.Triggers>
                                     </Style>
                                 </Border.Style>
-                                <TextBlock Text="{Binding RiskLabel}"
-                                           Foreground="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=Border}}"
+                                <TextBlock Foreground="{Binding BorderBrush, RelativeSource={RelativeSource AncestorType=Border}}"
                                            FontSize="11"
                                            FontWeight="Bold"
-                                           automation:AutomationProperties.AutomationId="{Binding RiskAutomationId}"/>
+                                           automation:AutomationProperties.AutomationId="{Binding RiskAutomationId}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Text" Value="{StaticResource ApprovalRiskUnknown}"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Risk}" Value="low"><Setter Property="Text" Value="{StaticResource ApprovalRiskLow}"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding Risk}" Value="medium"><Setter Property="Text" Value="{StaticResource ApprovalRiskMedium}"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding Risk}" Value="high"><Setter Property="Text" Value="{StaticResource ApprovalRiskHigh}"/></DataTrigger>
+                                                <DataTrigger Binding="{Binding Risk}" Value="critical"><Setter Property="Text" Value="{StaticResource ApprovalRiskCritical}"/></DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
                             </Border>
                             <TextBlock Text="{Binding CategoryLabel}"
                                        Foreground="{StaticResource MutedBrush}"
                                        FontSize="11"
                                        VerticalAlignment="Center"
                                        Margin="0,0,8,0"/>
-                            <TextBlock Text="{Binding SealedLabel}"
-                                       FontSize="11"
+                            <TextBlock FontSize="11"
                                        FontWeight="SemiBold"
                                        VerticalAlignment="Center"
                                        automation:AutomationProperties.AutomationId="{Binding SealedAutomationId}">
                                 <TextBlock.Style>
                                     <Style TargetType="TextBlock">
                                         <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                        <Setter Property="Text" Value="{StaticResource ApprovalSealed}"/>
                                         <Style.Triggers>
                                             <DataTrigger Binding="{Binding Sealed}" Value="False">
                                                 <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                                                <Setter Property="Text" Value="{StaticResource ApprovalNotSealed}"/>
                                             </DataTrigger>
                                         </Style.Triggers>
                                     </Style>
@@ -141,7 +153,7 @@
                                             </Style.Triggers>
                                         </Style>
                                     </StackPanel.Style>
-                                    <TextBlock Text="SOURCE"
+                                    <TextBlock Text="{StaticResource ApprovalSourceLabel}"
                                                Foreground="{StaticResource MutedBrush}"
                                                FontSize="11"
                                                FontWeight="SemiBold"/>
@@ -162,7 +174,7 @@
                                             </Style.Triggers>
                                         </Style>
                                     </StackPanel.Style>
-                                    <TextBlock Text="DESTINATION"
+                                    <TextBlock Text="{StaticResource ApprovalDestinationLabel}"
                                                Foreground="{StaticResource MutedBrush}"
                                                FontSize="11"
                                                FontWeight="SemiBold"/>
@@ -174,26 +186,28 @@
                                                FontSize="11"
                                                TextWrapping="Wrap"
                                                automation:AutomationProperties.AutomationId="{Binding DestinationAutomationId}"/>
-                                    <TextBlock Text="{Binding OverwriteLabel}"
-                                               FontSize="11"
+                                    <TextBlock FontSize="11"
                                                FontWeight="SemiBold"
                                                Margin="0,3,0,0"
                                                automation:AutomationProperties.AutomationId="{Binding OverwriteAutomationId}">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
                                                 <Setter Property="Foreground" Value="{StaticResource AccentBrush}"/>
+                                                <Setter Property="Text" Value="{StaticResource ApprovalOverwriteUnknown}"/>
                                                 <Style.Triggers>
                                                     <DataTrigger Binding="{Binding OverwriteApproved}" Value="True">
                                                         <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
+                                                        <Setter Property="Text" Value="{StaticResource ApprovalOverwriteWarning}"/>
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding OverwriteApproved}" Value="False">
                                                         <Setter Property="Foreground" Value="{StaticResource SuccessBrush}"/>
+                                                        <Setter Property="Text" Value="{StaticResource ApprovalOverwriteSafe}"/>
                                                     </DataTrigger>
                                                 </Style.Triggers>
                                             </Style>
                                         </TextBlock.Style>
                                     </TextBlock>
-                                    <Button Content="Copy full path"
+                                    <Button Content="{StaticResource ApprovalCopyPathLabel}"
                                             Tag="{Binding Destination}"
                                             Foreground="{StaticResource AccentBrush}"
                                             Background="Transparent"
@@ -215,7 +229,7 @@
                                             </Style.Triggers>
                                         </Style>
                                     </StackPanel.Style>
-                                    <TextBlock Text="APPROVAL AUTHORITY"
+                                    <TextBlock Text="{StaticResource ApprovalAuthorityLabel}"
                                                Foreground="{StaticResource MutedBrush}"
                                                FontSize="11"
                                                FontWeight="SemiBold"/>
@@ -226,7 +240,7 @@
                                                FontFamily="Consolas"
                                                FontSize="11"
                                                TextTrimming="CharacterEllipsis"/>
-                                    <Button Content="Copy full authority digest"
+                                    <Button Content="{StaticResource ApprovalCopyAuthorityLabel}"
                                             Tag="{Binding AuthorityDigest}"
                                             Foreground="{StaticResource AccentBrush}"
                                             Background="Transparent"
@@ -240,8 +254,8 @@
                             </StackPanel>
                         </Border>
                         <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,9,0,0">
-                            <Button Content="Reject" Tag="{Binding Id}" Margin="0,0,5,0" automation:AutomationProperties.AutomationId="{Binding RejectAutomationId}" automation:AutomationProperties.Name="Reject requested operation" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="RejectClicked" />
-                            <Button Content="Approve" Tag="{Binding Id}" automation:AutomationProperties.AutomationId="{Binding ApproveAutomationId}" automation:AutomationProperties.Name="Approve requested operation" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="ApproveClicked" />
+                            <Button Content="{StaticResource ApprovalRejectLabel}" Tag="{Binding Id}" Margin="0,0,5,0" automation:AutomationProperties.AutomationId="{Binding RejectAutomationId}" automation:AutomationProperties.Name="{StaticResource ApprovalRejectAutomationName}" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="RejectClicked" />
+                            <Button Content="{StaticResource ApprovalApproveLabel}" Tag="{Binding Id}" automation:AutomationProperties.AutomationId="{Binding ApproveAutomationId}" automation:AutomationProperties.Name="{StaticResource ApprovalApproveAutomationName}" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="ApproveClicked" />
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -250,11 +264,11 @@
         <StackPanel Grid.Row="0" VerticalAlignment="Center">
             <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding ApprovalRows.Count, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
             <TextBlock Text="&#xEA18;" Style="{StaticResource GlyphStyle}" FontSize="22" />
-            <TextBlock Text="No approvals pending" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,5,0,0" />
+            <TextBlock Text="{StaticResource ApprovalEmptyLabel}" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,5,0,0" />
         </StackPanel>
         <TextBlock Grid.Row="1"
                    x:Name="DecisionStatus"
-                   Text="Sending approval decision..."
+                   Text="{StaticResource ApprovalSendingLabel}"
                    Foreground="{StaticResource AccentBrush}"
                    FontSize="11"
                    FontWeight="SemiBold"

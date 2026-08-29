@@ -17,11 +17,15 @@ from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
 from ..computer_use.runtime import default_backend
 from ..native.jailed_import import JailedImportAuthority
+from ..llm import LLMError, LLMStatus
 from ..office.coordinator_data import canonical_office_home
+from ..office.presentation import format_preview_replacements
+from ..office.preview_semantics import PreviewSummary
 from ..office.service import DocumentService
 from ..runtime import Session, build_session
 
 from . import approval_authority
+from .decision_text import llm_status_summary, provider_failure
 from .owned_terminal import TerminalAuthority
 from .records import PanelSummary, WorkspaceEvent, WorkspaceSnapshot
 from .working_memory import memory_write_handler
@@ -218,8 +222,40 @@ class RuntimeWorkspaceAdapter:
         if self._session is None:
             cfg = config.load_config()
             cfg["session_id"] = self._session_id
-            self._session = build_session(cfg, on_event=self._runtime_event)
+            self._session = build_session(
+                cfg,
+                on_event=self._runtime_event,
+                on_status=self._runtime_status,
+            )
         return self._session
+
+    def _runtime_status(self, status: LLMStatus) -> None:
+        payload: dict[str, object] = {
+            "summary": llm_status_summary(status),
+            "status": status.kind,
+            "ui_state": (
+                "succeeded"
+                if status.kind == "recovered"
+                else "running"
+            ),
+            "provider": status.provider,
+            "model": status.model,
+            "reason": status.reason,
+        }
+        optional = {
+            "retry_in_seconds": status.retry_in_seconds,
+            "attempt": status.attempt,
+            "max_attempts": status.max_attempts,
+            "provider_status": status.http_status,
+            "fallback_provider": status.fallback_provider,
+            "fallback_model": status.fallback_model,
+        }
+        payload.update({
+            key: value
+            for key, value in optional.items()
+            if value is not None
+        })
+        _ = self._emit("progress.updated", payload)
 
     def _runtime_event(
         self,
@@ -240,11 +276,26 @@ class RuntimeWorkspaceAdapter:
         }.get(event, "progress.updated")
         if event == "tool_end" and is_error:
             event_type = "tool.failed"
+        summary = {
+            "tool_start": "도구 실행을 시작했습니다.",
+            "tool_end": (
+                "도구 실행에 실패했습니다."
+                if is_error
+                else "도구 실행을 완료했습니다."
+            ),
+            "subagent.start": "백그라운드 작업을 시작했습니다.",
+            "subagent.done": "백그라운드 작업을 완료했습니다.",
+            "compact": "대화 컨텍스트를 정리했습니다.",
+            "steer": "실행 방향을 업데이트했습니다.",
+        }.get(event, "진행 상태가 업데이트되었습니다.")
         safe: dict[str, object] = {
             "runtime_event": event,
-            "summary": str(payload.get("name") or payload.get("summary") or "")[:300],
+            "summary": summary,
             "state": uistate.from_runtime(event, is_error=is_error).state,
         }
+        runtime_name = payload.get("name") or payload.get("summary")
+        if runtime_name:
+            safe["runtime_name"] = str(runtime_name)[:300]
         _ = self._emit(event_type, safe)
 
     def _computer_event(self, raw: dict[str, object]) -> None:
@@ -288,9 +339,21 @@ class RuntimeWorkspaceAdapter:
             if event.payload.get("ok") is True
             else "failed"
         )
+        summary = (
+            "컴퓨터 작업을 시작했습니다."
+            if started
+            else "컴퓨터 작업에 승인이 필요합니다."
+            if isinstance(approval_id, str)
+            else "컴퓨터 작업을 완료했습니다."
+            if event.payload.get("ok") is True
+            else (
+                "컴퓨터 작업을 수행하지 못했습니다. "
+                "세부 정보를 확인한 뒤 다시 시도하세요."
+            )
+        )
         safe: dict[str, object] = {
             "runtime_event": "computer_use",
-            "summary": f"{event.kind} · {status}",
+            "summary": summary,
             "status": status,
             "ui_state": ui_state,
             "kind": "computer_use",
@@ -351,7 +414,30 @@ class RuntimeWorkspaceAdapter:
         session = self._get_session()
         try:
             reply = session.ask(runtime_text, on_text=on_text)
-        except Exception:
+        except LLMError as error:
+            failure = provider_failure(error.kind)
+            self._failed_intent_payload = (
+                {
+                    "text": text,
+                    **({"attachments": attachments} if attachments else {}),
+                }
+                if failure.retryable
+                else None
+            )
+            event_payload: dict[str, object] = {
+                "summary": failure.summary,
+                "status": "failed",
+                "ui_state": "failed",
+                "refusal_code": failure.refusal_code,
+                "retryable": failure.retryable,
+                "provider_kind": error.kind,
+            }
+            if error.status is not None:
+                event_payload["provider_status"] = error.status
+            _ = self._emit("progress.updated", event_payload)
+            raise
+        except (OSError, RuntimeError, ValueError):
+            # Expected runtime failures get bounded product copy, then re-raise.
             self._failed_intent_payload = {
                 "text": text,
                 **({"attachments": attachments} if attachments else {}),
@@ -359,7 +445,9 @@ class RuntimeWorkspaceAdapter:
             _ = self._emit(
                 "progress.updated",
                 {
-                    "summary": "Assistant response failed.",
+                    "summary": (
+                        "응답을 완료하지 못했습니다. 잠시 후 다시 시도하세요."
+                    ),
                     "status": "failed",
                     "ui_state": "failed",
                     "refusal_code": "E_RUNTIME",
@@ -412,7 +500,7 @@ class RuntimeWorkspaceAdapter:
         _ = self._emit(
             "progress.updated",
             {
-                "summary": "Turn interrupted.",
+                "summary": "응답 생성을 중단했습니다.",
                 "status": "interrupted",
                 "ui_state": "paused",
             },
@@ -509,15 +597,17 @@ class RuntimeWorkspaceAdapter:
         source_filename = cast(str, source_mapping["source_filename"])
         approval["source_filename"] = source_filename
         approval["rejection_result"] = (
-            "Rejecting leaves the source unchanged and writes no output."
+            "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다."
         )
+        semantic_summaries = cast(
+            list[PreviewSummary],
+            approval["semantic_summaries"],
+        )
+        description = format_preview_replacements(semantic_summaries)
         queued = approvals.propose(
             category="office_job",
-            title=f"Office mutation: {outcome}",
-            description="\n".join(
-                cast(str, item["summary"])
-                for item in cast(list[dict[str, object]], approval["semantic_summaries"])
-            ),
+            title=f"Office 변경: {outcome}",
+            description=description,
             payload=approval,
             cfg={},
             origin=f"native:{self._session_id}",
@@ -527,11 +617,8 @@ class RuntimeWorkspaceAdapter:
             "approval.requested",
             {
                 "approval_id": approval_id,
-                "summary": queued.get("title", f"Office mutation: {outcome}"),
-                "description": "\n".join(
-                    cast(str, item["summary"])
-                    for item in cast(list[dict[str, object]], approval["semantic_summaries"])
-                ),
+                "summary": queued.get("title", f"Office 변경: {outcome}"),
+                "description": description,
                 "category": "office_job",
                 "status": "pending",
                 "risk": risk.risk_for("office_job"),

@@ -68,6 +68,8 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
         from ..office.coordinator import OfficeCaller, OfficeCoordinator, OfficeMutationRequest
         from ..office.coordinator_data import canonical_office_home
         from ..office.errors import DocumentError, DocumentErrorCode
+        from ..office.presentation import format_preview_replacements
+        from ..office.preview_semantics import PreviewSummary
         from ..office.service import DocumentService
 
         home = canonical_office_home()
@@ -106,13 +108,14 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                         overwrite_approved=cast("bool", payload.get("overwrite_approved", False)),
                     )
                 )
+                semantic_summaries = cast(
+                    "list[PreviewSummary]",
+                    approval["semantic_summaries"],
+                )
                 queued = approvals.propose(
                     category="office_job",
-                    title=f"Office mutation: {payload['outcome']}",
-                    description="\n".join(
-                        cast("str", item["summary"])
-                        for item in cast("list[dict[str, object]]", approval["semantic_summaries"])
-                    ),
+                    title=f"Office 변경: {payload['outcome']}",
+                    description=format_preview_replacements(semantic_summaries),
                     payload=approval,
                     cfg={},
                     origin=ctx.record_source,
@@ -124,10 +127,10 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                 rollback = prepare_rollback(cast("str", payload["job_id"]))
                 queued = approvals.propose(
                     category="office_rollback",
-                    title="Rollback Office export",
+                    title="Office 내보내기 되돌리기",
                     description=(
-                        "Restore the pre-export destination state at "
-                        f"{rollback['destination']}."
+                        "내보내기 전 상태로 저장 위치를 복원합니다: "
+                        f"{rollback['destination']}"
                     ),
                     payload=rollback,
                     cfg={},

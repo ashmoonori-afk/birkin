@@ -86,6 +86,19 @@ Trusted native and CLI agent prompts include the current operating system and ho
 
 The requested outcome and application scope remain binding: Birkin must not replace an applied profile or memory change with a workspace draft and then claim completion. User-profile facts remain separate from assistant-persona facts, including names assigned to the assistant. This local block is added only to trusted native and CLI prompts; public or untrusted prompts receive neither local path facts nor private profile context.
 
+### Language policy
+
+Birkin-owned user interfaces present approvals, errors, recovery actions,
+progress, and completion results in Korean. Code, identifiers, protocol fields,
+stable error codes, logs, telemetry, and developer diagnostics remain English.
+Presentation layers translate typed machine data instead of making raw enums,
+cursors, exceptions, or receipt JSON the primary explanation; those appear
+only in an explicitly disclosed, bounded detail surface. See
+[the language policy](./docs/language-policy.md).
+This cycle enforces that contract first on approvals, refusals, errors,
+recovery, progress, and completion surfaces; remaining legacy non-decision
+chrome is tracked as follow-up migration rather than claimed complete here.
+
 ## Quick Start
 
 Birkin requires Python 3.10 or newer. Install it from the provided Birkin directory; Git is not required, and `birkin_mnemosyne` is included in the package. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.

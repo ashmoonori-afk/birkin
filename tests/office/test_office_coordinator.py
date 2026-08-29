@@ -170,8 +170,9 @@ def test_request_queues_bound_approval_without_mutating_files(
     assert payload["proposer"] == "user:local-contract"
     assert isinstance(payload["authority_digest"], str)
     summaries = cast("list[dict[str, str]]", payload["semantic_summaries"])
-    assert len(summaries) == 1
-    assert summaries[0]["location"] == "A1"
+    assert summaries == [{"location": "A1", "before": "7", "after": "9"}]
+    assert record["title"] == "Office 변경: Set Revenue A1 to 9"
+    assert record["description"] == "A1 변경: 7 → 9"
     assert _sha256(source) == source_sha256
     assert not destination.exists()
 

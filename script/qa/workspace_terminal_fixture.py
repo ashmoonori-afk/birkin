@@ -139,7 +139,14 @@ class FixtureRuntimeWorkspaceAdapter:
             self._approval_pending = False
             _ = self._event(
                 "approval.answered",
-                {"approval_id": "qa-approval", "decision": "approve"},
+                {
+                    "approval_id": "qa-approval",
+                    "decision": "approve",
+                    "receipt": (
+                        '{"destination":"fixture://approved-output",'
+                        '"status":"executed"}'
+                    ),
+                },
             )
             return self._reply(
                 "완료되었습니다 ✓ shared continuation",
@@ -236,6 +243,9 @@ class FixtureRuntimeWorkspaceAdapter:
             {
                 "approval_id": str(payload.get("approval_id") or ""),
                 "decision": str(payload.get("decision") or ""),
+                "outcome": "approved",
+                "status": "approved",
+                "ui_state": "succeeded",
                 "receipt": "fixture approval executed",
             },
         )

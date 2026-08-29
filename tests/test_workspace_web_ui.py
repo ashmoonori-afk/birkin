@@ -157,3 +157,91 @@ def test_web_workspace_prefers_workspace_approval_receipts() -> None:
 
     assert "payload.receipt" in source
     assert "recentReceipts.set(approvalId" in source
+    assert "if (!state.selectedId && items.length)" in source
+    assert "!items.some((item) => item.id === state.selectedId)" not in source
+
+
+def test_web_workspace_folds_raw_receipt_behind_korean_summary() -> None:
+    source, _ = _document()
+
+    assert 'document.createElement("details")' in source
+    assert "영수증 세부 정보 보기" in source
+    assert "승인한 작업을 실행했습니다." in source
+    assert 'receiptText.className = "detail-output"' in source
+    assert "JSON.stringify(receipt, null, 2)" in source
+    assert "Action executed:" not in source
+
+
+def test_web_workspace_uses_korean_decision_and_progress_copy() -> None:
+    source, _ = _document()
+
+    for removed in (
+        "The requested action will not run.",
+        "View diff",
+        "No diff available:",
+        "Preview diff",
+        "Alternate command (JSON string array)",
+        "Run alternate branch",
+        "Diff preview failed:",
+        "Background run detail",
+        "Run detail loading…",
+        "No progress events yet.",
+        "Run detail unavailable:",
+        "요청 payload 보기",
+        "Python authority",
+        "item.title || item.key || item.id",
+        "item.summary || item.detail || item.id",
+        "run.task || run.id",
+        "대체 분기 실행 완료: ${result.stdout",
+        "오류: ${String(payload.error || event.type)}",
+        "announce(error.message)",
+        "${error.message}",
+        "status.textContent = error.message",
+    ):
+        assert removed not in source
+    for shipped in (
+        "요청한 동작은 실행되지 않습니다.",
+        "변경 내용 보기",
+        "차이 미리보기",
+        "대체 명령(JSON 문자열 배열)",
+        "격리된 대체 분기 실행",
+        "백그라운드 실행 세부 정보",
+        "진행 이벤트가 아직 없습니다.",
+        "요청 데이터 보기",
+        "권한 실행 계층",
+        "표시 이름 없는 항목",
+        "질문 내용을 확인할 수 없습니다.",
+        "이름 없는 백그라운드 실행",
+        "도구 실행을 시작했습니다.",
+        "대체 분기 실행을 완료했습니다.",
+        "대체 분기 출력 보기",
+        "승인 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.",
+        "요청을 완료하지 못했습니다. 잠시 후 다시 시도하세요.",
+        "승인 요청을 처리하지 못했습니다. 잠시 후 다시 시도하세요.",
+        "메시지를 전송하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.",
+        "응답 중단 요청에 실패했습니다. 잠시 후 다시 시도하세요.",
+    ):
+        assert shipped in source
+
+
+def test_web_workspace_keeps_localized_controls_accessible() -> None:
+    source, _ = _document()
+
+    assert "textarea::placeholder" in source
+    assert "summary:focus-visible" in source
+    assert ".panel-more {\n    display: grid;" in source
+
+
+def test_checkpoint_restore_success_is_not_reclassified_by_panel_refresh() -> None:
+    source, _ = _document()
+
+    assert 'optionalLegacyApi("/api/status", {})' in source
+    assert 'optionalLegacyApi("/api/jobs", [])' in source
+    assert 'optionalLegacyApi("/api/runs", [])' in source
+    assert 'optionalLegacyApi("/api/agent-runs", {runs: []})' in source
+    assert "console.warn(`optional legacy panel unavailable: ${path}`" in source
+    assert "await Promise.all([" in source
+    assert "refreshWorkspaceSnapshot()," in source
+    assert "refreshLegacyPanels()," in source
+    assert "catch (refreshError)" in source
+    assert "checkpoint panels failed after restore approval request" in source

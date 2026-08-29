@@ -12,6 +12,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](./pyproject.toml)
 [![VS Code](https://img.shields.io/badge/VS_Code-official_extension-007ACC?logo=visualstudiocode&logoColor=white)](./vscode-extension)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ashmoonori-afk/birkin)
 
 [존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [Office Work OS](#office-work-os-v2) · [GitHub Action](#github-action) · [Sandbox](#격리-실행) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
 
@@ -84,6 +85,19 @@ Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다.
 신뢰된 native 및 CLI agent prompt에는 현재 운영체제와 홈 디렉터리, 그리고 machine-readable 로컬 환경 policy가 들어갑니다. Session이나 memory에 남은 경로는 현재 tool output으로 확인되기 전까지 미검증 값으로 취급하므로 다른 운영체제의 경로를 현재 host 사실로 재사용해서는 안 됩니다. Birkin은 대상 디렉터리가 쓰기 불가라고 보고하기 전에 사용 가능한 tool로 그 디렉터리 안에 고유한 이름의 임시 항목을 생성하고 쓰고 삭제해야 하며, 기존 경로는 수정하거나 삭제해서는 안 됩니다. Sandbox, route, 누락된 tool, 승인 요구, 운영체제 권한 결과는 관찰된 증거로 구분하며 서로 다른 제한으로 잘못 분류하지 않습니다.
 
 요청한 결과와 적용 범위는 계속 구속력을 가집니다. Birkin은 실제 profile 또는 memory 적용을 workspace 초안으로 대체한 뒤 완료라고 주장해서는 안 됩니다. Assistant에게 붙인 이름을 포함한 assistant persona 사실과 사용자 profile 사실도 분리합니다. 이 로컬 block은 신뢰된 native 및 CLI prompt에만 추가되며 public 또는 untrusted prompt에는 로컬 경로 사실이나 private profile context가 들어가지 않습니다.
+
+### 언어 정책
+
+Birkin이 소유하는 사용자 인터페이스의 승인, 오류, 복구 동작, 진행 상태,
+완료 결과는 한국어로 표시합니다. 코드, 식별자, protocol field, stable error
+code, log, telemetry, 개발자 진단은 영어로 유지합니다. 표시 계층은 typed
+machine data를 번역하며 raw enum, cursor, exception, receipt JSON을 기본
+설명으로 삼지 않습니다. 이러한 진단은 명시적으로 공개된 제한된 상세
+화면에서만 표시합니다. 자세한 기준은
+[언어 정책](./docs/language-policy.md)을 참고하십시오.
+이번 사이클은 승인, 거부, 오류, 복구, 진행, 완료 화면부터 이 계약을
+적용합니다. 기존의 비의사결정 UI 문구는 모두 완료됐다고 주장하지 않으며
+후속 migration 대상으로 추적합니다.
 
 ## 빠른 시작
 

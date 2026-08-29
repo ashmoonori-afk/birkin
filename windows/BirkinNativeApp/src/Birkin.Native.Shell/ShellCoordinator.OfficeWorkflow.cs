@@ -249,7 +249,12 @@ public sealed partial class ShellCoordinator
         bool drain;
         lock (_stateLock)
         {
-            _workflow = _workflow.Refuse(refusal.CommandId, refusal.Code, refusal.CurrentCursor);
+            _workflow = _workflow.Refuse(
+                refusal.CommandId,
+                refusal.Code,
+                refusal.Message,
+                refusal.Retryable,
+                refusal.CurrentCursor);
             if (string.Equals(_workflow.CommandId, refusal.CommandId, StringComparison.Ordinal))
             {
                 _pendingDraftRevision = null;

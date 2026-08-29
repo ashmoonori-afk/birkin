@@ -190,7 +190,13 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             typeof(NativeCommandRefusal),
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
             binder: null,
-            args: ["E_STALE_CURSOR", commandId, cursor],
+            args: [
+                "E_STALE_CURSOR",
+                commandId,
+                "cursor is stale",
+                false,
+                cursor,
+            ],
             culture: null) ?? throw new AssertFailedException());
 
     private static NativeEnvelope Receipt(string commandId, long cursor) => new(

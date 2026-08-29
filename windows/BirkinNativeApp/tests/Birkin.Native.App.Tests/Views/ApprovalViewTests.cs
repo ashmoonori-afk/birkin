@@ -28,11 +28,15 @@ public sealed class ApprovalViewTests
             OverwriteApproved: true);
 
         // When
-        var message = ApprovalView.ConfirmationMessage(card, "approve");
+        var message = ApprovalView.ConfirmationMessage(
+            card,
+            "승인",
+            "저장 위치 없음");
 
         // Then
+        StringAssert.Contains(message, "승인하시겠습니까?");
         StringAssert.Contains(message, "C:\\Exports\\quarterly.xlsx");
-        StringAssert.Contains(message, "WARNING: Existing file may be replaced");
+        StringAssert.Contains(message, "주의: 기존 파일을 덮어쓸 수 있습니다");
     }
 
     [TestMethod]
@@ -78,8 +82,19 @@ public sealed class ApprovalViewTests
             OfficeWorkflowViewHarness.Layout(view);
 
             // Then
+            Assert.AreEqual("승인", view.FindResource("ApprovalApproveLabel"));
+            Assert.AreEqual("거부", view.FindResource("ApprovalRejectLabel"));
             Assert.AreEqual(
-                "Comparison!A1: 4100 -> 4700",
+                "승인 결정 확인",
+                view.FindResource("ApprovalConfirmTitle"));
+            Assert.AreEqual(
+                "승인",
+                view.FindResource("ApprovalConfirmApproveAction"));
+            Assert.AreEqual(
+                "거부",
+                view.FindResource("ApprovalConfirmRejectAction"));
+            Assert.AreEqual(
+                "Comparison!A1 변경: 4100 → 4700",
                 OfficeWorkflowViewHarness.Find<TextBlock>(view, "approval.description.approval-7").Text);
             var destination = OfficeWorkflowViewHarness.Find<TextBlock>(
                 view,
@@ -89,22 +104,22 @@ public sealed class ApprovalViewTests
                 @"C:\workspace\approved\comparison-report.xlsx",
                 destination.ToolTip);
             Assert.AreEqual(
-                "SAFE: Existing file must not already exist",
+                "안전: 기존 파일이 없어야 합니다",
                 OfficeWorkflowViewHarness.Find<TextBlock>(view, "approval.overwrite.approval-7").Text);
             Assert.AreEqual(
-                "HIGH RISK",
+                "높은 위험",
                 OfficeWorkflowViewHarness.Find<TextBlock>(view, "approval.risk.approval-7").Text);
             Assert.AreEqual(
-                "SEALED",
+                "검토 내용 고정됨",
                 OfficeWorkflowViewHarness.Find<TextBlock>(view, "approval.sealed.approval-7").Text);
             Assert.AreEqual(
                 "comparison-source.xlsx",
                 OfficeWorkflowViewHarness.Find<TextBlock>(view, "approval.source.approval-7").Text);
             Assert.AreEqual(
-                "REQUESTED BY: native:office-journey",
+                "요청자: native:office-journey",
                 OfficeWorkflowViewHarness.Find<TextBlock>(view, "approval.requester.approval-7").Text);
             Assert.AreEqual(
-                "Rejecting leaves the source unchanged and writes no output.",
+                "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다.",
                 OfficeWorkflowViewHarness.Find<TextBlock>(view, "approval.rejection.approval-7").Text);
         });
     }
@@ -191,7 +206,7 @@ public sealed class ApprovalViewTests
             Assert.AreEqual("approval-7", ((NativeJsonString)fixture.Connection.Sent[0].Payload["approval_id"]!).Value);
             Assert.AreEqual("approve", ((NativeJsonString)fixture.Connection.Sent[0].Payload["decision"]!).Value);
             Assert.AreEqual(1, confirmations);
-            Assert.AreEqual("Approve requested operation", AutomationProperties.GetName(approve));
+            Assert.AreEqual("요청한 작업 승인", AutomationProperties.GetName(approve));
         });
     }
 

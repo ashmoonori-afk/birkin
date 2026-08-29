@@ -11,6 +11,33 @@ namespace Birkin.Native.Shell.Tests.Presentation;
 public sealed class WorkspaceSnapshotPresentationTests
 {
     [TestMethod]
+    public void ApprovalLabels_WhenRendered_AreKoreanDecisionCopy()
+    {
+        // Given
+        var item = new PanelItemPresentation(
+            "approval-copy",
+            "approval",
+            "검토",
+            Category: "office_job",
+            Risk: "high",
+            Sealed: true,
+            OverwriteApproved: true,
+            Requester: "native:test");
+
+        // Then
+        Assert.AreEqual("Office 작업", item.CategoryLabel);
+        Assert.AreEqual("높은 위험", item.RiskLabel);
+        Assert.AreEqual("검토 내용 고정됨", item.SealedLabel);
+        Assert.AreEqual(
+            "주의: 기존 파일을 덮어쓸 수 있습니다",
+            item.OverwriteLabel);
+        Assert.AreEqual("요청자: native:test", item.RequesterLabel);
+        Assert.AreEqual(
+            "거부하면 이 작업은 실행되지 않습니다.",
+            item.RejectionResultLabel);
+    }
+
+    [TestMethod]
     public void DestinationDisplay_WhenPathContainsNonBmpText_PreservesScalarBoundariesAndFilename()
     {
         // Given
@@ -120,6 +147,18 @@ public sealed class WorkspaceSnapshotPresentationTests
         Assert.AreEqual(0, presentation.Browser.Count);
         Assert.AreEqual(0, presentation.Office.Count);
         Assert.IsFalse(presentation.Terminal.IsAvailable);
+    }
+
+    [TestMethod]
+    public void FromProjected_WhenDiffSummaryIsUnstructured_UsesKoreanFallback()
+    {
+        var row = OfficeDiffPresentationMapper.FromProjected(
+            new PanelItemPresentation(
+                "diff-1",
+                "diff",
+                "unstructured difference"));
+
+        Assert.AreEqual("예상 변경", row.Label);
     }
 
     private static NativeEnvelope Decode(JsonElement vector) => NativeFrameCodec.Decode(
