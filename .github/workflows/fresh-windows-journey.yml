@@ -137,43 +137,74 @@ jobs:
             throw "The Ollama archive did not contain ollama.exe."
           }
           $env:OLLAMA_MODELS = Join-Path $env:RUNNER_TEMP "ollama-models"
+          $serverOutput = Join-Path $env:EVIDENCE_DIR "ollama-server.txt"
           $serverLog = Join-Path $env:EVIDENCE_DIR "ollama-server-error.txt"
+          New-Item -ItemType File -Force $serverOutput | Out-Null
           New-Item -ItemType File -Force $serverLog | Out-Null
-          $watcher = [IO.FileSystemWatcher]::new(
-            (Split-Path $serverLog),
-            (Split-Path $serverLog -Leaf))
-          $watcher.EnableRaisingEvents = $true
-          $subscription = Register-ObjectEvent `
-            -InputObject $watcher `
-            -EventName Changed `
-            -SourceIdentifier "OllamaLogChanged"
-          $server = Start-Process `
-            -FilePath $ollama `
-            -ArgumentList "serve" `
-            -RedirectStandardOutput "$env:EVIDENCE_DIR\ollama-server.txt" `
-            -RedirectStandardError $serverLog `
-            -PassThru
-          try {
-            $ready = $false
-            $deadline = [DateTime]::UtcNow.AddSeconds(90)
-            while (-not $ready) {
-              $content = Get-Content $serverLog -Raw -ErrorAction SilentlyContinue
-              $ready = $content -match "Listening on"
-              if ($ready) {
-                break
+          $readyEvent = "OllamaReady"
+          $stdoutEvent = "OllamaStdout"
+          $stderrEvent = "OllamaStderr"
+          $startInfo = [Diagnostics.ProcessStartInfo]::new()
+          $startInfo.FileName = $ollama
+          $startInfo.ArgumentList.Add("serve")
+          $startInfo.UseShellExecute = $false
+          $startInfo.CreateNoWindow = $true
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $server = [Diagnostics.Process]::new()
+          $server.StartInfo = $startInfo
+          $stdoutSubscription = Register-ObjectEvent `
+            -InputObject $server `
+            -EventName OutputDataReceived `
+            -SourceIdentifier $stdoutEvent `
+            -MessageData @{ Path = $serverOutput } `
+            -Action {
+              $line = $EventArgs.Data
+              if ($null -ne $line) {
+                [IO.File]::AppendAllText(
+                  $Event.MessageData.Path,
+                  "$line$([Environment]::NewLine)",
+                  [Text.Encoding]::UTF8)
               }
-              $remaining = $deadline - [DateTime]::UtcNow
-              if ($remaining.TotalSeconds -le 0) {
-                throw "Ollama did not report its listening socket."
-              }
-              $event = Wait-Event `
-                -SourceIdentifier "OllamaLogChanged" `
-                -Timeout ([Math]::Ceiling($remaining.TotalSeconds))
-              if (-not $event) {
-                throw "Ollama readiness event timed out."
-              }
-              Remove-Event -EventIdentifier $event.EventIdentifier
             }
+          $stderrSubscription = Register-ObjectEvent `
+            -InputObject $server `
+            -EventName ErrorDataReceived `
+            -SourceIdentifier $stderrEvent `
+            -MessageData @{
+              Path = $serverLog
+              ReadyEvent = $readyEvent
+            } `
+            -Action {
+              $line = $EventArgs.Data
+              if ($null -ne $line) {
+                [IO.File]::AppendAllText(
+                  $Event.MessageData.Path,
+                  "$line$([Environment]::NewLine)",
+                  [Text.Encoding]::UTF8)
+                if ($line -match "Listening on") {
+                  New-Event `
+                    -SourceIdentifier $Event.MessageData.ReadyEvent |
+                    Out-Null
+                }
+              }
+            }
+          if (-not $server.Start()) {
+            throw "Ollama did not start."
+          }
+          $server.BeginOutputReadLine()
+          $server.BeginErrorReadLine()
+          try {
+            $event = Wait-Event `
+              -SourceIdentifier $readyEvent `
+              -Timeout 90
+            if (-not $event) {
+              if ($server.HasExited) {
+                throw "Ollama exited before reporting its listening socket."
+              }
+              throw "Ollama did not report its listening socket."
+            }
+            Remove-Event -EventIdentifier $event.EventIdentifier
 
             & $ollama pull qwen2.5:0.5b *>&1 |
               Tee-Object -FilePath "$env:EVIDENCE_DIR\ollama-pull.txt"
@@ -223,15 +254,31 @@ jobs:
               "$env:EVIDENCE_DIR\assistant-reply.txt" `
               -Encoding utf8
           } finally {
-            if ($server -and -not $server.HasExited) {
-              & taskkill.exe /PID $server.Id /T /F
-              if ($LASTEXITCODE -ne 0) {
-                throw "Ollama process-tree cleanup failed."
+            if ($server) {
+              if (-not $server.HasExited) {
+                & taskkill.exe /PID $server.Id /T /F
+                if ($LASTEXITCODE -ne 0 -and -not $server.HasExited) {
+                  try {
+                    $server.Kill($true)
+                  } catch [InvalidOperationException] {
+                    if (-not $server.HasExited) {
+                      throw
+                    }
+                  }
+                }
               }
+              if (-not $server.WaitForExit(10000)) {
+                throw "Ollama process-tree cleanup timed out."
+              }
+              $server.WaitForExit()
             }
-            Unregister-Event -SourceIdentifier "OllamaLogChanged" `
+            Unregister-Event -SourceIdentifier $stdoutEvent `
               -ErrorAction SilentlyContinue
-            $watcher.Dispose()
+            Unregister-Event -SourceIdentifier $stderrEvent `
+              -ErrorAction SilentlyContinue
+            Remove-Event -SourceIdentifier $readyEvent `
+              -ErrorAction SilentlyContinue
+            $server.Dispose()
           }
 
       - if: always()

@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Media;
+using Birkin.Native.App;
+using Birkin.Native.App.Views;
 using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Messaging;
 using Birkin.Native.Protocol.Projection;
@@ -66,6 +68,11 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
     public static IReadOnlyList<T> FindAll<T>(DependencyObject root, string automationId) where T : DependencyObject =>
         Descendants<T>(root).Where(element =>
             string.Equals(AutomationProperties.GetAutomationId(element), automationId, StringComparison.Ordinal)).ToArray();
+
+    public static WorkspaceSnapshotView Snapshot(MainWindow window) =>
+        window.FindName("SnapshotView") as WorkspaceSnapshotView
+        ?? throw new InvalidOperationException(
+            "MainWindow did not create its WorkspaceSnapshotView.");
 
     public static void Layout(FrameworkElement view, double width = 1400, double height = 880)
     {
