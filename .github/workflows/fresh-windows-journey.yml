@@ -223,13 +223,18 @@ jobs:
             if (-not $modelLine) {
               throw "The setup model picker did not advertise qwen2.5:0.5b."
             }
-            $modelMatch = [regex]::Match(
-              [string]$modelLine,
-              "^\s*(\d+)\.")
-            if (-not $modelMatch.Success) {
+            $setupModelLines = @(
+              $modelListing | Where-Object {
+                $_ -match "^\s*\d+\." -and
+                $_ -notmatch "codex.*CLI default.*\[codex-cli\]"
+              }
+            )
+            $modelChoice = (
+              [array]::IndexOf($setupModelLines, $modelLine) + 1
+            ).ToString()
+            if ($modelChoice -eq "0") {
               throw "The setup model choice had no stable menu index."
             }
-            $modelChoice = $modelMatch.Groups[1].Value
             $setupAnswers = "1`n2`n4`n$modelChoice`n`n`n`n`n`n"
             $setupAnswers |
               birkin setup *>&1 |
