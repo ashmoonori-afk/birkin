@@ -35,6 +35,7 @@ public sealed class OfficeWorkflowJourneyTests
                 "conversation.send"
             ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
             await fixture.ResolveLastAsync();
+            OfficeWorkflowViewHarness.Layout(shell);
             OfficeWorkflowViewHarness.Find<Button>(
                 shell,
                 "approval.approve.approval-7"

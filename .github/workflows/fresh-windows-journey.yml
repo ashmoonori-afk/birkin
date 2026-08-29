@@ -215,7 +215,7 @@ jobs:
             @{
               provider = "openai"
               model = "qwen2.5:0.5b"
-              base_url = "http://127.0.0.1:11434/v1"
+              base_url = "http://127.0.0.1:11434"
               api_key = "ollama"
               max_tokens = 256
               max_turns = 2

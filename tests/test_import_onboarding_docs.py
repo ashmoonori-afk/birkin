@@ -86,6 +86,8 @@ def test_fresh_windows_journey_runs_installer_and_local_chat() -> None:
     assert "qwen2.5:0.5b" in workflow
     assert "birkin chat" in workflow
     assert "fresh-windows-first-chat" in workflow
+    assert 'base_url = "http://127.0.0.1:11434"' in workflow
+    assert 'base_url = "http://127.0.0.1:11434/v1"' not in workflow
     assert "ErrorDataReceived" in workflow
     assert "BeginErrorReadLine" in workflow
     assert "$server.Kill($true)" in workflow

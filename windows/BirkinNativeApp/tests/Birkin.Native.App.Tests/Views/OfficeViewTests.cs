@@ -94,7 +94,7 @@ public sealed class OfficeViewTests
                 view,
                 "office.new-panel");
             panel.IsExpanded = true;
-            view.UpdateLayout();
+            OfficeWorkflowViewHarness.Layout(view);
             var save = OfficeWorkflowViewHarness.Find<Button>(view, "office.save-unavailable");
 
             // When / Then
