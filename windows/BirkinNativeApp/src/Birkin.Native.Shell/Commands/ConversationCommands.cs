@@ -8,6 +8,7 @@ public sealed record CommandRequestContext(string CommandId, long ExpectedCursor
 public static class ConversationCommands
 {
     public const string CommandType = "chat.send";
+    public const string InterruptCommandType = "chat.interrupt";
 
     public static NativeCommandRequest Send(string draft, CommandRequestContext context)
     {
@@ -25,4 +26,12 @@ public static class ConversationCommands
                 ])),
             context.ViewId);
     }
+
+    public static NativeCommandRequest Interrupt(CommandRequestContext context) =>
+        new(
+            new NativeCommandIdentity(context.CommandId, context.ExpectedCursor),
+            new NativeCommandIntent(
+                InterruptCommandType,
+                new NativeJsonObject([])),
+            context.ViewId);
 }

@@ -42,9 +42,22 @@ _PANEL_BY_EVENT = {
     "tool.started": "activity_logs",
     "tool.completed": "activity_logs",
     "tool.failed": "activity_logs",
+    "notification.requested": "activity_logs",
     "settings.updated": "settings_status",
     "status.updated": "settings_status",
 }
+_MAX_ACTIVITY_ITEMS = 100
+_UI_STATES = frozenset(
+    {
+        "action_needed",
+        "blocked",
+        "failed",
+        "paused",
+        "pending",
+        "running",
+        "succeeded",
+    }
+)
 
 
 def _approval_answer_ui_state(outcome: object) -> str:
@@ -78,6 +91,7 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "receipt.recorded": "receipt",
         "command.completed": "receipt",
         "integrity.warning": "integrity_warning",
+        "notification.requested": "notification",
     }.get(event.type, "activity")
     outcome = event.payload.get("outcome")
     default_state = {
@@ -91,6 +105,7 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "tool.started": "running",
         "tool.completed": "succeeded",
         "tool.failed": "failed",
+        "notification.requested": "action_needed",
         "computer.updated": str(event.payload.get("ui_state") or "pending"),
     }.get(event.type, "pending")
     status = event.payload.get("outcome") or event.payload.get("status")
@@ -105,6 +120,7 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
             or event.payload.get("task_id")
             or event.payload.get("evidence_id")
             or event.payload.get("checkpoint_id")
+            or event.payload.get("notification_id")
             or event.event_id
         ),
         "summary": (
@@ -115,7 +131,11 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "status": str(status or event.type.rsplit(".", 1)[-1]),
         "cursor": event.cursor,
         "kind": kind,
-        "ui_state": str(event.payload.get("ui_state") or default_state),
+        "ui_state": (
+            str(event.payload["ui_state"])
+            if event.payload.get("ui_state") in _UI_STATES
+            else default_state
+        ),
     }
     for field in (
         "requester",
@@ -330,6 +350,11 @@ def reduce_snapshot(
                 _reconcile_answered_approval(panel_items[panel_key], item)
             else:
                 panel_items[panel_key].append(item)
+                if (
+                    panel_key == "activity_logs"
+                    and len(panel_items[panel_key]) > _MAX_ACTIVITY_ITEMS
+                ):
+                    del panel_items[panel_key][:-_MAX_ACTIVITY_ITEMS]
 
     return WorkspaceSnapshot(
         protocol_version=1,

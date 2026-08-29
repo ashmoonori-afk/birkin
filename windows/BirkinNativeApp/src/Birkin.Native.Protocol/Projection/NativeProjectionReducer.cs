@@ -4,6 +4,7 @@ namespace Birkin.Native.Protocol.Projection;
 
 internal static class NativeProjectionReducer
 {
+    private const int MaxActivityItems = 100;
     private static readonly IReadOnlyDictionary<string, string> PanelByEvent = new Dictionary<string, string>(StringComparer.Ordinal)
     {
         ["task.updated"] = "tasks_runs",
@@ -11,6 +12,11 @@ internal static class NativeProjectionReducer
         ["receipt.recorded"] = "activity_logs",
         ["integrity.warning"] = "activity_logs",
         ["command.completed"] = "activity_logs",
+        ["progress.updated"] = "activity_logs",
+        ["tool.started"] = "activity_logs",
+        ["tool.completed"] = "activity_logs",
+        ["tool.failed"] = "activity_logs",
+        ["notification.requested"] = "activity_logs",
     };
 
     public static NativeProjectionState Reduce(
@@ -130,6 +136,7 @@ internal static class NativeProjectionReducer
     {
         var id = OptionalString(payload, "approval_id")
             ?? OptionalString(payload, "task_id")
+            ?? OptionalString(payload, "notification_id")
             ?? String(body, "event_id");
         var status = OptionalString(payload, "outcome")
             ?? OptionalString(payload, "status")
@@ -143,15 +150,23 @@ internal static class NativeProjectionReducer
             "approval.requested" or "approval.answered" => "approval",
             "receipt.recorded" or "command.completed" => "receipt",
             "integrity.warning" => "integrity_warning",
+            "notification.requested" => "notification",
             _ => "activity",
         };
-        var uiState = type switch
-        {
-            "task.updated" => "running",
-            "approval.requested" => "action_needed",
-            "approval.answered" => ApprovalAnsweredState(payload),
-            _ => "pending",
-        };
+        var projectedUiState = OptionalString(payload, "ui_state");
+        var uiState = IsUiState(projectedUiState)
+            ? projectedUiState!
+            : type switch
+            {
+                "task.updated" => "running",
+                "approval.requested" => "action_needed",
+                "approval.answered" => ApprovalAnsweredState(payload),
+                "tool.started" => "running",
+                "tool.completed" => "succeeded",
+                "tool.failed" => "failed",
+                "notification.requested" => "action_needed",
+                _ => "pending",
+            };
         var pairs = new List<KeyValuePair<string, NativeJsonValue>>
         {
             new("id", new NativeJsonString(id)),
@@ -167,6 +182,7 @@ internal static class NativeProjectionReducer
             "rejection_result", "related_evidence", "risk", "expires_at",
             "receipt_ref", "snapshot_ref", "effect", "refusal_code", "session_id",
             "name", "destination", "source_filename", "authority_digest",
+            "office_phase", "job_id",
         })
         {
             if (OptionalString(payload, field) is { Length: > 0 } value)
@@ -297,8 +313,24 @@ internal static class NativeProjectionReducer
         {
             return;
         }
-        panels[index] = Replace(panels[index], ("items", new NativeJsonArray(items.Values.Append(item))));
+        var values = items.Values.Append(item);
+        if (string.Equals(key, "activity_logs", StringComparison.Ordinal))
+        {
+            values = values.TakeLast(MaxActivityItems);
+        }
+        panels[index] = Replace(
+            panels[index],
+            ("items", new NativeJsonArray(values)));
     }
+
+    private static bool IsUiState(string? value) => value is
+        "action_needed"
+        or "blocked"
+        or "failed"
+        or "paused"
+        or "pending"
+        or "running"
+        or "succeeded";
 
     private static void ApplyTerminal(
         List<NativeJsonObject> terminals, string type, NativeJsonObject payload)

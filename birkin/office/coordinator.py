@@ -19,7 +19,7 @@ from .coordinator_data import (
 )
 from .errors import DocumentError, DocumentErrorCode
 from .export_types import ExportRequest
-from .job import OfficeJob
+from .job import OfficeJob, OfficeJobTransitionSink
 from .job_runner import DocumentServiceRunner
 from .preview_semantics import summarize_operations
 from .proposal_integrity import authority_digest
@@ -91,8 +91,14 @@ def _semantic_summaries(
 class OfficeCoordinator:
     """Prepare one reviewable Office job without executing its mutation."""
 
-    def __init__(self, caller: OfficeCaller) -> None:
+    def __init__(
+        self,
+        caller: OfficeCaller,
+        *,
+        on_transition: OfficeJobTransitionSink | None = None,
+    ) -> None:
         self._caller = caller
+        self._on_transition = on_transition
         self._home = _office_home()
         self._service = DocumentService(self._home)
         _ = purge_expired_office_state(self._home)
@@ -125,6 +131,7 @@ class OfficeCoordinator:
                 self._service, export_root=self._caller.allowlist_root
             ),
             journal=_journal(self._home),
+            on_transition=self._on_transition,
         )
         job.declare_outcome(request.outcome)
         job.propose_operations(request.operations)
@@ -171,12 +178,19 @@ class OfficeCoordinator:
 
 
 def execute_approved_office_job(
-    payload: Mapping[str, object], *, approval_id: str | None
+    payload: Mapping[str, object],
+    *,
+    approval_id: str | None,
+    on_transition: OfficeJobTransitionSink | None = None,
 ) -> str:
     """Resume only the exact payload owned by an executing approval record."""
     from .coordinator_recovery import execute_approved_office_job as resume
 
-    return resume(payload, approval_id=approval_id)
+    return resume(
+        payload,
+        approval_id=approval_id,
+        on_transition=on_transition,
+    )
 
 
 __all__ = [

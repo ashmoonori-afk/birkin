@@ -9,6 +9,8 @@ public partial class App : Application
     private const string AnnouncementFileEnvironmentVariable = "BIRKIN_BRIDGE_ANNOUNCEMENT_FILE";
     private readonly CancellationTokenSource _shutdown = new();
     private CompositionRoot? _composition;
+    private WindowsApprovalToast? _approvalToast;
+    private bool _showApprovalsWhenReady;
 
     protected override async void OnStartup(StartupEventArgs eventArgs)
     {
@@ -20,7 +22,14 @@ public partial class App : Application
             var context = SynchronizationContext.Current
                 ?? new DispatcherSynchronizationContext(Dispatcher);
             _composition = CompositionRoot.Create(context);
-            MainWindow = new MainWindow(_composition.PresentationModel);
+            _approvalToast = WindowsApprovalToast.Create(ShowApprovals);
+            MainWindow = _approvalToast is null
+                ? new MainWindow(_composition.PresentationModel)
+                : new MainWindow(_composition.PresentationModel, _approvalToast);
+            if (_showApprovalsWhenReady)
+            {
+                ShowApprovals();
+            }
             if (eventArgs.Args.Length == 0)
             {
                 await _composition.Runner.RunAsync(options, _shutdown.Token);
@@ -46,12 +55,29 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs eventArgs)
     {
         _shutdown.Cancel();
+        _approvalToast?.Dispose();
         if (_composition is not null)
         {
             _composition.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
         _shutdown.Dispose();
         base.OnExit(eventArgs);
+    }
+
+    private void ShowApprovals()
+    {
+        _ = Dispatcher.BeginInvoke(() =>
+        {
+            if (MainWindow is Birkin.Native.App.MainWindow window)
+            {
+                _showApprovalsWhenReady = false;
+                window.ShowApprovals();
+            }
+            else
+            {
+                _showApprovalsWhenReady = true;
+            }
+        });
     }
 
     private static IReadOnlyList<string> StartupArguments(IReadOnlyList<string> arguments)

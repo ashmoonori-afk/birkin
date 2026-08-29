@@ -10,6 +10,12 @@ from birkin import config, repl, statusline
 from birkin.web import server
 from birkin.workspace import WorkspaceEvent
 from birkin.workspace.hub import EventSink
+from script.qa.workspace_fixture_events import (
+    emit_approval_request,
+    emit_computer_update,
+    emit_office_progress,
+    emit_question_bundle,
+)
 
 SESSION_ID = "qa-terminal"
 
@@ -95,42 +101,26 @@ class FixtureRuntimeWorkspaceAdapter:
                 "summary": "fixture tool",
             },
         )
+        if text == "office progress":
+            emit_office_progress(self._event)
+            return self._reply(
+                "Office progress projected.",
+                ("Office progress ", "projected."),
+            )
         if text == "interrupt":
             return self._interruptible_reply()
         if text == "computer use":
-            _ = self._event(
-                "computer.updated",
-                {
-                    "summary": "computer.action.completed · confirmed",
-                    "status": "confirmed",
-                    "ui_state": "succeeded",
-                    "kind": "computer_use",
-                    "receipt_ref": "sha256:fixture-receipt",
-                    "computer_sequence": 1,
-                    "focus_preserved": True,
-                },
-            )
+            emit_computer_update(self._event)
             return self._reply(
                 "Computer Use event projected.",
                 ("Computer Use event ", "projected."),
             )
         if "approval" in text:
-            self._approval_pending = True
-            _ = self._event(
-                "approval.requested",
-                {
-                    "approval_id": "qa-approval",
-                    "summary": "Approve deterministic workspace action",
-                    "status": "pending",
-                    "requester": "fixture-agent",
-                    "target": "workspace continuation",
-                    "expected_impact": "Resume the paused local action.",
-                    "rejection_result": "Keep the action paused without changes.",
-                    "related_evidence": "fixture://approval/qa-approval",
-                    "risk": "low",
-                    "expires_at": "end of this local QA session",
-                },
+            approval_id = (
+                "qa-approval-2" if "second" in text else "qa-approval"
             )
+            self._approval_pending = True
+            emit_approval_request(self._event, approval_id)
             return self._reply(
                 "Approval required. Type approve to resume.",
                 ("Approval required. ", "Type approve to resume."),
@@ -146,29 +136,7 @@ class FixtureRuntimeWorkspaceAdapter:
                 ("완료되었습니다 ✓ ", "shared continuation"),
             )
         if text == "inspect question evidence checkpoint":
-            _ = self._event(
-                "question.requested",
-                {
-                    "question_id": "qa-question",
-                    "summary": "Continue with the inspected evidence?",
-                    "ui_state": "action_needed",
-                },
-            )
-            _ = self._event(
-                "evidence.added",
-                {
-                    "evidence_id": "qa-evidence",
-                    "summary": "workspace-report.txt",
-                    "path": "fixture://evidence/workspace-report.txt",
-                },
-            )
-            _ = self._event(
-                "checkpoint.created",
-                {
-                    "checkpoint_id": "a1b2c3d4",
-                    "summary": "Before workspace inspection",
-                },
-            )
+            emit_question_bundle(self._event)
             return self._reply(
                 "Question ready with file evidence and checkpoint.",
                 ("Question ready with ", "file evidence and checkpoint."),

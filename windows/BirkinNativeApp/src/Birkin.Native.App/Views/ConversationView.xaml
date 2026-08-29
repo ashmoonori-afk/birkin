@@ -8,7 +8,55 @@
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <DockPanel Margin="0,0,0,10">
-            <TextBlock DockPanel.Dock="Right" Text="{Binding OfficeWorkflow.CommandState}" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+            <StackPanel DockPanel.Dock="Right"
+                        Orientation="Horizontal"
+                        VerticalAlignment="Center"
+                        automation:AutomationProperties.AutomationId="conversation.command-progress"
+                        automation:AutomationProperties.Name="{Binding OfficeWorkflow.CommandProgressText}"
+                        automation:AutomationProperties.LiveSetting="Polite">
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding OfficeWorkflow.HasPendingCommand}" Value="True">
+                                <Setter Property="Visibility" Value="Visible" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
+                <Path Width="16"
+                      Height="16"
+                      Margin="0,0,7,0"
+                      Data="M 8,1 A 7,7 0 0 1 15,8"
+                      Stretch="None"
+                      Stroke="{StaticResource AccentBrush}"
+                      StrokeThickness="2"
+                      StrokeStartLineCap="Round"
+                      StrokeEndLineCap="Round"
+                      RenderTransformOrigin="0.5,0.5"
+                      automation:AutomationProperties.AutomationId="conversation.command-progress-spinner"
+                      automation:AutomationProperties.Name="처리 중">
+                    <Path.RenderTransform>
+                        <RotateTransform />
+                    </Path.RenderTransform>
+                    <Path.Triggers>
+                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever">
+                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
+                                                     From="0"
+                                                     To="360"
+                                                     Duration="0:0:0.8" />
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Path.Triggers>
+                </Path>
+                <TextBlock Text="{Binding OfficeWorkflow.CommandProgressText}"
+                           Foreground="{StaticResource AccentBrush}"
+                           VerticalAlignment="Center"
+                           automation:AutomationProperties.AutomationId="conversation.command-progress-label" />
+            </StackPanel>
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="&#xE8BD;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource MutedBrush}" FontSize="19" Margin="0,0,9,0" />
                 <TextBlock Text="Conversation" Style="{StaticResource SectionTitleStyle}" />
@@ -43,13 +91,19 @@
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid>
-                    <TextBox x:Name="DraftBox" automation:AutomationProperties.AutomationId="conversation.draft" automation:AutomationProperties.Name="Message draft" AcceptsReturn="True" MinHeight="56" MaxHeight="120" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource AccentBrush}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" TextChanged="DraftChanged" />
+                    <TextBox x:Name="DraftBox" automation:AutomationProperties.AutomationId="conversation.draft" automation:AutomationProperties.Name="Message draft" AcceptsReturn="True" MinHeight="56" MaxHeight="120" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource AccentBrush}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" TextChanged="DraftChanged" PreviewKeyDown="DraftPreviewKeyDown" LostKeyboardFocus="DraftKeyboardFocusLost" />
                     <TextBlock Text="Ask Birkin anything..." Foreground="{StaticResource MutedBrush}" Margin="2,1" IsHitTestVisible="False">
                         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=DraftBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                     </TextBlock>
                 </Grid>
                 <DockPanel Grid.Row="1" Margin="0,8,0,0">
-                    <Button x:Name="SendButton" DockPanel.Dock="Right" Content="Send" automation:AutomationProperties.AutomationId="conversation.send" automation:AutomationProperties.Name="Send message" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" Click="SendClicked" />
+                    <StackPanel DockPanel.Dock="Right"
+                                Orientation="Horizontal"
+                                automation:AutomationProperties.AutomationId="conversation.actions"
+                                automation:AutomationProperties.Name="Conversation actions">
+                        <Button x:Name="StopButton" Content="Stop" Margin="0,0,8,0" automation:AutomationProperties.AutomationId="conversation.stop" automation:AutomationProperties.Name="Stop response" automation:AutomationProperties.HelpText="Stops the current response." Style="{StaticResource ComposerActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationInterrupt.IsEnabled}" Click="StopClicked" />
+                        <Button x:Name="SendButton" Content="Send" automation:AutomationProperties.AutomationId="conversation.send" automation:AutomationProperties.Name="Send message" automation:AutomationProperties.HelpText="Press Ctrl+Enter to send." automation:AutomationProperties.AcceleratorKey="Ctrl+Enter" ToolTip="Ctrl+Enter" Style="{StaticResource ComposerActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" Click="SendClicked" />
+                    </StackPanel>
                     <TextBlock Text="{Binding OfficeWorkflow.Availability.ConversationSend.DisabledReason}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" automation:AutomationProperties.AutomationId="composer.read-only-caption" />
                 </DockPanel>
                 <TextBlock Grid.Row="2" Margin="0,6,0,0" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap">

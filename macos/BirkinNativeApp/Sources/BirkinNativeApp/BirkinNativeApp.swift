@@ -31,6 +31,8 @@ public final class BirkinApplicationRuntime: ObservableObject {
     private let randomUnit: NativeReconnectScheduler.RandomUnit
     private let emitEvent: @Sendable (String) -> Void
     private let windowCapture: PackagedWindowCapture
+    private let enableSystemNotifications: Bool
+    private var approvalNotifications: (any ApprovalNotificationScheduling)?
     private let transport = NativeTransportActor()
     private var scheduler: NativeReconnectScheduler?
     private var listener: Task<Void, Never>?
@@ -39,6 +41,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
     private var connectionGeneration = 0
     private var correlatedCommands: [String: CorrelatedCommand] = [:]
     private var terminationSources: [DispatchSourceSignal] = []
+    private var notifiedApprovals = Set<String>()
 
     public init(
         socketPath: String? = ProcessInfo.processInfo.environment[
@@ -53,6 +56,8 @@ public final class BirkinApplicationRuntime: ObservableObject {
             Double.random(in: 0...1)
         },
         windowCapture: PackagedWindowCapture = PackagedWindowCapture(),
+        enableSystemNotifications: Bool = false,
+        approvalNotifications: (any ApprovalNotificationScheduling)? = nil,
         emit: @escaping @Sendable (String) -> Void = BirkinApplicationRuntime.standardEvent
     ) {
         self.socketPath = socketPath
@@ -61,12 +66,29 @@ public final class BirkinApplicationRuntime: ObservableObject {
         self.reconnectClock = reconnectClock
         self.randomUnit = randomUnit
         self.windowCapture = windowCapture
+        self.enableSystemNotifications = enableSystemNotifications
+        self.approvalNotifications = approvalNotifications
         self.emitEvent = emit
     }
 
     public func start() async {
         guard !started else { return }
         started = true
+        if approvalNotifications == nil
+            && enableSystemNotifications
+            && MacOSApprovalNotificationCenter.isAvailable
+        {
+            approvalNotifications = MacOSApprovalNotificationCenter(
+                navigateToApprovals: { [weak self] in
+                    self?.navigateToApprovals()
+                }
+            )
+        }
+        do {
+            try await approvalNotifications?.prepare()
+        } catch {
+            emit("approval-notification-authorization-failed")
+        }
         if socketPath == nil {
             observeTermination()
             startOwnedBridge()
@@ -408,6 +430,11 @@ public final class BirkinApplicationRuntime: ObservableObject {
         switch message.kind {
         case .event:
             try store.apply(event: message)
+            do {
+                try await processApprovalNotification(message)
+            } catch {
+                emit("approval-notification-scheduling-failed")
+            }
             let eventType: String
             if case .string(let value) = message.body["type"] {
                 eventType = value
@@ -495,6 +522,40 @@ public final class BirkinApplicationRuntime: ObservableObject {
         default:
             break
         }
+    }
+
+    func processApprovalNotification(
+        _ message: NativeEnvelope
+    ) async throws {
+        guard message.kind == .event,
+              case .string("approval.requested") = message.body["type"],
+              case .object(let payload) = message.body["payload"],
+              case .string(let approvalID) = payload["approval_id"],
+              !approvalID.isEmpty,
+              !notifiedApprovals.contains(approvalID),
+              let approvalNotifications
+        else {
+            return
+        }
+        let summary: String
+        if case .string(let value) = payload["summary"] {
+            summary = value
+        } else {
+            summary = ""
+        }
+        try await approvalNotifications.schedule(
+            ApprovalNotificationPayload(
+                approvalID: approvalID,
+                summary: summary
+            )
+        )
+        notifiedApprovals.insert(approvalID)
+    }
+
+    func navigateToApprovals() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        NSApplication.shared.windows.first?.makeKeyAndOrderFront(nil)
+        _ = presentationModel.focus(.section(.approvals))
     }
 
     /// Remember which command a frame belongs to so its receipt can be typed.
@@ -649,11 +710,14 @@ enum BirkinApplicationHost {
         // Captured once: a production launch has no log, so it never even
         // schedules the work that would append to one.
         let events = journeyEvents
-        return BirkinApplicationRuntime(emit: { message in
-            BirkinApplicationRuntime.standardEvent(message)
-            guard let events else { return }
-            Task { @MainActor in events.record(message) }
-        })
+        return BirkinApplicationRuntime(
+            enableSystemNotifications: true,
+            emit: { message in
+                BirkinApplicationRuntime.standardEvent(message)
+                guard let events else { return }
+                Task { @MainActor in events.record(message) }
+            }
+        )
     }()
 }
 

@@ -17,6 +17,7 @@ from birkin.workspace import (
     WorkspaceCommand,
     WorkspaceEvent,
     WorkspaceHub,
+    WorkspaceSession,
     WorkspaceService,
 )
 from birkin.workspace import runtime_adapter
@@ -117,6 +118,51 @@ def test_terminal_snapshot_prefers_canonical_journal(
         "canonical question",
         "canonical reply",
     ]
+
+
+def test_terminal_surface_forwards_office_progress(tmp_path: Path) -> None:
+    session: WorkspaceSession
+
+    def handler(_payload: dict[str, object]) -> dict[str, object]:
+        _ = session.service.emit(
+            "progress.updated",
+            {
+                "progress_id": "office:job-progress",
+                "runtime_event": "office.inspection",
+                "office_phase": "inspection",
+                "job_id": "job-progress",
+                "summary": "문서 검사를 완료했습니다.",
+                "status": "working",
+                "ui_state": "pending",
+            },
+        )
+        _ = session.service.emit(
+            "message.assistant.completed",
+            {"text": "완료"},
+        )
+        return {"reply": "완료"}
+
+    session = WorkspaceSession(
+        root=tmp_path,
+        session_id="terminal-office-progress",
+        handlers={"chat.send": handler},
+        handler_factory=None,
+    )
+    observed: list[tuple[str, dict[str, object]]] = []
+    client = workspace_terminal.WorkspaceTerminalClient(
+        session,
+        actor_id="terminal:test",
+        on_event=lambda event, payload: observed.append((event, payload)),
+    )
+
+    try:
+        assert client.ask("보고서를 준비해줘", lambda _piece: None) == "완료"
+    finally:
+        session.close()
+    assert len(observed) == 1
+    assert observed[0][0] == "office.inspection"
+    assert observed[0][1]["office_phase"] == "inspection"
+    assert observed[0][1]["job_id"] == "job-progress"
 
 
 def test_runtime_snapshot_hydrates_existing_cron_authority(

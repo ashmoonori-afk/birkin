@@ -229,6 +229,24 @@ class RuntimeWorkspaceAdapter:
         if event == "computer_use":
             self._computer_event(payload)
             return
+        if event == "office_progress":
+            _ = self._emit(
+                "progress.updated",
+                {
+                    key: payload[key]
+                    for key in (
+                        "progress_id",
+                        "runtime_event",
+                        "office_phase",
+                        "job_id",
+                        "summary",
+                        "status",
+                        "ui_state",
+                    )
+                    if key in payload
+                },
+            )
+            return
         is_error = bool(payload.get("is_error", False))
         event_type = {
             "tool_start": "tool.started",
@@ -241,10 +259,19 @@ class RuntimeWorkspaceAdapter:
         if event == "tool_end" and is_error:
             event_type = "tool.failed"
         safe: dict[str, object] = {
+            "progress_id": (
+                f"runtime:{'tool' if event.startswith('tool_') else event}:"
+                f"{str(payload.get('name') or payload.get('summary') or 'operation')[:80]}"
+            ),
             "runtime_event": event,
-            "summary": str(payload.get("name") or payload.get("summary") or "")[:300],
+            "summary": str(
+                payload.get("name")
+                or payload.get("summary")
+                or "작업을 진행하고 있습니다."
+            )[:300],
             "state": uistate.from_runtime(event, is_error=is_error).state,
         }
+        safe["status"] = safe["state"]
         _ = self._emit(event_type, safe)
 
     def _computer_event(self, raw: dict[str, object]) -> None:
@@ -335,6 +362,16 @@ class RuntimeWorkspaceAdapter:
         if attachments:
             user_event["attachments"] = attachments
         _ = self._emit("message.user", user_event)
+        progress_id = f"turn:{self._session_id}"
+        _ = self._emit(
+            "progress.updated",
+            {
+                "progress_id": progress_id,
+                "summary": "응답을 준비하고 있습니다.",
+                "status": "working",
+                "ui_state": "pending",
+            },
+        )
         pieces: list[str] = []
 
         def on_text(piece: str) -> None:
@@ -359,6 +396,7 @@ class RuntimeWorkspaceAdapter:
             _ = self._emit(
                 "progress.updated",
                 {
+                    "progress_id": progress_id,
                     "summary": "Assistant response failed.",
                     "status": "failed",
                     "ui_state": "failed",
@@ -368,6 +406,15 @@ class RuntimeWorkspaceAdapter:
             )
             raise
         final = reply or "".join(pieces)
+        _ = self._emit(
+            "progress.updated",
+            {
+                "progress_id": progress_id,
+                "summary": "응답을 완료했습니다.",
+                "status": "succeeded",
+                "ui_state": "succeeded",
+            },
+        )
         _ = self._emit("message.assistant.completed", {"text": final})
         _ = transcripts.append_turn(
             "workspace", self._run_id, text, final, cfg=session.cfg
@@ -452,6 +499,7 @@ class RuntimeWorkspaceAdapter:
             OfficeCoordinator,
             OfficeMutationRequest,
         )
+        from ..office.progress import office_progress_sink
 
         required = {"request", "source", "outcome", "operations", "destination"}
         optional = {"overwrite_approved"}
@@ -495,7 +543,8 @@ class RuntimeWorkspaceAdapter:
             OfficeCaller(
                 allowlist_root=self._workspace_root,
                 actor=f"native:{self._session_id}",
-            )
+            ),
+            on_transition=office_progress_sink(self._runtime_event),
         ).request(
             OfficeMutationRequest(
                 request_text=request,
@@ -560,6 +609,7 @@ class RuntimeWorkspaceAdapter:
             approval_id,
             decision=str(decision),
             reason=str(payload.get("reason") or ""),
+            on_event=self._runtime_event,
         )
         event_payload: dict[str, object] = {
             "approval_id": approval_id,

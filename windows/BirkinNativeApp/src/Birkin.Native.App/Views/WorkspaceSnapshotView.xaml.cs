@@ -17,4 +17,6 @@ public partial class WorkspaceSnapshotView : UserControl
         PrimaryColumnView.AttachWorkflow(presentationModel, coordinator);
         ContextColumnView.AttachWorkflow(presentationModel, coordinator);
     }
+
+    public void FocusApprovals() => ContextColumnView.FocusApprovals();
 }

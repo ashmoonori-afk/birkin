@@ -18,4 +18,10 @@ public partial class ContextColumnView : UserControl
         ApprovalHost.Content = new ApprovalView(presentationModel, coordinator);
         OfficeHost.Content = new OfficeView(presentationModel, coordinator);
     }
+
+    public void FocusApprovals()
+    {
+        ContextScroll.ScrollToTop();
+        _ = ApprovalsRegion.Focus();
+    }
 }

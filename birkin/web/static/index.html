@@ -100,6 +100,7 @@
     gap: 7px;
     color: var(--muted);
     font-size: .8rem;
+    white-space: nowrap;
   }
   .connection::before {
     content: "";
@@ -240,7 +241,8 @@
     scrollbar-width: thin;
   }
   .panel-more {
-    display: none;
+    display: grid;
+    place-items: center;
     flex: 0 0 44px;
     min-height: 44px;
     border: 0;
@@ -320,7 +322,7 @@
   .notice {
     position: fixed;
     left: 50%;
-    bottom: 18px;
+    bottom: calc(var(--composer-reserved) + 12px);
     z-index: 10;
     transform: translateX(-50%);
     max-width: min(90vw, 620px);
@@ -341,6 +343,7 @@
     background: var(--birkin-surface);
     color: var(--birkin-text);
     cursor: pointer;
+    white-space: nowrap;
   }
   .browser-toggle:focus-visible,
   .browser-url:focus-visible,
@@ -428,6 +431,10 @@
   .ledger { display: contents; }
 
   @media (max-width: 480px) {
+    .topbar { gap: 6px; padding-inline: 10px; }
+    .theme-select { max-width: 84px; padding-inline: 6px; }
+    .connection { gap: 4px; font-size: .68rem; }
+    .browser-toggle { padding-inline: 8px; font-size: .75rem; }
     .approval-fields { grid-template-columns: 1fr; }
     .approval-actions, .detail-actions { display: grid; grid-template-columns: 1fr 1fr; }
     .approval-actions .steer-input,
@@ -469,12 +476,6 @@
     .composer { margin: 0 8px 8px; }
     .composer textarea { resize: none; }
     .brand span { display: none; }
-  }
-  @media (max-width: 1200px) {
-    .panel-more {
-      display: grid;
-      place-items: center;
-    }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto; transition-duration: 0.001ms; }
@@ -614,6 +615,7 @@ let browserControlSequence = Number(
 );
 let browserSessionStart = null;
 
+const APPROVAL_REFRESH_INTERVAL_MS = 30_000;
 const state = {
   sessionId: null,
   cursor: 0,
@@ -624,6 +626,8 @@ const state = {
   pendingAssistant: new Map(),
   reconnectAttempts: 0,
   reconnectTimer: null,
+  approvalRefreshTimer: null,
+  approvalCount: null,
 };
 
 let items = [];
@@ -1055,6 +1059,31 @@ function appendMessage(kind, text, id) {
   if (followsOutput) transcript.scrollTop = transcript.scrollHeight;
 }
 
+function renderProgress(payload, eventId) {
+  const progressId = String(payload.progress_id || eventId || "");
+  const uiState = String(payload.ui_state || "pending");
+  const followsOutput = isFollowingOutput();
+  let article = [...transcript.querySelectorAll("[data-progress-id]")]
+    .find((entry) => entry.dataset.progressId === progressId);
+  if (!article) {
+    const empty = byId("workspace-empty");
+    if (empty) empty.remove();
+    article = messageNode("진행", "", eventId);
+    article.dataset.progressId = progressId;
+    transcript.appendChild(article);
+  }
+  const presentation = presentationFor(uiState);
+  article.querySelector(".message-meta").textContent =
+    `${presentation[0]} ${presentation[1]}`;
+  article.querySelector(".message-content").textContent =
+    String(payload.summary || "진행 상황이 갱신되었습니다.");
+  article.dataset.uiState = uiState;
+  if (payload.office_phase) {
+    article.dataset.officePhase = String(payload.office_phase);
+  }
+  if (followsOutput) transcript.scrollTop = transcript.scrollHeight;
+}
+
 function isFollowingOutput() {
   return (
     transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop
@@ -1093,14 +1122,50 @@ function approvalIsActionable(item) {
   return status === "pending" || attentionFor(item.ui_state) === 0;
 }
 
+function mergePanelItems(legacyItems, canonicalItems) {
+  const merged = new Map(
+    legacyItems.map((item) => [String(item.id || ""), item])
+  );
+  for (const item of canonicalItems) {
+    const id = String(item.id || "");
+    const previous = merged.get(id) || {};
+    const combined = {...previous, ...item};
+    if (previous.kind === "agent_run" && item.kind === "tasks_runs") {
+      combined.kind = "agent_run";
+    }
+    if (
+      previous.kind === "approval"
+      && item.ui_state === "pending"
+      && uiEncoding[previous.ui_state]
+    ) {
+      combined.ui_state = previous.ui_state;
+    }
+    merged.set(id, combined);
+  }
+  return [...merged.values()];
+}
+
 function updateApprovalTab() {
-  const waiting = items.filter(
-    (item) => item.kind === "approval" && approvalIsActionable(item)
-  ).length;
+  const panel = (state.snapshot?.panels || [])
+    .find((entry) => entry.key === "approvals");
+  const approvalItems = mergePanelItems(
+    items.filter((item) => item.kind === "approval"),
+    panel?.items || [],
+  );
+  const waiting = approvalItems.filter(approvalIsActionable).length;
+  const previousWaiting = state.approvalCount;
+  state.approvalCount = waiting;
   byId("approval-tab").textContent = waiting ? `승인 · 대기 ${waiting}` : "승인";
+  if (previousWaiting !== null && waiting > previousWaiting) {
+    announce(`새 승인 요청 · 현재 대기 ${waiting}건`);
+  }
 }
 
 function renderPanel() {
+  const focusedItemId = panelBody.contains(document.activeElement)
+    ? document.activeElement.closest("[data-item-id]")?.dataset.itemId
+      || state.selectedId
+    : null;
   updateApprovalTab();
   clearNode(panelBody);
   const heading = document.createElement("h2");
@@ -1123,26 +1188,7 @@ function renderPanel() {
     legacyItems = items.filter((item) => item.kind === "status");
   }
   const canonicalItems = panel?.items || [];
-  const merged = new Map(
-    legacyItems.map((item) => [String(item.id || ""), item])
-  );
-  for (const item of canonicalItems) {
-    const id = String(item.id || "");
-    const previous = merged.get(id) || {};
-    const combined = {...(merged.get(id) || {}), ...item};
-    if (previous.kind === "agent_run" && item.kind === "tasks_runs") {
-      combined.kind = "agent_run";
-    }
-    if (
-      previous.kind === "approval"
-      && item.ui_state === "pending"
-      && uiEncoding[previous.ui_state]
-    ) {
-      combined.ui_state = previous.ui_state;
-    }
-    merged.set(id, combined);
-  }
-  let panelItems = [...merged.values()];
+  let panelItems = mergePanelItems(legacyItems, canonicalItems);
   panelItems = [...panelItems].sort((left, right) => {
     const leftRank = attentionFor(left.ui_state);
     const rightRank = attentionFor(right.ui_state);
@@ -1185,6 +1231,11 @@ function renderPanel() {
   }
   if (selected?.kind === "computer_use") appendComputerUseDetail(selected);
   if (selected?.kind === "status") appendStatusDetail(selected);
+  if (focusedItemId) {
+    const replacement = [...panelBody.querySelectorAll("[data-item-id]")]
+      .find((entry) => entry.dataset.itemId === focusedItemId);
+    replacement?.focus({preventScroll: true});
+  }
 }
 
 function selectPanelItem(item) {
@@ -1646,14 +1697,20 @@ function handleWorkspaceEvent(raw) {
       content.textContent = String(payload.text || content.textContent || "");
     }
     state.pendingAssistant.delete(commandId);
-  } else if (event.type.startsWith("tool.") || event.type === "progress.updated") {
+  } else if (event.type.startsWith("tool.")) {
     appendMessage("tool", String(payload.summary || event.type), event.event_id);
+  } else if (event.type === "progress.updated") {
+    renderProgress(payload, event.event_id);
   } else if (event.type === "command.failed" || event.type === "error.raised") {
     announce(`오류: ${String(payload.error || event.type)}`);
   } else if (event.type === "approval.answered") {
     handleApprovalAnswered(payload).catch((error) => announce(error.message));
+  } else if (event.type === "approval.requested") {
+    Promise.all([
+      refreshWorkspaceSnapshot(), refreshApprovals()
+    ]).catch((error) => announce(error.message));
   } else if ([
-    "approval.requested", "question.requested", "question.answered",
+    "question.requested", "question.answered",
     "evidence.added", "checkpoint.restored", "task.updated", "computer.updated",
   ].includes(event.type)) {
     refreshWorkspaceSnapshot().catch((error) => announce(error.message));
@@ -1730,15 +1787,7 @@ async function refreshLegacyPanels() {
     api("/api/runs"),
     api("/api/agent-runs"),
   ]);
-  let approvals = [];
-  try {
-    approvals = await api("/api/approvals");
-  } catch (error) {
-    if (error.status !== 403) throw error;
-    announce(
-      "승인 목록은 보안 토큰이 필요합니다 · birkin web의 bootstrap URL로 접속하세요."
-    );
-  }
+  const approvals = await loadApprovals();
   items = buildQueue(approvals, jobs, runs);
   for (const run of agentRuns.runs || []) {
     items.push({
@@ -1764,6 +1813,42 @@ async function refreshLegacyPanels() {
   renderPanel();
 }
 
+async function loadApprovals() {
+  let approvals = [];
+  try {
+    approvals = await api("/api/approvals");
+  } catch (error) {
+    if (error.status !== 403) throw error;
+    announce(
+      "승인 목록은 보안 토큰이 필요합니다 · birkin web의 bootstrap URL로 접속하세요."
+    );
+  }
+  return approvals;
+}
+
+async function refreshApprovals() {
+  const approvals = await loadApprovals();
+  const approvalItems = buildQueue(approvals, {jobs: []}, []);
+  const currentApprovalItems = items.filter((item) => item.kind === "approval");
+  if (JSON.stringify(approvalItems) === JSON.stringify(currentApprovalItems)) {
+    return;
+  }
+  items = [
+    ...approvalItems,
+    ...items.filter((item) => item.kind !== "approval"),
+  ];
+  renderPanel();
+}
+
+function startApprovalRefreshPolling() {
+  if (state.approvalRefreshTimer) {
+    clearInterval(state.approvalRefreshTimer);
+  }
+  state.approvalRefreshTimer = setInterval(() => {
+    refreshApprovals().catch((error) => announce(error.message));
+  }, APPROVAL_REFRESH_INTERVAL_MS);
+}
+
 async function bootstrap() {
   setConnection("connecting", "연결 중");
   await loadContract();
@@ -1783,6 +1868,7 @@ async function bootstrap() {
   );
   renderSnapshot(snapshot);
   await refreshLegacyPanels();
+  startApprovalRefreshPolling();
   connectEvents();
   announce("");
 }

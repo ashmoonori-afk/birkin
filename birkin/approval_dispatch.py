@@ -166,13 +166,18 @@ def execute_action(
         return f"[exit {result.returncode}] {output[:2000]}"
     if category == "office_job":
         from .office.coordinator import execute_approved_office_job
+        from .office.progress import office_progress_sink
 
         approval_id = None
         if configured.cfg is not None:
             value = configured.cfg.get("_office_approval_id")
             if isinstance(value, str):
                 approval_id = value
-        return execute_approved_office_job(payload, approval_id=approval_id)
+        return execute_approved_office_job(
+            payload,
+            approval_id=approval_id,
+            on_transition=office_progress_sink(configured.on_event),
+        )
     if category == "office_rollback":
         from .office.rollback_approval import execute_approved_rollback
 
