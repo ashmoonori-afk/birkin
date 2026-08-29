@@ -25,9 +25,10 @@ public sealed class OfficeViewTests
             var window = new MainWindow(fixture.Model, fixture.Coordinator);
             try
             {
-                OfficeWorkflowViewHarness.Layout(window, 1500, 940);
+                var shell = Snapshot(window);
+                OfficeWorkflowViewHarness.Layout(shell, 1500, 940);
                 var importPanel = OfficeWorkflowViewHarness.Find<Expander>(
-                    window,
+                    shell,
                     "office.import-panel");
                 var selected = @"C:\fixtures\first-report.xlsx";
                 var data = new DataObject(
@@ -111,7 +112,7 @@ public sealed class OfficeViewTests
         {
             var fixture = OfficeWorkflowViewHarness.CreateAsync().GetAwaiter().GetResult();
             var window = new MainWindow(fixture.Model, fixture.Coordinator);
-            var shell = (WorkspaceSnapshotView)window.Content;
+            var shell = Snapshot(window);
             OfficeWorkflowViewHarness.Layout(shell, 1500, 940);
             var ids = new[]
             {
@@ -153,7 +154,7 @@ public sealed class OfficeViewTests
         {
             var fixture = OfficeWorkflowViewHarness.CreateAsync().GetAwaiter().GetResult();
             var window = new MainWindow(fixture.Model, fixture.Coordinator);
-            var shell = (WorkspaceSnapshotView)window.Content;
+            var shell = Snapshot(window);
             OfficeWorkflowViewHarness.Layout(shell, 1100, 669);
             var scroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(shell, "context.scroll");
             var activity = OfficeWorkflowViewHarness.Find<FrameworkElement>(shell, "activity.landmark");
@@ -199,6 +200,13 @@ public sealed class OfficeViewTests
     private sealed record PanelGeometry(double Activity, double Browser, double Office);
     private sealed record ScrollGeometry(double Scrollable, double Offset, double Viewport);
     private sealed record ReachGeometry(double ActionTop, double ActionBottom, double StatusGap);
+
+    private static WorkspaceSnapshotView Snapshot(MainWindow window)
+    {
+        var shell = window.FindName("SnapshotView") as WorkspaceSnapshotView;
+        Assert.IsNotNull(shell);
+        return shell;
+    }
 
     private static DragEventArgs CreateDropEvent(
         IDataObject data,
