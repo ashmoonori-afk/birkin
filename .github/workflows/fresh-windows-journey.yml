@@ -293,12 +293,16 @@ jobs:
             if ([string]::IsNullOrWhiteSpace($reply)) {
               throw "The first chat produced no assistant reply."
             }
-            $hangulCount = [regex]::Matches($reply, "[가-힣]").Count
-            $latinCount = [regex]::Matches($reply, "[A-Za-z]").Count
+            $replyText = [regex]::Replace(
+              $reply,
+              "<[^>]+>",
+              "").Trim()
+            $hangulCount = [regex]::Matches($replyText, "[가-힣]").Count
+            $latinCount = [regex]::Matches($replyText, "[A-Za-z]").Count
             if ($hangulCount -lt 10 -or $latinCount -gt 5) {
               throw "The first assistant reply was not meaningfully Korean."
             }
-            $reply | Set-Content `
+            $replyText | Set-Content `
               "$env:EVIDENCE_DIR\assistant-reply.txt" `
               -Encoding utf8
             $completedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
