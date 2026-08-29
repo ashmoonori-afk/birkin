@@ -218,6 +218,22 @@ def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution(
     ]
     assert "--filter" not in test_commands[0]
 
+    uploads = [
+        _mapping(step["with"])
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
+    assert {
+        (upload["name"], upload["path"], upload["if-no-files-found"])
+        for upload in uploads
+    } >= {
+        (
+            "native-windows-first-run-failure",
+            ".omo/evidence/native-shell/windows-first-run-failure.png",
+            "error",
+        ),
+    }
+
 
 def test_fixture_freshness_regenerates_every_normative_vector() -> None:
     job = _job(_workflow(), "protocol-fixture-freshness")

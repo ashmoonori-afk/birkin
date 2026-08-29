@@ -95,6 +95,18 @@ birkin setup
 birkin chat
 ```
 
+### Windows 개발 프리뷰
+
+WPF 개발 프리뷰는 로컬 bridge 연결 전에 창을 먼저 표시합니다. Birkin CLI가
+없거나, 시작 제한 시간을 넘기거나, handshake에 실패하거나, 반복 종료 상태에
+들어가도 앱은 종료되지 않습니다. 대신 제한된 오류 원인, 재시도 동작,
+`BIRKIN_EXECUTABLE`에 전체 실행 파일 경로를 저장하는 입력란을 표시합니다.
+연결 상태 점은 bridge가 준비된 경우에만 초록색입니다.
+
+Windows 빌드·실행·`PATH`·실행 파일 경로·문제 해결·테스트 방법은
+[`windows/BirkinNativeApp/README.md`](windows/BirkinNativeApp/README.md)를
+참조하십시오.
+
 로컬 서비스 표면은 별도 터미널에서 실행합니다.
 
 ```bash

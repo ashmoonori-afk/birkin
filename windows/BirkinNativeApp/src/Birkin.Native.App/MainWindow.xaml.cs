@@ -22,4 +22,11 @@ public partial class MainWindow : Window
         InitializeComponent();
         SnapshotView.AttachWorkflow(presentationModel, coordinator);
     }
+
+    public MainWindow(
+        ShellPresentationModel presentationModel,
+        ShellCoordinator coordinator,
+        IStartupRecovery startupRecovery)
+        : this(presentationModel, coordinator) =>
+        SnapshotView.AttachStartupRecovery(presentationModel, startupRecovery);
 }

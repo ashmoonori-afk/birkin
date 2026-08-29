@@ -15,6 +15,8 @@ public enum BridgeStopReason
     AppShutdown,
     CrashLoop,
     LaunchFailed,
+    StartupFailed,
+    StartupTimeout,
 }
 
 public sealed class BridgeSupervisor
@@ -98,6 +100,8 @@ public sealed class BridgeSupervisor
 
     public event Action<IBridgeProcess>? OwnedProcessStarted;
 
+    public event Action<BridgeStopReason>? StoppedWithReason;
+
     public void AttachExisting(BridgeAnnouncement announcement)
     {
         lock (_gate)
@@ -133,6 +137,7 @@ public sealed class BridgeSupervisor
     {
         IBridgeProcess? exitedProcess = null;
         long? replacementGeneration = null;
+        BridgeStopReason? stoppedReason = null;
 
         lock (_gate)
         {
@@ -161,6 +166,7 @@ public sealed class BridgeSupervisor
                 _lifecycle = SupervisorLifecycle.Stopped;
                 _state = BridgeSupervisorState.Stopped;
                 _stopReason = BridgeStopReason.CrashLoop;
+                stoppedReason = BridgeStopReason.CrashLoop;
             }
             else
             {
@@ -169,6 +175,10 @@ public sealed class BridgeSupervisor
         }
 
         exitedProcess.Dispose();
+        if (stoppedReason is { } reason)
+        {
+            StoppedWithReason?.Invoke(reason);
+        }
         if (replacementGeneration is { } generation)
         {
             _ = CompleteLaunch(generation);
@@ -181,7 +191,11 @@ public sealed class BridgeSupervisor
         lock (_gate)
         {
             if (_lifecycle != SupervisorLifecycle.Stopped
-                || _stopReason != BridgeStopReason.CrashLoop)
+                || _stopReason is not (
+                    BridgeStopReason.CrashLoop
+                    or BridgeStopReason.LaunchFailed
+                    or BridgeStopReason.StartupFailed
+                    or BridgeStopReason.StartupTimeout))
             {
                 return false;
             }
@@ -194,6 +208,51 @@ public sealed class BridgeSupervisor
         }
 
         return CompleteLaunch(generation);
+    }
+
+    internal async ValueTask StopOwnedAsync(BridgeStopReason reason)
+    {
+        _ = await StopOwnedAsyncCore(
+            expectedProcess: null,
+            reason).ConfigureAwait(false);
+    }
+
+    internal ValueTask<bool> StopOwnedAsync(
+        IBridgeProcess expectedProcess,
+        BridgeStopReason reason) =>
+        StopOwnedAsyncCore(expectedProcess, reason);
+
+    private async ValueTask<bool> StopOwnedAsyncCore(
+        IBridgeProcess? expectedProcess,
+        BridgeStopReason reason)
+    {
+        IBridgeProcess? ownedProcess;
+        lock (_gate)
+        {
+            if (_lifecycle != SupervisorLifecycle.Running
+                || _ownedProcess is null
+                || (
+                    expectedProcess is not null
+                    && !ReferenceEquals(_ownedProcess, expectedProcess)
+                ))
+            {
+                return false;
+            }
+
+            _generation++;
+            ownedProcess = _ownedProcess;
+            ownedProcess.Exited -= ObserveExit;
+            _ownedProcess = null;
+            _attachment = null;
+            _exitTimes.Clear();
+            _state = BridgeSupervisorState.Stopped;
+            _stopReason = reason;
+            _lifecycle = SupervisorLifecycle.Stopped;
+        }
+
+        await StopAndDisposeAsync(ownedProcess).ConfigureAwait(false);
+        StoppedWithReason?.Invoke(reason);
+        return true;
     }
 
     public async ValueTask ShutdownAsync(
@@ -259,6 +318,7 @@ public sealed class BridgeSupervisor
         }
         catch (Exception)
         {
+            var stopped = false;
             lock (_gate)
             {
                 if (_lifecycle == SupervisorLifecycle.Starting
@@ -268,9 +328,14 @@ public sealed class BridgeSupervisor
                     _lifecycle = SupervisorLifecycle.Stopped;
                     _state = BridgeSupervisorState.Stopped;
                     _stopReason = BridgeStopReason.LaunchFailed;
+                    stopped = true;
                 }
             }
 
+            if (stopped)
+            {
+                StoppedWithReason?.Invoke(BridgeStopReason.LaunchFailed);
+            }
             return false;
         }
 
@@ -341,6 +406,15 @@ public sealed class BridgeSupervisor
         {
             return _lifecycle == SupervisorLifecycle.Running
                 && _generation == generation
+                && ReferenceEquals(_ownedProcess, process);
+        }
+    }
+
+    internal bool OwnsProcess(IBridgeProcess process)
+    {
+        lock (_gate)
+        {
+            return _lifecycle == SupervisorLifecycle.Running
                 && ReferenceEquals(_ownedProcess, process);
         }
     }
