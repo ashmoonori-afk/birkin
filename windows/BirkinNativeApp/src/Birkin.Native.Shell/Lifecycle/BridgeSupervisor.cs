@@ -217,7 +217,7 @@ public sealed class BridgeSupervisor
             reason).ConfigureAwait(false);
     }
 
-    internal ValueTask<bool> StopOwnedAsync(
+    public ValueTask<bool> StopOwnedAsync(
         IBridgeProcess expectedProcess,
         BridgeStopReason reason) =>
         StopOwnedAsyncCore(expectedProcess, reason);
@@ -410,7 +410,7 @@ public sealed class BridgeSupervisor
         }
     }
 
-    internal bool OwnsProcess(IBridgeProcess process)
+    public bool OwnsProcess(IBridgeProcess process)
     {
         lock (_gate)
         {
