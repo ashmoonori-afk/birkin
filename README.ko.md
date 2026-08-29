@@ -13,11 +13,71 @@
 [![VS Code](https://img.shields.io/badge/VS_Code-official_extension-007ACC?logo=visualstudiocode&logoColor=white)](./vscode-extension)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 
-[존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [Office Work OS](#office-work-os-v2) · [GitHub Action](#github-action) · [Sandbox](#격리-실행) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
+[10분 시작하기](#사무직용-10분-시작하기-windows에서-첫-office-리포트) · [존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [Office Work OS](#office-work-os-v2) · [GitHub Action](#github-action) · [Sandbox](#격리-실행) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
 
 </div>
 
 ---
+
+## 사무직용 10분 시작하기: Windows에서 첫 Office 리포트
+
+Excel 원본을 Birkin의 격리 작업공간에 복사하고, 한국어로 요약을 요청하는
+가장 짧은 경로입니다. 원본을 직접 수정하거나 API key를 먼저 입력하지
+않습니다.
+
+### 1. 설치와 provider 설정
+
+관리자 권한이 없는 PowerShell 5.1 또는 7에서 실행합니다.
+
+```powershell
+irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 | iex
+birkin --version
+birkin setup
+```
+
+기본값은 기존 로그인을 사용하는 Codex CLI입니다. Codex가 없으면
+wizard가 미설치 상태와 공식 설치 명령을 표시합니다. 바로 설치하거나
+Claude CLI·API provider로 바꿀 수 있습니다.
+
+### 2. Windows 문서를 격리 경로에 복사
+
+아래 예시는 `문서` 폴더의 `매출.xlsx`를 기본 Office incoming directory로
+복사합니다.
+
+```powershell
+$birkinHome = if ($env:BIRKIN_HOME) {
+  $env:BIRKIN_HOME
+} else {
+  Join-Path $env:USERPROFILE ".birkin"
+}
+$incoming = Join-Path $birkinHome "office\artifacts\incoming"
+New-Item -ItemType Directory -Force $incoming | Out-Null
+Copy-Item (Join-Path $env:USERPROFILE "Documents\매출.xlsx") $incoming
+```
+
+Source에서 build한 Windows development preview를 사용한다면 Browse 또는
+창 전체 drag-and-drop으로 파일 하나를 같은 jail에 가져올 수 있습니다.
+PowerShell installer는 이 WPF preview를 설치하지 않습니다.
+
+### 3. 한국어로 첫 리포트 요청
+
+```powershell
+birkin chat
+```
+
+대화는 다음처럼 시작합니다. 실제 응답 문구는 provider와 문서 내용에 따라
+달라집니다.
+
+```text
+사용자: incoming의 매출.xlsx를 먼저 검사하고, 주요 변화 세 가지와 확인이 필요한 항목을 한국어 보고서 초안으로 정리해 줘. 원본은 수정하지 마.
+Birkin: 원본을 읽기 전용으로 검사하고 보고서 초안을 준비하겠습니다.
+```
+
+파일 생성·내보내기가 제안되면 다른 PowerShell에서 `birkin review`를
+실행해 source, destination, operation, overwrite 여부를 확인한 뒤
+승인합니다. 자세한 capability와 rollback 규칙은
+[Office 리포트 reference](#참고-승인내보내기까지의-전체-office-여정)에서
+확인하십시오.
 
 ## 왜 birkin인가?
 
@@ -87,7 +147,30 @@ Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다.
 
 ## 빠른 시작
 
-Birkin은 Python 3.10 이상이 필요합니다. 제공된 Birkin 디렉터리에서 설치하십시오. Git은 필요 없고 `birkin_mnemosyne`은 패키지에 포함되어 있습니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.
+### Windows PowerShell 빠른 설치
+
+관리자 권한이 없는 PowerShell 5.1 또는 7에서 installer를 실행한 뒤
+provider를 설정하고 첫 대화를 시작하십시오.
+
+```powershell
+irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 | iex
+birkin --version
+birkin setup
+birkin chat
+```
+
+Installer가 user `PATH`를 등록하고 `birkin --version`을 검증합니다. 현재
+shell에서 command shim을 아직 찾지 못하면 installer가
+`python -m birkin --version`으로 한 번 더 검증합니다. 상세한 보안·PATH
+안내는 [Windows PowerShell](#windows-powershell)을 참고하십시오. Morpheus의
+현재 기본 실행 시각은 **07:00**입니다.
+
+Birkin은 Python 3.10 이상이 필요합니다. 아래처럼 제공된 Birkin
+디렉터리에서 설치하거나 [Windows PowerShell 설치](#windows-powershell)를
+사용하십시오. Source directory 설치에는 Git이 필요 없고
+`birkin_mnemosyne`은 패키지에 포함되어 있습니다. 기본값은 로컬에서
+인증한 Codex CLI이며, `birkin setup`이 실행 파일을 확인하고 Claude CLI나
+API provider를 선택할 수 있게 합니다.
 
 ```bash
 python -m pip install .
@@ -114,6 +197,71 @@ python -m pip install ".[office-docling]"
 python -m pip install ".[browser]"
 python -m playwright install chromium
 python -m pip install ".[full]"
+```
+
+### Windows PowerShell
+
+관리자 권한이 없는 일반 PowerShell 5.1 또는 7에서 실행합니다.
+
+```powershell
+irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 | iex
+birkin --version
+birkin setup
+birkin chat
+```
+
+설치 script는 `uv`, `pipx`, 실제로 실행되는 Python 3 순서로 선택합니다.
+Source archive에서 설치하므로 Git은 필요하지 않습니다.
+Python probe를 실행하므로 동작하지 않는
+`Microsoft\WindowsApps\python.exe` Store shim을 설치 완료로 오판하지
+않습니다. `birkin setup`은 `codex --version`을 실행합니다. Codex가 없거나
+동작하지 않는 shim이면 OpenAI의 platform installer를 표시하고 setup
+처음으로 돌아가지 않은 채 다시 확인할 수 있습니다.
+설치 도구의 bin directory는 현재 process와 user `PATH`에 `setx` 없이
+등록됩니다. Installer는 `birkin --version`을 실행하고 command shim을
+찾지 못하면 `python -m birkin --version`으로 설치를 다시 검증합니다.
+
+`irm | iex`는 현재 사용자 권한으로 원격 code를 실행합니다. 먼저
+확인하려면 다음처럼 내려받으십시오.
+
+```powershell
+irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 -OutFile install.ps1
+notepad .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+검증 뒤 현재 창에서 `birkin`을 찾지 못하면 새 PowerShell 창을 여십시오.
+그래도 찾지 못하면 `rundll32 sysdm.cpl,EditEnvironmentVariables`에서
+installer가 출력한 directory를 확인하십시오. `setx`로 `PATH`를 다시 쓰면
+안 됩니다.
+
+#### 환경 변수 영구 설정
+
+`$env:NAME = "value"`는 현재 PowerShell process에만 적용됩니다. 비밀이
+아닌 Birkin data root를 새 process에도 적용하려면 다음을 사용합니다.
+
+```powershell
+setx BIRKIN_HOME "$env:USERPROFILE\.birkin"
+```
+
+`setx`는 현재 창을 갱신하지 않습니다. 새 terminal을 열거나 현재와 이후
+process를 함께 설정하십시오.
+
+```powershell
+$env:BIRKIN_HOME = "$env:USERPROFILE\.birkin"
+setx BIRKIN_HOME "$env:BIRKIN_HOME"
+```
+
+`setx PATH ...`는 참조를 펼치고 값을 1,024자로 잘라 user `PATH`를 손상할
+수 있으므로 사용하지 마십시오. API key도 `setx`로 저장하지 마십시오.
+User environment variable은 plaintext이며 현재 사용자 process, registry와
+profile backup, PowerShell history에 노출될 수 있습니다. 가능하면 CLI
+provider 자체 login을 사용하고, API provider가 필요하면 process 범위
+variable을 사용하십시오. 대부분은 `BIRKIN_HOME`만 영구 설정하면 됩니다.
+삭제할 때는 다음을 실행합니다.
+
+```powershell
+reg delete HKCU\Environment /v BIRKIN_HOME /f
 ```
 
 ### Native Browser Aside
@@ -254,6 +402,47 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 2. 원본을 전용 Office jail 안에 둡니다. 모든 입력 경로는 `BIRKIN_HOME/office` 아래에 있어야 하며, `BIRKIN_HOME=/workspace/.birkin`이면 `/workspace/.birkin/office/artifacts/incoming/`으로 복사하거나 import합니다. `BIRKIN_HOME`의 다른 위치도 hash가 일치하더라도 거부됩니다.
 3. `list_document_adapters`로 사용 가능한 adapter를 확인하고, 무엇을 바꾸기 전에 `inspect_document`로 원본을 먼저 점검합니다.
 4. 등록된 read-only 호출로 읽습니다. 결과를 만드는 mutation 또는 export는 `office_job_request`로, rollback은 별도의 `office_rollback_request`로 요청합니다. Durable journal은 `BIRKIN_HOME/office/jobs`에 있고 destination은 caller allowlist 아래로 제한되며 원본은 제자리에서 수정하지 않습니다.
+
+#### 참고: 승인·내보내기까지의 전체 Office 여정
+
+상단의 10분 시작하기를 마친 뒤 Office tier, 승인, rollback의 세부 경계를
+확인할 때 사용하는 reference입니다.
+
+1. **Office tier 설치 (2분):** source directory에서
+   `python -m pip install ".[office]"`를 실행합니다. 이 tier가 없으면 빈
+   DOCX/XLSX/PPTX/HWPX 생성은 `CAPABILITY_UNAVAILABLE`로 거부됩니다.
+2. **Provider 준비 (1분):** `birkin setup`을 실행합니다. 기본 Codex CLI가
+   없으면 wizard가 공식 installer를 표시하며, 설치 뒤 setup을 처음부터
+   반복하지 않고 다시 확인할 수 있습니다. 이어서 `birkin chat`을
+   실행합니다.
+3. **원본 가져오기 (2분):** 기본 Windows Office jail에 원본을 복사합니다.
+
+   ```powershell
+   $incoming = Join-Path $env:USERPROFILE ".birkin\office\artifacts\incoming"
+   New-Item -ItemType Directory -Force $incoming | Out-Null
+   Copy-Item .\매출.xlsx $incoming
+   ```
+
+   다른 `BIRKIN_HOME` 위치는 hash가 맞아도 거부됩니다. Windows
+   development preview를 source에서 직접 build한 경우에는 Browse 또는
+   창 전체 drag-and-drop이 같은 jailed import를 수행합니다. PowerShell
+   Birkin installer는 이 preview를 설치하지 않습니다.
+4. **보고서 요청 (2분):** chat에서
+   `incoming의 매출.xlsx를 요약해서 보고서 초안을 만들어줘`라고
+   요청합니다. XLSX는 `spreadsheets`, 일반 Office 요청은
+   `office-work-os`, 충돌하는 신호는 inspect-first `office-documents`로
+   route됩니다.
+5. **검토와 승인 (2분):** mutation 또는 export는 하나의
+   `office_job_request`로 제안됩니다. `birkin review`에서 source,
+   destination, operation, overwrite 여부를 확인해 승인합니다. 원본은
+   제자리에서 수정되지 않습니다.
+6. **되돌리기 (1분):** 되돌리기는 자동이 아닙니다.
+   `office_rollback_request`가 HMAC 인증된 30일 이내 receipt 하나에 대해
+   별도의 high-risk 승인을 만듭니다. Legacy unsigned receipt는 rollback
+   authority가 아닙니다.
+
+이 여정에서도 PDF mutation, non-Latin 내장 PDF 생성, 외부 Office
+application·runtime·subprocess conversion engine 실행은 지원하지 않습니다.
 
 Word 파일에서 텍스트를 추출합니다.
 
