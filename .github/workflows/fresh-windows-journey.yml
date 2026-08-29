@@ -11,8 +11,6 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 60
     env:
-      BIRKIN_HOME: "${{ runner.temp }}\\birkin-home"
-      EVIDENCE_DIR: "${{ runner.temp }}\\fresh-windows-evidence"
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -27,6 +25,14 @@ jobs:
       - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
         with:
           dotnet-version: "8.x"
+
+      - name: Prepare isolated journey paths
+        shell: pwsh
+        run: |
+          "BIRKIN_HOME=$env:RUNNER_TEMP\birkin-home" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "EVIDENCE_DIR=$env:RUNNER_TEMP\fresh-windows-evidence" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Install from the checked-out revision
         shell: pwsh
