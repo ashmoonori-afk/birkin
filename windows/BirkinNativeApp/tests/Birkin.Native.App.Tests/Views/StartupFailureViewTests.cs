@@ -8,6 +8,8 @@ using Birkin.Native.App.Views;
 using Birkin.Native.Shell.Lifecycle;
 using Birkin.Native.Shell.Presentation;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using StartupOwnedBridgeProcess =
+    Birkin.Native.App.Startup.OwnedBridgeProcess;
 
 namespace Birkin.Native.App.Tests.Views;
 
@@ -28,7 +30,7 @@ public sealed class StartupFailureViewTests
                 Path.Combine(Path.GetTempPath(), $"birkin-empty-{Guid.NewGuid():N}"));
             var supervisor = new BridgeSupervisor(
                 () => TimeSpan.Zero,
-                () => OwnedBridgeProcess.Start(_ => { }, "birkin"));
+                () => StartupOwnedBridgeProcess.Start(_ => { }, "birkin"));
 
             // When
             result = await BridgeStartup.StartOwnedAsync(
