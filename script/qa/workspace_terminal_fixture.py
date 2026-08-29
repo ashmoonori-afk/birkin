@@ -121,6 +121,7 @@ class FixtureRuntimeWorkspaceAdapter:
                 {
                     "approval_id": "qa-approval",
                     "summary": "Approve deterministic workspace action",
+                    "category": "office_job",
                     "status": "pending",
                     "requester": "fixture-agent",
                     "target": "workspace continuation",

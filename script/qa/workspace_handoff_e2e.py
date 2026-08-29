@@ -121,7 +121,11 @@ def run(evidence: Path = EVIDENCE) -> int:
             _ = page.get_by_text(
                 "Approve deterministic workspace action"
             ).click()
+            page.get_by_text("office_job", exact=True).wait_for()
             page.get_by_role("button", name="승인 실행").wait_for()
+            _ = page.screenshot(
+                path=evidence / "web-office-job-approval.png"
+            )
             _ = page.get_by_role("button", name="승인 실행").click()
             _ = page.wait_for_function(
                 """async () => {
