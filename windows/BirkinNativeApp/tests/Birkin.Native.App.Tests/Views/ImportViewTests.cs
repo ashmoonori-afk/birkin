@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using Birkin.Native.App.Tests.Support;
