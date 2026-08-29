@@ -28,10 +28,36 @@ def test_discover_includes_local_cli_when_configured():
 
 
 def test_discover_detects_claude_codex_if_present(monkeypatch):
+    from birkin.provider_onboarding import CodexProviderStatus
+
     monkeypatch.setattr(shutil, "which", lambda name: f"/fake/{name}")
+    monkeypatch.setattr(
+        models.provider_onboarding,
+        "probe_codex",
+        lambda: CodexProviderStatus(True, "/fake/codex", None),
+    )
     found = models.detect_cli_agents()
     sources = {m.source for m in found}
     assert {"claude-cli", "codex-cli"} <= sources
+
+
+def test_discover_rejects_nonfunctional_codex_shim(monkeypatch):
+    from birkin.provider_onboarding import CodexProbeIssue, CodexProviderStatus
+
+    monkeypatch.setattr(shutil, "which", lambda name: f"/fake/{name}")
+    monkeypatch.setattr(
+        models.provider_onboarding,
+        "probe_codex",
+        lambda: CodexProviderStatus(
+            False,
+            None,
+            CodexProbeIssue.NON_FUNCTIONAL_SHIM,
+        ),
+    )
+
+    found = models.detect_cli_agents()
+
+    assert "codex-cli" not in {model.source for model in found}
 
 
 def test_render_groups_and_marks_current(capsys):

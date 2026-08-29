@@ -5,7 +5,7 @@ Subcommands:
   skills [name]   list skills, or print one in full
   web             launch the local WebUI
   setup           configure provider / model / API key
-  nightly         run the 4 AM self-improvement routine now
+  nightly         run the 7 AM self-improvement routine now
   daemon          run the scheduler that triggers nightly + cron jobs
   review          review and approve/reject pending proposed actions
 """
