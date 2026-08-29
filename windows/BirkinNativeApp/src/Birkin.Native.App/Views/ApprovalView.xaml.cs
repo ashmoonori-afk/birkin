@@ -68,7 +68,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
-    private static void OpenFileClicked(object sender, RoutedEventArgs eventArgs)
+    private void OpenFileClicked(object sender, RoutedEventArgs eventArgs)
     {
         if (sender is Button { DataContext: PanelItemPresentation card }
             && card.Destination is { Length: > 0 } destination)
@@ -80,7 +80,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
-    private static void OpenFolderClicked(object sender, RoutedEventArgs eventArgs)
+    private void OpenFolderClicked(object sender, RoutedEventArgs eventArgs)
     {
         if (sender is Button { DataContext: PanelItemPresentation card }
             && card.Destination is { Length: > 0 } destination
