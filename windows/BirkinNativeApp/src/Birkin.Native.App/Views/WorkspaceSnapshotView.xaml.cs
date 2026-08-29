@@ -17,4 +17,11 @@ public partial class WorkspaceSnapshotView : UserControl
         PrimaryColumnView.AttachWorkflow(presentationModel, coordinator);
         ContextColumnView.AttachWorkflow(presentationModel, coordinator);
     }
+
+    internal Task<bool> ImportDroppedFilesAsync(
+        IReadOnlyList<string> paths) =>
+        ContextColumnView.ImportDroppedFilesAsync(paths);
+
+    internal void ReportImportSelectionError() =>
+        ContextColumnView.ReportImportSelectionError();
 }

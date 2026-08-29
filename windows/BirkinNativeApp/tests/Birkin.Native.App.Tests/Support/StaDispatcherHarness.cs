@@ -35,6 +35,9 @@ internal sealed class StaDispatcherHarness : IAsyncDisposable
 
     public Task<T> InvokeAsync<T>(Func<T> action) => _dispatcher.InvokeAsync(action).Task;
 
+    public Task InvokeAsync(Func<Task> action) =>
+        _dispatcher.InvokeAsync(action).Task.Unwrap();
+
     public async ValueTask DisposeAsync()
     {
         await _dispatcher.InvokeAsync(_dispatcher.InvokeShutdown).Task;

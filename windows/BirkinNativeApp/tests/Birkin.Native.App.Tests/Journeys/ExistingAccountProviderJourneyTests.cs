@@ -56,7 +56,7 @@ public sealed class ExistingAccountProviderJourneyTests
         });
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
 
-        var journey = await sta.InvokeAsync(async () =>
+        var journey = sta.InvokeAsync(async () =>
         {
             await using var composition = CompositionRoot.Create(SynchronizationContext.Current
                 ?? throw new InvalidOperationException("WPF dispatcher synchronization context is unavailable"));

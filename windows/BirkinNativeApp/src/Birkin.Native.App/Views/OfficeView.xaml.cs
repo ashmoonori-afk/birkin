@@ -101,4 +101,17 @@ public partial class OfficeView : UserControl, INotifyPropertyChanged
             _coordinator.ProjectionStore.CanonicalApplied -= CanonicalApplied;
         }
     }
+
+    internal Task<bool> ImportDroppedFilesAsync(
+        IReadOnlyList<string> paths)
+    {
+        ImportPanel.IsExpanded = true;
+        return ((ImportView)ImportHost.Content).ImportDroppedFilesAsync(paths);
+    }
+
+    internal void ReportImportSelectionError()
+    {
+        ImportPanel.IsExpanded = true;
+        ((ImportView)ImportHost.Content).ReportImportSelectionError();
+    }
 }

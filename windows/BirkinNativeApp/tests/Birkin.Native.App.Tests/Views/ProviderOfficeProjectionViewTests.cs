@@ -15,7 +15,7 @@ public sealed class ProviderOfficeProjectionViewTests
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
-        var journey = await sta.InvokeAsync(async () =>
+        var journey = sta.InvokeAsync(async () =>
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
             var window = new MainWindow(fixture.Model, fixture.Coordinator) { Width = 1500, Height = 940 };

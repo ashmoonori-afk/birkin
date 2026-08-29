@@ -35,7 +35,7 @@ public sealed class ProviderOfficeDeterministicSeamTests
             var options = AppOptions.Parse(["--bridge-announcement-file", announcementFile]);
             _ = BridgeAnnouncement.Parse(options.BridgeAnnouncementJson);
             await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
-            var journey = await sta.InvokeAsync(async () =>
+            var journey = sta.InvokeAsync(async () =>
             {
                 await using var composition = CompositionRoot.Create(
                     SynchronizationContext.Current

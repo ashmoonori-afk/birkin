@@ -139,10 +139,13 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
             ("instance_id", new NativeJsonString(InstanceId)),
             ("reset_reason", new NativeJsonString("initial"))));
 
-    private static NativeEnvelope Receipt(NativeCommandRequest request) => new(
+    private static NativeEnvelope Receipt(
+        NativeCommandRequest request,
+        ImportedFilePresentation? imported) => new(
         NativeMessageKind.Receipt,
         $"receipt-{request.CommandId}",
-        Object(
+        imported is null
+            ? Object(
             ("protocol_version", new NativeJsonInteger(1)),
             ("command_id", new NativeJsonString(request.CommandId)),
             ("session_id", new NativeJsonString("session-1")),
@@ -151,7 +154,25 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
             ("state", new NativeJsonString("completed")),
             ("result_event_cursor", new NativeJsonInteger(13)),
             ("duplicate", new NativeJsonBoolean(false)),
-            ("outcome", new NativeJsonString("accepted"))));
+            ("outcome", new NativeJsonString("accepted")))
+            : Object(
+            ("protocol_version", new NativeJsonInteger(1)),
+            ("command_id", new NativeJsonString(request.CommandId)),
+            ("session_id", new NativeJsonString("session-1")),
+            ("actor_id", new NativeJsonString("windows:office")),
+            ("accepted_cursor", new NativeJsonInteger(13)),
+            ("state", new NativeJsonString("completed")),
+            ("result_event_cursor", new NativeJsonInteger(13)),
+            ("duplicate", new NativeJsonBoolean(false)),
+            ("outcome", new NativeJsonString("accepted")),
+            ("result", Object(
+                ("reference", Object(
+                    ("kind", new NativeJsonString("workspace_import")),
+                    ("import_id", new NativeJsonString(imported.ImportId)),
+                    ("display_name", new NativeJsonString(imported.DisplayName)),
+                    ("jail_name", new NativeJsonString(imported.JailName)),
+                    ("sha256", new NativeJsonString(imported.Sha256)),
+                    ("byte_count", new NativeJsonInteger(imported.ByteCount))))))));
 
     private static NativeEnvelope Event(long cursor, string commandId) =>
         Event(cursor, commandId, "command.completed", Object(("summary", new NativeJsonString("canonical completion"))));
@@ -180,6 +201,8 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
     internal sealed class RecordingConnection : INativeClientConnection
     {
         private readonly Queue<NativeEnvelope> _received = new();
+        private readonly TaskCompletionSource<NativeCommandRequest> _firstCommandSent =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
         private static readonly HashSet<string> Commands =
         [
             "chat.send", "file.import", "approval.answer",
@@ -187,6 +210,9 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         ];
 
         public List<NativeCommandRequest> Sent { get; } = [];
+        public Task<NativeCommandRequest> FirstCommandSent =>
+            _firstCommandSent.Task;
+        public ImportedFilePresentation? NextImportReference { get; set; }
         public IReadOnlySet<string> AdvertisedCommands => Commands;
         public bool HasLiveCapability(DateTimeOffset now) => true;
         public void Enqueue(NativeEnvelope envelope) => _received.Enqueue(envelope);
@@ -194,7 +220,9 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         public ValueTask SendCommandAsync(NativeCommandRequest request, CancellationToken cancellationToken)
         {
             Sent.Add(request);
-            Enqueue(Receipt(request));
+            _firstCommandSent.TrySetResult(request);
+            Enqueue(Receipt(request, NextImportReference));
+            NextImportReference = null;
             return ValueTask.CompletedTask;
         }
         public ValueTask<NativeEnvelope> ReceiveAsync(CancellationToken cancellationToken) =>

@@ -35,7 +35,7 @@ public sealed class DeterministicWindowJourneyTests
             await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
 
             var stage = "dispatcher-start";
-            var journey = await sta.InvokeAsync(async () =>
+            var journey = sta.InvokeAsync(async () =>
             {
                 await using var composition = CompositionRoot.Create(
                     SynchronizationContext.Current

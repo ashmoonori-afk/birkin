@@ -140,8 +140,7 @@ public sealed partial class ShellCoordinator
             if (_connection.OwnsReceiveLoop)
             {
                 var receipt = await _connection.SendCommandForResultAsync(request, cancellationToken).ConfigureAwait(false);
-                AcceptReceipt(receipt, request.CommandId);
-                return true;
+                return AcceptReceipt(receipt, request.CommandId);
             }
 
             await _connection.SendCommandAsync(request, cancellationToken).ConfigureAwait(false);
@@ -173,8 +172,7 @@ public sealed partial class ShellCoordinator
             var envelope = await _connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
             if (envelope.Kind == NativeMessageKind.Receipt)
             {
-                AcceptReceipt(envelope, commandId);
-                return true;
+                return AcceptReceipt(envelope, commandId);
             }
 
             ApplyCanonicalFrame(envelope);
@@ -216,7 +214,7 @@ public sealed partial class ShellCoordinator
         }
     }
 
-    private void AcceptReceipt(NativeEnvelope receipt, string commandId)
+    private bool AcceptReceipt(NativeEnvelope receipt, string commandId)
     {
         var receivedCommandId = String(receipt.Body, "command_id");
         if (!string.Equals(receivedCommandId, commandId, StringComparison.Ordinal))
@@ -226,21 +224,43 @@ public sealed partial class ShellCoordinator
 
         var acceptedCursor = Integer(receipt.Body, "accepted_cursor");
         var authority = CaptureConnectionAuthority();
+        var accepted = true;
         bool drain;
         lock (_stateLock)
         {
-            var draft = _workflow.Draft;
-            var preserveDraft = _pendingDraftRevision is { } submittedRevision
-                && submittedRevision != _draftRevision;
-            _workflow = _workflow.Accept(commandId, acceptedCursor);
-            if (preserveDraft)
+            ImportedFilePresentation? imported = null;
+            if (string.Equals(
+                    _workflow.CommandType,
+                    ImportCommands.CommandType,
+                    StringComparison.Ordinal)
+                && !ImportedFilePresentationMapper.TryFromReceipt(
+                    receipt,
+                    out imported))
             {
-                _workflow = _workflow.WithDraft(draft);
+                _workflow = _workflow.Refuse(commandId, "E_BODY", null);
+                _pendingDraftRevision = null;
+                accepted = false;
+            }
+            else
+            {
+                var draft = _workflow.Draft;
+                var preserveDraft = _pendingDraftRevision is { } submittedRevision
+                    && submittedRevision != _draftRevision;
+                _workflow = _workflow.Accept(commandId, acceptedCursor);
+                if (imported is not null)
+                {
+                    _workflow = _workflow.WithImport(imported);
+                }
+                if (preserveDraft)
+                {
+                    _workflow = _workflow.WithDraft(draft);
+                }
             }
             RefreshMutationAvailabilityLocked(authority);
             drain = EnqueuePresentationLocked(new(null, null, _workflow));
         }
         DrainPresentations(drain);
+        return accepted;
     }
 
     private void Refuse(NativeCommandRefusal refusal)
