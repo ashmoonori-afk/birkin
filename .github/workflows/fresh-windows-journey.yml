@@ -273,25 +273,23 @@ jobs:
             }
             $importCompletedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
-            "안녕하세요. 한국어로 자연스럽게 인사해 주세요.`n" |
-              birkin chat *>&1 |
-              Tee-Object -FilePath "$env:EVIDENCE_DIR\first-chat.txt"
+            $chatOutput = (
+              "안녕하세요. 한국어로 자연스럽게 인사해 주세요.`n" |
+                birkin chat *>&1 |
+                Tee-Object -FilePath "$env:EVIDENCE_DIR\first-chat.txt" |
+                Out-String
+            )
             if ($LASTEXITCODE -ne 0) {
               throw "birkin chat failed with exit code $LASTEXITCODE"
             }
-            $transcript = Get-ChildItem `
-              "$env:BIRKIN_HOME\sessions\*.json" |
-              Sort-Object LastWriteTime -Descending |
-              Select-Object -First 1
-            if (-not $transcript) {
-              throw "The first chat did not write a transcript."
-            }
-            $messages = Get-Content $transcript.FullName -Raw |
-              ConvertFrom-Json
-            $assistant = $messages |
-              Where-Object role -eq "assistant" |
+            $replyMatch = [regex]::Matches(
+              $chatOutput,
+              "(?m)^birkin >[ \t]+(\S.*)$") |
               Select-Object -Last 1
-            $reply = [string]$assistant.content[0].text
+            if (-not $replyMatch) {
+              throw "The first chat produced no visible assistant reply."
+            }
+            $reply = $replyMatch.Groups[1].Value.Trim()
             if ([string]::IsNullOrWhiteSpace($reply)) {
               throw "The first chat produced no assistant reply."
             }
