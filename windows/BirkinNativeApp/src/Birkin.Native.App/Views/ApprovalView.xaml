@@ -9,6 +9,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <ItemsControl Grid.Row="0" x:Name="ApprovalItems" automation:AutomationProperties.AutomationId="approval.items" ItemsSource="{Binding ApprovalRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
             <ItemsControl.ItemTemplate><DataTemplate>
@@ -21,6 +22,7 @@
                         automation:AutomationProperties.AutomationId="{Binding CardAutomationId}">
                     <Grid>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -239,9 +241,108 @@
                                 </StackPanel>
                             </StackPanel>
                         </Border>
-                        <StackPanel Grid.Row="5" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,9,0,0">
+                        <Border Grid.Row="5"
+                                Background="{StaticResource CardBrush}"
+                                BorderBrush="{StaticResource BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                Padding="10"
+                                Margin="0,9,0,0">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding HasReceipt}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel>
+                                <TextBlock Text="저장 위치"
+                                           FontSize="11"
+                                           FontWeight="SemiBold"
+                                           Foreground="{StaticResource MutedBrush}"/>
+                                <TextBlock Text="{Binding Destination}"
+                                           TextWrapping="Wrap"
+                                           FontFamily="Consolas"
+                                           FontSize="11"
+                                           Margin="0,3,0,0"
+                                           automation:AutomationProperties.AutomationId="{Binding ReceiptDestinationAutomationId}"/>
+                                <TextBlock Text="{Binding RollbackAvailabilityLabel}"
+                                           TextWrapping="Wrap"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="11"
+                                           Margin="0,7,0,0"
+                                           automation:AutomationProperties.AutomationId="{Binding ReceiptRetentionAutomationId}"/>
+                                <WrapPanel Margin="0,8,0,0">
+                                    <Button Content="파일 열기"
+                                            Margin="0,0,5,0"
+                                            automation:AutomationProperties.AutomationId="{Binding OpenFileAutomationId}"
+                                            Click="OpenFileClicked"/>
+                                    <Button Content="폴더 열기"
+                                            Margin="0,0,5,0"
+                                            automation:AutomationProperties.AutomationId="{Binding OpenFolderAutomationId}"
+                                            Click="OpenFolderClicked"/>
+                                    <Button Content="되돌리기"
+                                            IsEnabled="{Binding CanRollback}"
+                                            automation:AutomationProperties.AutomationId="{Binding RollbackAutomationId}"
+                                            Click="RollbackClicked"/>
+                                </WrapPanel>
+                            </StackPanel>
+                        </Border>
+                        <StackPanel Grid.Row="6"
+                                    Orientation="Horizontal"
+                                    HorizontalAlignment="Right"
+                                    Margin="0,9,0,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Decided}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
                             <Button Content="Reject" Tag="{Binding Id}" Margin="0,0,5,0" automation:AutomationProperties.AutomationId="{Binding RejectAutomationId}" automation:AutomationProperties.Name="Reject requested operation" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="RejectClicked" />
                             <Button Content="Approve" Tag="{Binding Id}" automation:AutomationProperties.AutomationId="{Binding ApproveAutomationId}" automation:AutomationProperties.Name="Approve requested operation" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="ApproveClicked" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="6"
+                                    Margin="0,9,0,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Decided}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <TextBlock Text="{Binding OutcomeLabel}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       automation:AutomationProperties.AutomationId="{Binding OutcomeAutomationId}"/>
+                            <TextBlock Text="{Binding ReceiptRef}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontFamily="Consolas"
+                                       FontSize="11"
+                                       TextWrapping="Wrap"
+                                       Margin="0,3,0,0"
+                                       automation:AutomationProperties.AutomationId="{Binding ReceiptReferenceAutomationId}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding HasReceipt}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -252,7 +353,28 @@
             <TextBlock Text="&#xEA18;" Style="{StaticResource GlyphStyle}" FontSize="22" />
             <TextBlock Text="No approvals pending" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,5,0,0" />
         </StackPanel>
-        <TextBlock Grid.Row="1"
+        <Expander Grid.Row="1"
+                  Header="결정됨"
+                  IsExpanded="False"
+                  Margin="0,8,0,0"
+                  Foreground="{StaticResource TextBrush}"
+                  automation:AutomationProperties.Name="Decided approvals"
+                  automation:AutomationProperties.AutomationId="approval.decided.section">
+            <Expander.Style>
+                <Style TargetType="Expander">
+                    <Setter Property="Visibility" Value="Visible"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding DecidedApprovalRows.Count, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="0">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Expander.Style>
+            <ItemsControl ItemsSource="{Binding DecidedApprovalRows, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                          ItemTemplate="{Binding ItemTemplate, ElementName=ApprovalItems}"
+                          automation:AutomationProperties.AutomationId="approval.decided.items"/>
+        </Expander>
+        <TextBlock Grid.Row="2"
                    x:Name="DecisionStatus"
                    Text="Sending approval decision..."
                    Foreground="{StaticResource AccentBrush}"

@@ -210,6 +210,8 @@ Office provenance keeps exact reviewed artifact versions and supported runtime r
 
 Office mutation approval binds the proposer, source digest, destination, exact operations, and overwrite decision in an `authority_digest`. Durable receipts retain that digest and the approving principal separately from the proposer.
 
+After an approved Office export, native surfaces retain the decided approval, show its destination and 30-day rollback window, and let the user request rollback from the receipt without remembering an internal job ID.
+
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
 |---|---|---|---|---|---|---|---|---|

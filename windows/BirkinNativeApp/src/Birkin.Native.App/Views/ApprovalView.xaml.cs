@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Birkin.Native.Shell;
@@ -12,6 +14,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
     private readonly ShellPresentationModel? _model;
     private readonly ShellCoordinator? _coordinator;
     private IReadOnlyList<PanelItemPresentation> _approvalRows = [];
+    private IReadOnlyList<PanelItemPresentation> _decidedApprovalRows = [];
 
     public ApprovalView() => InitializeComponent();
 
@@ -39,6 +42,18 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
+    public IReadOnlyList<PanelItemPresentation> DecidedApprovalRows
+    {
+        get => _decidedApprovalRows;
+        private set
+        {
+            _decidedApprovalRows = value;
+            PropertyChanged?.Invoke(
+                this,
+                new PropertyChangedEventArgs(nameof(DecidedApprovalRows)));
+        }
+    }
+
     private async void ApproveClicked(object sender, RoutedEventArgs eventArgs) =>
         await AnswerAsync(sender, ApprovalDecision.Approve);
 
@@ -50,6 +65,43 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         if (sender is Button { Tag: string value } && value.Length > 0)
         {
             Clipboard.SetText(value);
+        }
+    }
+
+    private static void OpenFileClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is Button { DataContext: PanelItemPresentation card }
+            && card.Destination is { Length: > 0 } destination)
+        {
+            _ = Process.Start(new ProcessStartInfo(destination)
+            {
+                UseShellExecute = true,
+            });
+        }
+    }
+
+    private static void OpenFolderClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is Button { DataContext: PanelItemPresentation card }
+            && card.Destination is { Length: > 0 } destination
+            && Path.GetDirectoryName(destination) is { Length: > 0 } directory)
+        {
+            _ = Process.Start(new ProcessStartInfo(directory)
+            {
+                UseShellExecute = true,
+            });
+        }
+    }
+
+    private async void RollbackClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (_coordinator is not null
+            && sender is Button { DataContext: PanelItemPresentation card }
+            && card.ReceiptRef is { Length: > 0 } receiptRef)
+        {
+            await _coordinator.RequestOfficeRollbackAsync(
+                new OfficeRollbackRequestIntent(receiptRef),
+                CancellationToken.None);
         }
     }
 
@@ -110,12 +162,15 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
-    private void UpdateRows() =>
-        ApprovalRows = _model?.Workspace?.ApprovalRequests
+    private void UpdateRows()
+    {
+        var rows = _model?.Workspace?.ApprovalRequests
             .Where(row =>
-                string.Equals(row.Kind, "approval", StringComparison.Ordinal)
-                && !row.Decided)
+                string.Equals(row.Kind, "approval", StringComparison.Ordinal))
             .ToArray() ?? [];
+        ApprovalRows = rows.Where(row => !row.Decided).ToArray();
+        DecidedApprovalRows = rows.Where(row => row.Decided).ToArray();
+    }
 
     private void ViewUnloaded(object sender, RoutedEventArgs eventArgs)
     {

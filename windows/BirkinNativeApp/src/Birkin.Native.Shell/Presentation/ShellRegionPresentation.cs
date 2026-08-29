@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text;
 
 namespace Birkin.Native.Shell.Presentation;
@@ -52,20 +53,48 @@ public sealed record PanelItemPresentation(
     string? AuthorityDigest = null,
     string? Requester = null,
     string? RejectionResult = null,
-    string? ExpiresAt = null)
+    string? ExpiresAt = null,
+    string? ReceiptRef = null,
+    bool BackupExists = false,
+    string? Status = null)
 {
     public bool HasSourceFilename => !string.IsNullOrWhiteSpace(SourceFilename);
     public bool HasDestination => !string.IsNullOrWhiteSpace(Destination);
     public bool HasAuthorityDigest => !string.IsNullOrWhiteSpace(AuthorityDigest);
+    public bool HasReceipt => !string.IsNullOrWhiteSpace(ReceiptRef);
+    public bool CanRollback =>
+        HasReceipt
+        && ReceiptExpiry is { } expiry
+        && expiry > DateTimeOffset.UtcNow;
     public bool HasTrustDetails =>
         HasSourceFilename || HasDestination || HasAuthorityDigest;
     public string CategoryLabel => (Category ?? "unknown").Replace('_', ' ');
     public string RiskLabel => $"{Risk?.ToUpperInvariant() ?? "UNKNOWN"} RISK";
     public string SealedLabel => Sealed ? "SEALED" : "NOT SEALED";
+    public string OutcomeLabel => Status switch
+    {
+        "approved" => "Approved",
+        "rejected" => "Rejected",
+        "answered_elsewhere" => "Answered elsewhere",
+        "expired" => "Expired",
+        "failed" => "Failed",
+        _ => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(
+            (Status ?? "pending").Replace('_', ' ')),
+    };
     public string? DestinationDisplay => Abbreviate(Destination, 48);
     public string? AuthorityDigestDisplay => Abbreviate(AuthorityDigest, 27);
     public string RequesterLabel => $"REQUESTED BY: {Requester ?? "Unavailable"}";
     public string ExpiryLabel => $"EXPIRES: {ExpiresAt ?? "Not specified"}";
+    public string RollbackAvailabilityLabel => ReceiptExpiry switch
+    {
+        null => "되돌리기 기한을 확인할 수 없습니다.",
+        DateTimeOffset expiry when expiry <= DateTimeOffset.UtcNow =>
+            "되돌리기 기한이 지났습니다.",
+        DateTimeOffset expiry when BackupExists =>
+            $"원본은 백업되었으며 {expiry.Month}월 {expiry.Day}일까지 되돌리기 가능",
+        DateTimeOffset expiry =>
+            $"새 파일은 {expiry.Month}월 {expiry.Day}일까지 되돌리기 가능",
+    };
     public string RejectionResultLabel =>
         RejectionResult ?? "Rejection outcome unavailable";
     public string CardAutomationId => AutomationId("card");
@@ -81,6 +110,16 @@ public sealed record PanelItemPresentation(
     public string CopyAuthorityAutomationId => AutomationId("copy-authority");
     public string RejectAutomationId => AutomationId("reject");
     public string ApproveAutomationId => AutomationId("approve");
+    public string ReceiptDestinationAutomationId =>
+        AutomationId("receipt.destination");
+    public string ReceiptRetentionAutomationId =>
+        AutomationId("receipt.retention");
+    public string OpenFileAutomationId => AutomationId("receipt.open-file");
+    public string OpenFolderAutomationId => AutomationId("receipt.open-folder");
+    public string RollbackAutomationId => AutomationId("receipt.rollback");
+    public string OutcomeAutomationId => AutomationId("outcome");
+    public string ReceiptReferenceAutomationId =>
+        AutomationId("receipt-reference");
     public string OverwriteLabel => OverwriteApproved switch
     {
         true => "WARNING: Existing file may be replaced",
@@ -90,6 +129,9 @@ public sealed record PanelItemPresentation(
 
     private string AutomationId(string part) =>
         $"approval.{part}.{Id ?? "unknown"}";
+
+    private DateTimeOffset? ReceiptExpiry =>
+        DateTimeOffset.TryParse(ExpiresAt, out var expiry) ? expiry : null;
 
     private static string? Abbreviate(string? value, int limit)
     {

@@ -60,6 +60,26 @@ class _ActiveRuntimeSession:
         return True
 
 
+@final
+class _CapturingRuntimeSession:
+    def __init__(self) -> None:
+        self.cfg: dict[str, object] = {}
+        self.abort = threading.Event()
+        self.prompts: list[str] = []
+
+    def ask(self, text: str, *, on_text: object) -> str:
+        del on_text
+        self.prompts.append(text)
+        if '<approval-outcome' in text and 'outcome="approved"' in text:
+            return "승인된 작업이 완료되었습니다."
+        if "<approval-outcome" in text:
+            return "승인된 작업을 완료하지 못했습니다."
+        return f"agent saw: {text}"
+
+    def steer(self, _text: str) -> bool:
+        return False
+
+
 def test_runtime_adapter_registers_product_surface_authority_and_commands(
     tmp_path: Path,
 ) -> None:
@@ -434,6 +454,96 @@ def test_approval_answer_event_carries_execution_receipt(
     ]
 
 
+def test_approval_answer_summary_is_injected_into_next_agent_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _CapturingRuntimeSession()
+    adapter = RuntimeWorkspaceAdapter(
+        "approval-context-session",
+        _event,
+        workspace_root=tmp_path / "workspace",
+    )
+    setattr(adapter, "_session", cast(Session, cast(object, runtime)))
+
+    def approved_decide(
+        _approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+    ) -> dict[str, object]:
+        assert decision == "approve"
+        assert reason == ""
+        return {
+            "outcome": "approved",
+            "receipt": '{"job_id":"job-context","outcome":"saved"}',
+        }
+
+    monkeypatch.setattr(
+        approval_authority,
+        "decide",
+        approved_decide,
+    )
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": "approval-context", "decision": "approve"}
+    )
+    first = adapter.handlers()["chat.send"]({"text": "결과를 알려줘"})
+    second = adapter.handlers()["chat.send"]({"text": "다음 질문"})
+
+    assert "<approval-outcome" in runtime.prompts[0]
+    assert 'lang="ko"' in runtime.prompts[0]
+    assert 'approval_id="approval-context"' in runtime.prompts[0]
+    assert 'outcome="approved"' in runtime.prompts[0]
+    assert "결과를 알려줘" in runtime.prompts[0]
+    assert "<approval-outcome" not in runtime.prompts[1]
+    assert first["reply"] == "승인된 작업이 완료되었습니다."
+    assert second["reply"] == "agent saw: 다음 질문"
+
+
+def test_failed_approval_summary_is_injected_into_next_agent_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _CapturingRuntimeSession()
+    adapter = RuntimeWorkspaceAdapter(
+        "approval-failure-context-session",
+        _event,
+        workspace_root=tmp_path / "workspace",
+    )
+    setattr(adapter, "_session", cast(Session, cast(object, runtime)))
+
+    def failed_decide(
+        _approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+    ) -> dict[str, object]:
+        assert decision == "approve"
+        assert reason == ""
+        return {
+            "outcome": "execution_failed",
+            "error": "export denied",
+        }
+
+    monkeypatch.setattr(
+        approval_authority,
+        "decide",
+        failed_decide,
+    )
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": "approval-failed", "decision": "approve"}
+    )
+    response = adapter.handlers()["chat.send"]({"text": "실패 원인을 알려줘"})
+
+    assert 'approval_id="approval-failed"' in runtime.prompts[0]
+    assert 'outcome="execution_failed"' in runtime.prompts[0]
+    assert 'lang="ko"' in runtime.prompts[0]
+    assert "export denied" in runtime.prompts[0]
+    assert response["reply"] == "승인된 작업을 완료하지 못했습니다."
+
+
 def _runtime_adapter() -> tuple[
     RuntimeWorkspaceAdapter,
     list[tuple[str, dict[str, object]]],
@@ -546,7 +656,7 @@ def test_event_type_table_pin() -> None:
     Support exists in snapshot.py, workspace_terminal.py, and index.html.
     """
     adapter, emitted = _runtime_adapter()
-    runtime_events = (
+    runtime_events: tuple[tuple[str, dict[str, object]], ...] = (
         ("tool_start", {}),
         ("tool_end", {}),
         ("tool_end", {"is_error": True}),
