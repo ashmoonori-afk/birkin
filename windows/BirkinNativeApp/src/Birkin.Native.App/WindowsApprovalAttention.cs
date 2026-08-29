@@ -4,6 +4,7 @@ using System.Windows.Automation;
 using System.Windows.Automation.Peers;
 using System.Windows.Interop;
 using System.Windows.Shell;
+using Birkin.Native.Shell.Presentation;
 
 namespace Birkin.Native.App;
 
