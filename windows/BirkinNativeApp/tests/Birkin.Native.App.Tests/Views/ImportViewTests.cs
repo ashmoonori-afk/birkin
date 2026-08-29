@@ -13,7 +13,7 @@ namespace Birkin.Native.App.Tests.Views;
 [TestCategory("OfficeWorkflow")]
 public sealed class ImportViewTests
 {
-    [Fact]
+    [TestMethod]
     public void PickerFilterOffersOnlyFirstReportFormats()
     {
         Assert.AreEqual(
