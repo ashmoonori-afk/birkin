@@ -49,6 +49,9 @@ class OfficeReceiptProjection:
         if approval_record.get("category") != "office_job":
             return None
         approval = _mapping(approval_record.get("payload"), "approval")
+        diff_id = approval.get("diff_id")
+        if not isinstance(diff_id, str) or not diff_id:
+            return None
         decoded = cast(object, json.loads(receipt_text))
         receipt = _mapping(decoded, "root")
         publication = _mapping(receipt.get("publication"), "publication")
@@ -58,7 +61,7 @@ class OfficeReceiptProjection:
         return cls(
             approval_id=approval_id,
             artifact_id=_text(artifact.get("artifact_id"), "artifact_id"),
-            diff_id=_text(approval.get("diff_id"), "diff_id"),
+            diff_id=diff_id,
             job_id=job_id,
             destination=_text(export.get("path"), "destination"),
             receipt_ref=f"{_OFFICE_RECEIPT_PREFIX}{job_id}",

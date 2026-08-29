@@ -331,8 +331,12 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     publication = cast(dict[str, object], receipt_payload["publication"])
     published_artifact = cast(dict[str, object], publication["artifact"])
     export = cast(dict[str, object], receipt_payload["export"])
-    issued_at = datetime.fromisoformat(cast(str, export["issued_at"]))
-    expires_at = datetime.fromisoformat(cast(str, export["expires_at"]))
+    issued_at = datetime.fromisoformat(
+        cast(str, export["issued_at"]).replace("Z", "+00:00")
+    )
+    expires_at = datetime.fromisoformat(
+        cast(str, export["expires_at"]).replace("Z", "+00:00")
+    )
     assert expires_at - issued_at == timedelta(days=RETENTION_DAYS)
     recorded_event = next(
         event for event in service.events() if event.type == "receipt.recorded"
