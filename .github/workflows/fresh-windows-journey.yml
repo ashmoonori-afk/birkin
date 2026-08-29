@@ -256,11 +256,9 @@ jobs:
             if ($LASTEXITCODE -ne 0) {
               throw "uv sync failed with exit code $LASTEXITCODE."
             }
-            $protocolProject = (
-              ".\windows\BirkinNativeApp\tests"
-              + "\Birkin.Native.Protocol.Tests"
-              + "\Birkin.Native.Protocol.Tests.csproj"
-            )
+            $protocolProject = Join-Path `
+              ".\windows\BirkinNativeApp\tests\Birkin.Native.Protocol.Tests" `
+              "Birkin.Native.Protocol.Tests.csproj"
             dotnet test $protocolProject -c Release `
               --filter "FullyQualifiedName~OfficeAuthorityBridgeIntegrationTests" `
               --logger "trx;LogFileName=office-real-bridge-import.trx" `
