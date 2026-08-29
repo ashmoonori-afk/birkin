@@ -42,6 +42,7 @@ public sealed class MainWindowAttentionTests
             Assert.AreEqual(1, flasher.Stops);
             Assert.AreEqual("Original title", window.Title);
             window.Close();
+            return true;
         });
     }
 
@@ -98,6 +99,7 @@ public sealed class MainWindowAttentionTests
                 TaskbarItemProgressState.None,
                 window.TaskbarItemInfo.ProgressState);
             window.Close();
+            return true;
         });
     }
 
