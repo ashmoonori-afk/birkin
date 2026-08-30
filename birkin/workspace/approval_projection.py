@@ -8,6 +8,7 @@ from typing import TypeGuard, cast
 from birkin import approvals, config, risk, store
 
 from .contracts import json_object
+from .approval_receipts import OfficeReceiptProjection
 
 
 def _is_object_mapping(value: object) -> TypeGuard[dict[str, object]]:
@@ -131,6 +132,23 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
     overwrite_retry = record.get("overwrite_retry")
     if isinstance(overwrite_retry, bool):
         item["overwrite_retry"] = overwrite_retry
+    action_receipt = record.get("action_receipt")
+    if status == "approved" and isinstance(action_receipt, str):
+        receipt = OfficeReceiptProjection.from_result(
+            str(record.get("id") or ""),
+            record,
+            action_receipt,
+        )
+        if receipt is not None:
+            item.update(
+                {
+                    "receipt_ref": receipt.receipt_ref,
+                    "destination": receipt.destination,
+                    "issued_at": receipt.issued_at,
+                    "expires_at": receipt.expires_at,
+                    "backup_exists": receipt.backup_exists,
+                }
+            )
     return item
 
 

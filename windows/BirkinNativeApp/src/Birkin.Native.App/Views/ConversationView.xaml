@@ -3,15 +3,15 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
              automation:AutomationProperties.AutomationId="conversation.landmark"
-             automation:AutomationProperties.Name="Conversation workspace">
+             automation:AutomationProperties.Name="대화 작업 공간">
     <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <DockPanel Margin="0,0,0,10">
-            <TextBlock DockPanel.Dock="Right" Text="{Binding OfficeWorkflow.CommandState}" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" />
+            <TextBlock DockPanel.Dock="Right" Text="{Binding OfficeWorkflow.CommandStateText}" Foreground="{StaticResource AccentBrush}" VerticalAlignment="Center" automation:AutomationProperties.AutomationId="conversation.command-state" />
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="&#xE8BD;" FontFamily="Segoe MDL2 Assets" Foreground="{StaticResource MutedBrush}" FontSize="19" Margin="0,0,9,0" />
-                <TextBlock Text="Conversation" Style="{StaticResource SectionTitleStyle}" />
+                <TextBlock Text="대화" Style="{StaticResource SectionTitleStyle}" />
             </StackPanel>
         </DockPanel>
         <Grid Grid.Row="1">
@@ -20,7 +20,7 @@
                     <ItemsControl.ItemTemplate><DataTemplate>
                         <Border Background="{StaticResource RaisedBrush}" CornerRadius="8" Padding="11" Margin="0,0,0,8">
                             <StackPanel>
-                                <TextBlock Text="{Binding Kind}" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding KindLabel}" Foreground="{StaticResource AccentBrush}" FontSize="11" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding Text}" TextWrapping="Wrap" Margin="0,4,0,0" />
                             </StackPanel>
                         </Border>
@@ -34,28 +34,33 @@
                 </Style></Border.Style>
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock Text="&#xE8BD;" Style="{StaticResource GlyphStyle}" />
-                    <TextBlock Text="No messages yet" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,4" />
-                    <TextBlock Text="Ask Birkin to help with a task." Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
+                    <TextBlock Text="아직 대화가 없습니다" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,4" />
+                    <TextBlock Text="Birkin에게 필요한 작업을 요청해 보세요." Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
                 </StackPanel>
             </Border>
         </Grid>
-        <Border Grid.Row="2" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="11" Margin="0,10,0,0" automation:AutomationProperties.AutomationId="composer.landmark" automation:AutomationProperties.Name="Conversation composer">
+        <Border Grid.Row="2" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="11" Margin="0,10,0,0" automation:AutomationProperties.AutomationId="composer.landmark" automation:AutomationProperties.Name="대화 입력">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid>
-                    <TextBox x:Name="DraftBox" automation:AutomationProperties.AutomationId="conversation.draft" automation:AutomationProperties.Name="Message draft" AcceptsReturn="True" MinHeight="56" MaxHeight="120" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource AccentBrush}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" TextChanged="DraftChanged" />
-                    <TextBlock Text="Ask Birkin anything..." Foreground="{StaticResource MutedBrush}" Margin="2,1" IsHitTestVisible="False">
+                    <TextBox x:Name="DraftBox" automation:AutomationProperties.AutomationId="conversation.draft" automation:AutomationProperties.Name="메시지 초안" AcceptsReturn="True" MinHeight="56" MaxHeight="120" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource AccentBrush}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" TextChanged="DraftChanged" />
+                    <TextBlock Text="Birkin에게 무엇이든 물어보세요..." Foreground="{StaticResource MutedBrush}" Margin="2,1" IsHitTestVisible="False">
                         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=DraftBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                     </TextBlock>
                 </Grid>
                 <DockPanel Grid.Row="1" Margin="0,8,0,0">
-                    <Button x:Name="SendButton" DockPanel.Dock="Right" Content="Send" automation:AutomationProperties.AutomationId="conversation.send" automation:AutomationProperties.Name="Send message" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" Click="SendClicked" />
-                    <TextBlock Text="{Binding OfficeWorkflow.Availability.ConversationSend.DisabledReason}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" automation:AutomationProperties.AutomationId="composer.read-only-caption" />
+                    <Button x:Name="SendButton" DockPanel.Dock="Right" Content="보내기" automation:AutomationProperties.AutomationId="conversation.send" automation:AutomationProperties.Name="메시지 보내기" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" Click="SendClicked" />
+                    <TextBlock Text="{Binding OfficeWorkflow.Availability.ConversationSend.DisabledReasonText}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" automation:AutomationProperties.AutomationId="composer.read-only-caption" />
                 </DockPanel>
-                <TextBlock Grid.Row="2" Margin="0,6,0,0" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap">
-                    <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding OfficeWorkflow.RefusalCode}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
-                    <Run Text="{Binding OfficeWorkflow.RefusalCode}"/><Run Text="  Cursor "/><Run Text="{Binding OfficeWorkflow.CurrentCursor}"/>
-                </TextBlock>
+                <StackPanel Grid.Row="2" Margin="0,6,0,0">
+                    <TextBlock Text="{Binding OfficeWorkflow.RefusalText}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="conversation.refusal">
+                        <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding OfficeWorkflow.RefusalCode}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                    </TextBlock>
+                    <Expander Header="기술 세부 정보" Margin="0,4,0,0">
+                        <Expander.Style><Style TargetType="Expander"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding OfficeWorkflow.RefusalCode}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></Expander.Style>
+                        <TextBlock Text="{Binding OfficeWorkflow.RefusalDiagnosticDetail}" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" />
+                    </Expander>
+                </StackPanel>
             </Grid>
         </Border>
     </Grid>

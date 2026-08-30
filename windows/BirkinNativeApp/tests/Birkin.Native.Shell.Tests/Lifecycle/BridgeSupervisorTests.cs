@@ -86,6 +86,8 @@ public sealed class BridgeSupervisorTests
         var clock = new FakeMonotonicClock();
         var spawned = new Queue<FakeBridgeProcess>(Enumerable.Range(1, 6).Select(index => new FakeBridgeProcess(index, [])));
         var supervisor = new BridgeSupervisor(clock.Read, () => Return(spawned.Dequeue()));
+        var stoppedReasons = new List<BridgeStopReason>();
+        supervisor.StoppedWithReason += stoppedReasons.Add;
         Assert.IsTrue(supervisor.StartOwnedIfNeeded());
         foreach (var exitTime in new[] { 0, 15, 30, 45 })
         {
@@ -104,6 +106,9 @@ public sealed class BridgeSupervisorTests
         Assert.AreEqual(BridgeStopReason.CrashLoop, supervisor.StopReason);
         Assert.IsNull(supervisor.OwnedProcessId);
         Assert.AreEqual(1, spawned.Count);
+        CollectionAssert.AreEqual(
+            new[] { BridgeStopReason.CrashLoop },
+            stoppedReasons);
         Assert.IsTrue(supervisor.Retry());
         Assert.AreEqual(BridgeSupervisorState.RunningOwned, supervisor.State);
         Assert.AreEqual(6, supervisor.OwnedProcessId);
@@ -136,6 +141,33 @@ public sealed class BridgeSupervisorTests
         Assert.AreSame(replacement, supervisor.OwnedProcess);
         Assert.AreEqual(1, first.DisposeCalls);
         Assert.AreEqual(0, replacement.DisposeCalls);
+    }
+
+    [TestMethod]
+    public void Retry_WhenLaunchFailed_StartsOwnedProcessAgain()
+    {
+        // Given
+        var attempts = 0;
+        var replacement = new FakeBridgeProcess(21, []);
+        var supervisor = new BridgeSupervisor(
+            () => TimeSpan.Zero,
+            () =>
+            {
+                attempts++;
+                return attempts == 1
+                    ? throw new InvalidOperationException("missing executable")
+                    : replacement;
+            });
+        Assert.IsFalse(supervisor.StartOwnedIfNeeded());
+
+        // When
+        var retried = supervisor.Retry();
+
+        // Then
+        Assert.IsTrue(retried);
+        Assert.AreEqual(2, attempts);
+        Assert.AreEqual(BridgeSupervisorState.RunningOwned, supervisor.State);
+        Assert.AreSame(replacement, supervisor.OwnedProcess);
     }
 
     [TestMethod]

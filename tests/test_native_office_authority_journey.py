@@ -3,12 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import cast
 
 import pytest
 from birkin import store
 from birkin.office.errors import DocumentError, DocumentErrorCode
+from birkin.office.receipt_auth import RETENTION_DAYS
 from birkin.workspace.contracts import (
     ClientContext,
     ProtocolError,
@@ -325,6 +327,7 @@ def test_native_office_job_request_queues_current_canonical_proposal(
             "outcome": "Set Comparison A1 to 9",
             "operations": [{"cell": "A1", "value": 9}],
             "destination": str(destination),
+            "diff_id": "diff-office-journey",
         },
     )
 
@@ -342,6 +345,7 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert approval["source_filename"] == "source.xlsx"
     assert approval["source_filename"] != "forged-name.xlsx"
     assert isinstance(approval["job_id"], str)
+    assert approval["diff_id"] == "diff-office-journey"
     assert isinstance(approval["proposal_digest"], str)
     assert isinstance(approval["authority_digest"], str)
     assert not destination.exists()
@@ -361,7 +365,7 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert requested.payload["sealed"] is True
     assert requested.payload["requester"] == "native:office-journey"
     assert requested.payload["rejection_result"] == (
-        "Rejecting leaves the source unchanged and writes no output."
+        "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다."
     )
     description = cast(str, requested.payload["description"])
     assert "A1" in description
@@ -402,6 +406,59 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert answered_event.command_id == "approve-office-job"
     assert answered_event.payload["approval_id"] == approval_id
     assert answered_event.payload["receipt"] == answered["receipt"]
+    assert answered_event.payload["receipt_ref"] == answered["receipt_ref"]
+
+    receipt_payload = cast(dict[str, object], json.loads(answered["receipt"]))
+    publication = cast(dict[str, object], receipt_payload["publication"])
+    published_artifact = cast(dict[str, object], publication["artifact"])
+    export = cast(dict[str, object], receipt_payload["export"])
+    issued_at = datetime.fromisoformat(
+        cast(str, export["issued_at"]).replace("Z", "+00:00")
+    )
+    expires_at = datetime.fromisoformat(
+        cast(str, export["expires_at"]).replace("Z", "+00:00")
+    )
+    assert expires_at - issued_at == timedelta(days=RETENTION_DAYS)
+    recorded_event = next(
+        event for event in service.events() if event.type == "receipt.recorded"
+    )
+    events = service.events()
+    assert events.index(recorded_event) == events.index(answered_event) + 1
+    assert recorded_event.command_id == "approve-office-job"
+    assert recorded_event.payload == {
+        "summary": "Office export completed",
+        "approval_id": approval_id,
+        "artifact_id": published_artifact["artifact_id"],
+        "diff_id": "diff-office-journey",
+        "job_id": approval["job_id"],
+        "destination": str(destination),
+        "receipt_ref": answered["receipt_ref"],
+        "issued_at": export["issued_at"],
+        "expires_at": export["expires_at"],
+        "backup_exists": export.get("destination_existed") is True,
+    }
+    approval_panel = next(
+        panel for panel in service.snapshot().panels if panel.key == "approvals"
+    )
+    decided_item = next(
+        item for item in approval_panel.items if item["id"] == approval_id
+    )
+    assert decided_item["receipt_ref"] == answered["receipt_ref"]
+    assert decided_item["destination"] == str(destination)
+    assert decided_item["expires_at"] == export["expires_at"]
+
+    rollback_receipt, rollback = _submit(
+        service,
+        "request-office-rollback",
+        "office.rollback_request",
+        {"receipt_ref": answered["receipt_ref"]},
+    )
+    assert rollback_receipt.result_event_cursor is not None
+    assert rollback["category"] == "office_rollback"
+    rollback_pending = store.get_pending(cast(str, rollback["id"]))
+    assert rollback_pending is not None
+    assert rollback_pending["category"] == "office_rollback"
+    assert rollback_pending["payload"]["job_id"] == approval["job_id"]
 
 
 def test_native_output_exists_projects_one_click_overwrite_follow_up(

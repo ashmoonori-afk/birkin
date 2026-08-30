@@ -126,14 +126,17 @@ internal static class WorkspaceProjectionMapper
                 Text(item, "category"),
                 Text(item, "risk"),
                 Flag(item, "sealed"),
-                Flag(item, "decided"),
+                IsDecided(item),
                 Text(item, "source_filename"),
                 Text(item, "destination"),
                 OptionalFlag(item, "overwrite_approved"),
                 Text(item, "authority_digest"),
                 Text(item, "requester"),
                 Text(item, "rejection_result"),
-                Text(item, "expires_at"))));
+                Text(item, "expires_at"),
+                Text(item, "receipt_ref"),
+                Flag(item, "backup_exists"),
+                Text(item, "status"))));
     }
 
     private static IEnumerable<string> Values(NativeJsonObject value, string key) =>
@@ -155,6 +158,11 @@ internal static class WorkspaceProjectionMapper
 
     private static bool Flag(NativeJsonObject value, string key) =>
         value[key] is NativeJsonBoolean { Value: true };
+
+    private static bool IsDecided(NativeJsonObject value) =>
+        Flag(value, "decided")
+        || Text(value, "status") is
+            "approved" or "rejected" or "answered_elsewhere" or "expired" or "failed";
 
     private static bool? OptionalFlag(NativeJsonObject value, string key) =>
         value[key] is NativeJsonBoolean flag ? flag.Value : null;

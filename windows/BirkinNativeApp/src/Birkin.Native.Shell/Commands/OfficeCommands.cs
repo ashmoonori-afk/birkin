@@ -53,6 +53,8 @@ public sealed record OfficeConvertIntent(
     string OutputName,
     OfficeLossBudget LossBudget);
 
+public sealed record OfficeRollbackRequestIntent(string ReceiptRef);
+
 public static class OfficeCommands
 {
     public const string CreateCommandType = "office.create";
@@ -61,6 +63,7 @@ public static class OfficeCommands
     public const string CompareCommandType = "office.compare";
     public const string DraftCommandType = "office.job_request";
     public const string ConvertCommandType = "office.convert";
+    public const string RollbackRequestCommandType = "office.rollback_request";
 
     public static NativeCommandRequest Create(OfficeCreateIntent intent, CommandRequestContext context) =>
         Request(new NativeCommandIntent(CreateCommandType, new NativeJsonObject([
@@ -108,6 +111,15 @@ public static class OfficeCommands
             new("output_name", new NativeJsonString(intent.OutputName)),
             new("loss_budget", Budget(intent.LossBudget)),
         ])), context);
+
+    public static NativeCommandRequest RollbackRequest(
+        OfficeRollbackRequestIntent intent,
+        CommandRequestContext context) =>
+        Request(new NativeCommandIntent(
+            RollbackRequestCommandType,
+            new NativeJsonObject([
+                new("receipt_ref", new NativeJsonString(intent.ReceiptRef)),
+            ])), context);
 
     private static NativeCommandRequest Request(
         NativeCommandIntent intent,

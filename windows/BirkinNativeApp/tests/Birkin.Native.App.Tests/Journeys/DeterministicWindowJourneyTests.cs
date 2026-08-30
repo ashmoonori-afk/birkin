@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Automation;
@@ -41,9 +42,11 @@ public sealed class DeterministicWindowJourneyTests
                     SynchronizationContext.Current
                     ?? throw new InvalidOperationException("WPF dispatcher synchronization context is unavailable"));
                 var initialApplied = new TaskCompletionSource<WorkspaceSnapshotPresentation>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var initialPresented = new TaskCompletionSource<WorkspaceSnapshotPresentation>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var canonicalApplied = new TaskCompletionSource<NativeEnvelope>(TaskCreationOptions.RunContinuationsAsynchronously);
                 var presentationApplied = new TaskCompletionSource<WorkspaceSnapshotPresentation>(TaskCreationOptions.RunContinuationsAsynchronously);
                 composition.Coordinator.SnapshotApplied += InitialSnapshotApplied;
+                composition.PresentationModel.PropertyChanged += InitialWorkspacePresented;
 
                 var window = new MainWindow(composition.PresentationModel)
                 {
@@ -61,6 +64,7 @@ public sealed class DeterministicWindowJourneyTests
                     stage = "production-startup";
                     await composition.Runner.RunAsync(options, deadline.Token);
                     var initial = await initialApplied.Task.WaitAsync(deadline.Token);
+                    var presentedInitial = await initialPresented.Task.WaitAsync(deadline.Token);
                     stage = "initial-render";
                     window.UpdateLayout();
 
@@ -73,7 +77,7 @@ public sealed class DeterministicWindowJourneyTests
                     Assert.IsTrue(composition.Session.OwnsReceiveLoop);
                     Assert.AreEqual(1, composition.Session.MaximumConcurrentReceives);
                     Assert.AreEqual(ConnectionState.Ready, composition.PresentationModel.Connection.State);
-                    Assert.AreSame(initial, composition.PresentationModel.Workspace);
+                    Assert.AreSame(initial, presentedInitial);
                     Assert.AreEqual(announcement.SessionId, initial.SessionId);
                     Assert.AreEqual(announcement.InstanceId, initial.InstanceId);
                     Assert.AreEqual("initial", initial.ResetReason);
@@ -124,11 +128,25 @@ public sealed class DeterministicWindowJourneyTests
                 finally
                 {
                     composition.Coordinator.SnapshotApplied -= InitialSnapshotApplied;
+                    composition.PresentationModel.PropertyChanged -= InitialWorkspacePresented;
                     window.Close();
                 }
 
                 void InitialSnapshotApplied(WorkspaceSnapshotPresentation snapshot) =>
                     initialApplied.TrySetResult(snapshot);
+
+                void InitialWorkspacePresented(
+                    object? sender,
+                    PropertyChangedEventArgs eventArgs)
+                {
+                    if (eventArgs.PropertyName
+                            == nameof(ShellPresentationModel.Workspace)
+                        && composition.PresentationModel.Workspace is
+                            { } workspace)
+                    {
+                        initialPresented.TrySetResult(workspace);
+                    }
+                }
 
                 void CanonicalApplied(NativeEnvelope envelope)
                 {

@@ -84,6 +84,8 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
             OfficeCreationRequest,
         )
         from ..office.errors import DocumentError, DocumentErrorCode
+        from ..office.presentation import format_preview_replacements
+        from ..office.preview_semantics import PreviewSummary
         from ..office.service import DocumentService
 
         home = canonical_office_home()
@@ -126,14 +128,12 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                             ),
                         )
                     )
-                    title = f"Office mutation: {payload['outcome']}"
-                    description = "\n".join(
-                        cast("str", item["summary"])
-                        for item in cast(
-                            "list[dict[str, object]]",
-                            approval["semantic_summaries"],
-                        )
+                    semantic_summaries = cast(
+                        "list[PreviewSummary]",
+                        approval["semantic_summaries"],
                     )
+                    title = f"Office 변경: {payload['outcome']}"
+                    description = format_preview_replacements(semantic_summaries)
                     approval_category = "office_job"
                 else:
                     raw_content = _payload(payload["content"])
@@ -157,9 +157,9 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                             payload.get("overwrite_approved", False),
                         ),
                     ))
-                    title = f"Office creation: {payload['outcome']}"
+                    title = f"Office 문서 생성: {payload['outcome']}"
                     description = (
-                        f"Create a DOCX with {len(paragraphs)} paragraph(s) at "
+                        f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
                         f"{approval['destination']}."
                     )
                     approval_category = "office_create"
@@ -177,25 +177,12 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     "approval": approval,
                 }
             elif name == "office_rollback_request":
-                from ..office.rollback_approval import prepare_rollback
+                from ..office.rollback_approval import request_rollback
 
-                rollback = prepare_rollback(cast("str", payload["job_id"]))
-                queued = approvals.propose(
-                    category="office_rollback",
-                    title="Rollback Office export",
-                    description=(
-                        "Restore the pre-export destination state at "
-                        f"{rollback['destination']}."
-                    ),
-                    payload=rollback,
-                    cfg={},
+                result = request_rollback(
+                    cast("str", payload["job_id"]),
                     origin=ctx.record_source,
                 )
-                result = {
-                    **queued,
-                    "category": "office_rollback",
-                    "approval": rollback,
-                }
             else:
                 methods: dict[str, Callable[..., object]] = {
                     "inspect_document": service.inspect_document,

@@ -21,7 +21,7 @@ from .errors import DocumentError, DocumentErrorCode
 from .export_types import ExportRequest
 from .job import OfficeJob
 from .job_runner import DocumentServiceRunner
-from .preview_semantics import summarize_operations
+from .preview_semantics import PreviewSummary, summarize_operations
 from .proposal_integrity import authority_digest
 from .retention import purge_expired_office_state
 from .service import DocumentService
@@ -51,17 +51,9 @@ class OfficeMutationRequest:
 
 def _semantic_summaries(
     preview: Mapping[str, object], operations: tuple[Mapping[str, object], ...]
-) -> list[dict[str, str]]:
+) -> list[PreviewSummary]:
     try:
-        return [
-            {
-                "location": summary["location"],
-                "before": summary["before"],
-                "after": summary["after"],
-                "summary": summary["summary"],
-            }
-            for summary in summarize_operations(preview, operations)
-        ]
+        return summarize_operations(preview, operations)
     except DocumentError:
         if len(operations) != 1:
             raise
@@ -79,14 +71,11 @@ def _semantic_summaries(
             or operation.get("placeholder_idx")
         )
         location = _text(str(location_value or ""), "operation location")
-        return [
-            {
-                "location": location,
-                "before": before,
-                "after": after,
-                "summary": f"Replace {location}: {before} -> {after}",
-            }
-        ]
+        return [{
+            "location": location,
+            "before": before,
+            "after": after,
+        }]
 
 
 @final

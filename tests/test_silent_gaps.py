@@ -5,7 +5,7 @@ from __future__ import annotations
 import io
 import urllib.error
 
-from birkin.llm import LLMClient
+from birkin.llm import LLMClient, LLMStatus
 
 
 def _client():
@@ -15,7 +15,7 @@ def _client():
 
 def test_backoff_is_surfaced_via_status_sink(monkeypatch):
     c = _client()
-    seen: list[str] = []
+    seen: list[LLMStatus] = []
     c._status = seen.append
     monkeypatch.setattr("birkin.llm.time.sleep", lambda s: None)
     attempts = {"n": 0}
@@ -28,7 +28,18 @@ def test_backoff_is_surfaced_via_status_sink(monkeypatch):
         return io.BytesIO(b'{"ok":1}')
     monkeypatch.setattr("birkin.llm.urllib.request.urlopen", fake_urlopen)
     c._post("https://x", {}, {}, stream=False)
-    assert seen and "rate-limited" in seen[0] and "2/4" in seen[0]
+    assert seen == [
+        LLMStatus(
+            kind="retrying",
+            provider="anthropic",
+            model="m",
+            reason="rate_limit",
+            retry_in_seconds=1,
+            attempt=2,
+            max_attempts=4,
+            http_status=429,
+        )
+    ]
 
 
 def test_backoff_prints_when_no_status_sink(monkeypatch, capsys):

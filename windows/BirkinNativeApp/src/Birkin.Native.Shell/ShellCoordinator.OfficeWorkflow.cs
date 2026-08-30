@@ -39,6 +39,14 @@ public sealed partial class ShellCoordinator
         CancellationToken cancellationToken) =>
         SubmitAsync((_, context) => ApprovalCommands.Answer(intent, context), false, cancellationToken);
 
+    public Task<bool> RequestOfficeRollbackAsync(
+        OfficeRollbackRequestIntent intent,
+        CancellationToken cancellationToken) =>
+        SubmitAsync(
+            (_, context) => OfficeCommands.RollbackRequest(intent, context),
+            false,
+            cancellationToken);
+
     public Task<bool> CreateOfficeDocumentAsync(
         OfficeCreateIntent intent,
         CancellationToken cancellationToken) => UnavailableOfficeMutation(cancellationToken);
@@ -250,7 +258,12 @@ public sealed partial class ShellCoordinator
         bool drain;
         lock (_stateLock)
         {
-            _workflow = _workflow.Refuse(refusal.CommandId, refusal.Code, refusal.CurrentCursor);
+            _workflow = _workflow.Refuse(
+                refusal.CommandId,
+                refusal.Code,
+                refusal.Message,
+                refusal.Retryable,
+                refusal.CurrentCursor);
             if (string.Equals(_workflow.CommandId, refusal.CommandId, StringComparison.Ordinal))
             {
                 _pendingDraftRevision = null;

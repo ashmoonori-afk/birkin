@@ -81,4 +81,23 @@ public sealed class OfficeCommandsTests
         Assert.AreEqual("quarterly-report.docx", ((NativeJsonString)request.Payload["destination"]!).Value);
         Assert.IsFalse(((NativeJsonBoolean)request.Payload["overwrite_approved"]!).Value);
     }
+
+    [TestMethod]
+    public void RollbackRequest_WhenReceiptKnown_HidesInternalJobIdentifier()
+    {
+        // Given / When
+        var request = OfficeCommands.RollbackRequest(
+            new OfficeRollbackRequestIntent("office:job-7"),
+            Context);
+
+        // Then
+        Assert.AreEqual("office.rollback_request", request.CommandType);
+        CollectionAssert.AreEquivalent(
+            new[] { "receipt_ref" },
+            request.Payload.Keys.ToArray());
+        Assert.AreEqual(
+            "office:job-7",
+            ((NativeJsonString)request.Payload["receipt_ref"]!).Value);
+        Assert.IsFalse(request.Payload.ContainsKey("job_id"));
+    }
 }

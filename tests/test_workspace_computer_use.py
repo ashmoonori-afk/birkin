@@ -104,7 +104,7 @@ def test_computer_event_projects_into_replayable_workspace_panel(
     assert len(panel.items) == 1
     item = panel.items[0]
     assert item["id"] == "cu_grant_a"
-    assert item["summary"] == "computer.action.completed · suspected_noop"
+    assert item["summary"] == "컴퓨터 작업에 승인이 필요합니다."
     assert item["status"] == "suspected_noop"
     assert item["kind"] == "computer_use"
     assert item["ui_state"] == "action_needed"
@@ -169,5 +169,5 @@ def test_terminal_renders_computer_use_panel_status(tmp_path: Path) -> None:
     )
 
     rendered = "\n".join(lines)
-    assert "computer.action.completed" in rendered
-    assert "confirmed" in rendered.casefold()
+    assert "컴퓨터 작업을 완료했습니다." in rendered
+    assert "computer.action.completed" not in rendered

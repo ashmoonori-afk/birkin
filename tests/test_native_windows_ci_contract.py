@@ -219,6 +219,22 @@ def test_wpf_job_excludes_process_owning_journeys_from_full_solution() -> None:
         + '--logger "trx;LogFilePrefix=native-windows"'
     ]
 
+    uploads = [
+        _mapping(step["with"])
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
+    assert {
+        (upload["name"], upload["path"], upload["if-no-files-found"])
+        for upload in uploads
+    } >= {
+        (
+            "native-windows-first-run-failure",
+            ".omo/evidence/native-shell/windows-first-run-failure.png",
+            "error",
+        ),
+    }
+
 
 def test_fixture_freshness_regenerates_every_normative_vector() -> None:
     job = _job(_workflow(), "protocol-fixture-freshness")
