@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -112,15 +113,33 @@ def diagnostic_block(
             "git_safe_directory",
             "Git repository ownership policy blocked the command",
         )
-    if (
-        command_name in {"powershell", "pwsh"}
-        or ".ps1" in normalized
-    ) and any(marker in normalized for marker in _POWERSHELL_MARKERS):
+    if is_powershell_execution_policy_failure(text, command):
         return ApprovalRequiredError(
             "powershell_execution_policy",
             "PowerShell execution policy blocked the command",
         )
     return None
+
+
+def is_powershell_execution_policy_failure(text: str, command: str) -> bool:
+    """Return whether a diagnostic binds a PowerShell policy block to command."""
+    normalized = text.casefold()
+    if not any(marker in normalized for marker in _POWERSHELL_MARKERS):
+        return False
+    command_name = _command_name(command)
+    if command_name in {"powershell", "pwsh"}:
+        return True
+    leading_name = (
+        command.strip().split(maxsplit=1)[0].strip("\"'")
+        .replace("\\", "/").rsplit("/", 1)[-1]
+    )
+    if "." in leading_name:
+        return False
+    script_name = re.escape(f"{command_name}.ps1")
+    return bool(command_name) and re.search(
+        rf"(?<![\w.-]){script_name}(?![\w.-])",
+        normalized,
+    ) is not None
 
 
 def retry_environment(gate: str, cwd: Path) -> dict[str, str]:
