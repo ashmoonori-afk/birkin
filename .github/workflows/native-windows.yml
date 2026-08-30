@@ -126,6 +126,7 @@ jobs:
       - run: >-
           dotnet test ./windows/BirkinNativeApp/BirkinNativeApp.sln
           -c Release --no-build
+          --filter "TestCategory!=LiveBridge&TestCategory!=ExistingAccountProvider"
           --logger "trx;LogFilePrefix=native-windows"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

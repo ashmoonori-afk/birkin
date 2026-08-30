@@ -25,6 +25,7 @@ PYTHON_DESELECTIONS = {
 }
 PROVIDER_FILTER = "TestCategory=OfficeWorkflow&TestCategory=ExistingAccountProvider"
 PORTABLE_FILTER = "TestCategory!=LiveBridge&TestCategory!=WindowsOnly"
+WPF_FILTER = "TestCategory!=LiveBridge&TestCategory!=ExistingAccountProvider"
 ACTION_PIN = re.compile(r"^[^@]+@[0-9a-f]{40}$")
 GOLDEN_ROOT = "macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVectors"
 SOLUTION = "windows/BirkinNativeApp/BirkinNativeApp.sln"
@@ -183,7 +184,7 @@ def test_dotnet_portable_runs_protocol_and_shell_on_all_three_operating_systems(
     assert {command for command in commands if command.startswith("dotnet test ")} == expected_tests
 
 
-def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution() -> None:
+def test_wpf_job_prepares_locked_python_and_excludes_separately_gated_categories() -> None:
     wpf = _job(_workflow(), "wpf-windows")
     assert wpf["runs-on"] == "windows-latest"
     env = _mapping(wpf.get("env", {}))
@@ -214,9 +215,15 @@ def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution(
     assert f"dotnet build ./{SOLUTION} -c Release --no-restore" in commands
     test_commands = [command for command in commands if command.startswith(f"dotnet test ./{SOLUTION}")]
     assert test_commands == [
-        f'dotnet test ./{SOLUTION} -c Release --no-build --logger "trx;LogFilePrefix=native-windows"'
+        " ".join(
+            (
+                f"dotnet test ./{SOLUTION} -c Release --no-build",
+                f'--filter "{WPF_FILTER}"',
+                '--logger "trx;LogFilePrefix=native-windows"',
+            )
+        )
     ]
-    assert "--filter" not in test_commands[0]
+    assert re.findall(r'--filter "([^"]+)"', test_commands[0]) == [WPF_FILTER]
 
 
 def test_fixture_freshness_regenerates_every_normative_vector() -> None:
