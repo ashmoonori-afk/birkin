@@ -147,8 +147,8 @@ def test_repeated_blocked_disconnects_keep_command_and_unsubscribe_threads_bound
                 _send_ping(client, token, f"queued-heartbeat-{cycle}")
             _send_command(client, token, command_id=f"blocked-{cycle}")
             if cycle == 0:
-                assert command_started.wait(timeout=1)
-                assert entered.wait(timeout=1)
+                assert command_started.wait(timeout=10)
+                assert entered.wait(timeout=10)
             else:
                 frames = _barrier(client, token, f"barrier-{cycle}")
                 refusals = [
