@@ -3,6 +3,7 @@ using System.Windows.Shell;
 using System.Windows.Threading;
 using Birkin.Native.App.Tests.Support;
 using Birkin.Native.Shell.Presentation;
+using Microsoft.Windows.AppNotifications;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Birkin.Native.App.Tests.Views;
@@ -56,6 +57,37 @@ public sealed class MainWindowAttentionTests
         Assert.AreEqual("opaque-approval-1", content.ApprovalId);
         Assert.AreEqual("approvals", content.Route);
         Assert.AreEqual(0, content.DecisionActions.Count);
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsOnly")]
+    public async Task Toast_WhenBackgroundApprovalArrives_IsAcceptedByWindows()
+    {
+        var approvalId = $"hosted-approval-{Guid.NewGuid():N}";
+        using var toast = WindowsApprovalToast.Create(() => { });
+        Assert.IsNotNull(
+            toast,
+            "Windows App SDK notifications are unavailable on the hosted Windows gate.");
+
+        AppNotification? queued = null;
+        try
+        {
+            toast.Show(ApprovalToastContent.For(approvalId));
+            queued = (await AppNotificationManager.Default.GetAllAsync())
+                .SingleOrDefault(notification =>
+                    notification.Payload.Contains(approvalId, StringComparison.Ordinal));
+
+            Assert.IsNotNull(
+                queued,
+                "The background approval toast was not accepted by Windows.");
+        }
+        finally
+        {
+            if (queued is not null)
+            {
+                await AppNotificationManager.Default.RemoveByIdAsync(queued.Id);
+            }
+        }
     }
 
     [TestMethod]
