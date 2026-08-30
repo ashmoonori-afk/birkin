@@ -233,6 +233,137 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     }
 
     [TestMethod]
+    public async Task Import_WhenReceiptContainsJailedReference_ProjectsImportedFile()
+    {
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["file.import"]));
+        fixture.Connection.Enqueue(
+            Receipt(
+                "command-1",
+                5,
+                Object(
+                    ("reference", Object(
+                        ("kind", new NativeJsonString("workspace_import")),
+                        ("import_id", new NativeJsonString("import-1")),
+                        ("display_name", new NativeJsonString("first-report.xlsx")),
+                        ("jail_name", new NativeJsonString("import-1.xlsx")),
+                        ("sha256", new NativeJsonString(new string('a', 64))),
+                        ("byte_count", new NativeJsonInteger(1200)))))));
+
+        var submitted = await fixture.Coordinator.ImportAsync(
+            new FileImportIntent(@"C:\input.xlsx"),
+            CancellationToken.None);
+        fixture.Context.RunAll();
+
+        Assert.IsTrue(submitted);
+        var imported = fixture.Model.OfficeWorkflow.Imports.Single();
+        Assert.AreEqual("import-1", imported.ImportId);
+        Assert.AreEqual("first-report.xlsx", imported.DisplayName);
+        Assert.AreEqual(1200L, imported.ByteCount);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task Import_WhenCanonicalEventPrecedesReceipt_ProjectsImportedFile()
+    {
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["file.import"]));
+        fixture.Connection.Enqueue(
+            Event(
+                5,
+                "message.user",
+                Object(("text", new NativeJsonString("import accepted")))));
+        fixture.Connection.Enqueue(
+            Receipt(
+                "command-1",
+                5,
+                Object(
+                    ("reference", Object(
+                        ("kind", new NativeJsonString("workspace_import")),
+                        ("import_id", new NativeJsonString("import-1")),
+                        ("display_name", new NativeJsonString("first-report.xlsx")),
+                        ("jail_name", new NativeJsonString("import-1.xlsx")),
+                        ("sha256", new NativeJsonString(new string('a', 64))),
+                        ("byte_count", new NativeJsonInteger(1200)))))));
+
+        var submitted = await fixture.Coordinator.ImportAsync(
+            new FileImportIntent(@"C:\input.xlsx"),
+            CancellationToken.None);
+        fixture.Context.RunAll();
+
+        Assert.IsTrue(submitted);
+        Assert.AreEqual(
+            WorkflowCommandState.Idle,
+            fixture.Model.OfficeWorkflow.CommandState);
+        Assert.AreEqual(
+            "first-report.xlsx",
+            fixture.Model.OfficeWorkflow.Imports.Single().DisplayName);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task Import_WhenReceiptReferenceIsMalformed_RefusesWithoutThrowing()
+    {
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["file.import"]));
+        fixture.Connection.Enqueue(
+            Receipt(
+                "command-1",
+                5,
+                Object(
+                    ("reference", Object(
+                        ("kind", new NativeJsonString("workspace_import")),
+                        ("import_id", new NativeJsonString("import-1")),
+                        ("display_name", new NativeJsonString("first-report.xlsx")),
+                        ("jail_name", new NativeJsonString("import-1.xlsx")),
+                        ("sha256", new NativeJsonString(new string('a', 63))),
+                        ("byte_count", new NativeJsonInteger(1200)))))));
+
+        var submitted = await fixture.Coordinator.ImportAsync(
+            new FileImportIntent(@"C:\input.xlsx"),
+            CancellationToken.None);
+        fixture.Context.RunAll();
+
+        Assert.IsFalse(submitted);
+        Assert.AreEqual(
+            WorkflowCommandState.Refused,
+            fixture.Model.OfficeWorkflow.CommandState);
+        Assert.AreEqual("E_BODY", fixture.Model.OfficeWorkflow.RefusalCode);
+        Assert.AreEqual(0, fixture.Model.OfficeWorkflow.Imports.Count);
+        Assert.IsTrue(fixture.Connection.IsCapabilityLive);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task Conversation_WhenReceiptCarriesImportReference_DoesNotProjectChip()
+    {
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["chat.send"]));
+        fixture.Coordinator.SetConversationDraft("hello");
+        fixture.Context.RunAll();
+        fixture.Connection.Enqueue(
+            Receipt(
+                "command-1",
+                5,
+                Object(
+                    ("reference", Object(
+                        ("kind", new NativeJsonString("workspace_import")),
+                        ("import_id", new NativeJsonString("import-1")),
+                        ("display_name", new NativeJsonString("first-report.xlsx")),
+                        ("jail_name", new NativeJsonString("import-1.xlsx")),
+                        ("sha256", new NativeJsonString(new string('a', 64))),
+                        ("byte_count", new NativeJsonInteger(1200)))))));
+
+        var submitted = await fixture.Coordinator.SendConversationAsync(
+            CancellationToken.None);
+        fixture.Context.RunAll();
+
+        Assert.IsTrue(submitted);
+        Assert.AreEqual(0, fixture.Model.OfficeWorkflow.Imports.Count);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
     public async Task Submit_WhenAuthorityClears_DisablesAndPreservesDraft()
     {
         // Given
@@ -268,10 +399,21 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             ],
             culture: null) ?? throw new AssertFailedException());
 
-    private static NativeEnvelope Receipt(string commandId, long cursor) => new(
+    private static NativeEnvelope Receipt(
+        string commandId,
+        long cursor,
+        NativeJsonObject? result = null) => new(
         NativeMessageKind.Receipt,
         "receipt-1",
-        Object(
+        ReceiptBody(commandId, cursor, result));
+
+    private static NativeJsonObject ReceiptBody(
+        string commandId,
+        long cursor,
+        NativeJsonObject? result)
+    {
+        List<(string Key, NativeJsonValue Value)> pairs =
+        [
             ("protocol_version", new NativeJsonInteger(1)),
             ("command_id", new NativeJsonString(commandId)),
             ("session_id", new NativeJsonString("session-1")),
@@ -280,7 +422,14 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             ("state", new NativeJsonString("completed")),
             ("result_event_cursor", new NativeJsonInteger(cursor)),
             ("duplicate", new NativeJsonBoolean(false)),
-            ("outcome", new NativeJsonString("accepted"))));
+            ("outcome", new NativeJsonString("accepted")),
+        ];
+        if (result is not null)
+        {
+            pairs.Add(("result", result));
+        }
+        return Object([.. pairs]);
+    }
 
     private static NativeEnvelope Event(long cursor, string type, NativeJsonObject payload) => new(
         NativeMessageKind.Event,

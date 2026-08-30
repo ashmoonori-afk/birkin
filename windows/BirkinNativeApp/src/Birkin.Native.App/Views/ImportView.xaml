@@ -5,8 +5,74 @@
              automation:AutomationProperties.AutomationId="import.landmark"
              automation:AutomationProperties.Name="Office file import">
     <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
-    <DockPanel Margin="0,6,0,0">
-        <Button x:Name="ImportButton" DockPanel.Dock="Right" Content="Import" Margin="6,0,0,0" automation:AutomationProperties.AutomationId="import.submit" automation:AutomationProperties.Name="Import selected office file" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.FileImport.IsEnabled}" Click="ImportClicked" />
-        <TextBox x:Name="PathBox" automation:AutomationProperties.AutomationId="import.path" automation:AutomationProperties.Name="Selected office file path" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" Foreground="{StaticResource TextBrush}" Padding="8,6" ToolTip="Python reads the selected file after import is requested." />
-    </DockPanel>
+    <StackPanel Margin="0,8,0,0">
+        <TextBox x:Name="PathBox"
+                 automation:AutomationProperties.AutomationId="import.path"
+                 automation:AutomationProperties.Name="Selected office file path"
+                 Background="{StaticResource RaisedBrush}"
+                 BorderBrush="{StaticResource BorderBrush}"
+                 Foreground="{StaticResource TextBrush}"
+                 IsReadOnly="True"
+                 Padding="8,6"
+                 ToolTip="Python reads and copies this path into the session jail." />
+        <WrapPanel Margin="0,8,0,0"
+                   HorizontalAlignment="Right"
+                   automation:AutomationProperties.AutomationId="import.actions"
+                   automation:AutomationProperties.Name="File import actions">
+            <Button x:Name="BrowseButton"
+                    Content="Browse"
+                    Margin="0,0,8,8"
+                    automation:AutomationProperties.AutomationId="import.browse"
+                    automation:AutomationProperties.Name="Choose office file to import"
+                    Style="{StaticResource ActionButtonStyle}"
+                    Click="BrowseClicked" />
+            <Button x:Name="ImportButton"
+                    Content="Import"
+                    Margin="0,0,0,8"
+                    automation:AutomationProperties.AutomationId="import.submit"
+                    automation:AutomationProperties.Name="Import selected office file"
+                    Style="{StaticResource ActionButtonStyle}"
+                    IsEnabled="{Binding OfficeWorkflow.Availability.FileImport.IsEnabled}"
+                    Click="ImportClicked" />
+        </WrapPanel>
+        <TextBlock x:Name="StatusText"
+                   Margin="0,8,0,0"
+                   TextWrapping="Wrap"
+                   Visibility="Collapsed"
+                   automation:AutomationProperties.AutomationId="import.status"
+                   automation:AutomationProperties.LiveSetting="Assertive" />
+        <ItemsControl Margin="0,8,0,0"
+                      ItemsSource="{Binding OfficeWorkflow.Imports}"
+                      automation:AutomationProperties.AutomationId="import.chips"
+                      automation:AutomationProperties.Name="Imported files">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <WrapPanel />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Margin="0,0,8,8"
+                            Padding="8,6"
+                            MaxWidth="240"
+                            Background="{StaticResource RaisedBrush}"
+                            BorderBrush="{StaticResource BorderBrush}"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            automation:AutomationProperties.AutomationId="import.chip"
+                            automation:AutomationProperties.Name="{Binding AccessibleName}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding DisplayName}"
+                                       TextWrapping="Wrap"
+                                       FontWeight="SemiBold"
+                                       ToolTip="{Binding DisplayName}" />
+                            <TextBlock Text="{Binding ByteCount, StringFormat={}{0:N0} bytes}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontSize="11" />
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </StackPanel>
 </UserControl>

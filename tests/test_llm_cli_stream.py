@@ -249,3 +249,25 @@ def test_codex_cli_timeout_raises(monkeypatch):
 
     with pytest.raises(LLMError, match="timed out after 7s"):
         client._run_codex("prompt", "", None)
+
+
+def test_missing_codex_cli_returns_recovery_commands(monkeypatch):
+    def missing_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", missing_capture)
+    monkeypatch.setattr(
+        "birkin.provider_onboarding.codex_install_command",
+        lambda: "INSTALL_CODEX",
+    )
+    client = LLMClient(
+        provider="codex-cli",
+        model="",
+        api_key="cli",
+        base_url="",
+    )
+
+    message = client._run_codex("prompt", "", None)
+
+    assert "INSTALL_CODEX" in message
+    assert "birkin setup" in message

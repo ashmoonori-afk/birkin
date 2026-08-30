@@ -20,7 +20,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from . import config
+from . import config, provider_onboarding
 
 OLLAMA_HOST = "http://localhost:11434"
 
@@ -118,7 +118,7 @@ def detect_cli_agents(cfg: Optional[dict[str, Any]] = None) -> list[Model]:
         for alias in ("sonnet", "opus", "haiku"):
             out.append(Model(f"claude-code ({alias})", "claude-cli",
                              "local CLI · Claude Code", param=alias))
-    if shutil.which("codex"):
+    if provider_onboarding.probe_codex().usable:
         for mid in codex_model_ids(cfg):
             out.append(Model(f"codex · {mid}", "codex-cli",
                              "local CLI · Codex", param=mid))
@@ -181,7 +181,7 @@ def apply_selection(cfg: dict[str, Any], model: Model) -> None:
         cfg["base_url"] = ""
     elif model.is_ollama:
         cfg["provider"] = "openai"
-        cfg["base_url"] = f"{OLLAMA_HOST}/v1"
+        cfg["base_url"] = OLLAMA_HOST
         cfg["model"] = model.id
         if not config.get_api_key(cfg) or config.get_api_key(cfg) == "cli":
             cfg["api_key"] = "ollama"

@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Birkin.Native.App.Tests.Support;
 using Birkin.Native.App.Views;
 using Birkin.Native.Protocol.Framing;
@@ -42,10 +43,12 @@ public sealed class OfficeWorkflowJourneyTests
                 ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
                 await fixture.ResolveLastAsync();
                 OfficeWorkflowViewHarness.Layout(window);
-                OfficeWorkflowViewHarness.Find<Button>(
+                var approve = OfficeWorkflowViewHarness.Find<Button>(
                     window,
-                    "approval.approve.approval-7"
-                ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+                    "approval.approve.approval-7");
+                Assert.IsTrue(approve.IsEnabled);
+                approve.RaiseEvent(
+                    new System.Windows.RoutedEventArgs(Button.ClickEvent));
 
                 // Then
                 CollectionAssert.AreEqual(

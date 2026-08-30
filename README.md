@@ -101,7 +101,30 @@ chrome is tracked as follow-up migration rather than claimed complete here.
 
 ## Quick Start
 
-Birkin requires Python 3.10 or newer. Install it from the provided Birkin directory; Git is not required, and `birkin_mnemosyne` is included in the package. It defaults to a locally authenticated Codex CLI; `birkin setup` can select Claude CLI or an API-backed provider instead.
+### Windows PowerShell quick install
+
+Run the installer from an ordinary, non-elevated PowerShell 5.1 or 7 prompt,
+then configure a provider and start the first conversation:
+
+```powershell
+irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 | iex
+birkin --version
+birkin setup
+birkin chat
+```
+
+The installer registers the user `PATH` and verifies `birkin --version`. If the
+current shell cannot yet resolve the command shim, it also tries
+`python -m birkin --version`. See [Windows PowerShell](#windows-powershell) for
+the security and PATH details. The current default Morpheus run time is
+**07:00**.
+
+Birkin requires Python 3.10 or newer. Install from a provided Birkin directory
+as shown below, or use the [Windows PowerShell installer](#windows-powershell).
+Git is not required for a source-directory install, and `birkin_mnemosyne` is
+included in the package. Birkin defaults to a locally authenticated Codex CLI;
+`birkin setup` verifies that executable and can select Claude CLI or an
+API-backed provider instead.
 
 ```bash
 python -m pip install .
@@ -140,6 +163,71 @@ python -m pip install ".[office-docling]"
 python -m pip install ".[browser]"
 python -m playwright install chromium
 python -m pip install ".[full]"
+```
+
+### Windows PowerShell
+
+Run this from an ordinary, non-elevated PowerShell 5.1 or 7 prompt:
+
+```powershell
+irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 | iex
+birkin --version
+birkin setup
+birkin chat
+```
+
+The installer chooses `uv`, then `pipx`, then a working Python 3 interpreter.
+It installs from a source archive and does not require Git.
+It executes a Python probe instead of mistaking the non-functional
+`Microsoft\WindowsApps\python.exe` Store shim for an installation. `birkin
+setup` executes `codex --version`; if Codex is missing or is itself a
+non-functional shim, the wizard prints OpenAI's platform installer and lets you
+retry the probe without restarting setup.
+The installer adds the selected tool bin directory to the current process and
+user `PATH` without `setx`. It runs `birkin --version`, then falls back to
+`python -m birkin --version` when the command shim is not yet resolvable.
+
+`irm | iex` executes remote code with your user privileges. To inspect the
+script first:
+
+```powershell
+irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 -OutFile install.ps1
+notepad .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+If `birkin` is still not found after verification, open a new PowerShell
+window. If it remains missing, inspect the installer-reported directory through
+`rundll32 sysdm.cpl,EditEnvironmentVariables`; do not rewrite `PATH` with
+`setx`.
+
+#### Persistent environment variables
+
+`$env:NAME = "value"` affects only the current PowerShell process. Persist the
+non-secret Birkin data root for new processes with:
+
+```powershell
+setx BIRKIN_HOME "$env:USERPROFILE\.birkin"
+```
+
+`setx` does not update the current window. Either open a new terminal, or set
+the current process and future processes together:
+
+```powershell
+$env:BIRKIN_HOME = "$env:USERPROFILE\.birkin"
+setx BIRKIN_HOME "$env:BIRKIN_HOME"
+```
+
+Do not use `setx PATH ...`: it expands references and truncates values at 1,024
+characters, which can corrupt the user `PATH`. Do not persist API keys with
+`setx`; user environment variables are plaintext, readable by your processes,
+copied into registry/profile backups, and the command can remain in PowerShell
+history. Prefer a CLI provider's own login, or a process-scoped provider
+variable when an API provider is required. Most users only need to persist
+`BIRKIN_HOME`. Remove it with:
+
+```powershell
+reg delete HKCU\Environment /v BIRKIN_HOME /f
 ```
 
 ### Native Browser Aside
@@ -310,6 +398,43 @@ The contract above says what is allowed; this is the order you actually work in.
 2. Put the source inside the dedicated Office jail. Every input path must live under `BIRKIN_HOME/office`; with `BIRKIN_HOME=/workspace/.birkin`, copy or import it to `/workspace/.birkin/office/artifacts/incoming/`. Paths elsewhere under `BIRKIN_HOME` are rejected even when their hashes match.
 3. Ask what is available with `list_document_adapters`, then `inspect_document` the source before mutating anything.
 4. Read through the registered read-only calls. Request consequential mutation or export only through `office_job_request`, and request rollback separately through `office_rollback_request`; durable journals are under `BIRKIN_HOME/office/jobs`, destinations are caller-allowlisted, and sources are never edited in place.
+
+#### Your first Office report in ten minutes
+
+1. **Install the Office tier (2 minutes):** from the source directory, run
+   `python -m pip install ".[office]"`. Without this tier, blank
+   DOCX/XLSX/PPTX/HWPX creation returns `CAPABILITY_UNAVAILABLE`.
+2. **Prepare a provider (1 minute):** run `birkin setup`. If the default Codex
+   CLI is missing, the wizard shows the official installer and lets you retry
+   without restarting setup. Then run `birkin chat`.
+3. **Copy in the source (2 minutes):** use the default Windows Office jail:
+
+   ```powershell
+   $incoming = Join-Path $env:USERPROFILE ".birkin\office\artifacts\incoming"
+   New-Item -ItemType Directory -Force $incoming | Out-Null
+   Copy-Item .\sales.xlsx $incoming
+   ```
+
+   A source elsewhere under `BIRKIN_HOME` is rejected even when its hash
+   matches. If you built the Windows development preview from source, its
+   Browse button or full-window drop target performs the same jailed import;
+   the PowerShell Birkin installer does not install that preview.
+4. **Ask for the report (2 minutes):** in chat, ask
+   `Summarize incoming/sales.xlsx and draft a report.` XLSX selects
+   `spreadsheets`, a general Office request selects `office-work-os`, and
+   conflicting signals select inspect-first `office-documents`.
+5. **Review and approve (2 minutes):** mutation or export becomes one
+   `office_job_request`. Use `birkin review` to inspect the source,
+   destination, operations, and overwrite choice. The source is never edited
+   in place.
+6. **Roll back (1 minute):** rollback is never automatic.
+   `office_rollback_request` creates a separate high-risk approval for one
+   HMAC-authenticated receipt no older than 30 days. A legacy unsigned receipt
+   is not rollback authority.
+
+This journey still refuses PDF mutation, non-Latin built-in PDF creation, and
+every path that would launch an external Office application, runtime, or
+subprocess conversion engine.
 
 Pull the text out of a Word file:
 

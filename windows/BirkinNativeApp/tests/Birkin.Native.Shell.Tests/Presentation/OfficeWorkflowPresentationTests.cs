@@ -235,7 +235,21 @@ public sealed class OfficeWorkflowPresentationTests
     public void Workflow_WhenAuthorityClears_PreservesDraftAndClearsPending()
     {
         // Given
-        var workflow = OfficeWorkflowPresentation.Empty.WithDraft("draft").Begin("command-1", "approval.answer");
+        var workflow = OfficeWorkflowPresentation.Empty
+            .WithDraft("draft")
+            .WithImport(new ImportedFilePresentation(
+                "import-1",
+                "first-report.xlsx",
+                "import-1.xlsx",
+                new string('a', 64),
+                1200))
+            .Begin("command-1", "approval.answer")
+            .Refuse(
+                "command-1",
+                "E_BODY",
+                "diagnostic detail",
+                false,
+                42);
 
         // When
         var cleared = workflow.ClearAuthority();
@@ -244,5 +258,10 @@ public sealed class OfficeWorkflowPresentationTests
         Assert.AreEqual("draft", cleared.Draft);
         Assert.IsNull(cleared.CommandId);
         Assert.AreEqual(WorkflowCommandState.Idle, cleared.CommandState);
+        Assert.AreEqual(0, cleared.Imports.Count);
+        Assert.IsNull(cleared.RefusalCode);
+        Assert.IsNull(cleared.RefusalMessage);
+        Assert.IsNull(cleared.RefusalRetryable);
+        Assert.IsNull(cleared.CurrentCursor);
     }
 }

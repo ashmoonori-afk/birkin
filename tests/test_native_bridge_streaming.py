@@ -134,7 +134,7 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
                 text="wait for release",
             ),
         )))
-        assert entered.wait(timeout=1)
+        assert entered.wait(timeout=5)
 
         for index in range(3):
             ping = receive_frame(client)

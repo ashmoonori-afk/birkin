@@ -28,10 +28,36 @@ def test_discover_includes_local_cli_when_configured():
 
 
 def test_discover_detects_claude_codex_if_present(monkeypatch):
+    from birkin.provider_onboarding import CodexProviderStatus
+
     monkeypatch.setattr(shutil, "which", lambda name: f"/fake/{name}")
+    monkeypatch.setattr(
+        models.provider_onboarding,
+        "probe_codex",
+        lambda: CodexProviderStatus(True, "/fake/codex", None),
+    )
     found = models.detect_cli_agents()
     sources = {m.source for m in found}
     assert {"claude-cli", "codex-cli"} <= sources
+
+
+def test_discover_rejects_nonfunctional_codex_shim(monkeypatch):
+    from birkin.provider_onboarding import CodexProbeIssue, CodexProviderStatus
+
+    monkeypatch.setattr(shutil, "which", lambda name: f"/fake/{name}")
+    monkeypatch.setattr(
+        models.provider_onboarding,
+        "probe_codex",
+        lambda: CodexProviderStatus(
+            False,
+            None,
+            CodexProbeIssue.NON_FUNCTIONAL_SHIM,
+        ),
+    )
+
+    found = models.detect_cli_agents()
+
+    assert "codex-cli" not in {model.source for model in found}
 
 
 def test_render_groups_and_marks_current(capsys):
@@ -106,7 +132,7 @@ def test_apply_selection_ollama_rewires_openai_with_local_endpoint():
     m = models.Model("llama3.1:8b", "ollama", "local · ollama")
     models.apply_selection(cfg, m)
     assert cfg["provider"] == "openai"
-    assert cfg["base_url"].endswith("/v1")
+    assert cfg["base_url"] == models.OLLAMA_HOST
     assert cfg["model"] == "llama3.1:8b"
     assert cfg.get("api_key") == "ollama"
 

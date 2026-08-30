@@ -19,6 +19,13 @@ public partial class ContextColumnView : UserControl
         OfficeHost.Content = new OfficeView(presentationModel, coordinator);
     }
 
+    internal Task<bool> ImportDroppedFilesAsync(
+        IReadOnlyList<string> paths) =>
+        ((OfficeView)OfficeHost.Content).ImportDroppedFilesAsync(paths);
+
+    internal void ReportImportSelectionError() =>
+        ((OfficeView)OfficeHost.Content).ReportImportSelectionError();
+
     public void FocusApprovals()
     {
         ContextScroll.ScrollToTop();

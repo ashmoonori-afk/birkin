@@ -2,11 +2,17 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:Birkin.Native.App.Views"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
         Title="Birkin for Windows - Development Preview"
         Width="1500"
         Height="940"
         MinWidth="1100"
         MinHeight="700"
+        AllowDrop="True"
+        PreviewDragEnter="WindowDragEntered"
+        PreviewDragOver="WindowDragOver"
+        PreviewDragLeave="WindowDragLeft"
+        PreviewDrop="WindowDropped"
         ResizeMode="CanResize"
         Focusable="True"
         Background="{DynamicResource CanvasBrush}"
@@ -16,5 +22,29 @@
     <Window.Resources>
         <ResourceDictionary Source="Styles/ShellStyles.xaml" />
     </Window.Resources>
-    <views:WorkspaceSnapshotView x:Name="SnapshotView" />
+    <Grid>
+        <views:WorkspaceSnapshotView x:Name="SnapshotView" />
+        <Border x:Name="DropOverlay"
+                Visibility="Collapsed"
+                IsHitTestVisible="False"
+                Margin="12"
+                Background="{StaticResource DropOverlayBrush}"
+                BorderBrush="{StaticResource AccentBrush}"
+                BorderThickness="2"
+                CornerRadius="12"
+                automation:AutomationProperties.AutomationId="import.drop-overlay"
+                automation:AutomationProperties.Name="Office file drop target">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
+                <TextBlock Text="&#xE8B7;"
+                           Style="{StaticResource GlyphStyle}"
+                           Foreground="{StaticResource AccentBrush}" />
+                <TextBlock x:Name="DropOverlayText"
+                           Margin="0,12,0,0"
+                           Text="Drop one file to copy it into Birkin's session jail"
+                           Foreground="{StaticResource TextBrush}"
+                           FontSize="17"
+                           FontWeight="SemiBold" />
+            </StackPanel>
+        </Border>
+    </Grid>
 </Window>

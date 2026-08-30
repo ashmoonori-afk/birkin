@@ -1,0 +1,368 @@
+name: Fresh Windows first conversation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install-and-chat:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: "0.11.8"
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: "8.x"
+
+      - name: Prepare isolated journey paths
+        shell: pwsh
+        run: |
+          "BIRKIN_HOME=$env:RUNNER_TEMP\birkin-home" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "EVIDENCE_DIR=$env:RUNNER_TEMP\fresh-windows-evidence" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "JOURNEY_STARTED_AT=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds())" |
+            Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Install from the checked-out revision
+        shell: pwsh
+        env:
+          BIRKIN_REPO: "https://github.com/ashmoonori-afk/birkin"
+          BIRKIN_REF: "${{ github.sha }}"
+        run: |
+          $ErrorActionPreference = "Stop"
+          New-Item -ItemType Directory -Force $env:EVIDENCE_DIR | Out-Null
+          foreach ($command in "python", "py", "uv", "pipx", "codex") {
+            $resolved = Get-Command $command -ErrorAction SilentlyContinue
+            "$command=$($resolved.Source)" |
+              Tee-Object -FilePath "$env:EVIDENCE_DIR\baseline.txt" -Append
+          }
+          & .\scripts\install.ps1 *>&1 |
+            Tee-Object -FilePath "$env:EVIDENCE_DIR\install.txt"
+          if ($LASTEXITCODE -ne 0) {
+            throw "install.ps1 failed with exit code $LASTEXITCODE"
+          }
+          $uvBin = uv tool dir --bin
+          $uvBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          $env:Path = "$uvBin;$env:Path"
+          birkin --version *>&1 |
+            Tee-Object -FilePath "$env:EVIDENCE_DIR\version.txt"
+          birkin --help *>&1 |
+            Tee-Object -FilePath "$env:EVIDENCE_DIR\help.txt"
+          birkin definitely-not-a-command *>&1 |
+            Tee-Object -FilePath "$env:EVIDENCE_DIR\invalid-command.txt"
+          if ($LASTEXITCODE -eq 0) {
+            throw "The invalid command unexpectedly succeeded."
+          }
+          $global:LASTEXITCODE = 0
+
+      - name: Verify missing Codex guidance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $codex = Get-Command codex -ErrorAction SilentlyContinue
+          if ($codex) {
+            $codexDirectory = Split-Path $codex.Source
+            $env:Path = (
+              $env:Path -split ";" |
+                Where-Object {
+                  -not [StringComparer]::OrdinalIgnoreCase.Equals(
+                    $_,
+                    $codexDirectory)
+                }
+            ) -join ";"
+          }
+          if (Get-Command codex -ErrorAction SilentlyContinue) {
+            throw "Could not establish a Codex-free PATH."
+          }
+          $setupOutput = (
+            "`n" | birkin setup *>&1 |
+              Tee-Object -FilePath "$env:EVIDENCE_DIR\setup-missing-codex.txt" |
+              Out-String
+          )
+          $setupExit = $LASTEXITCODE
+          $global:LASTEXITCODE = 0
+          if ($setupExit -ne 1) {
+            throw "The cancelled setup exited with unexpected code $setupExit."
+          }
+          if ($setupOutput -notmatch "Codex CLI가 설치되어 있지 않습니다.") {
+            throw "The wizard did not report the missing Codex installation."
+          }
+
+      - name: Run WPF picker and routed-drop tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true
+          $project = ".\windows\BirkinNativeApp\tests\Birkin.Native.App.Tests\Birkin.Native.App.Tests.csproj"
+          dotnet restore $project
+          dotnet build $project -c Release --no-restore
+          dotnet test $project -c Release --no-build `
+            --filter "FullyQualifiedName~ImportViewTests|FullyQualifiedName~OfficeViewTests.MainWindow_PreviewDrop" `
+            --logger "trx;LogFileName=office-import.trx" `
+            --results-directory $env:EVIDENCE_DIR
+
+      - name: Select local provider, import, and complete the first chat
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $archive = Join-Path $env:RUNNER_TEMP "ollama.zip"
+          $ollamaRoot = Join-Path $env:RUNNER_TEMP "ollama"
+          Invoke-WebRequest `
+            "https://github.com/ollama/ollama/releases/download/v0.33.2/ollama-windows-amd64.zip" `
+            -OutFile $archive
+          $expectedHash = "2439cbea65310b1aadf7d8fc41d7faf5d033f920d42e00a476c58bf9bff6950e"
+          $actualHash = (Get-FileHash $archive -Algorithm SHA256).Hash
+          if (
+            -not [StringComparer]::OrdinalIgnoreCase.Equals(
+              $actualHash,
+              $expectedHash)
+          ) {
+            throw "The pinned Ollama archive hash did not match."
+          }
+          Expand-Archive $archive $ollamaRoot
+          $ollama = Get-ChildItem $ollamaRoot -Filter ollama.exe -Recurse |
+            Select-Object -First 1 -ExpandProperty FullName
+          if (-not $ollama) {
+            throw "The Ollama archive did not contain ollama.exe."
+          }
+          $env:OLLAMA_MODELS = Join-Path $env:RUNNER_TEMP "ollama-models"
+          $serverOutput = Join-Path $env:EVIDENCE_DIR "ollama-server.txt"
+          $serverLog = Join-Path $env:EVIDENCE_DIR "ollama-server-error.txt"
+          New-Item -ItemType File -Force $serverOutput | Out-Null
+          New-Item -ItemType File -Force $serverLog | Out-Null
+          $readyEvent = "OllamaReady"
+          $stdoutEvent = "OllamaStdout"
+          $stderrEvent = "OllamaStderr"
+          $startInfo = [Diagnostics.ProcessStartInfo]::new()
+          $startInfo.FileName = $ollama
+          $startInfo.ArgumentList.Add("serve")
+          $startInfo.UseShellExecute = $false
+          $startInfo.CreateNoWindow = $true
+          $startInfo.RedirectStandardOutput = $true
+          $startInfo.RedirectStandardError = $true
+          $server = [Diagnostics.Process]::new()
+          $server.StartInfo = $startInfo
+          $stdoutSubscription = Register-ObjectEvent `
+            -InputObject $server `
+            -EventName OutputDataReceived `
+            -SourceIdentifier $stdoutEvent `
+            -MessageData @{ Path = $serverOutput } `
+            -Action {
+              $line = $EventArgs.Data
+              if ($null -ne $line) {
+                [IO.File]::AppendAllText(
+                  $Event.MessageData.Path,
+                  "$line$([Environment]::NewLine)",
+                  [Text.Encoding]::UTF8)
+              }
+            }
+          $stderrSubscription = Register-ObjectEvent `
+            -InputObject $server `
+            -EventName ErrorDataReceived `
+            -SourceIdentifier $stderrEvent `
+            -MessageData @{
+              Path = $serverLog
+              ReadyEvent = $readyEvent
+            } `
+            -Action {
+              $line = $EventArgs.Data
+              if ($null -ne $line) {
+                [IO.File]::AppendAllText(
+                  $Event.MessageData.Path,
+                  "$line$([Environment]::NewLine)",
+                  [Text.Encoding]::UTF8)
+                if ($line -match "Listening on") {
+                  New-Event `
+                    -SourceIdentifier $Event.MessageData.ReadyEvent |
+                    Out-Null
+                }
+              }
+            }
+          if (-not $server.Start()) {
+            throw "Ollama did not start."
+          }
+          $server.BeginOutputReadLine()
+          $server.BeginErrorReadLine()
+          try {
+            $event = Wait-Event `
+              -SourceIdentifier $readyEvent `
+              -Timeout 90
+            if (-not $event) {
+              if ($server.HasExited) {
+                throw "Ollama exited before reporting its listening socket."
+              }
+              throw "Ollama did not report its listening socket."
+            }
+            Remove-Event -EventIdentifier $event.EventIdentifier
+
+            & $ollama pull qwen2.5:0.5b *>&1 |
+              Tee-Object -FilePath "$env:EVIDENCE_DIR\ollama-pull.txt"
+            if ($LASTEXITCODE -ne 0) {
+              throw "Ollama model download failed with exit code $LASTEXITCODE."
+            }
+            $modelListing = & birkin models 2>&1
+            $modelListing | Set-Content `
+              "$env:EVIDENCE_DIR\models.txt" `
+              -Encoding utf8
+            $modelLine = $modelListing |
+              Where-Object { $_ -match "qwen2\.5:0\.5b.*ollama" } |
+              Select-Object -First 1
+            if (-not $modelLine) {
+              throw "The setup model picker did not advertise qwen2.5:0.5b."
+            }
+            $setupModelLines = @(
+              $modelListing | Where-Object {
+                $_ -match "^\s*\d+\." -and
+                $_ -notmatch "codex.*CLI default.*\[codex-cli\]"
+              }
+            )
+            $modelChoice = (
+              [array]::IndexOf($setupModelLines, $modelLine) + 1
+            ).ToString()
+            if ($modelChoice -eq "0") {
+              throw "The setup model choice had no stable menu index."
+            }
+            $setupAnswers = "1`n2`n4`n$modelChoice`n`n`n`n`n`n"
+            $setupAnswers |
+              birkin setup *>&1 |
+              Tee-Object -FilePath `
+                "$env:EVIDENCE_DIR\setup-provider-choice.txt"
+            if ($LASTEXITCODE -ne 0) {
+              throw "birkin setup failed with exit code $LASTEXITCODE."
+            }
+            $configured = Get-Content `
+              "$env:BIRKIN_HOME\config.json" `
+              -Raw |
+              ConvertFrom-Json
+            if (
+              $configured.provider -ne "openai" -or
+              $configured.model -ne "qwen2.5:0.5b" -or
+              $configured.base_url -ne "http://localhost:11434" -or
+              $configured.api_key -ne "ollama"
+            ) {
+              throw "birkin setup did not persist the selected local provider."
+            }
+            $providerSelectedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+            uv sync --frozen --all-extras
+            if ($LASTEXITCODE -ne 0) {
+              throw "uv sync failed with exit code $LASTEXITCODE."
+            }
+            $protocolProject = Join-Path `
+              ".\windows\BirkinNativeApp\tests\Birkin.Native.Protocol.Tests" `
+              "Birkin.Native.Protocol.Tests.csproj"
+            dotnet test $protocolProject -c Release `
+              --filter "FullyQualifiedName~OfficeAuthorityBridgeIntegrationTests" `
+              --logger "trx;LogFileName=office-real-bridge-import.trx" `
+              --results-directory $env:EVIDENCE_DIR
+            if ($LASTEXITCODE -ne 0) {
+              throw "The real-bridge import tests failed with exit code $LASTEXITCODE."
+            }
+            $importCompletedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+
+            $chatOutput = (
+              "안녕하세요. 한국어로 자연스럽게 인사해 주세요.`n" |
+                birkin chat *>&1 |
+                Tee-Object -FilePath "$env:EVIDENCE_DIR\first-chat.txt" |
+                Out-String
+            )
+            if ($LASTEXITCODE -ne 0) {
+              throw "birkin chat failed with exit code $LASTEXITCODE"
+            }
+            $replyMatch = [regex]::Matches(
+              $chatOutput,
+              "(?m)^birkin >[ \t]+(\S.*)$") |
+              Select-Object -Last 1
+            if (-not $replyMatch) {
+              throw "The first chat produced no visible assistant reply."
+            }
+            $reply = $replyMatch.Groups[1].Value.Trim()
+            if ([string]::IsNullOrWhiteSpace($reply)) {
+              throw "The first chat produced no assistant reply."
+            }
+            $replyText = [regex]::Replace(
+              $reply,
+              "<[^>]+>",
+              "").Trim()
+            $hangulCount = [regex]::Matches($replyText, "[가-힣]").Count
+            $latinCount = [regex]::Matches($replyText, "[A-Za-z]").Count
+            if (
+              $hangulCount -lt 10 -or
+              $hangulCount -lt $latinCount
+            ) {
+              throw "The first assistant reply was not meaningfully Korean."
+            }
+            $replyText | Set-Content `
+              "$env:EVIDENCE_DIR\assistant-reply.txt" `
+              -Encoding utf8
+            $completedAt = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+            $startedAt = [long]$env:JOURNEY_STARTED_AT
+            $elapsedSeconds = $completedAt - $startedAt
+            if (
+              $providerSelectedAt -lt $startedAt -or
+              $importCompletedAt -lt $providerSelectedAt -or
+              $completedAt -lt $importCompletedAt
+            ) {
+              throw "The install, provider, import, and chat timestamps are unordered."
+            }
+            if ($elapsedSeconds -gt 600) {
+              throw "The first import journey exceeded 600 seconds."
+            }
+            @{
+              started_at = $startedAt
+              provider_selected_at = $providerSelectedAt
+              import_completed_at = $importCompletedAt
+              chat_completed_at = $completedAt
+              elapsed_seconds = $elapsedSeconds
+            } | ConvertTo-Json |
+              Set-Content `
+                "$env:EVIDENCE_DIR\journey-timing.json" `
+                -Encoding utf8
+          } finally {
+            if ($server) {
+              if (-not $server.HasExited) {
+                & taskkill.exe /PID $server.Id /T /F
+                if ($LASTEXITCODE -ne 0 -and -not $server.HasExited) {
+                  try {
+                    $server.Kill($true)
+                  } catch [InvalidOperationException] {
+                    if (-not $server.HasExited) {
+                      throw
+                    }
+                  }
+                }
+              }
+              if (-not $server.WaitForExit(10000)) {
+                throw "Ollama process-tree cleanup timed out."
+              }
+              $server.WaitForExit()
+            }
+            Unregister-Event -SourceIdentifier $stdoutEvent `
+              -ErrorAction SilentlyContinue
+            Unregister-Event -SourceIdentifier $stderrEvent `
+              -ErrorAction SilentlyContinue
+            Remove-Event -SourceIdentifier $readyEvent `
+              -ErrorAction SilentlyContinue
+            $server.Dispose()
+          }
+
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fresh-windows-first-chat
+          path: "${{ runner.temp }}\\fresh-windows-evidence"
+          if-no-files-found: error
+          retention-days: 14

@@ -44,12 +44,22 @@ public sealed record OfficeWorkflowPresentation(
     long? AcceptedCursor,
     long? CurrentCursor,
     string? RefusalCode,
+    IReadOnlyList<ImportedFilePresentation> Imports,
     MutationAvailabilitySet Availability,
     string? RefusalMessage = null,
     bool? RefusalRetryable = null)
 {
     public static OfficeWorkflowPresentation Empty { get; } =
-        new(string.Empty, null, null, WorkflowCommandState.Idle, null, null, null, MutationAvailabilitySet.None);
+        new(
+            string.Empty,
+            null,
+            null,
+            WorkflowCommandState.Idle,
+            null,
+            null,
+            null,
+            [],
+            MutationAvailabilitySet.None);
 
     public bool HasPendingCommand =>
         CommandState is WorkflowCommandState.PendingReceipt
@@ -87,6 +97,18 @@ public sealed record OfficeWorkflowPresentation(
 
     public OfficeWorkflowPresentation WithAvailability(MutationAvailabilitySet availability) =>
         this with { Availability = availability };
+
+    public OfficeWorkflowPresentation WithImport(ImportedFilePresentation imported) => this with
+    {
+        Imports = Imports
+            .Where(item => !string.Equals(
+                item.ImportId,
+                imported.ImportId,
+                StringComparison.Ordinal))
+            .Append(imported)
+            .TakeLast(16)
+            .ToArray(),
+    };
 
     public OfficeWorkflowPresentation Begin(string commandId, string commandType) => this with
     {
@@ -155,6 +177,7 @@ public sealed record OfficeWorkflowPresentation(
         AcceptedCursor = null,
         CurrentCursor = null,
         RefusalCode = null,
+        Imports = [],
         RefusalMessage = null,
         RefusalRetryable = null,
     };

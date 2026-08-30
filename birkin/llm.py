@@ -508,7 +508,15 @@ class LLMClient:
             except OSError:
                 text = ""
         except FileNotFoundError:
-            return "[birkin] command not found: codex"
+            from . import provider_onboarding
+
+            return (
+                "[birkin] Codex CLI를 찾을 수 없습니다.\n"
+                + f"설치: {provider_onboarding.codex_install_command()}\n"
+                + "설치와 로그인을 마친 뒤 `birkin setup`을 다시 실행하세요. "
+                + "Codex를 설치하지 않으려면 setup에서 Anthropic 또는 "
+                + "OpenAI API 프로바이더를 선택하세요."
+            )
         finally:
             try:
                 os.unlink(path)
@@ -834,7 +842,7 @@ class LLMClient:
         arguments stream as JSON fragments)."""
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
-        tools: dict[int, dict[str, Any]] = {}     # index -> {id,name,args}
+        tools: dict[int | str, dict[str, Any]] = {}  # index/id -> {id,name,args}
         finish = "stop"
         for raw in resp:
             if abort is not None and abort.is_set():

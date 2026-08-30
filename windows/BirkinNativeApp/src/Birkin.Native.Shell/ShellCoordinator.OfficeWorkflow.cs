@@ -167,8 +167,10 @@ public sealed partial class ShellCoordinator
                     var receipt = await _connection.SendCommandForResultAsync(
                         activeRequest,
                         cancellationToken).ConfigureAwait(false);
-                    AcceptReceipt(receipt, activeRequest.CommandId);
-                    return true;
+                    return AcceptReceipt(
+                        receipt,
+                        activeRequest.CommandId,
+                        activeRequest.CommandType);
                 }
 
                 await _connection.SendCommandAsync(
@@ -176,6 +178,7 @@ public sealed partial class ShellCoordinator
                     cancellationToken).ConfigureAwait(false);
                 return await ReceiveCommandResultAsync(
                     activeRequest.CommandId,
+                    activeRequest.CommandType,
                     cancellationToken).ConfigureAwait(false);
             }
             catch (NativeCommandRefusal refusal) when (
@@ -212,6 +215,7 @@ public sealed partial class ShellCoordinator
 
     private async Task<bool> ReceiveCommandResultAsync(
         string commandId,
+        string commandType,
         CancellationToken cancellationToken)
     {
         for (var received = 0; received < MaxFramesBeforeCommandResult; received++)
@@ -219,8 +223,7 @@ public sealed partial class ShellCoordinator
             var envelope = await _connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
             if (envelope.Kind == NativeMessageKind.Receipt)
             {
-                AcceptReceipt(envelope, commandId);
-                return true;
+                return AcceptReceipt(envelope, commandId, commandType);
             }
 
             ApplyCanonicalFrame(envelope);
@@ -262,7 +265,10 @@ public sealed partial class ShellCoordinator
         }
     }
 
-    private void AcceptReceipt(NativeEnvelope receipt, string commandId)
+    private bool AcceptReceipt(
+        NativeEnvelope receipt,
+        string commandId,
+        string commandType)
     {
         var receivedCommandId = String(receipt.Body, "command_id");
         if (!string.Equals(receivedCommandId, commandId, StringComparison.Ordinal))
@@ -272,21 +278,48 @@ public sealed partial class ShellCoordinator
 
         var acceptedCursor = Integer(receipt.Body, "accepted_cursor");
         var authority = CaptureConnectionAuthority();
+        var accepted = true;
         bool drain;
         lock (_stateLock)
         {
-            var draft = _workflow.Draft;
-            var preserveDraft = _pendingDraftRevision is { } submittedRevision
-                && submittedRevision != _draftRevision;
-            _workflow = _workflow.Accept(commandId, acceptedCursor);
-            if (preserveDraft)
+            ImportedFilePresentation? imported = null;
+            if (string.Equals(
+                    commandType,
+                    ImportCommands.CommandType,
+                    StringComparison.Ordinal)
+                && !ImportedFilePresentationMapper.TryFromReceipt(
+                    receipt,
+                    out imported))
             {
-                _workflow = _workflow.WithDraft(draft);
+                _workflow = _workflow.Refuse(
+                    commandId,
+                    "E_BODY",
+                    "import receipt reference is invalid",
+                    false,
+                    null);
+                _pendingDraftRevision = null;
+                accepted = false;
+            }
+            else
+            {
+                var draft = _workflow.Draft;
+                var preserveDraft = _pendingDraftRevision is { } submittedRevision
+                    && submittedRevision != _draftRevision;
+                _workflow = _workflow.Accept(commandId, acceptedCursor);
+                if (imported is not null)
+                {
+                    _workflow = _workflow.WithImport(imported);
+                }
+                if (preserveDraft)
+                {
+                    _workflow = _workflow.WithDraft(draft);
+                }
             }
             RefreshMutationAvailabilityLocked(authority);
             drain = EnqueuePresentationLocked(new(null, null, _workflow));
         }
         DrainPresentations(drain);
+        return accepted;
     }
 
     private void Refuse(NativeCommandRefusal refusal)

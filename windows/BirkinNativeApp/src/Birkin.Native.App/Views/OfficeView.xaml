@@ -41,7 +41,7 @@
                     <Button Content="Save unavailable" HorizontalAlignment="Right" Margin="0,5,0,0" automation:AutomationProperties.AutomationId="office.save-unavailable" automation:AutomationProperties.Name="Office save unavailable without approved job request" Style="{StaticResource DisabledActionStyle}" IsEnabled="False" />
                 </StackPanel>
             </Expander>
-            <Expander Grid.Column="1" Header="Import file" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="Import office file controls" Foreground="{StaticResource TextBrush}">
+            <Expander x:Name="ImportPanel" Grid.Column="1" Header="Import file" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="Import office file controls" Foreground="{StaticResource TextBrush}">
                 <ContentControl x:Name="ImportHost" />
             </Expander>
         </Grid>
