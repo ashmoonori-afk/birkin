@@ -231,6 +231,16 @@ Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`
 
 Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
 
+`office_job_request` now accepts a source-free DOCX creation proposal with
+`content.paragraphs`. It writes neither a managed draft nor the caller's
+destination until the separate `office_create` approval executes the bound
+proposal. The returned durable `job_id` can then enter the existing
+`office_rollback_request` approval and receipt flow.
+If execution finds an existing destination without overwrite authority, Birkin
+leaves that file unchanged and queues the explicit follow-up approval
+`기존 파일을 덮어쓸까요?`; approving it rebinds the exact work with overwrite
+authority and retries once.
+
 Office provenance keeps exact reviewed artifact versions and supported runtime ranges as separate contracts. Normal environments validate the declared range; the locked Office CI also verifies exact installed versions.
 
 Office mutation approval binds the proposer, source digest, destination, exact operations, and overwrite decision in an `authority_digest`. Durable receipts retain that digest and the approving principal separately from the proposer.

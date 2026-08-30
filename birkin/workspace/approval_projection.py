@@ -26,9 +26,14 @@ def approval_items(
     records.sort(key=lambda record: str(record.get("created") or ""))
     canonical = tuple(approval_item(record) for record in records)
     canonical_ids = {str(item["id"]) for item in canonical}
-    return tuple(
-        item for item in durable_items if str(item.get("id") or "") not in canonical_ids
-    ) + canonical
+    return (
+        tuple(
+            item
+            for item in durable_items
+            if str(item.get("id") or "") not in canonical_ids
+        )
+        + canonical
+    )
 
 
 def approval_policy() -> dict[str, object]:
@@ -59,24 +64,26 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
     status = str(record.get("status") or "pending")
     category = str(record.get("category") or "")
     payload = record.get("payload")
-    sealed = (
-        _is_object_mapping(payload)
-        and (
-            (
-                category == "operation"
-                and isinstance(payload.get("digest"), str)
-                and bool(payload["digest"])
-            )
-            or (
-                category == "office_job"
-                and isinstance(payload.get("proposal_digest"), str)
-                and bool(payload["proposal_digest"])
-            )
-            or (
-                category == "office_rollback"
-                and isinstance(payload.get("receipt_hmac"), str)
-                and bool(payload["receipt_hmac"])
-            )
+    sealed = _is_object_mapping(payload) and (
+        (
+            category == "operation"
+            and isinstance(payload.get("digest"), str)
+            and bool(payload["digest"])
+        )
+        or (
+            category == "office_create"
+            and isinstance(payload.get("creation_digest"), str)
+            and bool(payload["creation_digest"])
+        )
+        or (
+            category == "office_job"
+            and isinstance(payload.get("proposal_digest"), str)
+            and bool(payload["proposal_digest"])
+        )
+        or (
+            category == "office_rollback"
+            and isinstance(payload.get("receipt_hmac"), str)
+            and bool(payload["receipt_hmac"])
         )
     )
     item: dict[str, object] = {
@@ -114,6 +121,17 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
     expires_at = record.get("expires_at")
     if isinstance(expires_at, str) and expires_at:
         item["expires_at"] = expires_at
+    for field in (
+        "failure_code",
+        "follow_up_approval_id",
+        "retry_of_approval_id",
+    ):
+        value = record.get(field)
+        if isinstance(value, str) and value:
+            item[field] = value
+    overwrite_retry = record.get("overwrite_retry")
+    if isinstance(overwrite_retry, bool):
+        item["overwrite_retry"] = overwrite_retry
     action_receipt = record.get("action_receipt")
     if status == "approved" and isinstance(action_receipt, str):
         receipt = OfficeReceiptProjection.from_result(

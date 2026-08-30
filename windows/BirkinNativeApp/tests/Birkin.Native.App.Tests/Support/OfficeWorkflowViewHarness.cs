@@ -184,6 +184,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         [
             "chat.send", "file.import", "approval.answer",
             "office.select", "office.open", "office.compare",
+            "office.rollback_request",
         ];
 
         public List<NativeCommandRequest> Sent { get; } = [];

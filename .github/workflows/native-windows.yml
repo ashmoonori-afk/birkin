@@ -126,6 +126,7 @@ jobs:
       - run: >-
           dotnet test ./windows/BirkinNativeApp/BirkinNativeApp.sln
           -c Release --no-build
+          --filter "TestCategory!=LiveBridge&TestCategory!=ExistingAccountProvider"
           --logger "trx;LogFilePrefix=native-windows"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -168,12 +169,32 @@ jobs:
           dotnet test ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj
           -c Release --no-build
           --filter "TestCategory=LiveBridge"
+          --blame-hang --blame-hang-timeout 120s --blame-hang-dump-type mini
           --logger "trx;LogFilePrefix=native-windows-live"
+      - if: failure()
+        shell: pwsh
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP "dotnet-tools"
+          dotnet tool install --tool-path $tools dotnet-dump --version 9.0.661903
+          $dump = Get-ChildItem `
+            -Path ./windows/BirkinNativeApp `
+            -Recurse `
+            -Filter "*_hangdump.dmp" |
+            Select-Object -First 1
+          if ($null -eq $dump) {
+            throw "The live-bridge failure did not produce a hang dump."
+          }
+          $analysis = Join-Path $dump.Directory.FullName "managed-stacks.txt"
+          & (Join-Path $tools "dotnet-dump.exe") analyze $dump.FullName `
+            -c "clrstack -all" `
+            -c "threads" `
+            -c "exit" |
+            Tee-Object -FilePath $analysis
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: native-windows-live-trx
-          path: windows/BirkinNativeApp/**/TestResults/*.trx
+          name: native-windows-live-diagnostics
+          path: windows/BirkinNativeApp/**/TestResults/**
           if-no-files-found: error
           retention-days: 7
 

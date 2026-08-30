@@ -94,12 +94,27 @@ class OfficeCoordinator:
         format_name = _text(inspection.get("format"), "inspection format")
         source_identity = _mapping(inspection.get("source"), "inspection source")
         source_sha256 = _text(source_identity.get("sha256"), "source sha256")
+        raw_source_filename = request.source.get("source_filename")
+        source_filename = Path(
+            raw_source_filename
+            if isinstance(raw_source_filename, str) and raw_source_filename
+            else _text(request.source.get("uri"), "source uri")
+        ).name
+        source_filename = _text(source_filename, "source filename")
         route = route_office_request(
             request.request_text,
             artifact_names=(_text(request.source.get("uri"), "source uri"),),
         )
+        if route is not None and route.clarification_question is not None:
+            raise _error(
+                DocumentErrorCode.INVALID_INPUT,
+                route.clarification_question,
+            )
         if route is None or route.conflict or route.format_name != format_name:
-            raise _error(DocumentErrorCode.POLICY_DENIED, "request does not route to the inspected Office format")
+            raise _error(
+                DocumentErrorCode.POLICY_DENIED,
+                "request does not route to the inspected Office format",
+            )
         policy = DocumentWorkspace(self._home).export_policy(
             self._caller.allowlist_root
         )
@@ -157,6 +172,10 @@ class OfficeCoordinator:
             "proposer": self._caller.actor,
             "overwrite_approved": request.overwrite_approved,
             "semantic_summaries": summaries,
+            "source_filename": source_filename,
+            "rejection_result": (
+                "Rejecting leaves the source unchanged and writes no output."
+            ),
         }
         return payload
 

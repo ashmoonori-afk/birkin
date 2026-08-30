@@ -74,20 +74,27 @@ public sealed class NativeCommandRequestTests
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         await server.CompleteHandshakeAsync(connection, discovery, deadline.Token);
         var request = OfficeCommands.Draft(
-            new OfficeDraftIntent("artifact-template", "diff-authoritative", "comparison-report.docx"),
+            new OfficeDraftIntent(
+                "Create the comparison report",
+                "docx",
+                new OfficeDocumentContent(["Comparison report", "Approved comparison."]),
+                "Create a new comparison report",
+                "comparison-report.docx",
+                false),
             new CommandRequestContext("draft-command-1", 51, NativeHandshake.ViewId));
 
         await connection.SendCommandAsync(request, deadline.Token);
         var envelope = await server.ReceiveAsync();
 
-        AssertOfficeCommand(envelope, "draft-command-1", 51, "office.draft");
+        AssertOfficeCommand(envelope, "draft-command-1", 51, "office.job_request");
         var payload = Object(Object(envelope.Body, "command"), "payload");
         CollectionAssert.AreEqual(
-            new[] { "template_artifact_id", "diff_id", "output_name" },
+            new[] { "request", "format", "content", "outcome", "destination", "overwrite_approved" },
             payload.Keys.ToArray());
-        Assert.AreEqual("artifact-template", String(payload, "template_artifact_id"));
-        Assert.AreEqual("diff-authoritative", String(payload, "diff_id"));
-        Assert.AreEqual("comparison-report.docx", String(payload, "output_name"));
+        Assert.AreEqual("Create the comparison report", String(payload, "request"));
+        Assert.AreEqual("docx", String(payload, "format"));
+        Assert.AreEqual("Create a new comparison report", String(payload, "outcome"));
+        Assert.AreEqual("comparison-report.docx", String(payload, "destination"));
     }
 
     [TestMethod]

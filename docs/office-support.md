@@ -41,6 +41,11 @@ The tracked catalog and these generated package-tree files are the publication a
 
 Trusted Korean and English Office requests are routed before model execution from user intent and supplied artifact names only. DOCX, XLSX, PPTX, PDF, and HWPX select their matching bundled skill; general Office requests select `office-work-os`; conflicts select inspect-first `office-documents`. Extracted document text is never routing authority. All routed writes remain copy-on-write.
 
+Korean format aliases are deterministic: `보고서` and `리포트` select DOCX,
+`파워포인트` and `피피티` select PPTX, and `한글파일` selects HWPX. If one
+request names more than one format, Birkin routes to `office-documents` and
+asks exactly `어느 포맷으로 저장할까요?` before any mutation proposal.
+
 ## Registered tools and arguments
 
 The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
@@ -53,7 +58,7 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `compare_documents` | `left`, `right` | Returns separate byte, semantic, package, and visual claims. |
 | `render_artifact` | `artifact` | `output_format` is `structured_preview`, `pdf`, `png`, or `thumbnail`; `page` is optional. |
 | `validate_artifact` | `artifact` | Reports package, schema-root, formula, openability, security, and fidelity layers. |
-| `office_job_request` | `request`, `source`, `outcome`, `operations`, `destination` | Creates a durable proposal; only canonical approval execution may mutate or export. |
+| `office_job_request` | `request`, `outcome`, `destination`, plus either `format` + `content` or `source` + `operations` | Source-free DOCX creation queues `office_create`; existing-document mutation queues `office_job`. Only canonical approval execution may create, mutate, or export. |
 | `office_rollback_request` | `job_id` | Queues a second high-risk approval for one HMAC-authenticated, unexpired export receipt. |
 
 The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`. Their machine metadata requires the same eight-tool set.

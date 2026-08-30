@@ -68,7 +68,8 @@ public sealed partial class ShellCoordinator
 
     public Task<bool> DraftOfficeDocumentAsync(
         OfficeDraftIntent intent,
-        CancellationToken cancellationToken) => UnavailableOfficeMutation(cancellationToken);
+        CancellationToken cancellationToken) =>
+        SubmitAsync((_, context) => OfficeCommands.Draft(intent, context), false, cancellationToken);
 
     public Task<bool> ConvertOfficeDocumentAsync(
         OfficeConvertIntent intent,
@@ -344,7 +345,7 @@ public sealed partial class ShellCoordinator
             AvailabilityLocked(OfficeCommands.SelectCommandType, true, authority),
             AvailabilityLocked(OfficeCommands.OpenCommandType, true, authority),
             AvailabilityLocked(OfficeCommands.CompareCommandType, true, authority),
-            new MutationAvailability(false, "E_OFFICE_JOB_REQUEST_REQUIRED"),
+            AvailabilityLocked(OfficeCommands.DraftCommandType, true, authority),
             new MutationAvailability(false, "E_OFFICE_JOB_REQUEST_REQUIRED")));
     }
 

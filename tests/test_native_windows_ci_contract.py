@@ -183,7 +183,7 @@ def test_dotnet_portable_runs_protocol_and_shell_on_all_three_operating_systems(
     assert {command for command in commands if command.startswith("dotnet test ")} == expected_tests
 
 
-def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution() -> None:
+def test_wpf_job_excludes_process_owning_journeys_from_full_solution() -> None:
     wpf = _job(_workflow(), "wpf-windows")
     assert wpf["runs-on"] == "windows-latest"
     env = _mapping(wpf.get("env", {}))
@@ -214,9 +214,10 @@ def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution(
     assert f"dotnet build ./{SOLUTION} -c Release --no-restore" in commands
     test_commands = [command for command in commands if command.startswith(f"dotnet test ./{SOLUTION}")]
     assert test_commands == [
-        f'dotnet test ./{SOLUTION} -c Release --no-build --logger "trx;LogFilePrefix=native-windows"'
+        f'dotnet test ./{SOLUTION} -c Release --no-build '
+        + '--filter "TestCategory!=LiveBridge&TestCategory!=ExistingAccountProvider" '
+        + '--logger "trx;LogFilePrefix=native-windows"'
     ]
-    assert "--filter" not in test_commands[0]
 
     uploads = [
         _mapping(step["with"])
@@ -254,7 +255,7 @@ def test_fixture_freshness_regenerates_every_normative_vector() -> None:
     assert "raise SystemExit(1)" in commands
 
 
-def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx() -> None:
+def test_live_job_bounds_hangs_and_uploads_all_diagnostics() -> None:
     job = _job(_workflow(), "live-bridge-window")
     assert job["runs-on"] == "windows-latest"
     assert _mapping(job["env"])["UV_NO_SYNC"] == "1"
@@ -262,7 +263,12 @@ def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx(
     assert [command for command in normalized if command.startswith("uv sync ")] == [LOCKED_SYNC]
     commands = _joined_commands(job)
     assert "TestCategory=LiveBridge" in commands
+    assert "--blame-hang --blame-hang-timeout 120s --blame-hang-dump-type mini" in commands
     assert "--logger \"trx;LogFilePrefix=native-windows-live\"" in commands
+    assert "dotnet tool install" in commands
+    assert "dotnet-dump" in commands
+    assert "clrstack -all" in commands
+    assert "managed-stacks.txt" in commands
 
     uploads = [
         step
@@ -273,7 +279,8 @@ def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx(
     upload = uploads[0]
     assert upload["if"] == "failure()"
     upload_config = _mapping(upload["with"])
-    assert upload_config["path"] == "windows/BirkinNativeApp/**/TestResults/*.trx"
+    assert upload_config["name"] == "native-windows-live-diagnostics"
+    assert upload_config["path"] == "windows/BirkinNativeApp/**/TestResults/**"
     assert upload_config["if-no-files-found"] == "error"
     assert upload_config["retention-days"] == 7
 

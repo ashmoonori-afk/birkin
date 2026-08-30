@@ -16,6 +16,7 @@ from birkin.workspace.contracts import (
     ProtocolError,
     WorkspaceCommand,
 )
+from birkin.workspace.approval_projection import approval_item
 from birkin.workspace.records import CommandReceipt
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 from birkin.workspace.service import WorkspaceService
@@ -196,27 +197,107 @@ def test_compare_is_read_only_and_office_draft_is_not_a_command(
     assert cast(list[object], projected["diffs"])[-1] == diff
 
 
-def test_direct_native_create_remains_policy_denied_without_output(
+def test_native_office_job_request_creation_queues_then_exports_real_docx(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
     service, adapter = _service(tmp_path)
-    output = adapter.surface_authority.office.service.home / "artifacts" / "drafts" / "blocked.docx"
+    destination = tmp_path / "workspace" / "created-report.docx"
+    drafts = adapter.surface_authority.office.service.home / "artifacts" / "drafts"
 
+    _, proposed = _submit(
+        service,
+        "direct-create",
+        "office.job_request",
+        {
+            "request": "새 보고서를 DOCX로 만들어 주세요.",
+            "format": "docx",
+            "content": {"paragraphs": ["새 보고서", "승인된 본문"]},
+            "outcome": "새 보고서 작성",
+            "destination": str(destination),
+            "overwrite_approved": False,
+        },
+    )
+
+    approval_id = cast(str, proposed["id"])
+    pending = store.get_pending(approval_id)
+    assert proposed["category"] == "office_create"
+    assert pending is not None
+    assert approval_item(pending)["sealed"] is True
+    requested = next(
+        event
+        for event in service.events()
+        if event.type == "approval.requested"
+        and event.command_id == "direct-create"
+    )
+    assert requested.payload["approval_id"] == approval_id
+    assert requested.payload["category"] == "office_create"
+    assert requested.payload["job_id"] == cast(
+        "dict[str, object]",
+        proposed["approval"],
+    )["job_id"]
+    assert requested.payload["sealed"] is True
+    assert not destination.exists()
+    assert not list(drafts.iterdir())
+
+    _, answered = _submit(
+        service,
+        "approve-create",
+        "approval.answer",
+        {
+            "approval_id": approval_id,
+            "decision": "approve",
+            "reason": "Create the requested report.",
+        },
+    )
+
+    receipt = cast(
+        "dict[str, object]",
+        json.loads(cast(str, answered["receipt"])),
+    )
+    exported = cast("dict[str, object]", receipt["export"])
+    assert answered["outcome"] == "approved"
+    assert receipt["state"] == "exported"
+    assert destination.is_file()
+    assert exported["output_sha256"] == hashlib.sha256(
+        destination.read_bytes()
+    ).hexdigest()
+    with zipfile.ZipFile(destination) as package:
+        document_xml = package.read("word/document.xml").decode("utf-8")
+    assert "새 보고서" in document_xml
+    assert "승인된 본문" in document_xml
+
+
+def test_native_create_rejects_unbound_payload_fields_without_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: a creation command carrying an unreviewed extra field.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    service, adapter = _service(tmp_path)
+    destination = tmp_path / "workspace" / "unbound.docx"
+    drafts = adapter.surface_authority.office.service.home / "artifacts" / "drafts"
+
+    # When: the strict native boundary parses the command.
     with pytest.raises(DocumentError) as caught:
         _ = _submit(
             service,
-            "direct-create",
+            "unbound-create",
             "office.create",
             {
                 "format": "docx",
-                "content": {"paragraphs": ["blocked"]},
-                "output_name": "blocked.docx",
+                "content": {
+                    "paragraphs": ["검토된 본문"],
+                    "unreviewed": "hidden content",
+                },
+                "output_name": "unbound.docx",
             },
         )
 
-    assert caught.value.code == DocumentErrorCode.POLICY_DENIED
-    assert not output.exists()
+    # Then: the extra field fails closed before approval or file creation.
+    assert caught.value.code is DocumentErrorCode.INVALID_INPUT
+    assert not destination.exists()
+    assert not list(drafts.iterdir())
 
 
 def test_native_office_job_request_queues_current_canonical_proposal(
@@ -378,3 +459,72 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert rollback_pending is not None
     assert rollback_pending["category"] == "office_rollback"
     assert rollback_pending["payload"]["job_id"] == approval["job_id"]
+
+
+def test_native_output_exists_projects_one_click_overwrite_follow_up(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    service, _ = _service(tmp_path)
+    destination = tmp_path / "workspace" / "existing-report.docx"
+    existing = b"existing caller file"
+    destination.write_bytes(existing)
+    _, proposed = _submit(
+        service,
+        "request-existing-create",
+        "office.job_request",
+        {
+            "request": "기존 경로에 새 DOCX 보고서를 만들어 주세요.",
+            "format": "docx",
+            "content": {"paragraphs": ["덮어쓴 보고서"]},
+            "outcome": "새 보고서 작성",
+            "destination": str(destination),
+            "overwrite_approved": False,
+        },
+    )
+
+    _, first = _submit(
+        service,
+        "approve-without-overwrite",
+        "approval.answer",
+        {
+            "approval_id": proposed["id"],
+            "decision": "approve",
+        },
+    )
+
+    assert first["outcome"] == "follow_up_required"
+    assert first["question"] == "기존 파일을 덮어쓸까요?"
+    follow_up_id = cast(str, first["follow_up_approval_id"])
+    assert destination.read_bytes() == existing
+    follow_up = store.get_pending(follow_up_id)
+    assert follow_up is not None
+    projected = approval_item(follow_up)
+    assert projected["summary"] == "기존 파일을 덮어쓸까요?"
+    assert projected["overwrite_approved"] is True
+    assert projected["overwrite_retry"] is True
+    assert projected["retry_of_approval_id"] == proposed["id"]
+    requested = next(
+        event
+        for event in service.events()
+        if event.type == "approval.requested"
+        and event.command_id == "approve-without-overwrite"
+    )
+    assert requested.payload["approval_id"] == follow_up_id
+    assert requested.payload["summary"] == "기존 파일을 덮어쓸까요?"
+
+    _, second = _submit(
+        service,
+        "approve-overwrite",
+        "approval.answer",
+        {
+            "approval_id": follow_up_id,
+            "decision": "approve",
+        },
+    )
+
+    assert second["outcome"] == "approved"
+    with zipfile.ZipFile(destination) as package:
+        document_xml = package.read("word/document.xml").decode("utf-8")
+    assert "덮어쓴 보고서" in document_xml

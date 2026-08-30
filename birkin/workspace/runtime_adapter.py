@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -162,6 +162,7 @@ class RuntimeWorkspaceAdapter:
             "office.job_request": self._office_job_request,
             "office.rollback_request": self._office_rollback_request,
             **self.surface_authority.handlers(self._emit),
+            "office.create": self._office_create_request,
         }
 
     def revoke_terminal_leases(self) -> None:
@@ -547,6 +548,8 @@ class RuntimeWorkspaceAdapter:
         return result
 
     def _office_job_request(self, payload: dict[str, object]) -> dict[str, object]:
+        if "format" in payload:
+            return self._office_creation_job_request(payload)
         from ..office.coordinator import (
             OfficeCaller,
             OfficeCoordinator,
@@ -655,6 +658,243 @@ class RuntimeWorkspaceAdapter:
         )
         return {**queued, "category": "office_job", "approval": approval}
 
+    def _office_creation_job_request(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        from ..office.create_approval import (
+            OfficeCreationCaller,
+            OfficeCreationCoordinator,
+            OfficeCreationRequest,
+        )
+        from ..office.errors import DocumentError, DocumentErrorCode
+
+        required = {
+            "request",
+            "format",
+            "content",
+            "outcome",
+            "destination",
+        }
+        optional = {"overwrite_approved"}
+        if not required <= set(payload) or set(payload) - required - optional:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "Office creation job request fields changed",
+            )
+        request_text = payload["request"]
+        outcome = payload["outcome"]
+        destination = payload["destination"]
+        if (
+            not isinstance(request_text, str)
+            or not request_text.strip()
+            or not isinstance(outcome, str)
+            or not outcome.strip()
+            or not isinstance(destination, str)
+            or not destination.strip()
+        ):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "Office creation request, outcome, and destination are required",
+            )
+        if payload["format"] != "docx":
+            raise DocumentError(
+                DocumentErrorCode.UNSUPPORTED_FORMAT,
+                "office_create",
+                "Office creation job request currently supports DOCX only",
+            )
+        raw_content = payload["content"]
+        if not isinstance(raw_content, Mapping) or set(raw_content) != {"paragraphs"}:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation content fields changed",
+            )
+        raw_paragraphs = raw_content.get("paragraphs")
+        if not isinstance(raw_paragraphs, Sequence) or isinstance(
+            raw_paragraphs,
+            (str, bytes),
+        ):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation paragraphs must be an array",
+            )
+        if not all(isinstance(paragraph, str) for paragraph in raw_paragraphs):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation paragraphs must be strings",
+            )
+        overwrite_approved = payload.get("overwrite_approved", False)
+        if not isinstance(overwrite_approved, bool):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "overwrite_approved must be a boolean",
+            )
+        paragraphs = tuple(cast("str", paragraph) for paragraph in raw_paragraphs)
+        approval = OfficeCreationCoordinator(
+            OfficeCreationCaller(
+                allowlist_root=self._workspace_root,
+                actor=f"native:{self._session_id}",
+            )
+        ).request(OfficeCreationRequest(
+            request_text=request_text,
+            paragraphs=paragraphs,
+            outcome=outcome,
+            destination=Path(destination),
+            overwrite_approved=overwrite_approved,
+        ))
+        description = (
+            f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+            f"{approval['destination']}."
+        )
+        queued = approvals.propose(
+            category="office_create",
+            title=f"Office 문서 생성: {outcome}",
+            description=description,
+            payload=approval,
+            cfg={},
+            origin=f"native:{self._session_id}",
+        )
+        approval_id = cast(str, queued["id"])
+        _ = self._emit(
+            "approval.requested",
+            {
+                "approval_id": approval_id,
+                "kind": "approval",
+                "summary": queued["title"],
+                "description": description,
+                "category": "office_create",
+                "status": "pending",
+                "risk": risk.risk_for("office_create"),
+                "sealed": bool(approval["creation_digest"]),
+                "decided": False,
+                "requester": approval["proposer"],
+                "rejection_result": (
+                    "거부하면 저장 위치에 파일을 만들지 않습니다."
+                ),
+                "job_id": approval["job_id"],
+                "creation_digest": approval["creation_digest"],
+                "authority_digest": approval["authority_digest"],
+                "destination": approval["destination"],
+                "overwrite_approved": approval["overwrite_approved"],
+            },
+        )
+        return {**queued, "category": "office_create", "approval": approval}
+
+    def _office_create_request(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        from ..office.create_approval import (
+            OfficeCreationCaller,
+            OfficeCreationCoordinator,
+            OfficeCreationRequest,
+        )
+        from ..office.errors import DocumentError, DocumentErrorCode
+
+        if set(payload) != {"format", "content", "output_name"}:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "native Office creation payload fields changed",
+            )
+        if payload.get("format") != "docx":
+            raise DocumentError(
+                DocumentErrorCode.UNSUPPORTED_FORMAT,
+                "office_create",
+                "native Office creation currently supports DOCX only",
+            )
+        raw_content = payload.get("content")
+        if not isinstance(raw_content, Mapping):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "Office creation content must be an object",
+            )
+        if set(raw_content) != {"paragraphs"}:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation content fields changed",
+            )
+        raw_paragraphs = raw_content.get("paragraphs")
+        if not isinstance(raw_paragraphs, Sequence) or isinstance(
+            raw_paragraphs,
+            (str, bytes),
+        ):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation paragraphs must be an array",
+            )
+        paragraphs: list[str] = []
+        for paragraph in raw_paragraphs:
+            if not isinstance(paragraph, str):
+                raise DocumentError(
+                    DocumentErrorCode.INVALID_INPUT,
+                    "office_create",
+                    "DOCX creation paragraphs must be strings",
+                )
+            paragraphs.append(paragraph)
+        output_name = payload.get("output_name")
+        if not isinstance(output_name, str):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "Office creation output_name must be a string",
+            )
+        approval = OfficeCreationCoordinator(
+            OfficeCreationCaller(
+                allowlist_root=self._workspace_root,
+                actor=f"native:{self._session_id}",
+            )
+        ).request(OfficeCreationRequest(
+            request_text=f"Create a new DOCX document at {output_name}",
+            paragraphs=tuple(paragraphs),
+            outcome=f"Create {output_name}",
+            destination=self._workspace_root / output_name,
+        ))
+        description = (
+            f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+            f"{approval['destination']}."
+        )
+        queued = approvals.propose(
+            category="office_create",
+            title=f"Office 문서 생성: {output_name}",
+            description=description,
+            payload=approval,
+            cfg={},
+            origin=f"native:{self._session_id}",
+        )
+        _ = self._emit(
+            "approval.requested",
+            {
+                "id": queued["id"],
+                "kind": "approval",
+                "summary": queued["title"],
+                "description": description,
+                "category": "office_create",
+                "status": "pending",
+                "risk": risk.risk_for("office_create"),
+                "sealed": bool(approval["creation_digest"]),
+                "decided": False,
+                "requester": approval["proposer"],
+                "rejection_result": (
+                    "거부하면 저장 위치에 파일을 만들지 않습니다."
+                ),
+                "creation_digest": approval["creation_digest"],
+                "authority_digest": approval["authority_digest"],
+                "destination": approval["destination"],
+                "overwrite_approved": approval["overwrite_approved"],
+            },
+        )
+        return {**queued, "category": "office_create", "approval": approval}
+
     def _office_rollback_request(
         self,
         payload: dict[str, object],
@@ -692,17 +932,17 @@ class RuntimeWorkspaceAdapter:
             "outcome": str(result["outcome"]),
         }
         receipt = result.get("receipt")
-        projected: OfficeReceiptProjection | None = None
+        receipt_projection: OfficeReceiptProjection | None = None
         if isinstance(receipt, str):
             event_payload["receipt"] = receipt
             if approval_record is not None:
-                projected = OfficeReceiptProjection.from_result(
+                receipt_projection = OfficeReceiptProjection.from_result(
                     approval_id,
                     cast(dict[str, object], approval_record),
                     receipt,
                 )
-        if projected is not None:
-            projected_payload = projected.event_payload()
+        if receipt_projection is not None:
+            projected_payload = receipt_projection.event_payload()
             for field in (
                 "receipt_ref",
                 "destination",
@@ -711,15 +951,37 @@ class RuntimeWorkspaceAdapter:
                 "backup_exists",
             ):
                 event_payload[field] = projected_payload[field]
-            result["receipt_ref"] = projected.receipt_ref
+            result["receipt_ref"] = receipt_projection.receipt_ref
+        follow_up_approval_id = result.get("follow_up_approval_id")
+        if isinstance(follow_up_approval_id, str):
+            event_payload["follow_up_approval_id"] = follow_up_approval_id
+            question = result.get("question")
+            if isinstance(question, str):
+                event_payload["question"] = question
         _ = self._emit("approval.answered", event_payload)
-        if projected is not None:
-            _ = self._emit("receipt.recorded", projected.event_payload())
+        if receipt_projection is not None:
+            _ = self._emit(
+                "receipt.recorded",
+                receipt_projection.event_payload(),
+            )
+        if isinstance(follow_up_approval_id, str):
+            from .approval_projection import approval_item
+
+            follow_up = store.get_pending(follow_up_approval_id)
+            if follow_up is not None:
+                follow_up_projection = approval_item(follow_up)
+                _ = self._emit(
+                    "approval.requested",
+                    {
+                        **follow_up_projection,
+                        "approval_id": follow_up_approval_id,
+                    },
+                )
         error = result.get("error")
         self._pending_approval_context = approval_turn_context(
             approval_id,
             str(result["outcome"]),
-            projected,
+            receipt_projection,
             str(error) if isinstance(error, str) else None,
         )
         return {str(key): value for key, value in result.items()}

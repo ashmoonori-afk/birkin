@@ -24,9 +24,7 @@ def assemble_routed_skills(
     """Select and render skills exactly as a production turn does."""
     office_route = route_office_request(text)
     office_skill = (
-        manager.get(office_route.skill_name)
-        if office_route is not None
-        else None
+        manager.get(office_route.skill_name) if office_route is not None else None
     )
     selected = (
         [office_skill]
@@ -38,7 +36,19 @@ def assemble_routed_skills(
         for skill in selected
         if loaded_skills is None or skill.name not in loaded_skills
     ]
-    if office_route is not None and rendered:
+    if (
+        office_route is not None
+        and office_route.clarification_question is not None
+        and rendered
+    ):
+        rendered[0] = (
+            "Office route clarification required. Ask the user exactly: "
+            f"{office_route.clarification_question}\n"
+            "Do not choose a destination format or invoke a document mutation "
+            "tool until the user answers.\n\n"
+            f"{rendered[0]}"
+        )
+    elif office_route is not None and rendered:
         rendered[0] = (
             "Office route policy: inspect-first; write policy: "
             f"{office_route.write_policy}.\n\n{rendered[0]}"
