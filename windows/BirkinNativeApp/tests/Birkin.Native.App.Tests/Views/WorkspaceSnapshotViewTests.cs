@@ -4,6 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Threading;
 using System.Windows.Media;
+using System.Windows.Shapes;
 using Birkin.Native.App.Tests.Support;
 using Birkin.Native.App.Views;
 using Birkin.Native.Shell.Connection;
@@ -15,6 +16,48 @@ namespace Birkin.Native.App.Tests.Views;
 [TestClass]
 public sealed class WorkspaceSnapshotViewTests
 {
+    [TestMethod]
+    public async Task ConnectionIndicator_WhenStateChanges_UsesTruthfulBrush()
+    {
+        // Given
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+
+        // When / Then
+        _ = await sta.InvokeAsync(() =>
+        {
+            var model = new ShellPresentationModel(
+                SynchronizationContext.Current!);
+            var view = new WorkspaceSnapshotView(model);
+            OfficeWorkflowViewHarness.Layout(view);
+            var indicator = FindByAutomationId<Ellipse>(
+                view,
+                "ConnectionStatusIndicator");
+            var cases = new[]
+            {
+                (ConnectionState.Disconnected, "FaintBrush"),
+                (ConnectionState.Connecting, "AccentBrush"),
+                (ConnectionState.Handshaking, "AccentBrush"),
+                (ConnectionState.Subscribing, "AccentBrush"),
+                (ConnectionState.Ready, "SuccessBrush"),
+                (ConnectionState.Failed, "DangerBrush"),
+            };
+
+            foreach (var (state, resource) in cases)
+            {
+                model.PresentConnection(
+                    state == ConnectionState.Failed
+                        ? ConnectionPresentation.Failed("E_CONNECTION")
+                        : ConnectionPresentation.Create(state));
+                view.Dispatcher.Invoke(
+                    () => { },
+                    DispatcherPriority.DataBind);
+                Assert.AreSame(view.FindResource(resource), indicator.Fill);
+            }
+            return true;
+        });
+    }
+
     [TestMethod]
     public async Task Bindings_WhenPythonPresentationIsReady_RenderNamedValues()
     {
@@ -105,7 +148,14 @@ public sealed class WorkspaceSnapshotViewTests
                 FindByAutomationId<ItemsControl>(view, "working-memory.items").ItemsSource,
                 FindByAutomationId<ItemsControl>(view, "approvals.items").ItemsSource,
                 RegionAutomationIds(view),
-                Descendants<Button>(view).Select(button => button.IsEnabled).ToArray(),
+                Descendants<Button>(view)
+                    .Where(button => !AutomationProperties
+                        .GetAutomationId(button)
+                        .StartsWith(
+                            "startup.failure.",
+                            StringComparison.Ordinal))
+                    .Select(button => button.IsEnabled)
+                    .ToArray(),
                 FindByAutomationId<TextBox>(view, "conversation.draft").IsEnabled,
                 AutomationProperties.GetAutomationId(
                     FindByAutomationId<TextBlock>(view, "composer.read-only-caption")));

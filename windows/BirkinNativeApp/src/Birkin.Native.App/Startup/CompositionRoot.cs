@@ -55,7 +55,21 @@ public sealed class CompositionRoot : IAsyncDisposable
         supervisor = new BridgeSupervisor(
             () => TimeSpan.FromSeconds((double)Stopwatch.GetTimestamp() / Stopwatch.Frequency),
             () => OwnedBridgeProcess.Start(process => supervisor!.ObserveExit(process)));
-        var runner = new DevelopmentPreviewRunner(coordinator, session, supervisor, productVersion);
+        var runner = new DevelopmentPreviewRunner(
+            coordinator,
+            session,
+            supervisor,
+            new ExecutablePathSettings(),
+            productVersion);
+        supervisor.StoppedWithReason += reason =>
+        {
+            if (runner.ShouldPresentSupervisorFailures)
+            {
+                presentationModel.PresentStartupFailure(
+                    StartupFailurePresentation.Create(
+                        BridgeStartup.FailureReason(reason)));
+            }
+        };
         Coordinators.Add(presentationModel, coordinator);
         return new CompositionRoot(
             presentationModel,

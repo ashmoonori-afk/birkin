@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using Birkin.Native.Shell.Connection;
+using Birkin.Native.Shell.Lifecycle;
 using Birkin.Native.Shell.Presentation;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -76,6 +77,94 @@ public sealed class ShellPresentationModelTests
         // Then
         Assert.AreEqual(ConnectionState.Ready, observed?.State);
         Assert.AreSame(snapshot, observed?.Workspace);
+    }
+
+    [TestMethod]
+    public void PresentStartupFailure_WhenCliIsUnavailable_ExposesPersistentExplanation()
+    {
+        // Given
+        var context = new DeterministicSynchronizationContext();
+        var model = new ShellPresentationModel(context);
+        var failure = StartupFailurePresentation.Create(
+            BridgeStartupFailureReason.CliUnavailable);
+
+        // When
+        model.PresentStartupFailure(failure);
+        context.RunAll();
+
+        // Then
+        Assert.AreSame(failure, model.StartupFailure);
+        Assert.IsTrue(model.HasStartupFailure);
+        Assert.AreEqual(ConnectionState.Failed, model.Connection.State);
+        Assert.AreEqual(failure.ErrorCode, model.Connection.ErrorCode);
+        Assert.AreEqual(
+            "birkin 실행 파일을 찾을 수 없습니다",
+            failure.Title);
+        Assert.AreEqual(
+            "Windows 앱이 birkin 명령을 시작하지 못했습니다.",
+            failure.Explanation);
+        Assert.AreEqual(
+            "Birkin CLI를 설치하거나 실행 파일의 전체 경로를 설정한 다음 다시 시도하세요.",
+            failure.RecoveryAction);
+    }
+
+    [TestMethod]
+    public void StartupFailure_WhenAnnouncementTimesOut_ExposesBoundedTimeoutCode()
+    {
+        // Given / When
+        var failure = StartupFailurePresentation.Create(
+            BridgeStartupFailureReason.CliTimedOut);
+
+        // Then
+        Assert.AreEqual("E_CLI_TIMEOUT", failure.ErrorCode);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(failure.Explanation));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(failure.RecoveryAction));
+    }
+
+    [TestMethod]
+    public void ClearStartupFailure_WhenRetryBegins_RemovesPersistentExplanation()
+    {
+        // Given
+        var context = new DeterministicSynchronizationContext();
+        var model = new ShellPresentationModel(context);
+        model.PresentStartupFailure(StartupFailurePresentation.Create(
+            BridgeStartupFailureReason.CliUnavailable));
+        context.RunAll();
+
+        // When
+        model.ClearStartupFailure();
+        context.RunAll();
+
+        // Then
+        Assert.IsNull(model.StartupFailure);
+        Assert.IsFalse(model.HasStartupFailure);
+    }
+
+    [TestMethod]
+    public void StartupFailure_WhenBridgeCrashLoops_ExposesSpecificReason()
+    {
+        // Given
+        var context = new DeterministicSynchronizationContext();
+        var model = new ShellPresentationModel(context);
+        var failure = StartupFailurePresentation.Create(
+            BridgeStartupFailureReason.CliCrashLoop);
+
+        // When
+        model.PresentStartupFailure(failure);
+        context.RunAll();
+
+        // Then
+        Assert.AreSame(failure, model.StartupFailure);
+        Assert.IsTrue(model.HasStartupFailure);
+        Assert.AreEqual(ConnectionState.Failed, model.Connection.State);
+        Assert.AreEqual("E_CLI_CRASH_LOOP", failure.ErrorCode);
+        Assert.AreEqual(
+            "Birkin CLI가 반복해서 종료되었습니다",
+            failure.Title);
+        Assert.AreEqual(
+            "birkin 명령이 1분 안에 5번 종료되었습니다.",
+            failure.Explanation);
+        Assert.IsTrue(failure.CanRetry);
     }
 
     private sealed class DeterministicSynchronizationContext : SynchronizationContext

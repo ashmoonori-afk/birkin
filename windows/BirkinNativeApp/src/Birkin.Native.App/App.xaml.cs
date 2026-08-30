@@ -20,16 +20,17 @@ public partial class App : Application
             var context = SynchronizationContext.Current
                 ?? new DispatcherSynchronizationContext(Dispatcher);
             _composition = CompositionRoot.Create(context);
-            MainWindow = new MainWindow(_composition.PresentationModel);
-            if (eventArgs.Args.Length == 0)
+            MainWindow = new MainWindow(
+                _composition.PresentationModel,
+                _composition.Coordinator,
+                _composition.Runner);
+            MainWindow.Show();
+            var failure = await _composition.Runner.RunAsync(
+                options,
+                _shutdown.Token);
+            if (failure is not null)
             {
-                await _composition.Runner.RunAsync(options, _shutdown.Token);
-                MainWindow.Show();
-            }
-            else
-            {
-                MainWindow.Show();
-                await _composition.Runner.RunAsync(options, _shutdown.Token);
+                _composition.PresentationModel.PresentStartupFailure(failure);
             }
         }
         catch (ArgumentException error)
@@ -40,6 +41,10 @@ public partial class App : Application
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(2);
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+            // App shutdown owns this cancellation.
         }
     }
 

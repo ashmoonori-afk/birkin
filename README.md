@@ -96,6 +96,18 @@ birkin setup
 birkin chat
 ```
 
+### Windows development preview
+
+The WPF development preview opens before the local bridge connects. If the
+Birkin CLI is missing, times out, fails its handshake, or enters a crash loop,
+the app keeps running and shows a bounded reason, a retry action, and a field
+for saving the full executable path to `BIRKIN_EXECUTABLE`. The connection
+indicator is green only when the bridge is ready.
+
+See [`windows/BirkinNativeApp/README.md`](windows/BirkinNativeApp/README.md) for
+Windows build, run, `PATH`, executable-path, troubleshooting, and test
+instructions.
+
 Run the local service surfaces in separate terminals:
 
 ```bash
