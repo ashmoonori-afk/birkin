@@ -249,6 +249,10 @@ def test_live_job_bounds_hangs_and_uploads_all_diagnostics() -> None:
     assert "TestCategory=LiveBridge" in commands
     assert "--blame-hang --blame-hang-timeout 120s --blame-hang-dump-type mini" in commands
     assert "--logger \"trx;LogFilePrefix=native-windows-live\"" in commands
+    assert "dotnet tool install" in commands
+    assert "dotnet-dump" in commands
+    assert "clrstack -all" in commands
+    assert "managed-stacks.txt" in commands
 
     uploads = [
         step

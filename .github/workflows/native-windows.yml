@@ -166,6 +166,25 @@ jobs:
           --blame-hang --blame-hang-timeout 120s --blame-hang-dump-type mini
           --logger "trx;LogFilePrefix=native-windows-live"
       - if: failure()
+        shell: pwsh
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP "dotnet-tools"
+          dotnet tool install --tool-path $tools dotnet-dump --version 9.0.661903
+          $dump = Get-ChildItem `
+            -Path ./windows/BirkinNativeApp `
+            -Recurse `
+            -Filter "*_hangdump.dmp" |
+            Select-Object -First 1
+          if ($null -eq $dump) {
+            throw "The live-bridge failure did not produce a hang dump."
+          }
+          $analysis = Join-Path $dump.Directory.FullName "managed-stacks.txt"
+          & (Join-Path $tools "dotnet-dump.exe") analyze $dump.FullName `
+            -c "clrstack -all" `
+            -c "threads" `
+            -c "exit" |
+            Tee-Object -FilePath $analysis
+      - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: native-windows-live-diagnostics
