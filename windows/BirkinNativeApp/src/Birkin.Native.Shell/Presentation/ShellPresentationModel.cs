@@ -10,6 +10,7 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
     private ConnectionPresentation _connection = ConnectionPresentation.Create(ConnectionState.Disconnected);
     private WorkspaceSnapshotPresentation? _workspace;
     private OfficeWorkflowPresentation _officeWorkflow = OfficeWorkflowPresentation.Empty;
+    private StartupFailurePresentation? _startupFailure;
 
     public ShellPresentationModel(SynchronizationContext synchronizationContext)
     {
@@ -23,6 +24,10 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
     public WorkspaceSnapshotPresentation? Workspace => _workspace;
 
     public OfficeWorkflowPresentation OfficeWorkflow => _officeWorkflow;
+
+    public StartupFailurePresentation? StartupFailure => _startupFailure;
+
+    public bool HasStartupFailure => _startupFailure is not null;
 
     public void PresentConnection(ConnectionPresentation presentation) =>
         _synchronizationContext.Post(
@@ -77,6 +82,28 @@ public sealed class ShellPresentationModel : INotifyPropertyChanged
             {
                 _officeWorkflow = presentation;
                 OnPropertyChanged(nameof(OfficeWorkflow));
+            },
+            null);
+
+    public void PresentStartupFailure(StartupFailurePresentation failure) =>
+        _synchronizationContext.Post(
+            _ =>
+            {
+                _startupFailure = failure;
+                _connection = ConnectionPresentation.Failed(failure.ErrorCode);
+                OnPropertyChanged(nameof(StartupFailure));
+                OnPropertyChanged(nameof(HasStartupFailure));
+                OnPropertyChanged(nameof(Connection));
+            },
+            null);
+
+    public void ClearStartupFailure() =>
+        _synchronizationContext.Post(
+            _ =>
+            {
+                _startupFailure = null;
+                OnPropertyChanged(nameof(StartupFailure));
+                OnPropertyChanged(nameof(HasStartupFailure));
             },
             null);
 

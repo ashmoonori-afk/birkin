@@ -39,6 +39,14 @@ public sealed partial class ShellCoordinator
         CancellationToken cancellationToken) =>
         SubmitAsync((_, context) => ApprovalCommands.Answer(intent, context), false, cancellationToken);
 
+    public Task<bool> RequestOfficeRollbackAsync(
+        OfficeRollbackRequestIntent intent,
+        CancellationToken cancellationToken) =>
+        SubmitAsync(
+            (_, context) => OfficeCommands.RollbackRequest(intent, context),
+            false,
+            cancellationToken);
+
     public Task<bool> CreateOfficeDocumentAsync(
         OfficeCreateIntent intent,
         CancellationToken cancellationToken) => UnavailableOfficeMutation(cancellationToken);

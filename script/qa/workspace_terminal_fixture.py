@@ -121,6 +121,7 @@ class FixtureRuntimeWorkspaceAdapter:
                 {
                     "approval_id": "qa-approval",
                     "summary": "Approve deterministic workspace action",
+                    "category": "office_job",
                     "status": "pending",
                     "requester": "fixture-agent",
                     "target": "workspace continuation",
@@ -142,6 +143,7 @@ class FixtureRuntimeWorkspaceAdapter:
                 {
                     "approval_id": "qa-approval",
                     "decision": "approve",
+                    "outcome": "approved",
                     "receipt": (
                         '{"destination":"fixture://approved-output",'
                         '"status":"executed"}'
@@ -238,14 +240,13 @@ class FixtureRuntimeWorkspaceAdapter:
         payload: dict[str, object],
     ) -> dict[str, object]:
         self._approval_pending = False
+        decision = str(payload.get("decision") or "")
         _ = self._event(
             "approval.answered",
             {
                 "approval_id": str(payload.get("approval_id") or ""),
-                "decision": str(payload.get("decision") or ""),
-                "outcome": "approved",
-                "status": "approved",
-                "ui_state": "succeeded",
+                "decision": decision,
+                "outcome": "approved" if decision == "approve" else "rejected",
                 "receipt": "fixture approval executed",
             },
         )

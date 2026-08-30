@@ -88,6 +88,16 @@ public static class KoreanDecisionText
     public static string ApprovalSeal(bool isSealed) =>
         isSealed ? "검토 내용 고정됨" : "검토 내용 고정 안 됨";
 
+    public static string ApprovalOutcome(string? status) => status switch
+    {
+        "approved" => "승인됨",
+        "rejected" => "거부됨",
+        "answered_elsewhere" => "다른 위치에서 결정됨",
+        "expired" => "만료됨",
+        "failed" => "실패함",
+        _ => "결정 대기 중",
+    };
+
     public static string ApprovalOverwrite(bool? overwriteApproved) =>
         overwriteApproved switch
         {

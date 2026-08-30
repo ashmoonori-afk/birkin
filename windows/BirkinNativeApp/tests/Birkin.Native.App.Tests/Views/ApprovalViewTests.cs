@@ -1,4 +1,5 @@
 using System.IO;
+using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -40,7 +41,7 @@ public sealed class ApprovalViewTests
     }
 
     [TestMethod]
-    public async Task AnsweredApproval_WhenCanonicalResolutionArrives_RemovesActionableCard()
+    public async Task AnsweredApproval_WhenCanonicalResolutionArrives_MovesToDecidedHistory()
     {
         // Given
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -64,6 +65,9 @@ public sealed class ApprovalViewTests
 
             // Then
             Assert.AreEqual(0, view.ApprovalRows.Count);
+            var decided = view.DecidedApprovalRows.Single();
+            Assert.AreEqual("승인됨", decided.OutcomeLabel);
+            Assert.AreEqual("receipt:approval-7", decided.ReceiptRef);
         });
     }
 
@@ -235,6 +239,119 @@ public sealed class ApprovalViewTests
             Assert.AreEqual(0, fixture.Connection.Sent.Count);
         });
     }
+
+    [TestMethod]
+    public async Task DecidedReceipt_WhenExportCompleted_RendersCollapsedTrustCard()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.ApplyCanonical("approval.answered", Object(
+                ("approval_id", Text("approval-7")),
+                ("decision", Text("approve")),
+                ("outcome", Text("approved")),
+                ("summary", Text("Office export completed")),
+                ("destination", Text("C:\\workspace\\approved.xlsx")),
+                ("receipt_ref", Text("office:job-7")),
+                ("expires_at", Text("2099-09-28T12:00:00+00:00")),
+                ("backup_exists", new NativeJsonBoolean(true))));
+            var view = new ApprovalView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+
+            Assert.AreEqual(0, view.ApprovalRows.Count);
+            var decided = view.DecidedApprovalRows.Single();
+            Assert.AreEqual("office:job-7", decided.ReceiptRef);
+            Assert.AreEqual("C:\\workspace\\approved.xlsx", decided.Destination);
+            Assert.AreEqual(
+                "원본은 백업되었으며 9월 28일까지 되돌리기 가능",
+                decided.RollbackAvailabilityLabel);
+            var section = OfficeWorkflowViewHarness.Find<Expander>(
+                view,
+                "approval.decided.section");
+            Assert.IsFalse(section.IsExpanded);
+            section.IsExpanded = true;
+            OfficeWorkflowViewHarness.Layout(view);
+            Assert.AreEqual(
+                "C:\\workspace\\approved.xlsx",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.receipt.destination.approval-7").Text);
+            Assert.AreEqual(
+                decided.RollbackAvailabilityLabel,
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.receipt.retention.approval-7").Text);
+            Assert.AreEqual(
+                "승인됨",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.outcome.approval-7").Text);
+            Assert.AreEqual(
+                "office:job-7",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.receipt-reference.approval-7").Text);
+            Assert.IsNotNull(
+                OfficeWorkflowViewHarness.Find<Button>(
+                    view,
+                    "approval.receipt.open-file.approval-7"));
+            Assert.IsNotNull(
+                OfficeWorkflowViewHarness.Find<Button>(
+                    view,
+                    "approval.receipt.open-folder.approval-7"));
+        });
+    }
+
+    [TestMethod]
+    public async Task RollbackButton_WhenReceiptSelected_SendsReceiptReferenceOnly()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.ApplyCanonical("approval.answered", Object(
+                ("approval_id", Text("approval-7")),
+                ("decision", Text("approve")),
+                ("outcome", Text("approved")),
+                ("summary", Text("Office export completed")),
+                ("destination", Text("C:\\workspace\\approved.xlsx")),
+                ("receipt_ref", Text("office:job-7")),
+                ("expires_at", Text("2099-09-28T12:00:00+00:00")),
+                ("backup_exists", new NativeJsonBoolean(true))));
+            var view = new ApprovalView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+            OfficeWorkflowViewHarness.Find<Expander>(
+                view,
+                "approval.decided.section").IsExpanded = true;
+            OfficeWorkflowViewHarness.Layout(view);
+
+            OfficeWorkflowViewHarness.Find<Button>(
+                view,
+                "approval.receipt.rollback.approval-7").RaiseEvent(
+                    new RoutedEventArgs(Button.ClickEvent));
+            await view.Dispatcher.InvokeAsync(() => { });
+
+            var request = fixture.Connection.Sent[^1];
+            Assert.AreEqual("office.rollback_request", request.CommandType);
+            CollectionAssert.AreEquivalent(
+                new[] { "receipt_ref" },
+                request.Payload.Keys.ToArray());
+            Assert.AreEqual(
+                "office:job-7",
+                ((NativeJsonString)request.Payload["receipt_ref"]!).Value);
+            Assert.IsFalse(request.Payload.ContainsKey("job_id"));
+        });
+    }
+
+    private static NativeJsonString Text(string value) => new(value);
+
+    private static NativeJsonObject Object(
+        params (string Key, NativeJsonValue Value)[] pairs) =>
+        new(pairs.Select(pair =>
+            new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));
 
     private static string EvidencePath()
     {

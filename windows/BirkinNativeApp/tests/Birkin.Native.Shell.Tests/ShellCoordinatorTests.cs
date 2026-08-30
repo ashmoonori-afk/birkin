@@ -30,7 +30,10 @@ public sealed class ShellCoordinatorTests
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         // When
-        await coordinator.ConnectAsync(AnnouncementJson(), ExpectedProductVersion, deadline.Token);
+        var connected = await coordinator.ConnectAsync(
+            AnnouncementJson(),
+            ExpectedProductVersion,
+            deadline.Token);
         context.RunAll();
         var presentation = await applied.Task.WaitAsync(deadline.Token);
 
@@ -52,6 +55,7 @@ public sealed class ShellCoordinatorTests
         Assert.AreEqual("initial", presentation.ResetReason);
         Assert.AreEqual("loopback", presentation.Transport);
         Assert.AreEqual(2, presentation.PanelCount);
+        Assert.IsTrue(connected);
     }
 
     [TestMethod]
@@ -66,7 +70,10 @@ public sealed class ShellCoordinatorTests
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 
         // When
-        await coordinator.ConnectAsync(AnnouncementJson(), ExpectedProductVersion, deadline.Token);
+        var connected = await coordinator.ConnectAsync(
+            AnnouncementJson(),
+            ExpectedProductVersion,
+            deadline.Token);
         context.RunAll();
 
         // Then
@@ -74,6 +81,63 @@ public sealed class ShellCoordinatorTests
         Assert.AreEqual("E_BOOTSTRAP_INVALID", model.Connection.ErrorCode);
         Assert.IsFalse(model.Connection.StatusText.Contains(recordContent, StringComparison.Ordinal));
         Assert.IsNull(model.Workspace);
+        Assert.IsFalse(connected);
+    }
+
+    [TestMethod]
+    public async Task MutationAuthorityLoss_AfterReady_PublishesFailedConnection()
+    {
+        // Given
+        var frame = NativeFrameCodec.Encode(SnapshotEnvelope());
+        await using var connection = new FrameConnection(
+            NativeFrameCodec.Decode(frame));
+        var store = new NativeProjectionStore();
+        var context = new DeterministicSynchronizationContext();
+        var model = new ShellPresentationModel(context);
+        await using var coordinator = new ShellCoordinator(
+            connection,
+            store,
+            model);
+        using var deadline = new CancellationTokenSource(
+            TimeSpan.FromSeconds(5));
+        Assert.IsTrue(await coordinator.ConnectAsync(
+            AnnouncementJson(),
+            ExpectedProductVersion,
+            deadline.Token));
+        context.RunAll();
+        Assert.AreEqual(ConnectionState.Ready, model.Connection.State);
+
+        // When
+        store.MarkMutationAuthorityUnavailable();
+        context.RunAll();
+
+        // Then
+        Assert.AreEqual(ConnectionState.Failed, model.Connection.State);
+        Assert.AreEqual("E_CONNECTION", model.Connection.ErrorCode);
+    }
+
+    [TestMethod]
+    public async Task ConnectAsync_WhenCancelled_PropagatesWithoutFailurePresentation()
+    {
+        // Given
+        await using var connection = new FrameConnection(
+            new OperationCanceledException("app shutdown"));
+        var context = new DeterministicSynchronizationContext();
+        var model = new ShellPresentationModel(context);
+        await using var coordinator = new ShellCoordinator(
+            connection,
+            new NativeProjectionStore(),
+            model);
+
+        // When / Then
+        _ = await Assert.ThrowsExceptionAsync<OperationCanceledException>(
+            () => coordinator.ConnectAsync(
+                AnnouncementJson(),
+                ExpectedProductVersion,
+                CancellationToken.None));
+        context.RunAll();
+        Assert.AreNotEqual(ConnectionState.Failed, model.Connection.State);
+        Assert.IsNull(model.Connection.ErrorCode);
     }
 
     private static NativeEnvelope SnapshotEnvelope() => new(
@@ -101,14 +165,15 @@ public sealed class ShellCoordinatorTests
     private sealed class FrameConnection : INativeClientConnection
     {
         private readonly NativeEnvelope? _envelope;
-        private readonly NativeProtocolError? _connectError;
+        private readonly Exception? _connectError;
         private readonly TaskCompletionSource<NativeEnvelope> _nextEnvelope =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _receiveCount;
 
         public FrameConnection(NativeEnvelope envelope) => _envelope = envelope;
 
-        public FrameConnection(NativeProtocolError connectError) => _connectError = connectError;
+        public FrameConnection(Exception connectError) =>
+            _connectError = connectError;
 
         public BridgeAnnouncement? Announcement { get; private set; }
 

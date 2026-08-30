@@ -52,6 +52,13 @@ public static class OfficeDiffPresentationMapper
         && Text(payload, "approval_id") is not null
         && Text(payload, "artifact_id") is not null;
 
+    public static OfficeDiffPresentation ApplyApprovalReceipt(
+        OfficeDiffPresentation current,
+        NativeEnvelope envelope) =>
+        IsCorrelatedApprovalReceipt(envelope, current.DiffId)
+            ? current with { ApprovalState = OfficeDiffApprovalState.Approved }
+            : current;
+
     public static OfficeDiffRowPresentation FromProjected(PanelItemPresentation item)
     {
         var summary = item.Summary ?? string.Empty;

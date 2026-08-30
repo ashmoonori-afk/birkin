@@ -58,6 +58,48 @@ public sealed class WorkspaceSnapshotPresentationTests
     }
 
     [TestMethod]
+    public void FromProjection_WhenReceiptRecorded_MapsRollbackTrustDetails()
+    {
+        // Given
+        var state = ReceiptProjection();
+
+        // When
+        var presentation = WorkspaceSnapshotPresentation.FromProjection(state, "loopback");
+
+        // Then
+        var row = presentation.ApprovalRequests.Single();
+        Assert.AreEqual("office:job-7", row.ReceiptRef);
+        Assert.AreEqual("승인됨", row.OutcomeLabel);
+        Assert.IsTrue(row.Decided);
+        Assert.IsTrue(row.BackupExists);
+        Assert.AreEqual(
+            "원본은 백업되었으며 9월 28일까지 되돌리기 가능",
+            row.RollbackAvailabilityLabel);
+        Assert.IsTrue(row.CanRollback);
+    }
+
+    [TestMethod]
+    public void ReceiptWithoutValidExpiry_CannotOfferRollback()
+    {
+        // Given
+        var missing = new PanelItemPresentation(
+            "approval-missing-expiry",
+            "approval",
+            "Missing expiry",
+            ReceiptRef: "office:job-missing");
+        var invalid = new PanelItemPresentation(
+            "approval-invalid-expiry",
+            "approval",
+            "Invalid expiry",
+            ExpiresAt: "not-a-timestamp",
+            ReceiptRef: "office:job-invalid");
+
+        // Then
+        Assert.IsFalse(missing.CanRollback);
+        Assert.IsFalse(invalid.CanRollback);
+    }
+
+    [TestMethod]
     public void FromProjection_WhenOfficeApprovalEventIsApplied_MapsTrustDetailsWithoutLoss()
     {
         // Given
@@ -159,6 +201,51 @@ public sealed class WorkspaceSnapshotPresentationTests
                 "unstructured difference"));
 
         Assert.AreEqual("예상 변경", row.Label);
+    }
+
+    private static NativeProjectionState ReceiptProjection()
+    {
+        const string instanceId = "0123456789abcdef0123456789abcdef";
+        var body = new NativeJsonObject([
+            new("protocol_version", new NativeJsonInteger(1)),
+            new("session_id", new NativeJsonString("session-receipt")),
+            new("cursor", new NativeJsonInteger(7)),
+            new("panels", new NativeJsonArray([
+                new NativeJsonObject([
+                    new("key", new NativeJsonString("approvals")),
+                    new("items", new NativeJsonArray([
+                        new NativeJsonObject([
+                            new("id", new NativeJsonString("approval-7")),
+                            new("kind", new NativeJsonString("approval")),
+                            new("summary", new NativeJsonString("Office export completed")),
+                            new("status", new NativeJsonString("approved")),
+                            new("ui_state", new NativeJsonString("succeeded")),
+                            new("cursor", new NativeJsonInteger(7)),
+                            new("destination", new NativeJsonString("C:\\workspace\\approved.xlsx")),
+                            new("expires_at", new NativeJsonString("2099-09-28T12:00:00+00:00")),
+                            new("receipt_ref", new NativeJsonString("office:job-7")),
+                            new("backup_exists", new NativeJsonBoolean(true)),
+                        ]),
+                    ])),
+                ]),
+            ])),
+            new("conversation", new NativeJsonArray([])),
+            new("composer", new NativeJsonObject([])),
+            new("status", new NativeJsonObject([])),
+            new("working_memory", new NativeJsonObject([])),
+            new("approval_policy", new NativeJsonObject([])),
+            new("terminals", new NativeJsonArray([])),
+            new("instance_id", new NativeJsonString(instanceId)),
+            new("reset_reason", new NativeJsonString("initial")),
+        ]);
+        var store = new NativeProjectionStore();
+        store.ApplySnapshot(
+            new NativeEnvelope(
+                NativeMessageKind.Snapshot,
+                "snapshot-receipt",
+                body),
+            new NativeReadyIdentity("session-receipt", instanceId, "test"));
+        return store.State!;
     }
 
     private static NativeEnvelope Decode(JsonElement vector) => NativeFrameCodec.Decode(
