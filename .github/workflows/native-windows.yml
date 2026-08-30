@@ -192,8 +192,18 @@ jobs:
               -Credential $credential `
               -RedirectStandardOutput $stdout `
               -RedirectStandardError $stderr `
-              -Wait `
               -PassThru
+            if (-not $process.WaitForExit(45000)) {
+              Stop-Process -Id $process.Id -Force
+              $process.WaitForExit()
+              $output = Get-Content $stdout -Raw
+              $errors = Get-Content $stderr -Raw
+              Write-Output $output
+              if ($errors) {
+                Write-Output $errors
+              }
+              throw "Notification smoke did not exit within 45 seconds."
+            }
             $output = Get-Content $stdout -Raw
             $errors = Get-Content $stderr -Raw
             Write-Output $output

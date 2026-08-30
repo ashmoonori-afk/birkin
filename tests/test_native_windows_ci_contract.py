@@ -257,6 +257,8 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert commands.index(restore) < commands.index(build)
     assert "New-LocalUser" in smoke
     assert "Start-Process" in smoke
+    assert "WaitForExit(45000)" in smoke
+    assert "Stop-Process -Id $process.Id -Force" in smoke
     assert "Birkin.Native.Notification.Smoke.exe" in smoke
     assert "Remove-LocalUser" in smoke
     assert "[Guid]::NewGuid()" in smoke

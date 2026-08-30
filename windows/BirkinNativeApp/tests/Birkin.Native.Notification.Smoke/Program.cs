@@ -14,6 +14,7 @@ Console.WriteLine(
     $"supported={supported}");
 
 var approvalId = $"qa-background-{Guid.NewGuid():N}";
+Console.WriteLine("WINDOWS_APPROVAL_TOAST_STAGE:registering");
 using var toast = WindowsApprovalToast.Create(() => { });
 if (toast is null)
 {
@@ -21,10 +22,13 @@ if (toast is null)
     return 2;
 }
 
+Console.WriteLine("WINDOWS_APPROVAL_TOAST_STAGE:registered");
 toast.Show(ApprovalToastContent.For(approvalId));
+Console.WriteLine("WINDOWS_APPROVAL_TOAST_STAGE:shown");
 
 var manager = AppNotificationManager.Default;
 var notifications = await manager.GetAllAsync();
+Console.WriteLine($"WINDOWS_APPROVAL_TOAST_STAGE:queried:{notifications.Count}");
 var notification = notifications.SingleOrDefault(
     candidate => candidate.Payload.Contains(approvalId, StringComparison.Ordinal));
 if (notification is null)
