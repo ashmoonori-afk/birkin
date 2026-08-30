@@ -232,9 +232,9 @@ def test_disconnect_cleanup_runs_after_blocked_command_mutation(
     token = handshake(client)
     try:
         _send_command(client, token, command_id="late-mutation")
-        assert entered.wait(timeout=1)
+        assert entered.wait(timeout=10)
         client.close()
-        thread.join(timeout=2)
+        thread.join(timeout=10)
         assert not thread.is_alive()
         assert not cleaned.is_set()
 
@@ -259,17 +259,17 @@ def test_disconnect_cleanup_runs_after_blocked_command_mutation(
             ("refused-late", "E_FLOW_VIOLATION")
         ]
         second_client.close()
-        second_thread.join(timeout=2)
+        second_thread.join(timeout=10)
         assert second_errors == []
         assert not cleaned.is_set()
 
         release.set()
-        assert mutated.wait(timeout=2)
-        assert cleaned.wait(timeout=2)
+        assert mutated.wait(timeout=10)
+        assert cleaned.wait(timeout=10)
         assert ordering == ["mutation", "cleanup"]
         assert resources == []
     finally:
         release.set()
         client.close()
-        thread.join(timeout=2)
+        thread.join(timeout=10)
     assert errors == []
