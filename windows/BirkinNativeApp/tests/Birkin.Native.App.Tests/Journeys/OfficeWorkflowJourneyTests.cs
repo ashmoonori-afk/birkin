@@ -3,6 +3,7 @@ using System.IO.Compression;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using Birkin.Native.App.Tests.Support;
+using Birkin.Native.App.Views;
 using Birkin.Native.Protocol.Framing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -39,6 +40,10 @@ public sealed class OfficeWorkflowJourneyTests
                 shell.UpdateLayout,
                 DispatcherPriority.Loaded,
                 deadline.Token);
+            OfficeWorkflowViewHarness.Find<ApprovalView>(
+                shell,
+                "approval.workflow"
+            ).ConfirmDecision = (_, _) => true;
             var approve = OfficeWorkflowViewHarness.Find<Button>(
                 shell,
                 "approval.approve.approval-7");
