@@ -1,6 +1,17 @@
+using System.Diagnostics;
+using System.Security.Principal;
 using Birkin.Native.App;
 using Birkin.Native.Shell.Presentation;
 using Microsoft.Windows.AppNotifications;
+
+Trace.Listeners.Add(new ConsoleTraceListener());
+using var identity = WindowsIdentity.GetCurrent();
+var principal = new WindowsPrincipal(identity);
+var supported = AppNotificationManager.IsSupported();
+Console.WriteLine(
+    $"WINDOWS_APPROVAL_TOAST_HOST:identity={identity.Name};" +
+    $"admin={principal.IsInRole(WindowsBuiltInRole.Administrator)};" +
+    $"supported={supported}");
 
 var approvalId = $"qa-background-{Guid.NewGuid():N}";
 using var toast = WindowsApprovalToast.Create(() => { });
