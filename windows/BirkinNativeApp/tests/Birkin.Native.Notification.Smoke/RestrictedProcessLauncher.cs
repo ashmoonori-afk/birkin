@@ -14,6 +14,8 @@ internal static class RestrictedProcessLauncher
     private const uint WaitFailed = 0xFFFFFFFF;
     private const uint ChildTimeoutMilliseconds = 45_000;
     private const uint TerminationTimeoutMilliseconds = 5_000;
+    private const uint SeGroupIntegrity = 0x00000020;
+    private const string MediumIntegritySid = "S-1-16-8192";
 
     public static uint GetCurrentIntegrityRid()
     {
@@ -87,6 +89,7 @@ internal static class RestrictedProcessLauncher
     {
         using var currentToken = OpenCurrentProcessToken();
         using var restrictedToken = CreateLuaToken(currentToken);
+        SetMediumIntegrity(restrictedToken);
         var startupInfo = new StartupInfo
         {
             Size = Marshal.SizeOf<StartupInfo>(),
@@ -143,7 +146,8 @@ internal static class RestrictedProcessLauncher
 
     private static SafeAccessTokenHandle OpenCurrentProcessToken()
     {
-        var access = TokenAccessLevels.AssignPrimary |
+        var access = TokenAccessLevels.AdjustDefault |
+            TokenAccessLevels.AssignPrimary |
             TokenAccessLevels.Duplicate |
             TokenAccessLevels.Query;
         if (!OpenProcessToken(GetCurrentProcess(), access, out var token))
@@ -173,6 +177,55 @@ internal static class RestrictedProcessLauncher
         }
 
         return restrictedToken;
+    }
+
+    private static void SetMediumIntegrity(SafeAccessTokenHandle token)
+    {
+        if (!ConvertStringSidToSidW(MediumIntegritySid, out var sid))
+        {
+            throw LastError("ConvertStringSidToSid");
+        }
+
+        try
+        {
+            var sidLength = GetLengthSid(sid);
+            if (sidLength == 0)
+            {
+                throw LastError("GetLengthSid");
+            }
+
+            var label = new TokenMandatoryLabel
+            {
+                Label = new SidAndAttributes
+                {
+                    Sid = sid,
+                    Attributes = SeGroupIntegrity,
+                },
+            };
+            var labelSize = Marshal.SizeOf<TokenMandatoryLabel>();
+            var labelBuffer = Marshal.AllocHGlobal(labelSize);
+            try
+            {
+                Marshal.StructureToPtr(label, labelBuffer, fDeleteOld: false);
+                var informationLength = checked(labelSize + (int)sidLength);
+                if (!SetTokenInformation(
+                        token,
+                        TokenInformationClass.TokenIntegrityLevel,
+                        labelBuffer,
+                        informationLength))
+                {
+                    throw LastError("SetTokenInformation");
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(labelBuffer);
+            }
+        }
+        finally
+        {
+            _ = LocalFree(sid);
+        }
     }
 
     private static Win32Exception LastError(string operation) =>
@@ -257,6 +310,12 @@ internal static class RestrictedProcessLauncher
 
     [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool ConvertStringSidToSidW(
+        string stringSid,
+        out IntPtr sid);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CreateProcessAsUserW(
         SafeAccessTokenHandle token,
         string applicationName,
@@ -279,6 +338,9 @@ internal static class RestrictedProcessLauncher
         int tokenInformationLength,
         out int returnLength);
 
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern uint GetLengthSid(IntPtr sid);
+
     [DllImport("advapi32.dll")]
     private static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
 
@@ -287,6 +349,17 @@ internal static class RestrictedProcessLauncher
 
     [DllImport("kernel32.dll")]
     private static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr LocalFree(IntPtr memory);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetTokenInformation(
+        SafeAccessTokenHandle tokenHandle,
+        TokenInformationClass tokenInformationClass,
+        IntPtr tokenInformation,
+        int tokenInformationLength);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     private static extern uint WaitForSingleObject(

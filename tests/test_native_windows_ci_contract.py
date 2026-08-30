@@ -280,6 +280,8 @@ def test_notification_smoke_creates_a_lua_process_from_the_runner_token() -> Non
 
     assert "CreateRestrictedToken" in launcher
     assert "LuaToken" in launcher
+    assert "SetTokenInformation" in launcher
+    assert "S-1-16-8192" in launcher
     assert "CreateProcessAsUser" in launcher
     assert "inheritHandles: false" in launcher
     assert "WaitForSingleObject" in launcher
