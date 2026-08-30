@@ -240,11 +240,11 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
         for command in commands
         if "WINDOWS_APPROVAL_TOAST_ACCEPTED:" in command
     )
-    runtime_install = next(
+    runtime_stage = next(
         command
         for command in commands
-        if "windowsappruntimeinstall-x64.exe" in command
-        and "Invoke-WebRequest" in command
+        if "birkin-toast-runtime" in command
+        and "Get-AuthenticodeSignature" in command
     )
     solution_restore = f"dotnet restore ./{SOLUTION}"
     solution_build = f"dotnet build ./{SOLUTION} -c Release --no-restore"
@@ -257,8 +257,11 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert commands.index(restore) < commands.index(build)
     assert "New-LocalUser" in smoke
     assert "Start-Process" in smoke
-    assert "windowsappruntimeinstall-x64.exe" in smoke
-    assert 'ArgumentList "--quiet"' in smoke
+    assert "Add-AppxPackage" in smoke
+    assert "Microsoft.WindowsAppRuntime.2.msix" in smoke
+    assert "Microsoft.WindowsAppRuntime.Main.2.msix" in smoke
+    assert "Microsoft.WindowsAppRuntime.Singleton.2.msix" in smoke
+    assert "Microsoft.WindowsAppRuntime.DDLM.2.msix" in smoke
     assert "WaitForExit(120000)" in smoke
     assert "WaitForExit(45000)" in smoke
     assert "Stop-Process -Id $process.Id -Force" in smoke
@@ -266,15 +269,12 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert "Remove-LocalUser" in smoke
     assert "[Guid]::NewGuid()" in smoke
     assert commands.index(build) < commands.index(smoke)
-    assert "2.4/2.4.0" in runtime_install
-    assert (
-        "851C35B0B0A59CE4C55F9171F6011933"
-        in runtime_install
-    )
-    assert "Get-AuthenticodeSignature" in runtime_install
-    assert "O=Microsoft Corporation" in runtime_install
-    assert commands.index(build) < commands.index(runtime_install)
-    assert commands.index(runtime_install) < commands.index(smoke)
+    assert "microsoft.windowsappsdk.runtime/2.4.0" in runtime_stage
+    assert "Get-AuthenticodeSignature" in runtime_stage
+    assert "O=Microsoft Corporation" in runtime_stage
+    assert "Invoke-WebRequest" not in runtime_stage
+    assert commands.index(build) < commands.index(runtime_stage)
+    assert commands.index(runtime_stage) < commands.index(smoke)
     assert commands.index(smoke) < commands.index(solution_restore)
     assert commands.index(solution_restore) < commands.index(solution_build)
 

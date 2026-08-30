@@ -132,31 +132,35 @@ jobs:
           --disable-build-servers
           -p:UseSharedCompilation=false
           -m:1
-      - name: Verify the pinned Windows App SDK notification installer
+      - name: Stage the restored Windows App SDK notification packages
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $uri = (
-            "https://aka.ms/windowsappsdk/2.4/2.4.0/" +
-            "windowsappruntimeinstall-x64.exe"
+          $packageRoot = Join-Path (
+            Join-Path $env:USERPROFILE ".nuget\packages"
+          ) (
+            "microsoft.windowsappsdk.runtime\2.4.0\" +
+            "tools\MSIX\win10-x64"
           )
-          $installer = Join-Path $env:RUNNER_TEMP "windowsappruntimeinstall-x64.exe"
-          $expectedHash = (
-            "851C35B0B0A59CE4C55F9171F6011933" +
-            "22FC3413143B0DC3390EA11E14CFA7FC"
+          $stageRoot = Join-Path $env:RUNNER_TEMP "birkin-toast-runtime"
+          $packages = @(
+            "Microsoft.WindowsAppRuntime.2.msix",
+            "Microsoft.WindowsAppRuntime.Main.2.msix",
+            "Microsoft.WindowsAppRuntime.Singleton.2.msix",
+            "Microsoft.WindowsAppRuntime.DDLM.2.msix"
           )
-          Invoke-WebRequest -Uri $uri -OutFile $installer
-          $actualHash = (Get-FileHash $installer -Algorithm SHA256).Hash
-          if ($actualHash -ne $expectedHash) {
-            throw "Windows App SDK installer hash mismatch."
-          }
-          $signature = Get-AuthenticodeSignature $installer
-          if (
-            $signature.Status -ne "Valid" -or
-            $signature.SignerCertificate.Subject -notmatch
-              "O=Microsoft Corporation"
-          ) {
-            throw "Windows App SDK installer signature is invalid."
+          New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
+          foreach ($package in $packages) {
+            $source = Join-Path $packageRoot $package
+            $signature = Get-AuthenticodeSignature $source
+            if (
+              $signature.Status -ne "Valid" -or
+              $signature.SignerCertificate.Subject -notmatch
+                "O=Microsoft Corporation"
+            ) {
+              throw "Windows App SDK package signature is invalid: $package"
+            }
+            Copy-Item $source (Join-Path $stageRoot $package)
           }
       - name: Verify Windows accepts the approval notification
         shell: pwsh
@@ -177,23 +181,52 @@ jobs:
           )
           $stdout = Join-Path $env:RUNNER_TEMP "birkin-toast-smoke.out"
           $stderr = Join-Path $env:RUNNER_TEMP "birkin-toast-smoke.err"
-          $runtimeInstaller = Join-Path `
-            $env:RUNNER_TEMP `
-            "windowsappruntimeinstall-x64.exe"
+          $runtimeRoot = Join-Path $env:RUNNER_TEMP "birkin-toast-runtime"
+          $runtimeScript = Join-Path $env:RUNNER_TEMP "install-toast-runtime.ps1"
+          $runtimeStdout = Join-Path $env:RUNNER_TEMP "birkin-runtime.out"
+          $runtimeStderr = Join-Path $env:RUNNER_TEMP "birkin-runtime.err"
+          @'
+          param([Parameter(Mandatory)][string]$PackageRoot)
+          $ErrorActionPreference = "Stop"
+          $packages = @(
+            "Microsoft.WindowsAppRuntime.2.msix",
+            "Microsoft.WindowsAppRuntime.Main.2.msix",
+            "Microsoft.WindowsAppRuntime.Singleton.2.msix",
+            "Microsoft.WindowsAppRuntime.DDLM.2.msix"
+          )
+          foreach ($package in $packages) {
+            Add-AppxPackage -Path (Join-Path $PackageRoot $package)
+          }
+          '@ | Set-Content $runtimeScript -Encoding utf8
           New-LocalUser -Name $user -Password $securePassword | Out-Null
           try {
             $runtime = Start-Process `
-              -FilePath $runtimeInstaller `
-              -ArgumentList "--quiet" `
+              -FilePath (Get-Command pwsh).Source `
+              -ArgumentList @(
+                "-NoProfile",
+                "-NonInteractive",
+                "-File",
+                $runtimeScript,
+                "-PackageRoot",
+                $runtimeRoot
+              ) `
               -Credential $credential `
+              -RedirectStandardOutput $runtimeStdout `
+              -RedirectStandardError $runtimeStderr `
               -PassThru
             if (-not $runtime.WaitForExit(120000)) {
               Stop-Process -Id $runtime.Id -Force
               $runtime.WaitForExit()
-              throw "Windows App SDK installer did not exit within 120 seconds."
+              throw "Windows App SDK package registration timed out."
             }
             if ($runtime.ExitCode -ne 0) {
-              throw "Windows App SDK installer exited $($runtime.ExitCode)."
+              $runtimeOutput = Get-Content $runtimeStdout -Raw
+              $runtimeErrors = Get-Content $runtimeStderr -Raw
+              Write-Output $runtimeOutput
+              if ($runtimeErrors) {
+                Write-Output $runtimeErrors
+              }
+              throw "Windows App SDK package registration exited $($runtime.ExitCode)."
             }
             $process = Start-Process `
               -FilePath $executable `
@@ -227,6 +260,8 @@ jobs:
           }
           finally {
             Remove-LocalUser -Name $user
+            Remove-Item $runtimeScript -Force -ErrorAction SilentlyContinue
+            Remove-Item $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
           }
       - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
