@@ -9,6 +9,15 @@ from typing import TypeAlias, cast
 import yaml
 
 WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "native-windows.yml"
+STA_DISPATCHER_HARNESS = (
+    Path(__file__).parents[1]
+    / "windows"
+    / "BirkinNativeApp"
+    / "tests"
+    / "Birkin.Native.App.Tests"
+    / "Support"
+    / "StaDispatcherHarness.cs"
+)
 EXPECTED_JOBS = {
     "python-windows",
     "dotnet-portable",
@@ -224,6 +233,14 @@ def test_wpf_job_prepares_locked_python_and_excludes_separately_gated_categories
         )
     ]
     assert re.findall(r'--filter "([^"]+)"', test_commands[0]) == [WPF_FILTER]
+
+
+def test_wpf_dispatcher_harness_bounds_action_and_shutdown_waits() -> None:
+    harness = STA_DISPATCHER_HARNESS.read_text(encoding="utf-8")
+
+    assert harness.count("WaitAsync(_deadline)") >= 2
+    assert "_thread.Join(TimeSpan.FromSeconds(5))" in harness
+    assert "_thread.Join();" not in harness
 
 
 def test_fixture_freshness_regenerates_every_normative_vector() -> None:
