@@ -240,7 +240,8 @@
     scrollbar-width: thin;
   }
   .panel-more {
-    display: none;
+    display: grid;
+    place-items: center;
     flex: 0 0 44px;
     min-height: 44px;
     border: 0;
@@ -286,6 +287,7 @@
   .panel-item[aria-current="true"] { border-color: var(--accent); }
   .approval-detail {
     display: grid;
+    min-width: 0;
     gap: 12px;
     padding: 14px;
     border: 1px solid var(--border);
@@ -298,14 +300,26 @@
   .approval-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .detail-output {
+    min-width: 0;
+    max-width: 100%;
     max-height: 24rem;
     overflow: auto;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     white-space: pre-wrap;
+    box-sizing: border-box;
     padding: 10px;
     border: 1px solid var(--border-muted);
     border-radius: 8px;
     background: var(--surface);
   }
+  .receipt-details { min-width: 0; }
+  .receipt-details summary {
+    color: var(--muted);
+    cursor: pointer;
+    font-size: .78rem;
+  }
+  .receipt-details .detail-output { margin: 10px 0 0; }
   .run-events { list-style: none; margin: 0; padding: 0; }
   .run-events li { padding: 8px 0; border-bottom: 1px solid var(--border-muted); }
   .steer-input {
@@ -324,6 +338,10 @@
     z-index: 10;
     transform: translateX(-50%);
     max-width: min(90vw, 620px);
+    max-height: min(30vh, 12rem);
+    overflow: auto;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
     padding: 9px 13px;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -469,12 +487,6 @@
     .composer { margin: 0 8px 8px; }
     .composer textarea { resize: none; }
     .brand span { display: none; }
-  }
-  @media (max-width: 1200px) {
-    .panel-more {
-      display: grid;
-      place-items: center;
-    }
   }
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { scroll-behavior: auto; transition-duration: 0.001ms; }
@@ -630,7 +642,7 @@ let items = [];
 let uiEncoding = {};
 const recentReceipts = new Map();
 const busyApprovalIds = new Set();
-const detailFields = ["expected-impact", "rejection-result", "related-evidence"];
+const approvalIdsByCommand = new Map();
 const panelLabels = {
   tasks_runs: "작업 및 실행",
   approvals: "승인",
@@ -1090,7 +1102,7 @@ async function refreshWorkspaceSnapshot() {
 
 function approvalIsActionable(item) {
   const status = String(item.status || item.record?.status || "pending");
-  return status === "pending" || attentionFor(item.ui_state) === 0;
+  return status === "pending";
 }
 
 function updateApprovalTab() {
@@ -1212,7 +1224,6 @@ async function submitApproval(item, decision) {
     await sendCommand("approval.answer", {
       approval_id: approvalId,
       decision,
-      detail_fields: detailFields,
     });
     announce("요청 전송 완료 · Python authority 응답 대기");
   } catch (error) {
@@ -1231,7 +1242,7 @@ function appendApprovalDetail(item) {
   fields.className = "approval-fields";
   appendDefinitions(fields, [
     ["요청자", item.requester || record.origin],
-    ["유형", record.category],
+    ["유형", item.category || record.category],
     ["대상", item.target || record.target || record.payload?.path || record.payload?.command],
     ["예상 영향", item.expected_impact || record.expected_impact || record.description],
     ["거부 결과", item.rejection_result || record.rejection_result],
@@ -1296,10 +1307,16 @@ function appendApprovalDetail(item) {
 
   const receipt = recentReceipts.get(String(item.id));
   if (receipt) {
+    const receiptDetails = document.createElement("details");
+    receiptDetails.className = "receipt-details";
+    const receiptSummary = document.createElement("summary");
+    receiptSummary.textContent = "실행 영수증 보기";
     const receiptText = document.createElement("p");
+    receiptText.className = "detail-output";
     receiptText.setAttribute("role", "status");
     receiptText.textContent = `Action executed: ${receipt.receipt}`;
-    section.appendChild(receiptText);
+    receiptDetails.append(receiptSummary, receiptText);
+    section.appendChild(receiptDetails);
   }
   panelBody.appendChild(section);
 }
@@ -1598,14 +1615,14 @@ async function handleApprovalAnswered(payload) {
     if (workspaceReceipt) {
       const receipt = {receipt: workspaceReceipt};
       recentReceipts.set(approvalId, receipt);
-      announce(`Action executed: ${receipt.receipt}`);
+      announce("실행 완료 · 승인 상세에서 영수증을 확인하세요.");
     } else {
       try {
         const receipt = await api(
           `/api/actions/${encodeURIComponent(approvalId)}/receipt`
         );
         recentReceipts.set(approvalId, receipt);
-        announce(`Action executed: ${receipt.receipt}`);
+        announce("실행 완료 · 승인 상세에서 영수증을 확인하세요.");
       } catch (error) {
         announce(`승인 처리 완료: ${error.message}`);
       }
@@ -1648,9 +1665,18 @@ function handleWorkspaceEvent(raw) {
     state.pendingAssistant.delete(commandId);
   } else if (event.type.startsWith("tool.") || event.type === "progress.updated") {
     appendMessage("tool", String(payload.summary || event.type), event.event_id);
-  } else if (event.type === "command.failed" || event.type === "error.raised") {
+  } else if (event.type === "command.failed") {
+    const approvalId = approvalIdsByCommand.get(commandId);
+    if (approvalId) {
+      approvalIdsByCommand.delete(commandId);
+      busyApprovalIds.delete(approvalId);
+      renderPanel();
+    }
+    announce(`오류: ${String(payload.error || event.type)}`);
+  } else if (event.type === "error.raised") {
     announce(`오류: ${String(payload.error || event.type)}`);
   } else if (event.type === "approval.answered") {
+    approvalIdsByCommand.delete(commandId);
     handleApprovalAnswered(payload).catch((error) => announce(error.message));
   } else if ([
     "approval.requested", "question.requested", "question.answered",
@@ -1705,31 +1731,40 @@ function commandId() {
 }
 
 async function sendCommand(type, payload) {
-  const response = await api(
-    `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/commands`,
-    {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        protocol_version: 1,
-        command_id: commandId(),
-        expected_cursor: state.cursor,
-        type,
-        payload,
-        client_context: {surface: "web", view_id: "browser-1"},
-      }),
-    }
-  );
-  return response;
+  const id = commandId();
+  const approvalId = type === "approval.answer"
+    ? String(payload.approval_id || "")
+    : "";
+  if (approvalId) approvalIdsByCommand.set(id, approvalId);
+  try {
+    return await api(
+      `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/commands`,
+      {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          protocol_version: 1,
+          command_id: id,
+          expected_cursor: state.cursor,
+          type,
+          payload,
+          client_context: {surface: "web", view_id: "browser-1"},
+        }),
+      }
+    );
+  } catch (error) {
+    approvalIdsByCommand.delete(id);
+    throw error;
+  }
 }
 
 async function refreshLegacyPanels() {
-  const [status, jobs, runs, agentRuns] = await Promise.all([
+  const [status, jobs, runs] = await Promise.all([
     api("/api/status"),
     api("/api/jobs"),
     api("/api/runs"),
-    api("/api/agent-runs"),
   ]);
+  const agentRuns = await api("/api/agent-runs");
   let approvals = [];
   try {
     approvals = await api("/api/approvals");
@@ -1758,7 +1793,16 @@ async function refreshLegacyPanels() {
     detail: `${status.provider || ""} ${status.model || ""}`.trim(),
     record: status,
   });
-  if (items.length && !items.some((item) => item.id === state.selectedId)) {
+  const canonicalSelectionExists = (state.snapshot?.panels || []).some(
+    (panel) => (panel.items || []).some(
+      (item) => item.id === state.selectedId
+    )
+  );
+  if (
+    items.length
+    && !items.some((item) => item.id === state.selectedId)
+    && !canonicalSelectionExists
+  ) {
     state.selectedId = items[0].id;
   }
   renderPanel();

@@ -3,6 +3,8 @@ import shlex
 import signal
 import subprocess
 import sys
+import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -51,6 +53,60 @@ class _ManagedTree:
 
     def close(self) -> None:
         self.closed = True
+
+
+class _ScriptedWindowsShell:
+    """Mutable deterministic process script for Windows retry tests."""
+
+    def __init__(
+        self,
+        outcomes: list[tuple[int, str, str]],
+        advance: Callable[[], None] | None = None,
+    ) -> None:
+        self.outcomes = outcomes
+        self.advance = advance
+        self.attempts: list[tuple[str, proc.ShellCommand]] = []
+        self.timeouts: list[float] = []
+
+    def __call__(self, argv, request):
+        command = argv[-1].split(" & ", 1)[-1]
+        self.attempts.append((command, request))
+        outcome = self.outcomes[len(self.attempts) - 1]
+        return _ScriptedProcess(self, outcome), _ManagedTree()
+
+
+class _ScriptedProcess(_FakeProcess):
+    def __init__(
+        self,
+        script: _ScriptedWindowsShell,
+        outcome: tuple[int, str, str],
+    ) -> None:
+        super().__init__()
+        self.script = script
+        self.returncode, self.stdout, self.stderr = outcome
+
+    def communicate(self, **kwargs):
+        self.script.timeouts.append(kwargs["timeout"])
+        if self.script.advance is not None:
+            self.script.advance()
+        return self.stdout, self.stderr
+
+    def wait(self) -> int:
+        return self.returncode
+
+
+def _native_request(
+    command: str,
+    tmp_path: Path,
+    *,
+    timeout: int = 30,
+) -> proc.ShellCommand:
+    return proc.ShellCommand(
+        command=command,
+        cwd=tmp_path,
+        timeout=timeout,
+        environment=dict(os.environ),
+    )
 
 
 def test_popen_tree_kwargs_is_native() -> None:
@@ -261,6 +317,155 @@ def test_cli_argv_allows_metachars_on_posix(monkeypatch):
     # POSIX uses a discrete argv with no shell, so metachars are literal data.
     monkeypatch.setattr(proc.os, "name", "posix")
     assert proc.cli_argv(["claude", "x & y"]) == ["claude", "x & y"]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native shim fallback")
+def test_policy_failure_tries_deterministic_safe_native_shims(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # Given: PATHEXT prefers PowerShell and every safe native candidate exists.
+    bin_dir = tmp_path / "native-bin"
+    bin_dir.mkdir()
+    for extension in (".ps1", ".com", ".exe", ".bat", ".cmd"):
+        (bin_dir / f"bunx{extension}").touch()
+    request = _native_request("bunx package@latest submit", tmp_path)
+    request.environment["PATH"] = str(bin_dir)
+    request.environment["PATHEXT"] = ".PS1;.CMD;.BAT;.EXE;.COM"
+    original = (
+        1,
+        "original stdout",
+        "bunx.ps1 cannot be loaded because running scripts is disabled. "
+        "PSSecurityException",
+    )
+    script = _ScriptedWindowsShell(
+        [original, *(4 * [(1, "", "native candidate failed")])]
+    )
+    monkeypatch.setattr(proc, "spawn_managed_windows_shell", script)
+
+    # When: the extensionless command is blocked by PowerShell policy.
+    result = proc.run_shell_command(request)
+
+    # Then: only safe candidates run in fixed order and original failure wins.
+    assert [attempt[0] for attempt in script.attempts] == [
+        request.command,
+        f"{bin_dir / 'bunx.com'} package@latest submit",
+        f"{bin_dir / 'bunx.exe'} package@latest submit",
+        f"{bin_dir / 'bunx.bat'} package@latest submit",
+        f"{bin_dir / 'bunx.cmd'} package@latest submit",
+    ]
+    assert all(
+        ".ps1" not in command.casefold()
+        for command, _request in script.attempts[1:]
+    )
+    assert result.returncode == original[0]
+    assert result.stdout == original[1]
+    assert result.stderr == original[2]
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native shim fallback")
+def test_native_shim_fallback_preserves_exact_command_suffix(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # Given: an exe failure followed by a cmd success for one exact suffix.
+    bin_dir = tmp_path / "native-bin"
+    bin_dir.mkdir()
+    executable = bin_dir / "bunx.exe"
+    command_shim = bin_dir / "bunx.cmd"
+    executable.touch()
+    command_shim.touch()
+    request = _native_request("bunx tokscale@latest submit", tmp_path)
+    request.environment["PATH"] = str(bin_dir)
+    request.environment["PATHEXT"] = ".EXE;.CMD"
+    script = _ScriptedWindowsShell([
+        (
+            1,
+            "",
+            "bunx.ps1 cannot be loaded because running scripts is disabled. "
+            "PSSecurityException",
+        ),
+        (1, "", "exe failed"),
+        (0, "native-shim-fallback-ok", ""),
+    ])
+    monkeypatch.setattr(proc, "spawn_managed_windows_shell", script)
+
+    # When: the safe native fallback reaches the working cmd shim.
+    result = proc.run_shell_command(request)
+
+    # Then: only the executable token changes; package and action stay exact.
+    assert [attempt[0] for attempt in script.attempts] == [
+        request.command,
+        f"{executable} tokscale@latest submit",
+        f"{command_shim} tokscale@latest submit",
+    ]
+    assert result.returncode == 0
+    assert result.stdout == "native-shim-fallback-ok"
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native shim fallback")
+def test_policy_failure_for_unrelated_script_does_not_retry_native_shim(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # Given: a policy diagnostic names other.ps1, not the bunx command.
+    request = _native_request("bunx --version", tmp_path)
+    script = _ScriptedWindowsShell([
+        (
+            1,
+            "",
+            "other.ps1 cannot be loaded because running scripts is disabled. "
+            "PSSecurityException",
+        ),
+    ])
+    monkeypatch.setattr(proc, "spawn_managed_windows_shell", script)
+
+    # When: the unrelated failure is returned.
+    result = proc.run_shell_command(request)
+
+    # Then: no alternative executable receives the command's authority.
+    assert [attempt[0] for attempt in script.attempts] == [request.command]
+    assert result.returncode == 1
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native shim fallback")
+def test_shim_fallback_shares_one_monotonic_timeout_budget(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # Given: each completed attempt consumes two seconds of a ten-second budget.
+    bin_dir = tmp_path / "native-bin"
+    bin_dir.mkdir()
+    executable = bin_dir / "bunx.exe"
+    command_shim = bin_dir / "bunx.cmd"
+    executable.touch()
+    command_shim.touch()
+    request = _native_request("bunx package submit", tmp_path, timeout=10)
+    request.environment["PATH"] = str(bin_dir)
+    request.environment["PATHEXT"] = ".EXE;.CMD"
+    now = [100.0]
+    script = _ScriptedWindowsShell(
+        [
+            (
+                1,
+                "",
+                "bunx.ps1 cannot be loaded because running scripts is disabled. "
+                "PSSecurityException",
+            ),
+            (1, "", "exe failed"),
+            (0, "ok", ""),
+        ],
+        advance=lambda: now.__setitem__(0, now[0] + 2.0),
+    )
+    monkeypatch.setattr(time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(proc, "spawn_managed_windows_shell", script)
+
+    # When: fallback consumes multiple attempts.
+    result = proc.run_shell_command(request)
+
+    # Then: each attempt receives only the remaining original timeout.
+    assert result.returncode == 0
+    assert script.timeouts == [10, 8, 6]
 
 
 # -- claude_child_env: disable the ECC interactive SessionStart hook -------

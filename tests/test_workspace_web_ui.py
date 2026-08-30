@@ -147,6 +147,7 @@ def test_web_workspace_renders_state_and_explicit_approval_actions() -> None:
     assert "statePresentations.unknown" in source
     assert "attentionRanks" in source
     assert "expected_impact" in source
+    assert "item.category || record.category" in source
     assert "승인 실행" in source
     assert "submitApproval" in source
     assert "window.confirm" not in source
@@ -157,3 +158,53 @@ def test_web_workspace_prefers_workspace_approval_receipts() -> None:
 
     assert "payload.receipt" in source
     assert "recentReceipts.set(approvalId" in source
+
+
+def test_web_workspace_releases_failed_approval_for_retry() -> None:
+    source, _ = _document()
+    failed_start = source.index('event.type === "command.failed"')
+    answered_start = source.index(
+        'event.type === "approval.answered"',
+        failed_start,
+    )
+    failed_branch = source[failed_start:answered_start]
+
+    assert ".get(commandId)" in failed_branch
+    assert "busyApprovalIds.delete(approvalId)" in failed_branch
+    assert "renderPanel()" in failed_branch
+
+
+def test_web_workspace_refresh_stays_within_server_worker_budget() -> None:
+    source, _ = _document()
+
+    assert "const [status, jobs, runs] = await Promise.all([" in source
+    assert "const [status, jobs, runs, agentRuns] = await Promise.all([" not in source
+
+
+def test_web_workspace_bounds_long_approval_receipts() -> None:
+    source, _ = _document()
+    style_start = source.index(".detail-output {")
+    style_end = source.index("}", style_start)
+    detail_output_style = source[style_start:style_end]
+
+    assert 'const receiptDetails = document.createElement("details")' in source
+    assert "receiptDetails.append(receiptSummary, receiptText)" in source
+    assert 'receiptText.className = "detail-output"' in source
+    assert "overflow-wrap: anywhere" in detail_output_style
+
+
+def test_web_workspace_counts_only_pending_approvals() -> None:
+    source, _ = _document()
+    start = source.index("function approvalIsActionable")
+    end = source.index("}", start)
+    actionable = source[start:end]
+
+    assert 'return status === "pending";' in actionable
+    assert "attentionFor(item.ui_state)" not in actionable
+
+
+def test_web_workspace_keeps_selected_completed_approval() -> None:
+    source, _ = _document()
+
+    assert "canonicalSelectionExists" in source
+    assert "&& !canonicalSelectionExists" in source
