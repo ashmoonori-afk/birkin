@@ -210,6 +210,8 @@ Office provenance keeps exact reviewed artifact versions and supported runtime r
 
 Office mutation approval binds the proposer, source digest, destination, exact operations, and overwrite decision in an `authority_digest`. Durable receipts retain that digest and the approving principal separately from the proposer.
 
+The web workspace sends approval decisions through that bounded authority contract, releases failed submissions for retry, and keeps execution receipts available in the approval detail without exposing raw receipt data by default.
+
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
 |---|---|---|---|---|---|---|---|---|

@@ -106,6 +106,8 @@ def test_terminal_renderer_uses_truecolor_ansi256_and_no_color() -> None:
         ("studio_dark", "muted", "background", 4.5),
         ("paper_light", "text", "background", 7.0),
         ("paper_light", "muted", "background", 4.5),
+        ("paper_light", "dim", "surface_raised", 4.5),
+        ("paper_light", "border", "surface_raised", 3.0),
         ("high_contrast", "text", "background", 7.0),
         ("high_contrast", "accent", "background", 4.5),
     ],
