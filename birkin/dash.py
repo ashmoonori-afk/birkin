@@ -25,7 +25,6 @@ import atexit
 import os
 import sys
 import time
-from collections.abc import Callable
 from typing import Any
 
 from . import ui
@@ -560,11 +559,8 @@ def _loop(session, w, keys, state):
             _open_session(session, rows[state["cursor"]])
             return                                 # leave dash into the loaded convo
         elif state["section"] == "승인" and rows and key in ("a", "d"):
-            out = _resolve_approval(
-                rows[state["cursor"]],
-                approve=(key == "a"),
-                on_event=session.ctx.emit,
-            )
+            out = _resolve_approval(rows[state["cursor"]],
+                                    approve=(key == "a"))
             # Approving a queued shell command used to print nothing at all:
             # success, a non-zero exit and a raised exception were the same
             # blank screen. The row vanishing is not an outcome report.
@@ -583,24 +579,12 @@ def _open_session(session, row):
         pass
 
 
-def _resolve_approval(
-    row: dict[str, Any],
-    *,
-    approve: bool,
-    on_event: Callable[[str, dict[str, Any]], None] | None = None,
-) -> dict[str, Any]:
+def _resolve_approval(row, *, approve: bool) -> dict[str, Any]:
     try:
         from . import approvals
         if approve:
-            if on_event is None:
-                return approvals.approve(
-                    row["id"],
-                    approved_by="human:terminal",
-                    approved_via="terminal:dash",
-                ) or {"ok": False, "error": "결과 없음"}
             return approvals.approve(
                 row["id"],
-                on_event=on_event,
                 approved_by="human:terminal",
                 approved_via="terminal:dash",
             ) or {"ok": False, "error": "결과 없음"}

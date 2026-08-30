@@ -231,9 +231,11 @@ Windows에서는 Birkin이 `BIRKIN_HOME`을 처음 열 때 owner-only 상속 DAC
 Workspace turn은 provider 작업 시작 전과 성공·실패 시점에 bounded
 `progress.updated` event를 내보내므로 native Activity가 침묵 상태로 남지
 않습니다. Office 검사·비교·초안·검증·내보내기 전환은 web에서 하나의 keyed
-progress 행을 갱신하며 다섯 machine phase token을 모두 유지합니다. Activity는
-기존 terminal event stream과 approval surface도 같은 다섯 phase를 표시합니다.
-최신 100개 항목만 유지합니다. 새 pending approval마다
+progress 행을 갱신하며 다섯 machine phase token을 모두 유지합니다. 기본
+workspace terminal은 다섯 phase event를 모두 표시합니다. `birkin review`는
+승인 시점의 초안·검증·내보내기 phase를 표시하며 검사·비교 phase는 Office
+요청을 queue에 등록할 때 표시됩니다. Activity는 최신 100개 항목만 유지합니다.
+새 pending approval마다
 fixed 한국어 copy와 opaque approval ID만
 담은 `notification.requested` event를 한 번 보냅니다. Windows는 title에
 pending 건수를 표시하고 taskbar를 표시하며 approval별로 app을 한 번

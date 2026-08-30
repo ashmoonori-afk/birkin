@@ -408,7 +408,13 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
         elif event == "steer":
             said = str(payload.get("text", "") or "")[:60]
             sys.stdout.write(f"{DIM}{pad}steer 반영: {said}{RESET}\n")
-        elif event == "office_progress":
+        elif (
+            event == "office_progress"
+            or (
+                event.startswith("office.")
+                and payload.get("runtime_event") == event
+            )
+        ):
             phase = str(payload.get("office_phase") or "")
             summary = str(payload.get("summary") or "")
             sys.stdout.write(

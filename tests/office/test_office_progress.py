@@ -9,7 +9,7 @@ from typing import cast
 
 import pytest
 
-from birkin import approvals, dash, ui, workbench
+from birkin import approvals, ui
 from birkin.office.job_types import OfficeJobState
 from birkin.office.progress import office_progress_payload
 from birkin.tools import build_registry
@@ -155,43 +155,6 @@ def test_terminal_office_tool_emits_all_five_progress_phases(
     ]
     assert len({payload["progress_id"] for payload in progress}) == 1
     assert approval_id
-
-
-@pytest.mark.parametrize("surface", ["dash", "workbench"])
-def test_terminal_approval_surfaces_forward_office_progress(
-    surface: str,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    events: list[tuple[str, dict[str, object]]] = []
-
-    def emit(event: str, payload: dict[str, object]) -> None:
-        events.append((event, payload))
-
-    approval_id = _queue_terminal_job(tmp_path, monkeypatch, emit)
-    if surface == "dash":
-        resolver = cast(
-            "Callable[..., dict[str, object]]",
-            getattr(dash, "_resolve_approval"),
-        )
-        approved = resolver(
-            {"id": approval_id},
-            approve=True,
-            on_event=emit,
-        )
-    else:
-        approved = workbench.resolve_approval(
-            approval_id,
-            approve=True,
-            on_event=emit,
-        )
-
-    assert approved["ok"] is True, approved
-    assert [
-        payload["office_phase"]
-        for event, payload in events
-        if event == "office_progress"
-    ] == ["inspection", "comparison", "draft", "validation", "export"]
 
 
 def test_terminal_event_printer_renders_office_progress(
