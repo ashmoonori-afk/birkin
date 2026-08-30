@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Shell;
 using System.Windows.Threading;
@@ -57,6 +58,16 @@ public sealed class MainWindowAttentionTests
         Assert.AreEqual("opaque-approval-1", content.ApprovalId);
         Assert.AreEqual("approvals", content.Route);
         Assert.AreEqual(0, content.DecisionActions.Count);
+    }
+
+    [TestMethod]
+    public void Toast_WhenSupportProbeCannotActivate_UsesFallback()
+    {
+        var toast = WindowsApprovalToast.Create(
+            () => { },
+            () => throw new COMException("activation unavailable"));
+
+        Assert.IsNull(toast);
     }
 
     [TestMethod]

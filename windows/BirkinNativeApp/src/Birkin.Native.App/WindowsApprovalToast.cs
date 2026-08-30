@@ -17,14 +17,19 @@ internal sealed class WindowsApprovalToast : IApprovalToast, IDisposable
     private readonly Action _navigateToApprovals;
     private bool _disposed;
 
-    public static WindowsApprovalToast? Create(Action navigateToApprovals)
+    public static WindowsApprovalToast? Create(Action navigateToApprovals) =>
+        Create(navigateToApprovals, AppNotificationManager.IsSupported);
+
+    internal static WindowsApprovalToast? Create(
+        Action navigateToApprovals,
+        Func<bool> isSupported)
     {
-        if (!AppNotificationManager.IsSupported())
-        {
-            return null;
-        }
         try
         {
+            if (!isSupported())
+            {
+                return null;
+            }
             return new WindowsApprovalToast(navigateToApprovals);
         }
         catch (COMException error)
