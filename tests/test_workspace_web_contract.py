@@ -306,7 +306,9 @@ def test_web_approval_payload_executes_through_runtime_authority(
         *,
         decision: str,
         reason: str = "",
+        on_event: object = None,
     ) -> dict[str, object]:
+        assert on_event is not None
         assert reason == ""
         decided.append((approval_id, decision))
         return {

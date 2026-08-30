@@ -102,9 +102,11 @@ def test_legacy_backend_contracts_remain_available(
     assert {"uistate", "tokens", "workspace_theme"} <= set(contract)
 
 
-def test_root_is_workspace_not_polling_dashboard() -> None:
+def test_root_is_workspace_with_events_and_bounded_approval_polling() -> None:
     source = HTML_PATH.read_text(encoding="utf-8")
 
     assert 'data-testid="workspace-shell"' in source
-    assert "setInterval(" not in source
     assert "EventSource" in source
+    assert source.count("setInterval(") == 1
+    assert "const APPROVAL_REFRESH_INTERVAL_MS = 30_000;" in source
+    assert "clearInterval(state.approvalRefreshTimer)" in source

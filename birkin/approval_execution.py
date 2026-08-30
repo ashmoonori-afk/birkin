@@ -120,6 +120,7 @@ def execute_claimed(
                 record["category"],
                 record.get("payload", {}),
                 {"_office_approval_id": approval_id},
+                on_event=on_event,
             )
         elif on_event is not None:
             result = executor(

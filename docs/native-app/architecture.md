@@ -67,6 +67,17 @@ Capabilities and authoritative workspace data stay in memory. Swift may retain
 presentation preferences, but it does not create a second session database or
 persist capabilities, approvals, receipts, terminal input, or product data.
 
+### Windows progress and attention
+
+Python emits bounded progress items into canonical Activity and retains the
+newest 100 items.
+The Windows reducer handles progress, tool lifecycle, and fixed-copy
+notification events without creating local authority. A presentation-only
+tracker recognizes each newly pending opaque approval ID once. The WPF host
+shows the pending count, defers a pre-load flash until the window loads, and
+explicitly stops flashing when no approval remains; selecting that taskbar
+entry opens the existing canonical approval surface.
+
 ### Browser control scope
 
 Python registers `browser.start` and `browser.navigate` and no history handler,

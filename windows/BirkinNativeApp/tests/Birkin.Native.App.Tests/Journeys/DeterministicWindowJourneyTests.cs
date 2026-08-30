@@ -67,6 +67,8 @@ public sealed class DeterministicWindowJourneyTests
                     var presentedInitial = await initialPresented.Task.WaitAsync(deadline.Token);
                     stage = "initial-render";
                     window.UpdateLayout();
+                    var renderedInitial = composition.PresentationModel.Workspace;
+                    Assert.IsNotNull(renderedInitial);
 
                     Assert.IsTrue(options.IsAttached, "journey must attach to the exact bridge owned by its harness");
                     Assert.AreEqual(BridgeSupervisorState.AttachedExternal, composition.Supervisor.State);
@@ -83,9 +85,12 @@ public sealed class DeterministicWindowJourneyTests
                     Assert.AreEqual("initial", initial.ResetReason);
                     Assert.IsTrue(initial.Cursor >= 0);
                     Assert.IsTrue(initial.PanelCount > 0);
-                    AssertBoundText(window, "SessionIdText", initial.SessionId);
-                    AssertBoundText(window, "CursorText", initial.Cursor.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    AssertBoundText(window, "PanelCountText", initial.PanelCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    Assert.AreEqual(initial.SessionId, renderedInitial.SessionId);
+                    Assert.AreEqual(initial.InstanceId, renderedInitial.InstanceId);
+                    Assert.IsTrue(renderedInitial.Cursor >= initial.Cursor);
+                    AssertBoundText(window, "SessionIdText", renderedInitial.SessionId);
+                    AssertBoundText(window, "CursorText", renderedInitial.Cursor.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    AssertBoundText(window, "PanelCountText", renderedInitial.PanelCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
                     AssertVisibleHierarchy(window);
 
                     composition.ProjectionStore.CanonicalApplied += CanonicalApplied;

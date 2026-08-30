@@ -19,7 +19,7 @@ from .coordinator_data import (
 )
 from .errors import DocumentErrorCode
 from .export_policy import ExportRequest
-from .job import OfficeJob
+from .job import OfficeJob, OfficeJobTransitionSink
 from .job_runner import DocumentServiceRunner
 from .job_types import OfficeJobState
 from .proposal_integrity import authority_digest
@@ -227,7 +227,10 @@ def _resume(
 
 
 def execute_approved_office_job(
-    payload: Mapping[str, object], *, approval_id: str | None
+    payload: Mapping[str, object],
+    *,
+    approval_id: str | None,
+    on_transition: OfficeJobTransitionSink | None = None,
 ) -> str:
     """Resume exactly one approval-owned Office mutation under its process lock."""
     from .. import store
@@ -246,7 +249,11 @@ def execute_approved_office_job(
         authority = _authority(payload, record)
         service = DocumentService(home)
         runner = DocumentServiceRunner(service, export_root=authority.allowlist_root)
-        job = journal.restore(job_id, runner=runner)
+        job = journal.restore(
+            job_id,
+            runner=runner,
+            on_transition=on_transition,
+        )
         snapshot = job.to_dict()
         _verify_snapshot(snapshot, authority, job.state)
         if job.state in {OfficeJobState.approval_requested, OfficeJobState.approved}:

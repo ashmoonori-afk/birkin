@@ -424,6 +424,57 @@ def test_steer_delegates_to_runtime_and_emits_canonical_event(
     assert emitted == [("turn.steered", {"text": "check tests"})]
 
 
+def test_chat_send_brackets_silent_gap_with_bounded_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    @final
+    class CompletedRuntime:
+        cfg: dict[str, object] = {}
+
+        def ask(self, text: str, *, on_text: object) -> str:
+            del text, on_text
+            return "완료"
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
+    ) -> Session:
+        del on_event, on_status
+        return cast(Session, cast(object, CompletedRuntime()))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("progress-session", emit)
+
+    assert adapter.handlers()["chat.send"]({"text": "진행 상황을 알려줘"}) == {
+        "reply": "완료"
+    }
+
+    progress = [
+        payload for event_type, payload in emitted if event_type == "progress.updated"
+    ]
+    assert progress == [
+        {
+            "progress_id": "turn:progress-session",
+            "summary": "응답을 준비하고 있습니다.",
+            "status": "working",
+            "ui_state": "pending",
+        },
+        {
+            "progress_id": "turn:progress-session",
+            "summary": "응답을 완료했습니다.",
+            "status": "succeeded",
+            "ui_state": "succeeded",
+        },
+    ]
+
+
 def test_turn_controls_mutate_the_active_runtime_without_waiting_for_ask(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -515,6 +566,16 @@ def test_retry_replays_failed_text_as_a_new_handler_invocation(
         (
             "progress.updated",
             {
+                "progress_id": "turn:retry-session",
+                "summary": "응답을 준비하고 있습니다.",
+                "status": "working",
+                "ui_state": "pending",
+            },
+        ),
+        (
+            "progress.updated",
+            {
+                "progress_id": "turn:retry-session",
                 "summary": "응답을 완료하지 못했습니다. 잠시 후 다시 시도하세요.",
                 "status": "failed",
                 "ui_state": "failed",
@@ -523,6 +584,24 @@ def test_retry_replays_failed_text_as_a_new_handler_invocation(
             },
         ),
         ("message.user", {"text": "original intent"}),
+        (
+            "progress.updated",
+            {
+                "progress_id": "turn:retry-session",
+                "summary": "응답을 준비하고 있습니다.",
+                "status": "working",
+                "ui_state": "pending",
+            },
+        ),
+        (
+            "progress.updated",
+            {
+                "progress_id": "turn:retry-session",
+                "summary": "응답을 완료했습니다.",
+                "status": "succeeded",
+                "ui_state": "succeeded",
+            },
+        ),
         ("message.assistant.completed", {"text": "retried: original intent"}),
     ]
 
@@ -557,6 +636,7 @@ def test_non_provider_runtime_failure_emits_bounded_korean_guidance(
     assert emitted[-1] == (
         "progress.updated",
         {
+            "progress_id": "turn:unexpected-failure-session",
             "summary": "응답을 완료하지 못했습니다. 잠시 후 다시 시도하세요.",
             "status": "failed",
             "ui_state": "failed",
@@ -686,8 +766,13 @@ def test_approval_answer_event_carries_execution_receipt(
         )
 
     def decide(
-        approval_id: str, *, decision: str, reason: str = ""
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
     ) -> dict[str, object]:
+        assert on_event is not None
         assert decision == "approve"
         assert reason == ""
         return {
@@ -738,7 +823,9 @@ def test_approval_answer_summary_is_injected_into_next_agent_turn(
         *,
         decision: str,
         reason: str = "",
+        on_event: object = None,
     ) -> dict[str, object]:
+        assert on_event is not None
         assert decision == "approve"
         assert reason == ""
         return {
@@ -785,7 +872,9 @@ def test_failed_approval_summary_is_injected_into_next_agent_turn(
         *,
         decision: str,
         reason: str = "",
+        on_event: object = None,
     ) -> dict[str, object]:
+        assert on_event is not None
         assert decision == "approve"
         assert reason == ""
         return {

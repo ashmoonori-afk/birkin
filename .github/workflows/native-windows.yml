@@ -103,6 +103,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
+      MSBUILDDISABLENODEREUSE: "1"
       PYTHONUTF8: "1"
       UV_NO_SYNC: "1"
     steps:
@@ -121,6 +122,69 @@ jobs:
         with:
           dotnet-version: "8.x"
       - run: uv sync --frozen --all-extras --all-groups
+      - run: >-
+          dotnet restore
+          ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
+      - run: >-
+          dotnet build
+          ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
+          -c Release --no-restore
+          --disable-build-servers
+          -p:UseSharedCompilation=false
+          -m:1
+      - name: Register the restored Windows App SDK notification packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packageRoot = Join-Path (
+            Join-Path $env:USERPROFILE ".nuget\packages"
+          ) (
+            "microsoft.windowsappsdk.runtime\2.4.0\" +
+            "tools\MSIX\win10-x64"
+          )
+          $packages = @(
+            "Microsoft.WindowsAppRuntime.2.msix",
+            "Microsoft.WindowsAppRuntime.Main.2.msix",
+            "Microsoft.WindowsAppRuntime.Singleton.2.msix",
+            "Microsoft.WindowsAppRuntime.DDLM.2.msix"
+          )
+          foreach ($package in $packages) {
+            $source = Join-Path $packageRoot $package
+            $signature = Get-AuthenticodeSignature $source
+            if (
+              $signature.Status -ne "Valid" -or
+              $signature.SignerCertificate.Subject -notmatch
+                "O=Microsoft Corporation"
+            ) {
+              throw "Windows App SDK package signature is invalid: $package"
+            }
+            Add-AppxPackage -Path $source
+          }
+      - name: Verify Windows accepts the approval notification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $executable = Resolve-Path (
+            "./windows/BirkinNativeApp/tests/" +
+            "Birkin.Native.Notification.Smoke/bin/Release/" +
+            "net8.0-windows10.0.19041.0/win-x64/" +
+            "Birkin.Native.Notification.Smoke.exe"
+          )
+          $output = & $executable 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
+          Write-Output $output
+          if ($exitCode -ne 0) {
+            throw "Notification smoke exited $exitCode."
+          }
+          if (
+            $output -notmatch
+              "WINDOWS_APPROVAL_TOAST_INTEGRITY:medium"
+          ) {
+            throw "Notification smoke did not prove medium integrity."
+          }
+          if ($output -notmatch "WINDOWS_APPROVAL_TOAST_ACCEPTED:") {
+            throw "Notification smoke did not emit its acceptance sentinel."
+          }
       - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
       - run: >-

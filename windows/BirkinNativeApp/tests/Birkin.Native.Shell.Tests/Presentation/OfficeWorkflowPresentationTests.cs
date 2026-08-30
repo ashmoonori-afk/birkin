@@ -206,6 +206,31 @@ public sealed class OfficeWorkflowPresentationTests
         Assert.IsTrue(workflow.HasPendingCommand);
     }
 
+    [DataTestMethod]
+    [DataRow(WorkflowCommandState.PendingReceipt, "명령을 전송하고 있습니다.")]
+    [DataRow(WorkflowCommandState.AcceptedPendingProjection, "결과를 화면에 반영하고 있습니다.")]
+    public void Workflow_WhenCommandIsPending_ProvidesKoreanProgressCopy(
+        WorkflowCommandState state,
+        string expected)
+    {
+        var workflow = OfficeWorkflowPresentation.Empty with { CommandState = state };
+
+        Assert.IsTrue(workflow.HasPendingCommand);
+        Assert.AreEqual(expected, workflow.CommandProgressText);
+    }
+
+    [DataTestMethod]
+    [DataRow(WorkflowCommandState.Idle)]
+    [DataRow(WorkflowCommandState.Refused)]
+    public void Workflow_WhenCommandIsNotPending_HidesProgressCopy(
+        WorkflowCommandState state)
+    {
+        var workflow = OfficeWorkflowPresentation.Empty with { CommandState = state };
+
+        Assert.IsFalse(workflow.HasPendingCommand);
+        Assert.AreEqual(string.Empty, workflow.CommandProgressText);
+    }
+
     [TestMethod]
     public void Workflow_WhenAuthorityClears_PreservesDraftAndClearsPending()
     {

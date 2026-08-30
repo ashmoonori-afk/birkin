@@ -29,10 +29,11 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
     public ShellPresentationModel Model { get; }
     public ShellCoordinator Coordinator { get; }
 
-    public static async Task<OfficeWorkflowViewHarness> CreateAsync()
+    public static async Task<OfficeWorkflowViewHarness> CreateAsync(
+        bool canInterrupt = false)
     {
         var connection = new RecordingConnection();
-        connection.Enqueue(Snapshot());
+        connection.Enqueue(Snapshot(canInterrupt));
         var model = new ShellPresentationModel(new ImmediateSynchronizationContext());
         var coordinator = new ShellCoordinator(connection, new NativeProjectionStore(), model)
         {
@@ -92,7 +93,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         }
     }
 
-    private static NativeEnvelope Snapshot() => new(
+    private static NativeEnvelope Snapshot(bool canInterrupt) => new(
         NativeMessageKind.Snapshot,
         "snapshot-1",
         Object(
@@ -131,7 +132,9 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
                 Object(("id", new NativeJsonString("message-1")), ("kind", new NativeJsonString("user_message")), ("text", new NativeJsonString("기준 파일과 후보 파일을 비교해 주세요.")), ("actor_id", new NativeJsonString("user")), ("cursor", new NativeJsonInteger(10))),
                 Object(("id", new NativeJsonString("approval-7")), ("kind", new NativeJsonString("approval")), ("text", new NativeJsonString("보고서 저장 승인 필요")), ("actor_id", new NativeJsonString("python:authority")), ("cursor", new NativeJsonInteger(12)))
             ])),
-            ("composer", Object(("can_send", new NativeJsonBoolean(true)))),
+            ("composer", Object(
+                ("can_send", new NativeJsonBoolean(true)),
+                ("can_interrupt", new NativeJsonBoolean(canInterrupt)))),
             ("status", Object(("connection", new NativeJsonString("connected")))),
             ("working_memory", Object()),
             ("approval_policy", Object()),
@@ -183,6 +186,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         private static readonly HashSet<string> Commands =
         [
             "chat.send", "file.import", "approval.answer",
+            "chat.interrupt",
             "office.select", "office.open", "office.compare",
             "office.rollback_request",
         ];

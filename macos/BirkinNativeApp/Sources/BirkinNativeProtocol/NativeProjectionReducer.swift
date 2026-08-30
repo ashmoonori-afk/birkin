@@ -23,6 +23,7 @@ enum NativeProjectionReducer {
         "checkpoint.restored": "checkpoints_restore", "computer.updated": "computer_use",
         "progress.updated": "activity_logs", "tool.started": "activity_logs",
         "tool.completed": "activity_logs", "tool.failed": "activity_logs",
+        "notification.requested": "activity_logs",
         "settings.updated": "settings_status", "status.updated": "settings_status",
     ]
 
@@ -249,7 +250,8 @@ enum NativeProjectionReducer {
     private static func panelItem(_ event: NativeProjectionEvent) -> NativeJSONObject {
         let payload = event.payload
         let decision = payload.string("decision")
-        let id = payload.string("approval_id") ?? payload.string("question_id")
+        let id = payload.string("notification_id") ?? payload.string("approval_id")
+            ?? payload.string("question_id")
             ?? payload.string("task_id") ?? payload.string("evidence_id")
             ?? payload.string("checkpoint_id") ?? event.eventID
         let summary = payload.string("summary") ?? payload.string("name") ?? event.type
@@ -263,6 +265,7 @@ enum NativeProjectionReducer {
             "checkpoint.created": "checkpoint", "checkpoint.restored": "checkpoint",
             "computer.updated": "computer_use", "receipt.recorded": "receipt",
             "command.completed": "receipt", "integrity.warning": "integrity_warning",
+            "notification.requested": "notification",
         ][event.type] ?? "activity"
         let defaultState = defaultUIState(event.type, payload: payload)
         var item: NativeJSONObject = [
@@ -307,7 +310,8 @@ enum NativeProjectionReducer {
         payload: NativeJSONObject
     ) -> String {
         switch type {
-        case "approval.requested", "question.requested": return "action_needed"
+        case "approval.requested", "question.requested", "notification.requested":
+            return "action_needed"
         case "approval.answered":
             switch payload.string("outcome") {
             case "approved": return "succeeded"

@@ -23,6 +23,8 @@ public partial class WorkspaceSnapshotView : UserControl
         ContextColumnView.AttachWorkflow(presentationModel, coordinator);
     }
 
+    public void FocusApprovals() => ContextColumnView.FocusApprovals();
+
     public void AttachStartupRecovery(
         ShellPresentationModel presentationModel,
         IStartupRecovery startupRecovery)

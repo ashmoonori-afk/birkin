@@ -212,7 +212,13 @@ def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(
     executions = 0
     execution_lock = Lock()
 
-    def execute(_category: str, _payload: dict[str, object]) -> str:
+    def execute(
+        _category: str,
+        _payload: dict[str, object],
+        *,
+        on_event: object = None,
+    ) -> str:
+        del on_event
         nonlocal executions
         with execution_lock:
             executions += 1

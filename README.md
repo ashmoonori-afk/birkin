@@ -267,6 +267,23 @@ Document inputs are jailed to the dedicated `BIRKIN_HOME/office` tree, separate 
 
 On Windows, Birkin applies one protected owner-only inheritable DACL to `BIRKIN_HOME` when the root is first opened and repairs the owner and DACL of existing descendants. Configuration API keys, WebUI session capabilities, pending approvals, Office job receipts, export backups, HMAC keys, and rollback tokens inherit that boundary. POSIX continues to use owner-only modes and refuses a `BIRKIN_HOME` beneath a shared-writable parent. Relative overrides are pinned to their first absolute resolution for the process lifetime.
 
+Workspace turns now emit bounded `progress.updated` events before provider work
+starts and when it succeeds or fails, so native Activity does not remain silent.
+Office inspection, comparison, draft, validation, and export transitions reuse
+one keyed progress row on the web while retaining all five machine phase tokens.
+The default workspace terminal renders all five phase events. `birkin review`
+renders the approval-time draft, validation, and export phases; inspection and
+comparison are emitted when the Office request is queued.
+Activity retains only its 100 newest items.
+Each newly pending approval also emits one redacted `notification.requested`
+event with fixed Korean copy and an opaque approval ID. Windows shows the
+pending count in the title, marks the taskbar, flashes the app once per
+approval, shows a navigation-only system toast, and stops the signal when no
+approval remains. macOS uses the same fixed-copy, navigation-only notification
+boundary. The web subscribes to approval events and performs a 30-second
+fallback refresh without replacing an unchanged active approval card.
+Notification content never grants approval authority.
+
 ```json
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
 ```

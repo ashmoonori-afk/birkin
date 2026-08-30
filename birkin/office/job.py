@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Protocol, cast, final
@@ -19,6 +19,9 @@ class OfficeJobJournalSink(Protocol):
     def append(self, job: OfficeJob) -> None: ...
 
 
+OfficeJobTransitionSink = Callable[[str, OfficeJobState], None]
+
+
 _TERMINAL_STATES = {
     OfficeJobState.exported, OfficeJobState.rejected, OfficeJobState.failed
 }
@@ -28,12 +31,14 @@ _TERMINAL_STATES = {
 class OfficeJob:
     def __init__(self, *, job_id: str, format_name: str, source: Mapping[str, object],
                  runner: OfficeJobRunner,
-                 journal: OfficeJobJournalSink | None = None) -> None:
+                 journal: OfficeJobJournalSink | None = None,
+                 on_transition: OfficeJobTransitionSink | None = None) -> None:
         self._job_id = job_id
         self._format_name = format_name
         self._source = deepcopy(dict(source))
         self._runner = runner
         self._journal = journal
+        self._on_transition = on_transition
         self._state = OfficeJobState.input_captured
         self._history = [self._state]
         self._outcome: str | None = None
@@ -52,13 +57,23 @@ class OfficeJob:
         self._failure: dict[str, object] | None = None
         if self._journal is not None:
             self._journal.append(self)
+        if self._on_transition is not None:
+            self._on_transition(self._job_id, self._state)
 
     def to_dict(self) -> dict[str, object]:
         return snapshot_job(self)
 
     @classmethod
-    def from_dict(cls, snapshot: Mapping[str, object], *, runner: OfficeJobRunner) -> OfficeJob:
-        return restore_job(snapshot, runner=runner, job_factory=cls)
+    def from_dict(
+        cls,
+        snapshot: Mapping[str, object],
+        *,
+        runner: OfficeJobRunner,
+        on_transition: OfficeJobTransitionSink | None = None,
+    ) -> OfficeJob:
+        job = restore_job(snapshot, runner=runner, job_factory=cls)
+        job._on_transition = on_transition
+        return job
 
     @property
     def state(self) -> OfficeJobState:
@@ -307,6 +322,8 @@ class OfficeJob:
         self._history.append(state)
         if self._journal is not None:
             self._journal.append(self)
+        if self._on_transition is not None:
+            self._on_transition(self._job_id, state)
 
     def _proposal_digest(self) -> str:
         if self._preview is None or self._outcome is None:

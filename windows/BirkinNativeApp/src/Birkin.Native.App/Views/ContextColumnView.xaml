@@ -24,6 +24,7 @@
 
         <Border x:Name="ApprovalsRegion"
                 MinHeight="180"
+                Focusable="True"
                 automation:AutomationProperties.AutomationId="approvals.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>

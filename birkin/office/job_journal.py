@@ -25,7 +25,7 @@ from .path_security import directory_identity, sync_directory
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .job import OfficeJob
+    from .job import OfficeJob, OfficeJobTransitionSink
     from .job_types import OfficeJobRunner
 
 
@@ -53,12 +53,17 @@ def receipt_job(job: OfficeJobSnapshot) -> dict[str, object]:
 
 
 def restore_job(
-    snapshot: Mapping[str, object], *, runner: OfficeJobRunner
+    snapshot: Mapping[str, object],
+    *,
+    runner: OfficeJobRunner,
+    on_transition: OfficeJobTransitionSink | None = None,
 ) -> OfficeJob:
     """Restore one durable snapshot using the concrete OfficeJob factory."""
     from .job import OfficeJob
 
-    return _restore_job(snapshot, runner=runner, job_factory=OfficeJob)
+    job = _restore_job(snapshot, runner=runner, job_factory=OfficeJob)
+    job._on_transition = on_transition
+    return job
 
 
 @final
@@ -153,9 +158,20 @@ class OfficeJobJournal:
     def _latest(self, job_id: str) -> dict[str, object]:
         return self._complete(job_id)[-1]
 
-    def restore(self, job_id: str, *, runner: OfficeJobRunner) -> OfficeJob:
+    def restore(
+        self,
+        job_id: str,
+        *,
+        runner: OfficeJobRunner,
+        on_transition: OfficeJobTransitionSink | None = None,
+    ) -> OfficeJob:
         restored = tuple(
-            restore_job(snapshot, runner=runner) for snapshot in self._complete(job_id)
+            restore_job(
+                snapshot,
+                runner=runner,
+                on_transition=on_transition,
+            )
+            for snapshot in self._complete(job_id)
         )
         if any(job._job_id != job_id for job in restored):
             raise _error("journal path and snapshot job_id do not match")

@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from birkin import approvals, store
+
+RuntimeEventSink = Callable[[str, dict[str, object]], None]
 
 
 def decide(
@@ -10,6 +14,7 @@ def decide(
     *,
     decision: str,
     reason: str = "",
+    on_event: RuntimeEventSink | None = None,
 ) -> dict[str, object]:
     """Resolve once and normalize a multi-surface losing answer."""
 
@@ -18,6 +23,7 @@ def decide(
             aid,
             approved_by="human:workspace",
             approved_via="workspace:control",
+            on_event=on_event,
         )
         decided_status = "approved"
     elif decision == "reject":

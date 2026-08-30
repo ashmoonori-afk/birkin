@@ -10,6 +10,7 @@ public enum WorkflowCommandState
 
 public sealed record MutationAvailabilitySet(
     MutationAvailability ConversationSend,
+    MutationAvailability ConversationInterrupt,
     MutationAvailability FileImport,
     MutationAvailability ApprovalAnswer,
     MutationAvailability OfficeCreate,
@@ -22,7 +23,17 @@ public sealed record MutationAvailabilitySet(
     private static readonly MutationAvailability Disabled = new(false, "E_CONNECTION_NOT_READY");
 
     public static MutationAvailabilitySet None { get; } =
-        new(Disabled, Disabled, Disabled, Disabled, Disabled, Disabled, Disabled, Disabled, Disabled);
+        new(
+            Disabled,
+            Disabled,
+            Disabled,
+            Disabled,
+            Disabled,
+            Disabled,
+            Disabled,
+            Disabled,
+            Disabled,
+            Disabled);
 }
 
 public sealed record OfficeWorkflowPresentation(
@@ -43,6 +54,13 @@ public sealed record OfficeWorkflowPresentation(
     public bool HasPendingCommand =>
         CommandState is WorkflowCommandState.PendingReceipt
             or WorkflowCommandState.AcceptedPendingProjection;
+
+    public string CommandProgressText => CommandState switch
+    {
+        WorkflowCommandState.PendingReceipt => "명령을 전송하고 있습니다.",
+        WorkflowCommandState.AcceptedPendingProjection => "결과를 화면에 반영하고 있습니다.",
+        _ => string.Empty,
+    };
 
     public string CommandStateText =>
         KoreanDecisionText.WorkflowState(CommandState);

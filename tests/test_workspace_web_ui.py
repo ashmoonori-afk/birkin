@@ -99,7 +99,7 @@ def test_web_workspace_consumes_shared_session_event_command_routes() -> None:
     assert "followsOutput" in source
     assert "if (followsOutput) transcript.scrollTop" in source
     assert "legacyItems.map" in source
-    assert "...(merged.get(id) || {}), ...item" in source
+    assert "const combined = {...previous, ...item};" in source
     assert "approval.requested_by" in source
     assert "복원 승인 요청" in source
     assert "/api/checkpoints/${encodeURIComponent(item.id)}/restore" in source
@@ -158,6 +158,40 @@ def test_web_workspace_prefers_workspace_approval_receipts() -> None:
 
     assert "payload.receipt" in source
     assert "recentReceipts.set(approvalId" in source
+
+
+def test_web_workspace_reconciles_progress_by_machine_identity() -> None:
+    source, _ = _document()
+
+    assert '"progress.updated"' in source
+    assert "function renderProgress(payload, eventId)" in source
+    assert "article.dataset.progressId = progressId" in source
+    assert "article.dataset.officePhase = String(payload.office_phase)" in source
+    assert "article.dataset.uiState = uiState" in source
+
+
+def test_web_workspace_refreshes_external_approvals_without_duplicate_pollers() -> None:
+    source, _ = _document()
+
+    assert "const APPROVAL_REFRESH_INTERVAL_MS = 30_000;" in source
+    assert "approvalRefreshTimer: null" in source
+    assert "clearInterval(state.approvalRefreshTimer)" in source
+    assert "state.approvalRefreshTimer = setInterval(" in source
+    assert "}, APPROVAL_REFRESH_INTERVAL_MS);" in source
+    assert "startApprovalRefreshPolling();" in source
+    assert "async function refreshApprovals()" in source
+    assert "refreshApprovals().catch" in source
+    assert '"approval.requested"' in source
+    assert "refreshWorkspaceSnapshot(), refreshApprovals()" in source
+
+
+def test_web_workspace_counts_merged_approvals_and_announces_increases() -> None:
+    source, _ = _document()
+
+    assert "approvalCount: null" in source
+    assert "const approvalItems = mergePanelItems(" in source
+    assert "state.approvalCount = waiting;" in source
+    assert "waiting > previousWaiting" in source
 
 
 def test_web_workspace_folds_raw_receipt_behind_korean_summary() -> None:

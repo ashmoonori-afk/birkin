@@ -406,6 +406,24 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert answered_event.command_id == "approve-office-job"
     assert answered_event.payload["approval_id"] == approval_id
     assert answered_event.payload["receipt"] == answered["receipt"]
+    progress_events = [
+        event
+        for event in service.events()
+        if event.type == "progress.updated"
+        and event.payload.get("job_id") == approval["job_id"]
+    ]
+    assert [
+        (event.command_id, event.payload["office_phase"])
+        for event in progress_events
+    ] == [
+        ("request-office-job", "inspection"),
+        ("request-office-job", "comparison"),
+        ("approve-office-job", "draft"),
+        ("approve-office-job", "validation"),
+        ("approve-office-job", "export"),
+    ]
+    assert progress_events[-1].payload["status"] == "succeeded"
+    assert progress_events[-1].payload["ui_state"] == "succeeded"
     assert answered_event.payload["receipt_ref"] == answered["receipt_ref"]
 
     receipt_payload = cast(dict[str, object], json.loads(answered["receipt"]))

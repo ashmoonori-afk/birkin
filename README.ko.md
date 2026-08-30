@@ -267,6 +267,23 @@ Office export 승인 뒤 native surface는 결정된 승인 이력을 유지하�
 
 Windows에서는 Birkin이 `BIRKIN_HOME`을 처음 열 때 owner-only 상속 DACL을 한 번 적용하고 기존 하위 항목의 owner와 DACL도 교정합니다. Config API key, WebUI session capability, pending approval, Office job receipt, export backup, HMAC key와 rollback token은 이 경계를 상속합니다. POSIX에서는 계속 owner-only mode를 사용하며 shared-writable parent 아래의 `BIRKIN_HOME`을 거부합니다. 상대 경로 override는 process lifetime 동안 최초로 해석된 절대 경로에 고정됩니다.
 
+Workspace turn은 provider 작업 시작 전과 성공·실패 시점에 bounded
+`progress.updated` event를 내보내므로 native Activity가 침묵 상태로 남지
+않습니다. Office 검사·비교·초안·검증·내보내기 전환은 web에서 하나의 keyed
+progress 행을 갱신하며 다섯 machine phase token을 모두 유지합니다. 기본
+workspace terminal은 다섯 phase event를 모두 표시합니다. `birkin review`는
+승인 시점의 초안·검증·내보내기 phase를 표시하며 검사·비교 phase는 Office
+요청을 queue에 등록할 때 표시됩니다. Activity는 최신 100개 항목만 유지합니다.
+새 pending approval마다
+fixed 한국어 copy와 opaque approval ID만
+담은 `notification.requested` event를 한 번 보냅니다. Windows는 title에
+pending 건수를 표시하고 taskbar를 표시하며 approval별로 app을 한 번
+flash하고, 승인 화면으로만 이동하는 system toast를 표시합니다. macOS도 같은
+fixed-copy·navigation-only notification 경계를 사용합니다. Web은 approval
+event를 구독하고 30초 fallback refresh를 수행하되 변경되지 않은 활성 approval
+card를 교체하지 않습니다. Pending approval이 없어지면 flash를 명시적으로
+멈춥니다. Notification 자체에는 승인 권한이 없습니다.
+
 ```json
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
 ```

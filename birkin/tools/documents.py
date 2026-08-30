@@ -84,6 +84,7 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
             OfficeCreationRequest,
         )
         from ..office.errors import DocumentError, DocumentErrorCode
+        from ..office.progress import office_progress_sink
         from ..office.presentation import format_preview_replacements
         from ..office.preview_semantics import PreviewSummary
         from ..office.service import DocumentService
@@ -113,7 +114,8 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                         OfficeCaller(
                             allowlist_root=ctx.cwd,
                             actor=ctx.record_source,
-                        )
+                        ),
+                        on_transition=office_progress_sink(ctx.emit),
                     )
                     approval = coordinator.request(
                         OfficeMutationRequest(
