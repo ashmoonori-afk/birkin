@@ -238,6 +238,12 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
         for command in commands
         if "WINDOWS_APPROVAL_TOAST_ACCEPTED:" in command
     )
+    runtime_install = next(
+        command
+        for command in commands
+        if "windowsappruntimeinstall-x64.exe" in command
+        and "Invoke-WebRequest" in command
+    )
     solution_restore = f"dotnet restore ./{SOLUTION}"
     solution_build = f"dotnet build ./{SOLUTION} -c Release --no-restore"
 
@@ -253,6 +259,16 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert "Remove-LocalUser" in smoke
     assert "[Guid]::NewGuid()" in smoke
     assert commands.index(build) < commands.index(smoke)
+    assert "2.4/2.4.0" in runtime_install
+    assert (
+        "851C35B0B0A59CE4C55F9171F6011933"
+        in runtime_install
+    )
+    assert "Get-AuthenticodeSignature" in runtime_install
+    assert "O=Microsoft Corporation" in runtime_install
+    assert '"--quiet"' in runtime_install
+    assert commands.index(build) < commands.index(runtime_install)
+    assert commands.index(runtime_install) < commands.index(smoke)
     assert commands.index(smoke) < commands.index(solution_restore)
     assert commands.index(solution_restore) < commands.index(solution_build)
 

@@ -132,6 +132,40 @@ jobs:
           --disable-build-servers
           -p:UseSharedCompilation=false
           -m:1
+      - name: Install the pinned Windows App SDK notification dependency
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $uri = (
+            "https://aka.ms/windowsappsdk/2.4/2.4.0/" +
+            "windowsappruntimeinstall-x64.exe"
+          )
+          $installer = Join-Path $env:RUNNER_TEMP "windowsappruntimeinstall-x64.exe"
+          $expectedHash = (
+            "851C35B0B0A59CE4C55F9171F6011933" +
+            "22FC3413143B0DC3390EA11E14CFA7FC"
+          )
+          Invoke-WebRequest -Uri $uri -OutFile $installer
+          $actualHash = (Get-FileHash $installer -Algorithm SHA256).Hash
+          if ($actualHash -ne $expectedHash) {
+            throw "Windows App SDK installer hash mismatch."
+          }
+          $signature = Get-AuthenticodeSignature $installer
+          if (
+            $signature.Status -ne "Valid" -or
+            $signature.SignerCertificate.Subject -notmatch
+              "O=Microsoft Corporation"
+          ) {
+            throw "Windows App SDK installer signature is invalid."
+          }
+          $process = Start-Process `
+            -FilePath $installer `
+            -ArgumentList "--quiet" `
+            -Wait `
+            -PassThru
+          if ($process.ExitCode -ne 0) {
+            throw "Windows App SDK installer exited $($process.ExitCode)."
+          }
       - name: Verify Windows accepts the approval notification
         shell: pwsh
         run: |
