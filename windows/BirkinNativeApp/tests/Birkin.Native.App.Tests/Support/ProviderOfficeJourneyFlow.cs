@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Birkin.Native.App.Startup;
+using Birkin.Native.App.Views;
 using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Messaging;
 using Birkin.Native.Shell.Commands;
@@ -35,6 +36,10 @@ internal static class ProviderOfficeJourneyFlow
         window.Show();
         window.Activate();
         window.UpdateLayout();
+        var approvals = OfficeWorkflowViewHarness.Find<ApprovalView>(
+            window,
+            "approval.workflow");
+        approvals.ConfirmDecision = (_, _) => true;
         using var events = new ProviderOfficeEventLog(composition.ProjectionStore);
         try
         {
