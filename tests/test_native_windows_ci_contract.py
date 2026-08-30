@@ -257,6 +257,9 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert commands.index(restore) < commands.index(build)
     assert "New-LocalUser" in smoke
     assert "Start-Process" in smoke
+    assert "windowsappruntimeinstall-x64.exe" in smoke
+    assert 'ArgumentList "--quiet"' in smoke
+    assert "WaitForExit(120000)" in smoke
     assert "WaitForExit(45000)" in smoke
     assert "Stop-Process -Id $process.Id -Force" in smoke
     assert "Birkin.Native.Notification.Smoke.exe" in smoke
@@ -270,7 +273,6 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     )
     assert "Get-AuthenticodeSignature" in runtime_install
     assert "O=Microsoft Corporation" in runtime_install
-    assert '"--quiet"' in runtime_install
     assert commands.index(build) < commands.index(runtime_install)
     assert commands.index(runtime_install) < commands.index(smoke)
     assert commands.index(smoke) < commands.index(solution_restore)

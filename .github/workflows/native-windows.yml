@@ -132,7 +132,7 @@ jobs:
           --disable-build-servers
           -p:UseSharedCompilation=false
           -m:1
-      - name: Install the pinned Windows App SDK notification dependency
+      - name: Verify the pinned Windows App SDK notification installer
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -158,14 +158,6 @@ jobs:
           ) {
             throw "Windows App SDK installer signature is invalid."
           }
-          $process = Start-Process `
-            -FilePath $installer `
-            -ArgumentList "--quiet" `
-            -Wait `
-            -PassThru
-          if ($process.ExitCode -ne 0) {
-            throw "Windows App SDK installer exited $($process.ExitCode)."
-          }
       - name: Verify Windows accepts the approval notification
         shell: pwsh
         run: |
@@ -185,8 +177,24 @@ jobs:
           )
           $stdout = Join-Path $env:RUNNER_TEMP "birkin-toast-smoke.out"
           $stderr = Join-Path $env:RUNNER_TEMP "birkin-toast-smoke.err"
+          $runtimeInstaller = Join-Path `
+            $env:RUNNER_TEMP `
+            "windowsappruntimeinstall-x64.exe"
           New-LocalUser -Name $user -Password $securePassword | Out-Null
           try {
+            $runtime = Start-Process `
+              -FilePath $runtimeInstaller `
+              -ArgumentList "--quiet" `
+              -Credential $credential `
+              -PassThru
+            if (-not $runtime.WaitForExit(120000)) {
+              Stop-Process -Id $runtime.Id -Force
+              $runtime.WaitForExit()
+              throw "Windows App SDK installer did not exit within 120 seconds."
+            }
+            if ($runtime.ExitCode -ne 0) {
+              throw "Windows App SDK installer exited $($runtime.ExitCode)."
+            }
             $process = Start-Process `
               -FilePath $executable `
               -Credential $credential `
