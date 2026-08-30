@@ -146,6 +146,7 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "rejection_result",
         "related_evidence",
         "risk",
+        "issued_at",
         "expires_at",
         "receipt_ref",
         "snapshot_ref",
@@ -176,14 +177,23 @@ def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
         value = event.payload.get(field)
         if isinstance(value, int) and not isinstance(value, bool):
             item[field] = value
-    for field in ("sealed", "decided", "overwrite_approved"):
+    for field in (
+        "sealed",
+        "decided",
+        "overwrite_approved",
+        "backup_exists",
+    ):
         value = event.payload.get(field)
         if isinstance(value, bool):
             item[field] = value
     if event.type == "approval.answered":
         item["decided"] = _approval_answer_decided(outcome)
         receipt = event.payload.get("receipt")
-        if isinstance(receipt, str) and receipt:
+        if (
+            "receipt_ref" not in item
+            and isinstance(receipt, str)
+            and receipt
+        ):
             item["receipt_ref"] = receipt
     focus_preserved = event.payload.get("focus_preserved")
     if isinstance(focus_preserved, bool):
@@ -203,6 +213,10 @@ def _reconcile_answered_approval(
         "ui_state",
         "decided",
         "receipt_ref",
+        "destination",
+        "issued_at",
+        "expires_at",
+        "backup_exists",
         "effect",
         "refusal_code",
     }

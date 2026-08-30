@@ -18,7 +18,7 @@ namespace Birkin.Native.Protocol.Tests.Transport;
 public sealed class OfficeAuthorityBridgeIntegrationTests
 {
     [TestMethod]
-    public async Task ProductionSession_ImportsAndComparesOfficeArtifactsWithoutSaving()
+    public async Task ProductionSession_ImportsComparesAndCreatesApprovedOfficeDraft()
     {
         var launcher = RealBridgeHarness.CreateStartInfo("test-home", "test-bridge");
         var expectedPython = OperatingSystem.IsWindows()
@@ -80,36 +80,36 @@ public sealed class OfficeAuthorityBridgeIntegrationTests
         StringAssert.Contains(serializedDiff, "4100");
         StringAssert.Contains(serializedDiff, "4700");
 
-        if (!ReportSaveEnabled())
-        {
-            Assert.AreEqual(1, session.MaximumConcurrentReceives);
-            return;
-        }
-
-        var output = Path.Combine(bridge.BridgeRoot, "office", "artifacts", "drafts", "comparison-report.docx");
+        const string outputName = "comparison-report.docx";
+        var output = Path.Combine(bridge.BridgeRoot, outputName);
         var draftEvents = new List<NativeEnvelope>();
         var draftReceipt = await SendAndAwaitEventsAsync(
             session,
             store,
             OfficeCommands.Draft(
                 new OfficeDraftIntent(
-                    String(imported["report-template.docx"], "artifact_id"),
-                    diffId,
-                    "comparison-report.docx"),
+                    "Create the comparison report",
+                    "docx",
+                    new OfficeDocumentContent([
+                        "BIRKIN_P3_03_DOCUMENT_SENTINEL",
+                        "Comparison!A1 changed from 4100 to 4700.",
+                    ]),
+                    "Create a new comparison report",
+                    outputName,
+                    false),
                 Context("w5-draft", store)),
-            ["approval.requested", "office.updated", "command.completed"],
+            ["approval.requested", "command.completed"],
             deadline.Token,
             draftEvents);
         var draftResult = Object(draftReceipt.Body, "result");
-        var draftId = String(draftResult, "draft_id");
         var approval = Object(draftResult, "approval");
-        var approvalId = String(approval, "approval_id");
-        Assert.AreEqual("pending", String(approval, "status"));
+        var approvalId = String(draftResult, "id");
+        var jobId = String(approval, "job_id");
+        Assert.AreEqual("office_create", String(draftResult, "category"));
         Assert.IsFalse(File.Exists(output), "Python must not write the draft before approval");
         var requested = draftEvents.Single(EventTypeIs("approval.requested"));
         Assert.AreEqual(approvalId, String(Object(requested.Body, "payload"), "approval_id"));
-        Assert.AreEqual(draftId, String(Object(requested.Body, "payload"), "draft_id"));
-        Assert.AreEqual(diffId, String(Object(requested.Body, "payload"), "diff_id"));
+        Assert.AreEqual(jobId, String(Object(requested.Body, "payload"), "job_id"));
         Assert.IsTrue(Boolean(Object(requested.Body, "payload"), "sealed"));
 
         var approvalEvents = new List<NativeEnvelope>();
@@ -119,24 +119,13 @@ public sealed class OfficeAuthorityBridgeIntegrationTests
             ApprovalCommands.Answer(
                 new ApprovalAnswerIntent(approvalId, ApprovalDecision.Approve),
                 Context("w5-approve", store)),
-            ["approval.answered", "receipt.recorded", "office.updated", "command.completed"],
+            ["approval.answered", "command.completed"],
             deadline.Token,
             approvalEvents);
         var approvalResult = Object(approvalReceipt.Body, "result");
-        var saved = Object(approvalResult, "artifact");
         Assert.AreEqual("approved", String(approvalResult, "outcome"));
-        Assert.IsTrue(Boolean(Object(approvalResult, "validation"), "valid"));
+        StringAssert.Contains(String(approvalResult, "receipt"), jobId);
         Assert.IsTrue(File.Exists(output));
-
-        var activityEvent = approvalEvents.Single(EventTypeIs("receipt.recorded"));
-        var activityPayload = Object(activityEvent.Body, "payload");
-        Assert.AreEqual(approvalId, String(activityPayload, "approval_id"));
-        Assert.AreEqual(String(saved, "artifact_id"), String(activityPayload, "artifact_id"));
-        Assert.AreEqual(draftId, String(activityPayload, "draft_id"));
-        Assert.AreEqual(diffId, String(activityPayload, "diff_id"));
-        Assert.AreEqual("w5-draft", String(activityPayload, "request_command_id"));
-        Assert.AreEqual("w5-approve", String(activityPayload, "approval_command_id"));
-        AssertProjectedActivityCorrelation(store, activityPayload);
 
         using (var package = ZipFile.OpenRead(output))
         {
@@ -148,21 +137,8 @@ public sealed class OfficeAuthorityBridgeIntegrationTests
             StringAssert.Contains(xml, "4700");
         }
 
-        var openReceipt = await SendAndAwaitEventsAsync(
-            session,
-            store,
-            OfficeCommands.Open(
-                new OfficeOpenIntent(Artifact(saved)),
-                Context("w5-open", store)),
-            ["office.updated", "command.completed"],
-            deadline.Token);
-        var document = Object(Object(openReceipt.Body, "result"), "document");
-        Assert.AreEqual(
-            String(saved, "content_hash"),
-            String(Object(document, "source"), "sha256"));
         var office = store.Surface("office") ?? throw new AssertFailedException("Office surface was not projected");
         var documents = Array(office.Payload, "documents").Values.Cast<NativeJsonObject>().ToArray();
-        Assert.IsTrue(documents.Any(item => String(item, "artifact_id") == String(saved, "artifact_id")));
         Assert.IsTrue(imported.Values.All(artifact =>
             documents.Any(item => String(item, "artifact_id") == String(artifact, "artifact_id"))));
         Assert.AreEqual(1, session.MaximumConcurrentReceives);
@@ -188,6 +164,14 @@ public sealed class OfficeAuthorityBridgeIntegrationTests
                 return;
             }
             captured?.Add(envelope);
+            if (string.Equals(type.Value, "command.failed", StringComparison.Ordinal))
+            {
+                eventsApplied.TrySetException(new AssertFailedException(
+                    $"Command {request.CommandId} failed: "
+                    + Encoding.UTF8.GetString(
+                        NativeJsonSerializer.Serialize(envelope.ToJsonValue()))));
+                return;
+            }
             _ = remaining.Remove(type.Value);
             if (remaining.Count == 0)
             {
@@ -208,37 +192,8 @@ public sealed class OfficeAuthorityBridgeIntegrationTests
         }
     }
 
-    private static bool ReportSaveEnabled() => false;
-
     private static CommandRequestContext Context(string commandId, NativeProjectionStore store) =>
         new(commandId, store.State?.Cursor ?? 0, NativeHandshake.ViewId);
-
-    private static OfficeArtifact Artifact(NativeJsonObject value) => new(
-        String(value, "artifact_id"),
-        String(value, "content_hash"),
-        String(value, "media_type"),
-        String(value, "uri"),
-        String(value, "sensitivity"),
-        String(value, "acl_fingerprint"));
-
-    private static void AssertProjectedActivityCorrelation(
-        NativeProjectionStore store,
-        NativeJsonObject expected)
-    {
-        var activity = store.State!.Panels.Values.Cast<NativeJsonObject>()
-            .Single(panel => String(panel, "key") == "activity_logs");
-        var item = Array(activity, "items").Values.Cast<NativeJsonObject>()
-            .Single(row => row["receipt_ref"] is NativeJsonString receipt
-                && receipt.Value == String(expected, "receipt_ref"));
-        foreach (var field in new[]
-        {
-            "approval_id", "artifact_id", "draft_id", "diff_id",
-            "request_command_id", "approval_command_id",
-        })
-        {
-            Assert.AreEqual(String(expected, field), String(item, field), field);
-        }
-    }
 
     private static Func<NativeEnvelope, bool> EventTypeIs(string expected) => envelope =>
         envelope.Body["type"] is NativeJsonString type

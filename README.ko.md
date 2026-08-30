@@ -12,6 +12,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](./pyproject.toml)
 [![VS Code](https://img.shields.io/badge/VS_Code-official_extension-007ACC?logo=visualstudiocode&logoColor=white)](./vscode-extension)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ashmoonori-afk/birkin)
 
 [존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [Office Work OS](#office-work-os-v2) · [GitHub Action](#github-action) · [Sandbox](#격리-실행) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
 
@@ -85,6 +86,19 @@ Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다.
 
 요청한 결과와 적용 범위는 계속 구속력을 가집니다. Birkin은 실제 profile 또는 memory 적용을 workspace 초안으로 대체한 뒤 완료라고 주장해서는 안 됩니다. Assistant에게 붙인 이름을 포함한 assistant persona 사실과 사용자 profile 사실도 분리합니다. 이 로컬 block은 신뢰된 native 및 CLI prompt에만 추가되며 public 또는 untrusted prompt에는 로컬 경로 사실이나 private profile context가 들어가지 않습니다.
 
+### 언어 정책
+
+Birkin이 소유하는 사용자 인터페이스의 승인, 오류, 복구 동작, 진행 상태,
+완료 결과는 한국어로 표시합니다. 코드, 식별자, protocol field, stable error
+code, log, telemetry, 개발자 진단은 영어로 유지합니다. 표시 계층은 typed
+machine data를 번역하며 raw enum, cursor, exception, receipt JSON을 기본
+설명으로 삼지 않습니다. 이러한 진단은 명시적으로 공개된 제한된 상세
+화면에서만 표시합니다. 자세한 기준은
+[언어 정책](./docs/language-policy.md)을 참고하십시오.
+이번 사이클은 승인, 거부, 오류, 복구, 진행, 완료 화면부터 이 계약을
+적용합니다. 기존의 비의사결정 UI 문구는 모두 완료됐다고 주장하지 않으며
+후속 migration 대상으로 추적합니다.
+
 ## 빠른 시작
 
 Birkin은 Python 3.10 이상이 필요합니다. 제공된 Birkin 디렉터리에서 설치하십시오. Git은 필요 없고 `birkin_mnemosyne`은 패키지에 포함되어 있습니다. 기본값은 로컬에서 인증한 Codex CLI이며, `birkin setup`에서 Claude CLI나 API provider를 선택할 수 있습니다.
@@ -94,6 +108,18 @@ python -m pip install .
 birkin setup
 birkin chat
 ```
+
+### Windows 개발 프리뷰
+
+WPF 개발 프리뷰는 로컬 bridge 연결 전에 창을 먼저 표시합니다. Birkin CLI가
+없거나, 시작 제한 시간을 넘기거나, handshake에 실패하거나, 반복 종료 상태에
+들어가도 앱은 종료되지 않습니다. 대신 제한된 오류 원인, 재시도 동작,
+`BIRKIN_EXECUTABLE`에 전체 실행 파일 경로를 저장하는 입력란을 표시합니다.
+연결 상태 점은 bridge가 준비된 경우에만 초록색입니다.
+
+Windows 빌드·실행·`PATH`·실행 파일 경로·문제 해결·테스트 방법은
+[`windows/BirkinNativeApp/README.md`](windows/BirkinNativeApp/README.md)를
+참조하십시오.
 
 로컬 서비스 표면은 별도 터미널에서 실행합니다.
 
@@ -206,9 +232,22 @@ Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 
 
 Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
 
+`office_job_request`는 이제 `content.paragraphs`를 사용하는 source 없는 DOCX
+생성 proposal도 받습니다. 별도 `office_create` approval이 결합된 proposal을
+실행하기 전에는 managed draft와 호출자 destination 모두에 파일을 쓰지
+않습니다. 반환된 durable `job_id`는 기존 `office_rollback_request` 승인·receipt
+흐름에 사용할 수 있습니다.
+overwrite 권한 없이 기존 destination을 만나면 해당 파일을 변경하지 않고
+`기존 파일을 덮어쓸까요?` 후속 승인을 생성합니다. 이 승인을 누르면 같은
+작업을 overwrite 권한에 다시 결합해 한 번 재시도합니다.
+
 Office provenance는 검토된 artifact의 정확한 version과 지원 runtime range를 서로 다른 계약으로 유지합니다. 일반 환경은 선언된 range를 검증하고, locked Office CI는 설치된 정확한 version도 함께 검증합니다.
 
 Office mutation 승인은 proposer, source digest, destination, 정확한 operation, overwrite 결정을 `authority_digest`에 결합합니다. Durable receipt는 해당 digest와 승인 주체를 proposer와 분리해 보존합니다.
+
+Office export 승인 뒤 native surface는 결정된 승인 이력을 유지하고 저장 위치와 30일 되돌리기 기한을 표시하며, 사용자가 내부 job ID를 기억하지 않아도 receipt에서 되돌리기를 요청할 수 있게 합니다.
+
+웹 workspace는 같은 bounded authority contract로 승인 결정을 전송하고, 실패한 제출을 다시 시도할 수 있게 해제하며, raw receipt data를 기본 노출하지 않고 승인 상세에서 실행 영수증을 확인할 수 있게 합니다.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |

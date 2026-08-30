@@ -1,5 +1,9 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.MergedDictionaries>
+        <ResourceDictionary Source="KoreanStrings.xaml" />
+    </ResourceDictionary.MergedDictionaries>
+
     <SolidColorBrush x:Key="CanvasBrush" Color="#0B0D0E" />
     <SolidColorBrush x:Key="CardBrush" Color="#121415" />
     <SolidColorBrush x:Key="RaisedBrush" Color="#1A1C1D" />

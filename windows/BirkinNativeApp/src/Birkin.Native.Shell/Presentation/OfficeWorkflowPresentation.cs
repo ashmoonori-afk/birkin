@@ -44,7 +44,9 @@ public sealed record OfficeWorkflowPresentation(
     long? AcceptedCursor,
     long? CurrentCursor,
     string? RefusalCode,
-    MutationAvailabilitySet Availability)
+    MutationAvailabilitySet Availability,
+    string? RefusalMessage = null,
+    bool? RefusalRetryable = null)
 {
     public static OfficeWorkflowPresentation Empty { get; } =
         new(string.Empty, null, null, WorkflowCommandState.Idle, null, null, null, MutationAvailabilitySet.None);
@@ -60,6 +62,27 @@ public sealed record OfficeWorkflowPresentation(
         _ => string.Empty,
     };
 
+    public string CommandStateText =>
+        KoreanDecisionText.WorkflowState(CommandState);
+
+    public string? RefusalText =>
+        RefusalCode is { } code
+            ? KoreanDecisionText.Error(
+                code,
+                RefusalMessage,
+                RefusalRetryable,
+                CurrentCursor).UserMessage
+            : null;
+
+    public string? RefusalDiagnosticDetail =>
+        RefusalCode is { } code
+            ? KoreanDecisionText.Error(
+                code,
+                RefusalMessage,
+                RefusalRetryable,
+                CurrentCursor).DiagnosticDetail
+            : null;
+
     public OfficeWorkflowPresentation WithDraft(string draft) => this with { Draft = draft };
 
     public OfficeWorkflowPresentation WithAvailability(MutationAvailabilitySet availability) =>
@@ -73,6 +96,8 @@ public sealed record OfficeWorkflowPresentation(
         AcceptedCursor = null,
         CurrentCursor = null,
         RefusalCode = null,
+        RefusalMessage = null,
+        RefusalRetryable = null,
     };
 
     public OfficeWorkflowPresentation Accept(string commandId, long acceptedCursor) =>
@@ -90,12 +115,16 @@ public sealed record OfficeWorkflowPresentation(
     public OfficeWorkflowPresentation Refuse(
         string commandId,
         string refusalCode,
+        string refusalMessage,
+        bool refusalRetryable,
         long? currentCursor) =>
         string.Equals(CommandId, commandId, StringComparison.Ordinal)
             ? this with
             {
                 CommandState = WorkflowCommandState.Refused,
                 RefusalCode = refusalCode,
+                RefusalMessage = refusalMessage,
+                RefusalRetryable = refusalRetryable,
                 CurrentCursor = currentCursor,
             }
             : this;
@@ -113,6 +142,8 @@ public sealed record OfficeWorkflowPresentation(
                 AcceptedCursor = null,
                 CurrentCursor = null,
                 RefusalCode = null,
+                RefusalMessage = null,
+                RefusalRetryable = null,
             }
             : this;
 
@@ -124,5 +155,7 @@ public sealed record OfficeWorkflowPresentation(
         AcceptedCursor = null,
         CurrentCursor = null,
         RefusalCode = null,
+        RefusalMessage = null,
+        RefusalRetryable = null,
     };
 }

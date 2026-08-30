@@ -164,8 +164,18 @@ def _denial_probes(root: Path) -> dict[str, object]:
     overwrite = _flow(root, "overwrite")
     body = _propose(overwrite, _request(overwrite, overwrite=False))
     denied = approvals.approve(cast(str, body["id"]), approved_by="system:qa", approved_via="qa:script")
-    assert denied["ok"] is False and "OUTPUT_EXISTS" in cast(str, denied["error"])
-    records["overwrite"] = {"code": "OUTPUT_EXISTS", "unchanged": _unchanged(overwrite)}
+    assert denied["ok"] is False
+    assert denied["error"] == "기존 파일을 덮어쓸까요?"
+    follow_up = store.get_pending(cast(str, denied["follow_up_approval_id"]))
+    assert follow_up is not None
+    records["overwrite"] = {
+        "code": "OUTPUT_EXISTS",
+        "follow_up_approval_id": follow_up["id"],
+        "overwrite_approved": cast(dict[str, object], follow_up["payload"])[
+            "overwrite_approved"
+        ],
+        "unchanged": _unchanged(overwrite),
+    }
 
     drift = _flow(root, "digest-drift")
     body = _propose(drift, _request(drift))
@@ -209,8 +219,9 @@ def run(out: Path) -> dict[str, object]:
         summaries = cast("list[dict[str, str]]", approval["semantic_summaries"])
         assert len(summaries) == 1
         assert summaries[0] == {
-            "location": "docx paragraph 1", "before": BEFORE, "after": AFTER,
-            "summary": f"Replace docx paragraph 1: {BEFORE} -> {AFTER}",
+            "location": "docx paragraph 1",
+            "before": BEFORE,
+            "after": AFTER,
         }
         assert approval["source_sha256"] == flow.source_sha256
         assert approval["destination"] == str(flow.destination)

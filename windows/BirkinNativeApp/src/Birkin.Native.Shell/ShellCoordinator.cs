@@ -56,7 +56,7 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
 
     public event Action<WorkspaceSnapshotPresentation>? SnapshotApplied;
 
-    public async Task ConnectAsync(
+    public async Task<bool> ConnectAsync(
         string announcementJson,
         string expectedProductVersion,
         CancellationToken cancellationToken)
@@ -77,18 +77,21 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
                     announcement.ServerVersion);
                 _projectionStore.ApplySnapshot(snapshot, readyIdentity);
             }
+            return true;
         }
         catch (OperationCanceledException)
         {
-            Fail("E_CANCELLED");
+            throw;
         }
         catch (NativeProtocolError error)
         {
             Fail(error.Code);
+            return false;
         }
         catch (Exception)
         {
             Fail("E_CONNECTION");
+            return false;
         }
     }
 
@@ -161,6 +164,8 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
     {
         var callbackSequence = ReserveProjectionCallbackSequence();
         var authority = CaptureConnectionAuthority();
+        ConnectionPresentation? connection = null;
+        ConnectionState? changedState = null;
         bool drain;
         lock (_stateLock)
         {
@@ -178,8 +183,19 @@ public sealed partial class ShellCoordinator : IAsyncDisposable
             else
             {
                 ClearWorkflowAuthorityLocked();
+                if (_connectionState == ConnectionState.Ready)
+                {
+                    _connectionState = ConnectionState.Failed;
+                    connection = ConnectionPresentation.Failed(
+                        "E_CONNECTION");
+                    changedState = ConnectionState.Failed;
+                }
             }
-            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+            drain = EnqueuePresentationLocked(new(
+                connection,
+                null,
+                _workflow,
+                changedState));
         }
         DrainPresentations(drain);
     }

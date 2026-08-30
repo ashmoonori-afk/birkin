@@ -15,6 +15,7 @@ public sealed class ProviderOfficeDeterministicSeamTests
     [TestMethod]
     [TestCategory("OfficeWorkflow")]
     [TestCategory("DeterministicWindow")]
+    [TestCategory("LiveBridge")]
     public async Task ProductionMainWindow_ExposesEntireOfficeJourneyWithoutInvokingProvider()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(90));

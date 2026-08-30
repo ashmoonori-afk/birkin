@@ -41,7 +41,6 @@ struct BirkinApplicationEvidenceTests {
         let captureView = EvidenceCaptureView()
         let runtime = BirkinApplicationRuntime(
             socketPath: socketPath,
-            screenshotPath: screenshot.path,
             windowCapture: testCapture(captureView) {
                 captureState.visibleGeneration =
                     captureState.runtime?.presentationModel.visibleGeneration ?? 0
@@ -65,11 +64,22 @@ struct BirkinApplicationEvidenceTests {
 
         try await withTimeout("runtime start") { await runtime.start() }
         try await withTimeout("office surface") {
-            try await events.wait(for: "surface-rendered name=office")
+            try await events.wait(for: "surface-applied name=office")
         }
 
-        #expect(events.contains("surface-rendered name=browser_aside"))
-        #expect(events.contains("surface-rendered name=computer_use"))
+        #expect(events.contains("surface-applied name=browser_aside"))
+        #expect(events.contains("surface-applied name=computer_use"))
+        let firstGeneration = runtime.presentationModel.focus(.section(.activity))
+        try await withTimeout("activity evidence focus") {
+            try await runtime.presentationModel.waitUntilVisible(
+                generation: firstGeneration
+            )
+        }
+        _ = try runtime.captureEvidence(
+            to: screenshot,
+            focusTarget: ShellFocusTarget.section(.activity).evidenceName,
+            focusGeneration: firstGeneration
+        )
         #expect(FileManager.default.fileExists(atPath: screenshot.path))
         #expect(
             captureState.visibleGeneration > 0,
@@ -89,8 +99,19 @@ struct BirkinApplicationEvidenceTests {
             )
         }
         try await withTimeout("Browser surface update") {
-            try await events.wait(for: "surface-rendered name=browser_aside", occurrence: 2)
+            try await events.wait(for: "surface-applied name=browser_aside", occurrence: 2)
         }
+        let secondGeneration = runtime.presentationModel.focus(.section(.browserAside))
+        try await withTimeout("Browser evidence focus") {
+            try await runtime.presentationModel.waitUntilVisible(
+                generation: secondGeneration
+            )
+        }
+        _ = try runtime.captureEvidence(
+            to: screenshot,
+            focusTarget: ShellFocusTarget.section(.browserAside).evidenceName,
+            focusGeneration: secondGeneration
+        )
 
         let secondBytes = try Data(contentsOf: screenshot)
         #expect(secondBytes != firstBytes, "Browser state change produced identical evidence")
@@ -123,7 +144,14 @@ struct BirkinApplicationEvidenceTests {
         runtime.presentationModel.$requestGeneration
             .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { _ in view.layoutSubtreeIfNeeded() }
+            .sink { [presentationModel = runtime.presentationModel] generation in
+                view.layoutSubtreeIfNeeded()
+                guard let target = presentationModel.target else { return }
+                presentationModel.reportVisible(
+                    target: target,
+                    generation: generation
+                )
+            }
     }
 
     @MainActor

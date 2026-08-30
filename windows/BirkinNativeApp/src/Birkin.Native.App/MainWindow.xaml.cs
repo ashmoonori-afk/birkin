@@ -95,4 +95,24 @@ public partial class MainWindow : Window
         }
         _windowsAttention?.Dispose();
     }
+
+    public MainWindow(
+        ShellPresentationModel presentationModel,
+        ShellCoordinator coordinator,
+        IStartupRecovery startupRecovery)
+        : this(presentationModel, coordinator, startupRecovery, null)
+    {
+    }
+
+    internal MainWindow(
+        ShellPresentationModel presentationModel,
+        ShellCoordinator coordinator,
+        IStartupRecovery startupRecovery,
+        IApprovalToast? approvalToast)
+    {
+        InitializeComponent();
+        SnapshotView.AttachWorkflow(presentationModel, coordinator);
+        SnapshotView.AttachStartupRecovery(presentationModel, startupRecovery);
+        AttachAttention(presentationModel, approvalToast);
+    }
 }

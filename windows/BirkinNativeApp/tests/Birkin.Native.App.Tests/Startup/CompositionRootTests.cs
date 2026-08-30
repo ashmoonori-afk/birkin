@@ -1,4 +1,5 @@
 using Birkin.Native.App.Startup;
+using Birkin.Native.Shell.Lifecycle;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Birkin.Native.App.Tests.Startup;
@@ -32,6 +33,28 @@ public sealed class CompositionRootTests
 
         Assert.AreSame(failure, thrown);
         Assert.IsTrue(shutdownCalled);
+    }
+
+    [DataTestMethod]
+    [DataRow(
+        BridgeStopReason.LaunchFailed,
+        BridgeStartupFailureReason.CliUnavailable)]
+    [DataRow(
+        BridgeStopReason.StartupTimeout,
+        BridgeStartupFailureReason.CliTimedOut)]
+    [DataRow(
+        BridgeStopReason.CrashLoop,
+        BridgeStartupFailureReason.CliCrashLoop)]
+    [DataRow(
+        BridgeStopReason.StartupFailed,
+        BridgeStartupFailureReason.CliFailed)]
+    public void FailureReason_MapsSupervisorStopsToRecoveryGuidance(
+        BridgeStopReason stopReason,
+        BridgeStartupFailureReason expected)
+    {
+        Assert.AreEqual(
+            expected,
+            BridgeStartup.FailureReason(stopReason));
     }
 
     private sealed class ImmediateSynchronizationContext : SynchronizationContext

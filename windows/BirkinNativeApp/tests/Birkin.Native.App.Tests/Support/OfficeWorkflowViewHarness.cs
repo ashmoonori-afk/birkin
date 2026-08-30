@@ -113,8 +113,8 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
                         Object(
                             ("id", new NativeJsonString("approval-7")),
                             ("kind", new NativeJsonString("approval")),
-                            ("summary", new NativeJsonString("Save reviewed workbook")),
-                            ("description", new NativeJsonString("Comparison!A1: 4100 -> 4700")),
+                            ("summary", new NativeJsonString("Office 변경: 검토한 통합 문서 저장")),
+                            ("description", new NativeJsonString("Comparison!A1 변경: 4100 → 4700")),
                             ("category", new NativeJsonString("office_job")),
                             ("risk", new NativeJsonString("high")),
                             ("sealed", new NativeJsonBoolean(true)),
@@ -124,7 +124,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
                             ("overwrite_approved", new NativeJsonBoolean(false)),
                             ("authority_digest", new NativeJsonString(new string('a', 64))),
                             ("requester", new NativeJsonString("native:office-journey")),
-                            ("rejection_result", new NativeJsonString("Rejecting leaves the source unchanged and writes no output.")))
+                            ("rejection_result", new NativeJsonString("거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다.")))
                     ]))),
                 Object(("key", new NativeJsonString("activity_logs")), ("items", new NativeJsonArray([])))
             ])),
@@ -188,6 +188,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
             "chat.send", "file.import", "approval.answer",
             "chat.interrupt",
             "office.select", "office.open", "office.compare",
+            "office.rollback_request",
         ];
 
         public List<NativeCommandRequest> Sent { get; } = [];

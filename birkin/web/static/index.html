@@ -69,7 +69,11 @@
   }
   button, textarea { font: inherit; }
   button { color: inherit; }
-  button:focus-visible, textarea:focus-visible {
+  textarea::placeholder, input::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+  button:focus-visible, textarea:focus-visible, summary:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
@@ -288,6 +292,7 @@
   .panel-item[aria-current="true"] { border-color: var(--accent); }
   .approval-detail {
     display: grid;
+    min-width: 0;
     gap: 12px;
     padding: 14px;
     border: 1px solid var(--border);
@@ -300,14 +305,26 @@
   .approval-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .detail-actions { display: flex; flex-wrap: wrap; gap: 8px; }
   .detail-output {
+    min-width: 0;
+    max-width: 100%;
     max-height: 24rem;
     overflow: auto;
+    overflow-wrap: anywhere;
+    word-break: break-word;
     white-space: pre-wrap;
+    box-sizing: border-box;
     padding: 10px;
     border: 1px solid var(--border-muted);
     border-radius: 8px;
     background: var(--surface);
   }
+  .receipt-details { min-width: 0; }
+  .receipt-details summary {
+    color: var(--muted);
+    cursor: pointer;
+    font-size: .78rem;
+  }
+  .receipt-details .detail-output { margin: 10px 0 0; }
   .run-events { list-style: none; margin: 0; padding: 0; }
   .run-events li { padding: 8px 0; border-bottom: 1px solid var(--border-muted); }
   .steer-input {
@@ -326,6 +343,10 @@
     z-index: 10;
     transform: translateX(-50%);
     max-width: min(90vw, 620px);
+    max-height: min(30vh, 12rem);
+    overflow: auto;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
     padding: 9px 13px;
     border: 1px solid var(--border);
     border-radius: 10px;
@@ -486,13 +507,13 @@
 <div class="app">
 <div id="workspace-shell" class="workspace" data-testid="workspace-shell" data-panel-open="false">
   <header class="topbar">
-    <div class="brand"><strong>Birkin</strong><span>unified agent workspace</span></div>
+    <div class="brand"><strong>Birkin</strong><span>통합 에이전트 작업 공간</span></div>
     <div class="topbar-spacer"></div>
     <select id="workspace-theme" class="theme-select" data-testid="workspace-theme"
             aria-label="워크스페이스 테마">
-      <option value="studio_dark">Dark</option>
-      <option value="paper_light">Light</option>
-      <option value="high_contrast">High contrast</option>
+      <option value="studio_dark">어둡게</option>
+      <option value="paper_light">밝게</option>
+      <option value="high_contrast">고대비</option>
     </select>
     <div id="workspace-connection" class="connection" data-testid="workspace-connection"
          data-state="connecting" aria-live="polite">연결 중</div>
@@ -634,7 +655,7 @@ let items = [];
 let uiEncoding = {};
 const recentReceipts = new Map();
 const busyApprovalIds = new Set();
-const detailFields = ["expected-impact", "rejection-result", "related-evidence"];
+const approvalIdsByCommand = new Map();
 const panelLabels = {
   tasks_runs: "작업 및 실행",
   approvals: "승인",
@@ -1001,7 +1022,7 @@ function buildQueue(approvals, jobs, runs) {
       expected_impact: approval.expected_impact || approval.why
         || approval.description || "",
       rejection_result: approval.rejection_result
-        || "The requested action will not run.",
+        || "요청한 동작은 실행되지 않습니다.",
       risk: approval.risk || approval.category || "",
       expires_at: approval.expires_at || approval.expires || "",
       related_evidence: approval.related_evidence || approval.evidence || "",
@@ -1012,7 +1033,7 @@ function buildQueue(approvals, jobs, runs) {
     queue.push({
       id: `job:${job.id || job.name}`,
       kind: "cron",
-      title: job.name || "cron",
+      title: job.name || "예약 작업",
       ui_state: job.ui_state,
       detail: job.schedule?.display || job.next_run || "",
       record: job,
@@ -1023,7 +1044,7 @@ function buildQueue(approvals, jobs, runs) {
     queue.push({
       id: `run:${run.id || run.created || queue.length}`,
       kind: "run",
-      title: run.title || run.kind || "run",
+      title: run.title || "백그라운드 실행",
       ui_state: run.ui_state,
       detail: error || run.status || "",
       record: run,
@@ -1043,7 +1064,11 @@ function messageNode(kind, text, id) {
   if (id) article.dataset.messageId = id;
   const meta = document.createElement("span");
   meta.className = "message-meta";
-  meta.textContent = kind;
+  meta.textContent = {
+    user: "사용자",
+    assistant: "Birkin",
+    tool: "도구",
+  }[kind] || "메시지";
   const content = document.createElement("span");
   content.className = "message-content";
   content.textContent = text;
@@ -1119,7 +1144,7 @@ async function refreshWorkspaceSnapshot() {
 
 function approvalIsActionable(item) {
   const status = String(item.status || item.record?.status || "pending");
-  return status === "pending" || attentionFor(item.ui_state) === 0;
+  return status === "pending";
 }
 
 function mergePanelItems(legacyItems, canonicalItems) {
@@ -1213,7 +1238,9 @@ function renderPanel() {
     title.className = "panel-item-title";
     const presentation = presentationFor(item.ui_state);
     title.textContent = `${presentation[0]} ${presentation[1]} · ${
-      String(item.title || item.key || item.id || "")
+      String(
+        item.title || item.summary || item.detail || "표시 이름 없는 항목"
+      )
     }`;
     const detail = document.createElement("div");
     detail.className = "panel-item-detail";
@@ -1263,12 +1290,12 @@ async function submitApproval(item, decision) {
     await sendCommand("approval.answer", {
       approval_id: approvalId,
       decision,
-      detail_fields: detailFields,
     });
-    announce("요청 전송 완료 · Python authority 응답 대기");
+    announce("요청 전송 완료 · 권한 실행 계층 응답 대기");
   } catch (error) {
     busyApprovalIds.delete(approvalId);
-    announce(`승인 실패: ${error.message}`);
+    console.error("approval command failed", error);
+    announce("승인 요청을 처리하지 못했습니다. 잠시 후 다시 시도하세요.");
     renderPanel();
   }
 }
@@ -1278,15 +1305,22 @@ function appendApprovalDetail(item) {
   section.className = "approval-detail";
   section.setAttribute("aria-label", "승인 세부 정보");
   const record = item.record || {};
+  const risk = item.risk || record.risk;
+  const riskLabel = risk ? ({
+    low: "낮은 위험",
+    medium: "보통 위험",
+    high: "높은 위험",
+    critical: "매우 높은 위험",
+  }[String(risk)] || "위험도 알 수 없음") : null;
   const fields = document.createElement("dl");
   fields.className = "approval-fields";
   appendDefinitions(fields, [
     ["요청자", item.requester || record.origin],
-    ["유형", record.category],
+    ["유형", item.category || record.category],
     ["대상", item.target || record.target || record.payload?.path || record.payload?.command],
     ["예상 영향", item.expected_impact || record.expected_impact || record.description],
     ["거부 결과", item.rejection_result || record.rejection_result],
-    ["위험", item.risk || record.risk],
+    ["위험", riskLabel],
     ["만료", item.expires_at || record.expires_at],
     ["관련 근거", item.related_evidence || record.evidence || record.payload?.evidence],
   ]);
@@ -1295,7 +1329,7 @@ function appendApprovalDetail(item) {
   if (record.payload && Object.keys(record.payload).length) {
     const payload = document.createElement("details");
     const payloadSummary = document.createElement("summary");
-    payloadSummary.textContent = `요청 payload 보기 (${Object.keys(record.payload).length}개 항목)`;
+    payloadSummary.textContent = `요청 데이터 보기 (${Object.keys(record.payload).length}개 항목)`;
     const payloadText = document.createElement("pre");
     payloadText.textContent = JSON.stringify(record.payload, null, 2);
     payload.append(payloadSummary, payloadText);
@@ -1310,7 +1344,7 @@ function appendApprovalDetail(item) {
   const diff = document.createElement("button");
   diff.type = "button";
   diff.className = "action";
-  diff.textContent = "View diff";
+  diff.textContent = "변경 내용 보기";
   diff.addEventListener("click", async () => {
     diff.disabled = true;
     try {
@@ -1318,7 +1352,10 @@ function appendApprovalDetail(item) {
         `/api/approvals/${encodeURIComponent(item.id)}/diff`
       );
     } catch (error) {
-      output.textContent = `No diff available: ${error.message}`;
+      console.error("approval diff failed", error);
+      output.textContent = (
+        "변경 내용을 불러오지 못했습니다. 잠시 후 다시 시도하세요."
+      );
     } finally {
       output.hidden = false;
       diff.disabled = false;
@@ -1339,7 +1376,7 @@ function appendApprovalDetail(item) {
     const authority = document.createElement("p");
     authority.className = "panel-item-detail";
     authority.textContent = (
-      "버튼은 요청만 보내며 실제 실행과 상태 변경은 Python authority 응답 후 반영됩니다."
+      "버튼은 요청만 보내며 실제 실행과 상태 변경은 권한 실행 계층의 응답 후 반영됩니다."
     );
     section.appendChild(authority);
   }
@@ -1347,10 +1384,20 @@ function appendApprovalDetail(item) {
 
   const receipt = recentReceipts.get(String(item.id));
   if (receipt) {
-    const receiptText = document.createElement("p");
-    receiptText.setAttribute("role", "status");
-    receiptText.textContent = `Action executed: ${receipt.receipt}`;
-    section.appendChild(receiptText);
+    const receiptStatus = document.createElement("p");
+    receiptStatus.setAttribute("role", "status");
+    receiptStatus.textContent = (
+      "승인한 작업을 실행했습니다. 아래 영수증에서 세부 결과를 확인할 수 있습니다."
+    );
+    const receiptDetails = document.createElement("details");
+    receiptDetails.className = "receipt-details";
+    const receiptSummary = document.createElement("summary");
+    receiptSummary.textContent = "영수증 세부 정보 보기";
+    const receiptText = document.createElement("pre");
+    receiptText.className = "detail-output";
+    receiptText.textContent = JSON.stringify(receipt, null, 2);
+    receiptDetails.append(receiptSummary, receiptText);
+    section.append(receiptStatus, receiptDetails);
   }
   panelBody.appendChild(section);
 }
@@ -1360,7 +1407,9 @@ function appendQuestionDetail(item) {
   section.className = "approval-detail";
   section.setAttribute("aria-label", "질문 응답");
   const prompt = document.createElement("p");
-  prompt.textContent = String(item.summary || item.detail || item.id);
+  prompt.textContent = String(
+    item.summary || item.detail || "질문 내용을 확인할 수 없습니다."
+  );
   const label = document.createElement("label");
   label.textContent = "답변";
   const answer = document.createElement("textarea");
@@ -1376,7 +1425,10 @@ function appendQuestionDetail(item) {
     sendCommand("question.answer", {
       question_id: item.id,
       answer: answer.value,
-    }).catch((error) => announce(`답변 실패: ${error.message}`));
+    }).catch((error) => {
+      console.error("question answer failed", error);
+      announce("답변을 처리하지 못했습니다. 잠시 후 다시 시도하세요.");
+    });
   });
   section.append(prompt, label, submit);
   panelBody.appendChild(section);
@@ -1414,7 +1466,7 @@ function appendCheckpointDetail(item) {
   const preview = document.createElement("button");
   preview.type = "button";
   preview.className = "action";
-  preview.textContent = "Preview diff";
+  preview.textContent = "차이 미리보기";
   const restore = document.createElement("button");
   restore.type = "button";
   restore.className = "action";
@@ -1422,7 +1474,7 @@ function appendCheckpointDetail(item) {
   actions.append(preview, restore);
 
   const commandLabel = document.createElement("label");
-  commandLabel.textContent = "Alternate command (JSON string array)";
+  commandLabel.textContent = "대체 명령(JSON 문자열 배열)";
   const command = document.createElement("input");
   command.className = "steer-input";
   command.value = '["python","-c","print(42)"]';
@@ -1430,7 +1482,7 @@ function appendCheckpointDetail(item) {
   const fork = document.createElement("button");
   fork.type = "button";
   fork.className = "action";
-  fork.textContent = "Run alternate branch";
+  fork.textContent = "격리된 대체 분기 실행";
   const forkActions = document.createElement("div");
   forkActions.className = "detail-actions";
   forkActions.append(commandLabel, fork);
@@ -1441,6 +1493,13 @@ function appendCheckpointDetail(item) {
   const status = document.createElement("p");
   status.setAttribute("role", "status");
   status.setAttribute("aria-live", "polite");
+  const forkOutput = document.createElement("details");
+  const forkOutputSummary = document.createElement("summary");
+  forkOutputSummary.textContent = "대체 분기 출력 보기";
+  const forkOutputText = document.createElement("pre");
+  forkOutputText.className = "detail-output";
+  forkOutput.append(forkOutputSummary, forkOutputText);
+  forkOutput.hidden = true;
 
   preview.addEventListener("click", async () => {
     preview.disabled = true;
@@ -1448,10 +1507,13 @@ function appendCheckpointDetail(item) {
       const result = await api(
         `/api/checkpoints/${encodeURIComponent(item.id)}/diff`
       );
-      output.textContent = result.patch || "No differences from current files.";
+      output.textContent = result.patch || "현재 파일과 다른 내용이 없습니다.";
       output.hidden = false;
     } catch (error) {
-      status.textContent = `Diff preview failed: ${error.message}`;
+      console.error("checkpoint diff preview failed", error);
+      status.textContent = (
+        "차이 미리보기를 불러오지 못했습니다. 잠시 후 다시 시도하세요."
+      );
     } finally {
       preview.disabled = false;
     }
@@ -1472,9 +1534,22 @@ function appendCheckpointDetail(item) {
       );
       status.textContent = `복원 승인 대기: ${result.approval_id}`;
       announce(status.textContent);
-      await refreshLegacyPanels();
+      try {
+        await Promise.all([
+          refreshWorkspaceSnapshot(),
+          refreshLegacyPanels(),
+        ]);
+      } catch (refreshError) {
+        console.error(
+          "checkpoint panels failed after restore approval request",
+          refreshError
+        );
+      }
     } catch (error) {
-      status.textContent = `복원 실패: ${error.message}`;
+      console.error("checkpoint restore approval request failed", error);
+      status.textContent = (
+        "복원 승인 요청에 실패했습니다. 잠시 후 다시 시도하세요."
+      );
     } finally {
       restore.disabled = false;
     }
@@ -1484,14 +1559,15 @@ function appendCheckpointDetail(item) {
     try {
       parsed = JSON.parse(command.value);
       if (!Array.isArray(parsed) || !parsed.every((part) => typeof part === "string")) {
-        throw new Error("Command must be a JSON string array.");
+        throw new Error("명령은 문자열로만 구성된 JSON 배열이어야 합니다.");
       }
     } catch (error) {
-      status.textContent = error.message;
+      console.error("checkpoint fork command invalid", error);
+      status.textContent = "명령은 문자열로만 구성된 JSON 배열이어야 합니다.";
       return;
     }
     fork.disabled = true;
-    status.textContent = "Running isolated alternate branch…";
+    status.textContent = "격리된 대체 분기를 실행하는 중입니다...";
     try {
       const result = await api(
         `/api/checkpoints/${encodeURIComponent(item.id)}/fork`,
@@ -1501,17 +1577,21 @@ function appendCheckpointDetail(item) {
           body: JSON.stringify({command: parsed}),
         }
       );
-      status.textContent = `Alternate branch complete: ${result.stdout || "exit 0"}`;
+      status.textContent = "대체 분기 실행을 완료했습니다.";
+      forkOutputText.textContent = String(result.stdout || "출력이 없습니다.");
+      forkOutput.hidden = false;
       await refreshWorkspaceSnapshot();
     } catch (error) {
-      status.textContent = `Fork failed: ${error.message}`;
+      console.error("checkpoint fork failed", error);
+      status.textContent = "대체 분기 실행에 실패했습니다. 명령을 확인한 뒤 다시 시도하세요.";
     } finally {
       fork.disabled = false;
     }
   });
 
   section.append(
-    summary, modeLabel, consequence, actions, forkActions, output, status
+    summary, modeLabel, consequence, actions, forkActions, output, status,
+    forkOutput
   );
   panelBody.appendChild(section);
 }
@@ -1519,9 +1599,9 @@ function appendCheckpointDetail(item) {
 function appendAgentRunDetail(item) {
   const section = document.createElement("section");
   section.className = "approval-detail";
-  section.setAttribute("aria-label", "Background run detail");
+  section.setAttribute("aria-label", "백그라운드 실행 세부 정보");
   const loading = document.createElement("p");
-  loading.textContent = "Run detail loading…";
+  loading.textContent = "실행 세부 정보를 불러오는 중입니다...";
   section.appendChild(loading);
   panelBody.appendChild(section);
 
@@ -1529,20 +1609,22 @@ function appendAgentRunDetail(item) {
     if (!section.isConnected) return;
     clearNode(section);
     const heading = document.createElement("h3");
-    heading.textContent = String(run.task || run.id);
+    heading.textContent = String(
+      run.task || "이름 없는 백그라운드 실행"
+    );
     const fields = document.createElement("dl");
     fields.className = "approval-fields";
     const presentation = presentationFor(run.ui_state);
     appendDefinitions(fields, [
-      ["Status", presentation[1]],
-      ["Run ID", run.id],
-      ["Started", run.started_at],
-      ["Pending approvals", (run.approvals || []).map(
+      ["상태", presentation[1]],
+      ["실행 ID", run.id],
+      ["시작", run.started_at],
+      ["대기 중인 승인", (run.approvals || []).map(
         (approval) => approval.title || approval.category
-      ).join(", ") || "none"],
+      ).join(", ") || "없음"],
     ]);
     const progressHeading = document.createElement("h4");
-    progressHeading.textContent = "Progress";
+    progressHeading.textContent = "진행";
     const events = document.createElement("ul");
     events.className = "run-events";
     for (const event of run.events || []) {
@@ -1552,7 +1634,7 @@ function appendAgentRunDetail(item) {
     }
     if (!events.children.length) {
       const empty = document.createElement("li");
-      empty.textContent = "No progress events yet.";
+      empty.textContent = "진행 이벤트가 아직 없습니다.";
       events.appendChild(empty);
     }
     section.append(heading, fields, progressHeading, events);
@@ -1562,32 +1644,39 @@ function appendAgentRunDetail(item) {
       controls.className = "detail-actions";
       const steering = document.createElement("input");
       steering.className = "steer-input";
-      steering.setAttribute("aria-label", "Steering instruction");
-      steering.placeholder = "Steer this run…";
+      steering.setAttribute("aria-label", "실행 조정 지시");
+      steering.placeholder = "이 실행에 조정 지시 보내기...";
       const steer = document.createElement("button");
       steer.type = "button";
       steer.className = "action";
-      steer.textContent = "Steer";
+      steer.textContent = "조정";
       steer.addEventListener("click", () => {
-        controlAgentRun(run.id, "steer", steering.value).catch(
-          (error) => announce(error.message)
-        );
+        controlAgentRun(run.id, "steer", steering.value).catch((error) => {
+          console.error("agent run steer failed", error);
+          announce("실행 조정 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
+        });
       });
       const transition = document.createElement("button");
       transition.type = "button";
       transition.className = "action primary";
       const blocked = run.status === "blocked";
-      transition.textContent = blocked ? "Resume" : "Abort";
+      transition.textContent = blocked ? "재개" : "중단";
       transition.addEventListener("click", () => {
-        controlAgentRun(run.id, blocked ? "resume" : "abort").catch(
-          (error) => announce(error.message)
-        );
+        controlAgentRun(run.id, blocked ? "resume" : "abort").catch((error) => {
+          console.error("agent run transition failed", error);
+          announce("실행 제어 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
+        });
       });
       controls.append(steering, steer, transition);
       section.appendChild(controls);
     }
   }).catch((error) => {
-    if (section.isConnected) loading.textContent = `Run detail unavailable: ${error.message}`;
+    console.error("agent run detail unavailable", error);
+    if (section.isConnected) {
+      loading.textContent = (
+        "실행 세부 정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요."
+      );
+    }
   });
 }
 
@@ -1624,18 +1713,18 @@ function appendStatusDetail(item) {
 function appendComputerUseDetail(item) {
   const section = document.createElement("section");
   section.className = "approval-detail";
-  section.setAttribute("aria-label", "Computer Use detail");
+  section.setAttribute("aria-label", "컴퓨터 사용 세부 정보");
   const fields = document.createElement("dl");
   fields.className = "approval-fields";
   appendDefinitions(fields, [
     ["상태", item.status || item.effect || item.refusal_code],
-    ["Effect", item.effect],
-    ["Refusal", item.refusal_code],
-    ["Sequence", item.computer_sequence],
-    ["Focus preserved", item.focus_preserved],
-    ["Approval", item.approval_id || item.review_id],
-    ["Receipt", item.receipt_ref],
-    ["Snapshot", item.snapshot_ref],
+    ["결과", item.effect],
+    ["거부 코드", item.refusal_code],
+    ["순서", item.computer_sequence],
+    ["포커스 유지", item.focus_preserved],
+    ["승인", item.approval_id || item.review_id],
+    ["영수증", item.receipt_ref],
+    ["스냅샷", item.snapshot_ref],
   ]);
   section.appendChild(fields);
   panelBody.appendChild(section);
@@ -1649,16 +1738,19 @@ async function handleApprovalAnswered(payload) {
     if (workspaceReceipt) {
       const receipt = {receipt: workspaceReceipt};
       recentReceipts.set(approvalId, receipt);
-      announce(`Action executed: ${receipt.receipt}`);
+      announce("승인한 작업을 실행했습니다. 영수증 세부 정보에서 결과를 확인하세요.");
     } else {
       try {
         const receipt = await api(
           `/api/actions/${encodeURIComponent(approvalId)}/receipt`
         );
         recentReceipts.set(approvalId, receipt);
-        announce(`Action executed: ${receipt.receipt}`);
+        announce("승인한 작업을 실행했습니다. 영수증 세부 정보에서 결과를 확인하세요.");
       } catch (error) {
-        announce(`승인 처리 완료: ${error.message}`);
+        console.error("approval receipt unavailable", error);
+        announce(
+          "작업은 실행됐지만 영수증을 불러오지 못했습니다. 잠시 후 다시 확인하세요."
+        );
       }
     }
   } else {
@@ -1698,22 +1790,47 @@ function handleWorkspaceEvent(raw) {
     }
     state.pendingAssistant.delete(commandId);
   } else if (event.type.startsWith("tool.")) {
-    appendMessage("tool", String(payload.summary || event.type), event.event_id);
+    const summary = ({
+      "tool.started": "도구 실행을 시작했습니다.",
+      "tool.completed": "도구 실행을 완료했습니다.",
+      "tool.failed": "도구 실행에 실패했습니다.",
+    }[event.type] || "도구 상태가 업데이트되었습니다.");
+    appendMessage("tool", summary, event.event_id);
   } else if (event.type === "progress.updated") {
     renderProgress(payload, event.event_id);
-  } else if (event.type === "command.failed" || event.type === "error.raised") {
-    announce(`오류: ${String(payload.error || event.type)}`);
+  } else if (event.type === "command.failed") {
+    const approvalId = approvalIdsByCommand.get(commandId);
+    if (approvalId) {
+      approvalIdsByCommand.delete(commandId);
+      busyApprovalIds.delete(approvalId);
+      renderPanel();
+    }
+    console.warn("workspace command failed", payload.error || event.type);
+    announce("요청을 완료하지 못했습니다. 잠시 후 다시 시도하세요.");
+  } else if (event.type === "error.raised") {
+    console.warn("workspace command failed", payload.error || event.type);
+    announce("요청을 완료하지 못했습니다. 잠시 후 다시 시도하세요.");
   } else if (event.type === "approval.answered") {
-    handleApprovalAnswered(payload).catch((error) => announce(error.message));
+    approvalIdsByCommand.delete(commandId);
+    handleApprovalAnswered(payload).catch((error) => {
+      console.error("approval result refresh failed", error);
+      announce("승인 결과를 반영하지 못했습니다. 잠시 후 다시 시도하세요.");
+    });
   } else if (event.type === "approval.requested") {
     Promise.all([
       refreshWorkspaceSnapshot(), refreshApprovals()
-    ]).catch((error) => announce(error.message));
+    ]).catch((error) => {
+      console.error("approval refresh failed", error);
+      announce("승인 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.");
+    });
   } else if ([
     "question.requested", "question.answered",
     "evidence.added", "checkpoint.restored", "task.updated", "computer.updated",
   ].includes(event.type)) {
-    refreshWorkspaceSnapshot().catch((error) => announce(error.message));
+    refreshWorkspaceSnapshot().catch((error) => {
+      console.error("workspace snapshot refresh failed", error);
+      announce("작업 상태를 새로 고치지 못했습니다. 잠시 후 다시 시도하세요.");
+    });
   }
 }
 
@@ -1762,38 +1879,56 @@ function commandId() {
 }
 
 async function sendCommand(type, payload) {
-  const response = await api(
-    `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/commands`,
-    {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        protocol_version: 1,
-        command_id: commandId(),
-        expected_cursor: state.cursor,
-        type,
-        payload,
-        client_context: {surface: "web", view_id: "browser-1"},
-      }),
-    }
-  );
-  return response;
+  const id = commandId();
+  const approvalId = type === "approval.answer"
+    ? String(payload.approval_id || "")
+    : "";
+  if (approvalId) approvalIdsByCommand.set(id, approvalId);
+  try {
+    return await api(
+      `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/commands`,
+      {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+          protocol_version: 1,
+          command_id: id,
+          expected_cursor: state.cursor,
+          type,
+          payload,
+          client_context: {surface: "web", view_id: "browser-1"},
+        }),
+      }
+    );
+  } catch (error) {
+    approvalIdsByCommand.delete(id);
+    throw error;
+  }
+}
+
+async function optionalLegacyApi(path, fallback) {
+  try {
+    return await api(path);
+  } catch (error) {
+    console.warn(`optional legacy panel unavailable: ${path}`, error);
+    return fallback;
+  }
 }
 
 async function refreshLegacyPanels() {
-  const [status, jobs, runs, agentRuns] = await Promise.all([
-    api("/api/status"),
-    api("/api/jobs"),
-    api("/api/runs"),
-    api("/api/agent-runs"),
+  const [status, jobs, runs] = await Promise.all([
+    optionalLegacyApi("/api/status", {}),
+    optionalLegacyApi("/api/jobs", []),
+    optionalLegacyApi("/api/runs", []),
   ]);
+  const agentRuns = await optionalLegacyApi("/api/agent-runs", {runs: []});
   const approvals = await loadApprovals();
   items = buildQueue(approvals, jobs, runs);
   for (const run of agentRuns.runs || []) {
     items.push({
       id: String(run.id),
       kind: "agent_run",
-      title: run.task || run.id,
+      title: run.task || "이름 없는 백그라운드 실행",
       ui_state: run.ui_state,
       detail: run.status || "",
       record: run,
@@ -1807,7 +1942,16 @@ async function refreshLegacyPanels() {
     detail: `${status.provider || ""} ${status.model || ""}`.trim(),
     record: status,
   });
-  if (items.length && !items.some((item) => item.id === state.selectedId)) {
+  const canonicalSelectionExists = (state.snapshot?.panels || []).some(
+    (panel) => (panel.items || []).some(
+      (item) => item.id === state.selectedId
+    )
+  );
+  if (
+    items.length
+    && !items.some((item) => item.id === state.selectedId)
+    && !canonicalSelectionExists
+  ) {
     state.selectedId = items[0].id;
   }
   renderPanel();
@@ -1845,7 +1989,10 @@ function startApprovalRefreshPolling() {
     clearInterval(state.approvalRefreshTimer);
   }
   state.approvalRefreshTimer = setInterval(() => {
-    refreshApprovals().catch((error) => announce(error.message));
+    refreshApprovals().catch((error) => {
+      console.error("approval refresh polling failed", error);
+      announce("승인 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.");
+    });
   }, APPROVAL_REFRESH_INTERVAL_MS);
 }
 
@@ -1915,7 +2062,12 @@ byId("workspace-composer").addEventListener("submit", async (event) => {
     localStorage.setItem("birkin.workspace.draft", "");
   } catch (error) {
     if (error.status === 409) await bootstrap();
-    else announce(`전송 실패: ${error.message}`);
+    else {
+      console.error("workspace message send failed", error);
+      announce(
+        "메시지를 전송하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요."
+      );
+    }
   } finally {
     sendButton.disabled = false;
     input.focus();
@@ -1935,7 +2087,10 @@ document.addEventListener("keydown", (event) => {
       shell.dataset.panelOpen = "false";
       byId("lens-toggle").focus();
     } else {
-      sendCommand("chat.interrupt", {}).catch((error) => announce(error.message));
+      sendCommand("chat.interrupt", {}).catch((error) => {
+        console.error("workspace interrupt failed", error);
+        announce("응답 중단 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
+      });
     }
   }
 });
@@ -1956,15 +2111,24 @@ byId("browser-aside-form").addEventListener("submit", (event) => {
 });
 
 interruptButton.addEventListener("click", () => {
-  sendCommand("chat.interrupt", {}).catch((error) => announce(error.message));
+  sendCommand("chat.interrupt", {}).catch((error) => {
+    console.error("workspace interrupt failed", error);
+    announce("응답 중단 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
+  });
 });
 resumeButton.addEventListener("click", () => {
-  sendCommand("chat.resume", {}).catch((error) => announce(error.message));
+  sendCommand("chat.resume", {}).catch((error) => {
+    console.error("workspace resume failed", error);
+    announce("응답 재개 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
+  });
 });
 
 bootstrap().catch((error) => {
+  console.error("workspace bootstrap failed", error);
   setConnection("disconnected", "연결 실패");
-  announce(`로컬 bootstrap URL로 다시 열어 주세요: ${error.message}`);
+  announce(
+    "연결 초기화에 실패했습니다. 로컬 bootstrap URL로 다시 열어 주세요."
+  );
 });
 </script>
 </body>

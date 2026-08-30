@@ -21,6 +21,8 @@ _FORMAT_TERMS = {
         "word document",
         "word file",
         "워드",
+        "보고서",
+        "리포트",
     ),
     "xlsx": (
         "xlsx",
@@ -39,6 +41,8 @@ _FORMAT_TERMS = {
         "slide deck",
         "slides",
         "ppt",
+        "파워포인트",
+        "피피티",
         "발표자료",
         "프레젠테이션",
         "슬라이드",
@@ -50,6 +54,7 @@ _FORMAT_TERMS = {
         "hanword",
         "한컴 문서",
         "한글 문서",
+        "한글파일",
     ),
 }
 _GENERAL_TERMS = (
@@ -62,6 +67,7 @@ _GENERAL_TERMS = (
     "오피스 문서",
 )
 _EXTENSION = re.compile(r"(?i)(?:^|[^\w])[\w .()-]+?\.(docx|xlsx|pptx|pdf|hwpx|hwp)\b")
+FORMAT_CLARIFICATION_QUESTION = "어느 포맷으로 저장할까요?"
 
 
 @dataclass(frozen=True)
@@ -73,6 +79,7 @@ class OfficeSkillRoute:
     inspect_first: bool = True
     write_policy: str = "copy-on-write"
     conflict: bool = False
+    clarification_question: str | None = None
 
 
 def _mentioned_formats(text: str) -> set[str]:
@@ -111,15 +118,15 @@ def route_office_request(
     explicit = _mentioned_formats(user_text)
     artifacts = _artifact_formats(user_text, artifact_names)
     combined = explicit | artifacts
-    conflict = (
-        len(combined) > 1
-        or bool(explicit and artifacts and explicit != artifacts)
+    conflict = len(combined) > 1 or bool(
+        explicit and artifacts and explicit != artifacts
     )
     if conflict:
         return OfficeSkillRoute(
             "office-documents",
             None,
             conflict=True,
+            clarification_question=FORMAT_CLARIFICATION_QUESTION,
         )
     if combined:
         format_name = next(iter(combined))
@@ -135,6 +142,7 @@ def route_office_request(
 
 __all__ = [
     "FORMAT_SKILLS",
+    "FORMAT_CLARIFICATION_QUESTION",
     "OfficeSkillRoute",
     "route_office_request",
 ]

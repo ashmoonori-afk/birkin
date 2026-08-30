@@ -46,6 +46,16 @@ Every declared format supports bounded text extraction, layered package/semantic
 
 Call `inspect_document` before reading or requesting a change to an existing artifact. Route from the returned format and capability inventory, not from its suffix. Consequential creation, mutation, conversion, and export have no direct tool call; request them only through `office_job_request`.
 
+For a brand-new DOCX, call `office_job_request` without `source` or
+`operations`. Supply `format: "docx"`, `content.paragraphs`, the intended
+`outcome`, and an allowlisted `.docx` `destination`. This creates a separate
+`office_create` approval; no draft or destination file is written until that
+approval executes. Keep the returned `job_id` because `office_rollback_request`
+uses it to queue a second approval for creation rollback.
+When an unapproved destination already exists, the failed execution queues
+`기존 파일을 덮어쓸까요?`; approving that follow-up retries the exact request
+with freshly bound overwrite authority.
+
 ## Backup/Copy-on-Write
 
 Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin`. Every input `uri` must resolve inside its `office` subtree and match `content_hash`. Managed drafts remain under `/workspace/.birkin/office/artifacts/drafts`; tools never overwrite a source.
@@ -57,7 +67,7 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 3. Use `compare_documents` for independent byte, bounded semantic, and ZIP-package results; PDF package comparison and all visual comparison remain unavailable.
 4. Use `validate_artifact` and review every layer, including warnings and not-run checks.
 5. Request `render_artifact` with `output_format: structured_preview`; never substitute that result for a visual render.
-6. Request consequential creation, mutation, conversion, or export through `office_job_request` with the exact source, intended outcome, typed operations, destination, and overwrite decision.
+6. Request new DOCX creation through `office_job_request` with `format`, `content.paragraphs`, outcome, destination, and overwrite decision. For existing documents, use the exact source and typed operations instead.
 7. Treat the returned Office job as a proposal until its separate approval executes; never call removed direct create, fill, patch, or convert tools.
 8. Request rollback only through `office_rollback_request` with the durable exported `job_id`; rollback requires another approval.
 
@@ -69,7 +79,7 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `compare_documents`: required `left` and `right`.
 - `render_artifact`: required `artifact`; `output_format` must be `structured_preview`, `pdf`, `png`, or `thumbnail`, and `page` is optional.
 - `validate_artifact`: required `artifact`.
-- `office_job_request`: required `request`, `source`, `outcome`, `operations`, and `destination`; optional `overwrite_approved` defaults to false.
+- `office_job_request`: always requires `request`, `outcome`, and `destination`. New DOCX creation additionally requires `format: "docx"` and `content.paragraphs`; existing-document mutation instead requires `source` and `operations`. Optional `overwrite_approved` defaults to false.
 - `office_rollback_request`: required `job_id` from the durable exported Office job.
 
 ## Typed Examples

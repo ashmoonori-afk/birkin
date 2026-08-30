@@ -39,7 +39,7 @@ public sealed class ConversationViewTests
             Assert.AreEqual(1, fixture.Connection.Sent.Count);
             Assert.AreEqual("chat.send", fixture.Connection.Sent[0].CommandType);
             Assert.AreEqual(exactDraft, ((NativeJsonString)fixture.Connection.Sent[0].Payload["text"]!).Value);
-            Assert.AreEqual("Send message", AutomationProperties.GetName(send));
+            Assert.AreEqual("메시지 보내기", AutomationProperties.GetName(send));
             Assert.IsTrue(draft.AcceptsReturn);
         });
     }
@@ -218,7 +218,12 @@ public sealed class ConversationViewTests
             var refusal = OfficeWorkflowPresentation.Empty
                 .WithDraft(exactDraft)
                 .Begin("command-stale", "chat.send")
-                .Refuse("command-stale", "E_STALE_CURSOR", 41);
+                .Refuse(
+                    "command-stale",
+                    "E_STALE_CURSOR",
+                    "cursor is stale",
+                    false,
+                    41);
             var view = new ConversationView(fixture.Model, fixture.Coordinator);
             OfficeWorkflowViewHarness.Layout(view);
 
@@ -229,6 +234,16 @@ public sealed class ConversationViewTests
             Assert.AreEqual(exactDraft, OfficeWorkflowViewHarness.Find<TextBox>(view, "conversation.draft").Text);
             Assert.AreEqual(41L, fixture.Model.OfficeWorkflow.CurrentCursor);
             Assert.AreEqual("E_STALE_CURSOR", fixture.Model.OfficeWorkflow.RefusalCode);
+            Assert.AreEqual(
+                "작업 상태가 이미 변경되었습니다. 최신 내용을 확인한 뒤 다시 시도하세요.",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "conversation.refusal").Text);
+            Assert.AreEqual(
+                "요청이 거부되었습니다.",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "conversation.command-state").Text);
         });
     }
 

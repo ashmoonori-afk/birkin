@@ -139,6 +139,11 @@ def test_checkpoints_timeline_diff_and_gated_restore(srv, monkeypatch):
     assert status == 202 and queued["approval_required"] is True
     record = store.get_pending(queued["approval_id"])
     assert record and record["category"] == "checkpoint_restore"
+    assert record["title"] == "체크포인트 복원: aaaaaaa"
+    assert record["description"] == (
+        "파일 범위를 복원합니다. 실행 전에 되돌리기용 체크포인트를 만들며 "
+        "승인해야만 적용됩니다."
+    )
     assert record["payload"]["mode"] == "files"
     assert "session_id" not in record["payload"]
     task_status, _, _ = request(

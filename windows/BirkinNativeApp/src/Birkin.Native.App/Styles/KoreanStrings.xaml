@@ -1,0 +1,30 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:system="clr-namespace:System;assembly=System.Runtime">
+    <system:String x:Key="ApprovalSurfaceName">승인 요청</system:String>
+    <system:String x:Key="ApprovalRiskUnknown">위험도 알 수 없음</system:String>
+    <system:String x:Key="ApprovalRiskLow">낮은 위험</system:String>
+    <system:String x:Key="ApprovalRiskMedium">보통 위험</system:String>
+    <system:String x:Key="ApprovalRiskHigh">높은 위험</system:String>
+    <system:String x:Key="ApprovalRiskCritical">매우 높은 위험</system:String>
+    <system:String x:Key="ApprovalSealed">검토 내용 고정됨</system:String>
+    <system:String x:Key="ApprovalNotSealed">검토 내용 고정 안 됨</system:String>
+    <system:String x:Key="ApprovalSourceLabel">원본</system:String>
+    <system:String x:Key="ApprovalDestinationLabel">저장 위치</system:String>
+    <system:String x:Key="ApprovalAuthorityLabel">승인 권한</system:String>
+    <system:String x:Key="ApprovalCopyPathLabel">전체 경로 복사</system:String>
+    <system:String x:Key="ApprovalCopyAuthorityLabel">전체 승인 권한 해시 복사</system:String>
+    <system:String x:Key="ApprovalRejectLabel">거부</system:String>
+    <system:String x:Key="ApprovalApproveLabel">승인</system:String>
+    <system:String x:Key="ApprovalRejectAutomationName">요청한 작업 거부</system:String>
+    <system:String x:Key="ApprovalApproveAutomationName">요청한 작업 승인</system:String>
+    <system:String x:Key="ApprovalEmptyLabel">대기 중인 승인 요청이 없습니다</system:String>
+    <system:String x:Key="ApprovalSendingLabel">승인 결정을 보내는 중입니다...</system:String>
+    <system:String x:Key="ApprovalOverwriteWarning">주의: 기존 파일을 덮어쓸 수 있습니다</system:String>
+    <system:String x:Key="ApprovalOverwriteSafe">안전: 기존 파일이 없어야 합니다</system:String>
+    <system:String x:Key="ApprovalOverwriteUnknown">덮어쓰기 권한을 확인할 수 없습니다</system:String>
+    <system:String x:Key="ApprovalConfirmTitle">승인 결정 확인</system:String>
+    <system:String x:Key="ApprovalConfirmApproveAction">승인</system:String>
+    <system:String x:Key="ApprovalConfirmRejectAction">거부</system:String>
+    <system:String x:Key="ApprovalNoDestination">저장 위치 없음</system:String>
+</ResourceDictionary>

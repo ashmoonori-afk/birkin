@@ -14,6 +14,7 @@ from birkin.computer_use.capability_types import (
     PlatformProbe,
 )
 from birkin.computer_use.runtime import UnavailableBackend
+from birkin.llm import LLMError, LLMStatus
 from birkin.workspace import approval_authority
 from birkin.runtime import Session
 from birkin.workspace import WorkspaceEvent, runtime_adapter
@@ -60,6 +61,37 @@ class _ActiveRuntimeSession:
         return True
 
 
+@final
+class _FailingRuntimeSession:
+    def __init__(self, error: LLMError | ValueError) -> None:
+        self.cfg: dict[str, object] = {}
+        self._error = error
+
+    def ask(self, text: str, *, on_text: object) -> str:
+        del text, on_text
+        raise self._error
+
+
+@final
+class _CapturingRuntimeSession:
+    def __init__(self) -> None:
+        self.cfg: dict[str, object] = {}
+        self.abort = threading.Event()
+        self.prompts: list[str] = []
+
+    def ask(self, text: str, *, on_text: object) -> str:
+        del on_text
+        self.prompts.append(text)
+        if '<approval-outcome' in text and 'outcome="approved"' in text:
+            return "승인된 작업이 완료되었습니다."
+        if "<approval-outcome" in text:
+            return "승인된 작업을 완료하지 못했습니다."
+        return f"agent saw: {text}"
+
+    def steer(self, _text: str) -> bool:
+        return False
+
+
 def test_runtime_adapter_registers_product_surface_authority_and_commands(
     tmp_path: Path,
 ) -> None:
@@ -78,6 +110,135 @@ def test_runtime_adapter_registers_product_surface_authority_and_commands(
     })
     assert [snapshot.surface for snapshot in snapshots] == [
         "browser_aside", "computer_use", "office"
+    ]
+
+
+def test_llm_retry_status_emits_korean_progress_event(tmp_path: Path) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    adapter = RuntimeWorkspaceAdapter(
+        "status-session",
+        emit,
+        workspace_root=tmp_path / "workspace",
+    )
+
+    adapter._runtime_status(
+        LLMStatus(
+            kind="retrying",
+            provider="anthropic",
+            model="claude",
+            reason="rate_limit",
+            retry_in_seconds=2,
+            attempt=3,
+            max_attempts=4,
+            http_status=429,
+        )
+    )
+
+    assert emitted == [
+        (
+            "progress.updated",
+            {
+                "summary": "요청이 많아 잠시 대기 중입니다. 자동으로 다시 시도합니다.",
+                "status": "retrying",
+                "ui_state": "running",
+                "provider": "anthropic",
+                "model": "claude",
+                "reason": "rate_limit",
+                "retry_in_seconds": 2,
+                "attempt": 3,
+                "max_attempts": 4,
+                "provider_status": 429,
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_summary", "expected_ui_state"),
+    [
+        (
+            LLMStatus(
+                kind="failover",
+                provider="anthropic",
+                model="claude",
+                reason="server",
+                retry_in_seconds=30,
+                fallback_provider="openai",
+                fallback_model="gpt",
+            ),
+            (
+                "기본 모델을 사용할 수 없어 대체 모델로 전환했습니다. "
+                "응답을 계속 기다려 주세요."
+            ),
+            "running",
+        ),
+        (
+            LLMStatus(
+                kind="recovered",
+                provider="anthropic",
+                model="claude",
+                reason="primary_recovered",
+            ),
+            (
+                "기본 모델 연결이 복구되었습니다. "
+                "다음 요청부터 기본 모델을 사용합니다."
+            ),
+            "succeeded",
+        ),
+    ],
+)
+def test_llm_transition_status_emits_korean_progress_event(
+    tmp_path: Path,
+    status: LLMStatus,
+    expected_summary: str,
+    expected_ui_state: str,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    adapter = RuntimeWorkspaceAdapter(
+        "status-transition-session",
+        emit,
+        workspace_root=tmp_path / "workspace",
+    )
+
+    adapter._runtime_status(status)
+
+    assert emitted == [
+        (
+            "progress.updated",
+            {
+                "summary": expected_summary,
+                "status": status.kind,
+                "ui_state": expected_ui_state,
+                "provider": status.provider,
+                "model": status.model,
+                "reason": status.reason,
+                **(
+                    {"retry_in_seconds": status.retry_in_seconds}
+                    if status.retry_in_seconds is not None
+                    else {}
+                ),
+                **(
+                    {"fallback_provider": status.fallback_provider}
+                    if status.fallback_provider is not None
+                    else {}
+                ),
+                **(
+                    {"fallback_model": status.fallback_model}
+                    if status.fallback_model is not None
+                    else {}
+                ),
+            },
+        )
     ]
 
 
@@ -177,8 +338,9 @@ def test_chat_send_accepts_only_unchanged_imports_from_its_session(
     def build(
         _cfg: dict[str, object],
         on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
     ) -> Session:
-        del on_event
+        del on_event, on_status
         return cast(Session, cast(object, runtime))
 
     monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
@@ -247,8 +409,9 @@ def test_steer_delegates_to_runtime_and_emits_canonical_event(
     def build(
         _cfg: dict[str, object],
         on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
     ) -> Session:
-        del on_event
+        del on_event, on_status
         return cast(Session, cast(object, runtime))
 
     monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
@@ -281,8 +444,9 @@ def test_chat_send_brackets_silent_gap_with_bounded_progress(
     def build(
         _cfg: dict[str, object],
         on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
     ) -> Session:
-        del on_event
+        del on_event, on_status
         return cast(Session, cast(object, CompletedRuntime()))
 
     monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
@@ -321,8 +485,9 @@ def test_turn_controls_mutate_the_active_runtime_without_waiting_for_ask(
     def build(
         _cfg: dict[str, object],
         on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
     ) -> Session:
-        del on_event
+        del on_event, on_status
         return cast(Session, cast(object, runtime))
 
     monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
@@ -360,7 +525,7 @@ def test_turn_controls_mutate_the_active_runtime_without_waiting_for_ask(
     assert (
         "progress.updated",
         {
-            "summary": "Turn interrupted.",
+            "summary": "응답 생성을 중단했습니다.",
             "status": "interrupted",
             "ui_state": "paused",
         },
@@ -381,8 +546,9 @@ def test_retry_replays_failed_text_as_a_new_handler_invocation(
     def build(
         _cfg: dict[str, object],
         on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
     ) -> Session:
-        del on_event
+        del on_event, on_status
         return cast(Session, cast(object, runtime))
 
     monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
@@ -410,7 +576,7 @@ def test_retry_replays_failed_text_as_a_new_handler_invocation(
             "progress.updated",
             {
                 "progress_id": "turn:retry-session",
-                "summary": "Assistant response failed.",
+                "summary": "응답을 완료하지 못했습니다. 잠시 후 다시 시도하세요.",
                 "status": "failed",
                 "ui_state": "failed",
                 "refusal_code": "E_RUNTIME",
@@ -438,6 +604,129 @@ def test_retry_replays_failed_text_as_a_new_handler_invocation(
         ),
         ("message.assistant.completed", {"text": "retried: original intent"}),
     ]
+
+
+def test_non_provider_runtime_failure_emits_bounded_korean_guidance(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    runtime = _FailingRuntimeSession(
+        ValueError("raw parser detail must remain diagnostic")
+    )
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
+    ) -> Session:
+        del on_event, on_status
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("unexpected-failure-session", emit)
+
+    with pytest.raises(ValueError, match="raw parser detail"):
+        _ = adapter.handlers()["chat.send"]({"text": "요청"})
+
+    assert emitted[-1] == (
+        "progress.updated",
+        {
+            "progress_id": "turn:unexpected-failure-session",
+            "summary": "응답을 완료하지 못했습니다. 잠시 후 다시 시도하세요.",
+            "status": "failed",
+            "ui_state": "failed",
+            "refusal_code": "E_RUNTIME",
+            "retryable": True,
+        },
+    )
+    assert "raw parser detail" not in str(emitted)
+
+
+@pytest.mark.parametrize(
+    (
+        "error",
+        "expected_summary",
+        "expected_code",
+        "expected_retryable",
+    ),
+    [
+        (
+            LLMError("missing API key", status=401, kind="auth"),
+            "API 인증에 실패했습니다. API 키 또는 로그인을 확인한 뒤 다시 시도하세요.",
+            "E_PROVIDER_AUTH",
+            False,
+        ),
+        (
+            LLMError("payment required", status=402, kind="billing"),
+            "결제 상태 때문에 요청을 처리할 수 없습니다. 제공자 결제 설정을 확인하세요.",
+            "E_PROVIDER_BILLING",
+            False,
+        ),
+        (
+            LLMError("too many requests", status=429, kind="rate_limit"),
+            "요청이 너무 많아 잠시 대기해야 합니다. 잠시 후 다시 시도하세요.",
+            "E_PROVIDER_RATE_LIMIT",
+            True,
+        ),
+        (
+            LLMError("no route", kind="network"),
+            "네트워크에 연결할 수 없습니다. 연결 상태를 확인한 뒤 다시 시도하세요.",
+            "E_PROVIDER_NETWORK",
+            True,
+        ),
+    ],
+)
+def test_provider_failure_emits_distinct_korean_guidance_and_retryability(
+    monkeypatch: pytest.MonkeyPatch,
+    error: LLMError,
+    expected_summary: str,
+    expected_code: str,
+    expected_retryable: bool,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    runtime = _FailingRuntimeSession(error)
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
+    ) -> Session:
+        del on_event, on_status
+        return cast(Session, cast(object, runtime))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("provider-failure-session", emit)
+
+    with pytest.raises(LLMError):
+        _ = adapter.handlers()["chat.send"]({"text": "요청"})
+
+    failure = emitted[-1]
+    assert failure == (
+        "progress.updated",
+        {
+            "summary": expected_summary,
+            "status": "failed",
+            "ui_state": "failed",
+            "refusal_code": expected_code,
+            "retryable": expected_retryable,
+            "provider_kind": error.kind,
+            **(
+                {"provider_status": error.status}
+                if error.status is not None
+                else {}
+            ),
+        },
+    )
 
 
 def _event(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
@@ -515,6 +804,100 @@ def test_approval_answer_event_carries_execution_receipt(
             },
         )
     ]
+
+
+def test_approval_answer_summary_is_injected_into_next_agent_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _CapturingRuntimeSession()
+    adapter = RuntimeWorkspaceAdapter(
+        "approval-context-session",
+        _event,
+        workspace_root=tmp_path / "workspace",
+    )
+    setattr(adapter, "_session", cast(Session, cast(object, runtime)))
+
+    def approved_decide(
+        _approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        assert on_event is not None
+        assert decision == "approve"
+        assert reason == ""
+        return {
+            "outcome": "approved",
+            "receipt": '{"job_id":"job-context","outcome":"saved"}',
+        }
+
+    monkeypatch.setattr(
+        approval_authority,
+        "decide",
+        approved_decide,
+    )
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": "approval-context", "decision": "approve"}
+    )
+    first = adapter.handlers()["chat.send"]({"text": "결과를 알려줘"})
+    second = adapter.handlers()["chat.send"]({"text": "다음 질문"})
+
+    assert "<approval-outcome" in runtime.prompts[0]
+    assert 'lang="ko"' in runtime.prompts[0]
+    assert 'approval_id="approval-context"' in runtime.prompts[0]
+    assert 'outcome="approved"' in runtime.prompts[0]
+    assert "결과를 알려줘" in runtime.prompts[0]
+    assert "<approval-outcome" not in runtime.prompts[1]
+    assert first["reply"] == "승인된 작업이 완료되었습니다."
+    assert second["reply"] == "agent saw: 다음 질문"
+
+
+def test_failed_approval_summary_is_injected_into_next_agent_turn(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _CapturingRuntimeSession()
+    adapter = RuntimeWorkspaceAdapter(
+        "approval-failure-context-session",
+        _event,
+        workspace_root=tmp_path / "workspace",
+    )
+    setattr(adapter, "_session", cast(Session, cast(object, runtime)))
+
+    def failed_decide(
+        _approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        assert on_event is not None
+        assert decision == "approve"
+        assert reason == ""
+        return {
+            "outcome": "execution_failed",
+            "error": "export denied",
+        }
+
+    monkeypatch.setattr(
+        approval_authority,
+        "decide",
+        failed_decide,
+    )
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": "approval-failed", "decision": "approve"}
+    )
+    response = adapter.handlers()["chat.send"]({"text": "실패 원인을 알려줘"})
+
+    assert 'approval_id="approval-failed"' in runtime.prompts[0]
+    assert 'outcome="execution_failed"' in runtime.prompts[0]
+    assert 'lang="ko"' in runtime.prompts[0]
+    assert "export denied" in runtime.prompts[0]
+    assert response["reply"] == "승인된 작업을 완료하지 못했습니다."
 
 
 def _runtime_adapter() -> tuple[
@@ -621,6 +1004,17 @@ def test_tool_end_is_error_uses_truthiness(
 
     assert emitted[0][0] == expected_event_type
     assert emitted[0][1]["state"] == expected_state
+
+
+def test_runtime_event_hides_tool_identifier_behind_korean_summary() -> None:
+    adapter, emitted = _runtime_adapter()
+
+    adapter._runtime_event("tool_start", {"name": "shell_exec"})
+
+    payload = emitted[0][1]
+    assert payload["summary"] == "도구 실행을 시작했습니다."
+    assert payload["runtime_name"] == "shell_exec"
+    assert "shell_exec" not in str(payload["summary"])
 
 
 def test_event_type_table_pin() -> None:

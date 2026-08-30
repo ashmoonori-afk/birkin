@@ -41,8 +41,8 @@ public partial class DiffView : UserControl, INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public string ApprovalStateText => _canonicalDiff?.ApprovalState == OfficeDiffApprovalState.Approved
-        ? "APPROVED"
-        : "BEFORE APPROVAL";
+        ? "승인됨"
+        : "승인 전";
 
     public IReadOnlyList<OfficeDiffRowPresentation> DiffRows
     {
@@ -64,15 +64,22 @@ public partial class DiffView : UserControl, INotifyPropertyChanged
 
     private void CanonicalApplied(NativeEnvelope envelope)
     {
-        if (_canonicalDiff is { } current
-            && OfficeDiffPresentationMapper.IsCorrelatedApprovalReceipt(envelope, current.DiffId))
+        if (_canonicalDiff is { } current)
         {
-            _ = Dispatcher.BeginInvoke(() =>
+            var updated = OfficeDiffPresentationMapper.ApplyApprovalReceipt(
+                current,
+                envelope);
+            if (updated.ApprovalState != current.ApprovalState)
             {
-                _canonicalDiff = current with { ApprovalState = OfficeDiffApprovalState.Approved };
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApprovalStateText)));
-            });
-            return;
+                _ = Dispatcher.BeginInvoke(() =>
+                {
+                    _canonicalDiff = updated;
+                    PropertyChanged?.Invoke(
+                        this,
+                        new PropertyChangedEventArgs(nameof(ApprovalStateText)));
+                });
+                return;
+            }
         }
 
         if (OfficeDiffPresentationMapper.FromCanonical(envelope) is not { } presentation)

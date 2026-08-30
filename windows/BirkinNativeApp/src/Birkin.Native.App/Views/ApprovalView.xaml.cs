@@ -1,4 +1,6 @@
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Birkin.Native.Shell;
@@ -12,8 +14,13 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
     private readonly ShellPresentationModel? _model;
     private readonly ShellCoordinator? _coordinator;
     private IReadOnlyList<PanelItemPresentation> _approvalRows = [];
+    private IReadOnlyList<PanelItemPresentation> _decidedApprovalRows = [];
 
-    public ApprovalView() => InitializeComponent();
+    public ApprovalView()
+    {
+        InitializeComponent();
+        ConfirmDecision = ConfirmWithDialog;
+    }
 
     public ApprovalView(ShellPresentationModel model, ShellCoordinator coordinator) : this()
     {
@@ -26,8 +33,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    internal Func<PanelItemPresentation, ApprovalDecision, bool> ConfirmDecision { get; set; } =
-        ConfirmWithDialog;
+    internal Func<PanelItemPresentation, ApprovalDecision, bool> ConfirmDecision { get; set; }
 
     public IReadOnlyList<PanelItemPresentation> ApprovalRows
     {
@@ -36,6 +42,18 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         {
             _approvalRows = value;
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ApprovalRows)));
+        }
+    }
+
+    public IReadOnlyList<PanelItemPresentation> DecidedApprovalRows
+    {
+        get => _decidedApprovalRows;
+        private set
+        {
+            _decidedApprovalRows = value;
+            PropertyChanged?.Invoke(
+                this,
+                new PropertyChangedEventArgs(nameof(DecidedApprovalRows)));
         }
     }
 
@@ -50,6 +68,43 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         if (sender is Button { Tag: string value } && value.Length > 0)
         {
             Clipboard.SetText(value);
+        }
+    }
+
+    private void OpenFileClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is Button { DataContext: PanelItemPresentation card }
+            && card.Destination is { Length: > 0 } destination)
+        {
+            _ = Process.Start(new ProcessStartInfo(destination)
+            {
+                UseShellExecute = true,
+            });
+        }
+    }
+
+    private void OpenFolderClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is Button { DataContext: PanelItemPresentation card }
+            && card.Destination is { Length: > 0 } destination
+            && Path.GetDirectoryName(destination) is { Length: > 0 } directory)
+        {
+            _ = Process.Start(new ProcessStartInfo(directory)
+            {
+                UseShellExecute = true,
+            });
+        }
+    }
+
+    private async void RollbackClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (_coordinator is not null
+            && sender is Button { DataContext: PanelItemPresentation card }
+            && card.ReceiptRef is { Length: > 0 } receiptRef)
+        {
+            await _coordinator.RequestOfficeRollbackAsync(
+                new OfficeRollbackRequestIntent(receiptRef),
+                CancellationToken.None);
         }
     }
 
@@ -79,14 +134,20 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
-    private static bool ConfirmWithDialog(
+    private bool ConfirmWithDialog(
         PanelItemPresentation card,
         ApprovalDecision decision)
     {
-        var action = decision == ApprovalDecision.Approve ? "approve" : "reject";
+        var action = ResourceText(
+            decision == ApprovalDecision.Approve
+                ? "ApprovalConfirmApproveAction"
+                : "ApprovalConfirmRejectAction");
         var result = MessageBox.Show(
-            ConfirmationMessage(card, action),
-            "Confirm approval decision",
+            ConfirmationMessage(
+                card,
+                action,
+                ResourceText("ApprovalNoDestination")),
+            ResourceText("ApprovalConfirmTitle"),
             MessageBoxButton.YesNo,
             decision == ApprovalDecision.Approve
                 ? MessageBoxImage.Warning
@@ -96,11 +157,16 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
 
     internal static string ConfirmationMessage(
         PanelItemPresentation card,
-        string action) =>
-        $"Confirm {action}?\n\n"
+        string action,
+        string noDestination) =>
+        $"{action}하시겠습니까?\n\n"
         + $"{card.Summary}\n"
-        + $"{card.Destination ?? "No destination"}\n"
+        + $"{card.Destination ?? noDestination}\n"
         + card.OverwriteLabel;
+
+    private string ResourceText(string key) =>
+        FindResource(key) as string
+        ?? throw new InvalidOperationException($"missing Korean string resource: {key}");
 
     private void ModelPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
@@ -110,12 +176,15 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
-    private void UpdateRows() =>
-        ApprovalRows = _model?.Workspace?.ApprovalRequests
+    private void UpdateRows()
+    {
+        var rows = _model?.Workspace?.ApprovalRequests
             .Where(row =>
-                string.Equals(row.Kind, "approval", StringComparison.Ordinal)
-                && !row.Decided)
+                string.Equals(row.Kind, "approval", StringComparison.Ordinal))
             .ToArray() ?? [];
+        ApprovalRows = rows.Where(row => !row.Decided).ToArray();
+        DecidedApprovalRows = rows.Where(row => row.Decided).ToArray();
+    }
 
     private void ViewUnloaded(object sender, RoutedEventArgs eventArgs)
     {

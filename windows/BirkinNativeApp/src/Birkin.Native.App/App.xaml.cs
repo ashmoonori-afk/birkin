@@ -24,21 +24,26 @@ public partial class App : Application
             _composition = CompositionRoot.Create(context);
             _approvalToast = WindowsApprovalToast.Create(ShowApprovals);
             MainWindow = _approvalToast is null
-                ? new MainWindow(_composition.PresentationModel)
-                : new MainWindow(_composition.PresentationModel, _approvalToast);
+                ? new MainWindow(
+                    _composition.PresentationModel,
+                    _composition.Coordinator,
+                    _composition.Runner)
+                : new MainWindow(
+                    _composition.PresentationModel,
+                    _composition.Coordinator,
+                    _composition.Runner,
+                    _approvalToast);
             if (_showApprovalsWhenReady)
             {
                 ShowApprovals();
             }
-            if (eventArgs.Args.Length == 0)
+            MainWindow.Show();
+            var failure = await _composition.Runner.RunAsync(
+                options,
+                _shutdown.Token);
+            if (failure is not null)
             {
-                await _composition.Runner.RunAsync(options, _shutdown.Token);
-                MainWindow.Show();
-            }
-            else
-            {
-                MainWindow.Show();
-                await _composition.Runner.RunAsync(options, _shutdown.Token);
+                _composition.PresentationModel.PresentStartupFailure(failure);
             }
         }
         catch (ArgumentException error)
@@ -49,6 +54,10 @@ public partial class App : Application
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             Shutdown(2);
+        }
+        catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+        {
+            // App shutdown owns this cancellation.
         }
     }
 

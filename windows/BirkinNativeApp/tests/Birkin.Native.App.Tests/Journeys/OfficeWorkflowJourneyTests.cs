@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Windows.Controls;
 using Birkin.Native.App.Tests.Support;
+using Birkin.Native.App.Views;
 using Birkin.Native.Protocol.Framing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -21,23 +22,48 @@ public sealed class OfficeWorkflowJourneyTests
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
             var window = new MainWindow(fixture.Model, fixture.Coordinator);
+            window.Show();
             OfficeWorkflowViewHarness.Layout(window);
-            var draft = OfficeWorkflowViewHarness.Find<TextBox>(window, "conversation.draft");
-            draft.Text = "기준 파일과 후보 파일을 비교하고 보고서를 작성해 주세요.";
+            try
+            {
+                var approvals = OfficeWorkflowViewHarness.Find<ApprovalView>(
+                    window,
+                    "approval.workflow");
+                approvals.ConfirmDecision = (_, _) => true;
+                var draft = OfficeWorkflowViewHarness.Find<TextBox>(
+                    window,
+                    "conversation.draft");
+                draft.Text = "기준 파일과 후보 파일을 비교하고 보고서를 작성해 주세요.";
 
-            // When
-            OfficeWorkflowViewHarness.Find<Button>(window, "conversation.send").RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
-            await fixture.ResolveLastAsync();
-            OfficeWorkflowViewHarness.Find<Button>(
-                window,
-                "approval.approve.approval-7"
-            ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+                // When
+                OfficeWorkflowViewHarness.Find<Button>(
+                    window,
+                    "conversation.send"
+                ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+                await fixture.ResolveLastAsync();
+                OfficeWorkflowViewHarness.Layout(window);
+                OfficeWorkflowViewHarness.Find<Button>(
+                    window,
+                    "approval.approve.approval-7"
+                ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
 
-            // Then
-            CollectionAssert.AreEqual(new[] { "chat.send", "approval.answer" }, fixture.Connection.Sent.Select(item => item.CommandType).ToArray());
-            Assert.AreEqual("approval-7", ((NativeJsonString)fixture.Connection.Sent[1].Payload["approval_id"]!).Value);
-            Assert.IsTrue(OfficeWorkflowViewHarness.Find<ItemsControl>(window, "diff.items").Items.Cast<object>().Any(item => item.ToString()!.Contains("4100", StringComparison.Ordinal) && item.ToString()!.Contains("4700", StringComparison.Ordinal)));
-            window.Close();
+                // Then
+                CollectionAssert.AreEqual(
+                    new[] { "chat.send", "approval.answer" },
+                    fixture.Connection.Sent.Select(item => item.CommandType).ToArray());
+                Assert.AreEqual(
+                    "approval-7",
+                    ((NativeJsonString)fixture.Connection.Sent[1].Payload["approval_id"]!).Value);
+                Assert.IsTrue(
+                    OfficeWorkflowViewHarness.Find<ItemsControl>(window, "diff.items")
+                        .Items.Cast<object>().Any(item =>
+                            item.ToString()!.Contains("4100", StringComparison.Ordinal)
+                            && item.ToString()!.Contains("4700", StringComparison.Ordinal)));
+            }
+            finally
+            {
+                window.Close();
+            }
         });
     }
 

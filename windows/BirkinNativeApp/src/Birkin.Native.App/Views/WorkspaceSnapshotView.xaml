@@ -23,7 +23,33 @@
                 CornerRadius="12"
                 Padding="14,7">
             <StackPanel Orientation="Horizontal">
-                <Ellipse Width="8" Height="8" Fill="{StaticResource SuccessBrush}" Margin="0,0,9,0" />
+                <Ellipse Width="8"
+                         Height="8"
+                         Margin="0,0,9,0"
+                         automation:AutomationProperties.AutomationId="ConnectionStatusIndicator">
+                    <Ellipse.Style>
+                        <Style TargetType="Ellipse">
+                            <Setter Property="Fill" Value="{StaticResource FaintBrush}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Connection.State}" Value="Connecting">
+                                    <Setter Property="Fill" Value="{StaticResource AccentBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Connection.State}" Value="Handshaking">
+                                    <Setter Property="Fill" Value="{StaticResource AccentBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Connection.State}" Value="Subscribing">
+                                    <Setter Property="Fill" Value="{StaticResource AccentBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Connection.State}" Value="Ready">
+                                    <Setter Property="Fill" Value="{StaticResource SuccessBrush}" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Connection.State}" Value="Failed">
+                                    <Setter Property="Fill" Value="{StaticResource DangerBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Ellipse.Style>
+                </Ellipse>
                 <TextBlock x:Name="ConnectionStatusText"
                            automation:AutomationProperties.AutomationId="ConnectionStatusText"
                            Text="{Binding Connection.StatusText}"
@@ -34,6 +60,16 @@
         </Border>
 
         <Grid Grid.Row="1">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="IsEnabled" Value="True" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasStartupFailure}" Value="True">
+                            <Setter Property="IsEnabled" Value="False" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="280" MinWidth="240" />
                 <ColumnDefinition Width="5" />
@@ -44,6 +80,108 @@
             <views:NavigationColumnView Grid.Column="0" />
             <views:PrimaryColumnView x:Name="PrimaryColumnView" Grid.Column="2" />
             <views:ContextColumnView x:Name="ContextColumnView" Grid.Column="4" />
+        </Grid>
+
+        <Grid Grid.Row="1"
+              Panel.ZIndex="10"
+              Background="{StaticResource CanvasBrush}"
+              KeyboardNavigation.TabNavigation="Cycle">
+            <Grid.Style>
+                <Style TargetType="Grid">
+                    <Setter Property="Visibility" Value="Visible" />
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding HasStartupFailure}" Value="False">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </Grid.Style>
+            <Border automation:AutomationProperties.AutomationId="startup.failure"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    MaxWidth="620"
+                    Margin="24"
+                    Background="{StaticResource RaisedBrush}"
+                    BorderBrush="{StaticResource DangerBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="20">
+                <StackPanel>
+                    <TextBlock x:Name="StartupFailureTitle"
+                               Text="{Binding StartupFailure.Title}"
+                               automation:AutomationProperties.AutomationId="startup.failure.title"
+                               automation:AutomationProperties.Name="{Binding StartupFailure.Title}"
+                               automation:AutomationProperties.LiveSetting="Assertive"
+                               Focusable="True"
+                               IsVisibleChanged="StartupFailureTitleVisibilityChanged"
+                               Foreground="{StaticResource TextBrush}"
+                               FontSize="20"
+                               FontWeight="SemiBold"
+                               TextWrapping="Wrap">
+                        <TextBlock.FocusVisualStyle>
+                            <Style>
+                                <Setter Property="Control.Template">
+                                    <Setter.Value>
+                                        <ControlTemplate>
+                                            <Rectangle Stroke="{StaticResource AccentBrush}"
+                                                       StrokeThickness="2"
+                                                       RadiusX="3"
+                                                       RadiusY="3"
+                                                       Margin="-4" />
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </TextBlock.FocusVisualStyle>
+                    </TextBlock>
+                    <TextBlock Text="{Binding StartupFailure.Explanation}"
+                               automation:AutomationProperties.AutomationId="startup.failure.explanation"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="13"
+                               Margin="0,10,0,0"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding StartupFailure.RecoveryAction}"
+                               automation:AutomationProperties.AutomationId="startup.failure.recovery"
+                               Foreground="{StaticResource TextBrush}"
+                               FontSize="13"
+                               Margin="0,12,0,0"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding StartupFailure.ErrorCode}"
+                               automation:AutomationProperties.AutomationId="startup.failure.code"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontFamily="Consolas"
+                               FontSize="11"
+                               Margin="0,12,0,0" />
+                    <TextBlock Text="Birkin 실행 파일 경로"
+                               Foreground="{StaticResource MutedBrush}"
+                               FontSize="12"
+                               Margin="0,16,0,5" />
+                    <TextBox x:Name="ExecutablePathInput"
+                             automation:AutomationProperties.AutomationId="startup.failure.executable-path"
+                             automation:AutomationProperties.Name="Birkin 실행 파일 경로"
+                             Foreground="{StaticResource TextBrush}"
+                             Background="{StaticResource TerminalBrush}"
+                             BorderBrush="{StaticResource BorderBrush}"
+                             Padding="8,6"
+                             TextWrapping="NoWrap" />
+                    <StackPanel Orientation="Horizontal"
+                                Margin="0,12,0,0">
+                        <Button Content="경로 저장 후 다시 시도"
+                                automation:AutomationProperties.AutomationId="startup.failure.configure"
+                                automation:AutomationProperties.Name="Birkin 실행 파일 경로를 저장하고 다시 시도"
+                                Style="{StaticResource DisabledActionStyle}"
+                                IsEnabled="{Binding StartupFailure.CanRetry}"
+                                Click="ConfigureExecutableClicked" />
+                        <Button Content="다시 시도"
+                                automation:AutomationProperties.AutomationId="startup.failure.retry"
+                                automation:AutomationProperties.Name="Birkin CLI 시작 다시 시도"
+                                Style="{StaticResource DisabledActionStyle}"
+                                IsEnabled="{Binding StartupFailure.CanRetry}"
+                                Margin="8,0,0,0"
+                                Click="RetryStartupClicked" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
         </Grid>
 
         <Border Grid.Row="2"
