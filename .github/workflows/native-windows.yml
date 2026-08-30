@@ -132,10 +132,50 @@ jobs:
           --disable-build-servers
           -p:UseSharedCompilation=false
           -m:1
-      - run: >-
-          dotnet run
-          --project ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
-          -c Release --no-build
+      - name: Verify Windows accepts the approval notification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $user = "birkin-toast-$PID"
+          $password = [Guid]::NewGuid().ToString("N") + "aA1!"
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+          $credential = [PSCredential]::new(
+            "$env:COMPUTERNAME\$user",
+            $securePassword
+          )
+          $executable = Resolve-Path (
+            "./windows/BirkinNativeApp/tests/" +
+            "Birkin.Native.Notification.Smoke/bin/Release/" +
+            "net8.0-windows10.0.19041.0/win-x64/" +
+            "Birkin.Native.Notification.Smoke.exe"
+          )
+          $stdout = Join-Path $env:RUNNER_TEMP "birkin-toast-smoke.out"
+          $stderr = Join-Path $env:RUNNER_TEMP "birkin-toast-smoke.err"
+          New-LocalUser -Name $user -Password $securePassword | Out-Null
+          try {
+            $process = Start-Process `
+              -FilePath $executable `
+              -Credential $credential `
+              -RedirectStandardOutput $stdout `
+              -RedirectStandardError $stderr `
+              -Wait `
+              -PassThru
+            $output = Get-Content $stdout -Raw
+            $errors = Get-Content $stderr -Raw
+            Write-Output $output
+            if ($errors) {
+              Write-Error $errors
+            }
+            if ($process.ExitCode -ne 0) {
+              throw "Notification smoke exited $($process.ExitCode)."
+            }
+            if ($output -notmatch "WINDOWS_APPROVAL_TOAST_ACCEPTED:") {
+              throw "Notification smoke did not emit its acceptance sentinel."
+            }
+          }
+          finally {
+            Remove-LocalUser -Name $user
+          }
       - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
       - run: >-

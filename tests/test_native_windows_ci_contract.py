@@ -233,9 +233,10 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
         f"dotnet build ./{NOTIFICATION_SMOKE} -c Release --no-restore "
         "--disable-build-servers -p:UseSharedCompilation=false -m:1"
     )
-    run = (
-        f"dotnet run --project ./{NOTIFICATION_SMOKE} "
-        "-c Release --no-build"
+    smoke = next(
+        command
+        for command in commands
+        if "WINDOWS_APPROVAL_TOAST_ACCEPTED:" in command
     )
     solution_restore = f"dotnet restore ./{SOLUTION}"
     solution_build = f"dotnet build ./{SOLUTION} -c Release --no-restore"
@@ -245,10 +246,14 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     ] == "1"
     assert restore in commands
     assert build in commands
-    assert run in commands
     assert commands.index(restore) < commands.index(build)
-    assert commands.index(build) < commands.index(run)
-    assert commands.index(run) < commands.index(solution_restore)
+    assert "New-LocalUser" in smoke
+    assert "Start-Process" in smoke
+    assert "Birkin.Native.Notification.Smoke.exe" in smoke
+    assert "Remove-LocalUser" in smoke
+    assert "[Guid]::NewGuid()" in smoke
+    assert commands.index(build) < commands.index(smoke)
+    assert commands.index(smoke) < commands.index(solution_restore)
     assert commands.index(solution_restore) < commands.index(solution_build)
 
 
