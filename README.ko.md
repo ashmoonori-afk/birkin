@@ -210,6 +210,8 @@ Office provenance는 검토된 artifact의 정확한 version과 지원 runtime r
 
 Office mutation 승인은 proposer, source digest, destination, 정확한 operation, overwrite 결정을 `authority_digest`에 결합합니다. Durable receipt는 해당 digest와 승인 주체를 proposer와 분리해 보존합니다.
 
+Office export 승인 뒤 native surface는 결정된 승인 이력을 유지하고 저장 위치와 30일 되돌리기 기한을 표시하며, 사용자가 내부 job ID를 기억하지 않아도 receipt에서 되돌리기를 요청할 수 있게 합니다.
+
 웹 workspace는 같은 bounded authority contract로 승인 결정을 전송하고, 실패한 제출을 다시 시도할 수 있게 해제하며, raw receipt data를 기본 노출하지 않고 승인 상세에서 실행 영수증을 확인할 수 있게 합니다.
 
 <!-- office-support-matrix:start -->

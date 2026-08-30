@@ -164,7 +164,7 @@ internal static class NativeProjectionReducer
         foreach (var field in new[]
         {
             "requester", "description", "category", "target", "expected_impact",
-            "rejection_result", "related_evidence", "risk", "expires_at",
+            "rejection_result", "related_evidence", "risk", "issued_at", "expires_at",
             "receipt_ref", "snapshot_ref", "effect", "refusal_code", "session_id",
             "name", "destination", "source_filename", "authority_digest",
         })
@@ -179,7 +179,7 @@ internal static class NativeProjectionReducer
             foreach (var field in new[]
             {
                 "approval_id", "artifact_id", "draft_id", "diff_id",
-                "request_command_id", "approval_command_id",
+                "job_id", "request_command_id", "approval_command_id",
             })
             {
                 if (OptionalString(payload, field) is { Length: > 0 } value)
@@ -188,7 +188,10 @@ internal static class NativeProjectionReducer
                 }
             }
         }
-        foreach (var field in new[] { "sealed", "decided", "overwrite_approved" })
+        foreach (var field in new[]
+        {
+            "sealed", "decided", "overwrite_approved", "backup_exists",
+        })
         {
             if (payload[field] is NativeJsonBoolean value)
             {
@@ -254,8 +257,18 @@ internal static class NativeProjectionReducer
                 (NativeJsonObject)values[itemIndex],
                 resolved,
                 [
-                    "status", "cursor", "kind", "ui_state", "decided",
-                    "receipt_ref", "effect", "refusal_code",
+                    "status",
+                    "cursor",
+                    "kind",
+                    "ui_state",
+                    "decided",
+                    "receipt_ref",
+                    "destination",
+                    "issued_at",
+                    "expires_at",
+                    "backup_exists",
+                    "effect",
+                    "refusal_code",
                 ]);
         }
         panels[panelIndex] = Replace(

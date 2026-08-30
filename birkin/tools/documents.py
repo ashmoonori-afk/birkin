@@ -119,25 +119,12 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                 )
                 result = {**queued, "category": "office_job", "approval": approval}
             elif name == "office_rollback_request":
-                from ..office.rollback_approval import prepare_rollback
+                from ..office.rollback_approval import request_rollback
 
-                rollback = prepare_rollback(cast("str", payload["job_id"]))
-                queued = approvals.propose(
-                    category="office_rollback",
-                    title="Rollback Office export",
-                    description=(
-                        "Restore the pre-export destination state at "
-                        f"{rollback['destination']}."
-                    ),
-                    payload=rollback,
-                    cfg={},
+                result = request_rollback(
+                    cast("str", payload["job_id"]),
                     origin=ctx.record_source,
                 )
-                result = {
-                    **queued,
-                    "category": "office_rollback",
-                    "approval": rollback,
-                }
             else:
                 methods: dict[str, Callable[..., object]] = {
                     "inspect_document": service.inspect_document,
