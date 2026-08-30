@@ -188,6 +188,27 @@ def render_fixture() -> str:
             "approval_id": "approval-elsewhere", "decision": "approve",
             "outcome": "answered_elsewhere",
         }),
+        event(22, "progress.updated", {
+            "progress_id": "turn:session-1",
+            "summary": "응답을 준비하고 있습니다.",
+            "status": "working",
+            "ui_state": "pending",
+        }),
+        event(23, "notification.requested", {
+            "notification_id": "approval:approval-1",
+            "kind": "approval_waiting",
+            "summary": "Birkin에서 승인을 기다리고 있습니다.",
+            "body": "앱을 열어 승인 요청을 확인해 주세요.",
+            "item_id": "approval-1",
+            "route": "approvals",
+            "ui_state": "action_needed",
+        }),
+        event(24, "progress.updated", {
+            "progress_id": "turn:session-1",
+            "summary": "응답을 완료했습니다.",
+            "status": "succeeded",
+            "ui_state": "succeeded",
+        }),
     ]
     factory = NativeMessageFactory(
         instance_id="instance-1",

@@ -31,6 +31,14 @@ public sealed partial class ShellCoordinator
             conversationProjectionRequired: true,
             cancellationToken);
 
+    public Task<bool> InterruptConversationAsync(
+        CancellationToken cancellationToken) =>
+        SubmitAsync(
+            (_, context) => ConversationCommands.Interrupt(context),
+            conversationProjectionRequired: false,
+            cancellationToken,
+            interruptionProjectionRequired: true);
+
     public Task<bool> ImportAsync(FileImportIntent intent, CancellationToken cancellationToken) =>
         SubmitAsync((_, context) => ImportCommands.Import(intent, context), false, cancellationToken);
 
@@ -38,6 +46,14 @@ public sealed partial class ShellCoordinator
         ApprovalAnswerIntent intent,
         CancellationToken cancellationToken) =>
         SubmitAsync((_, context) => ApprovalCommands.Answer(intent, context), false, cancellationToken);
+
+    public Task<bool> RequestOfficeRollbackAsync(
+        OfficeRollbackRequestIntent intent,
+        CancellationToken cancellationToken) =>
+        SubmitAsync(
+            (_, context) => OfficeCommands.RollbackRequest(intent, context),
+            false,
+            cancellationToken);
 
     public Task<bool> CreateOfficeDocumentAsync(
         OfficeCreateIntent intent,
@@ -60,7 +76,8 @@ public sealed partial class ShellCoordinator
 
     public Task<bool> DraftOfficeDocumentAsync(
         OfficeDraftIntent intent,
-        CancellationToken cancellationToken) => UnavailableOfficeMutation(cancellationToken);
+        CancellationToken cancellationToken) =>
+        SubmitAsync((_, context) => OfficeCommands.Draft(intent, context), false, cancellationToken);
 
     public Task<bool> ConvertOfficeDocumentAsync(
         OfficeConvertIntent intent,
@@ -87,7 +104,8 @@ public sealed partial class ShellCoordinator
     private async Task<bool> SubmitAsync(
         Func<string, CommandRequestContext, NativeCommandRequest> requestFactory,
         bool conversationProjectionRequired,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool interruptionProjectionRequired = false)
     {
         var commandId = CommandIdFactory();
         var authority = CaptureConnectionAuthority();
@@ -105,7 +123,10 @@ public sealed partial class ShellCoordinator
                 _projectionState?.Cursor ?? 0,
                 NativeHandshake.ViewId);
             request = requestFactory(_workflow.Draft, context);
-            var projectionPermits = !conversationProjectionRequired || ProjectionPermitsConversationLocked();
+            var projectionPermits = conversationProjectionRequired
+                ? ProjectionPermitsConversationLocked()
+                : !interruptionProjectionRequired
+                    || ProjectionPermitsInterruptionLocked();
             var availability = AvailabilityLocked(request.CommandType, projectionPermits, authority);
             if (!availability.IsEnabled || _workflow.HasPendingCommand)
             {
@@ -135,36 +156,66 @@ public sealed partial class ShellCoordinator
             return false;
         }
 
-        try
+        var activeRequest = request;
+        var retriedStaleInterrupt = false;
+        while (true)
         {
-            if (_connection.OwnsReceiveLoop)
+            try
             {
-                var receipt = await _connection.SendCommandForResultAsync(request, cancellationToken).ConfigureAwait(false);
-                return AcceptReceipt(receipt, request.CommandId);
-            }
+                if (_connection.OwnsReceiveLoop)
+                {
+                    var receipt = await _connection.SendCommandForResultAsync(
+                        activeRequest,
+                        cancellationToken).ConfigureAwait(false);
+                    return AcceptReceipt(
+                        receipt,
+                        activeRequest.CommandId,
+                        activeRequest.CommandType);
+                }
 
-            await _connection.SendCommandAsync(request, cancellationToken).ConfigureAwait(false);
-            return await ReceiveCommandResultAsync(request.CommandId, cancellationToken).ConfigureAwait(false);
-        }
-        catch (NativeCommandRefusal refusal)
-        {
-            Refuse(refusal);
-            return false;
-        }
-        catch (NativeProtocolError)
-        {
-            var currentAuthority = CaptureConnectionAuthority();
-            if (currentAuthority.IsLive)
-            {
-                throw;
+                await _connection.SendCommandAsync(
+                    activeRequest,
+                    cancellationToken).ConfigureAwait(false);
+                return await ReceiveCommandResultAsync(
+                    activeRequest.CommandId,
+                    activeRequest.CommandType,
+                    cancellationToken).ConfigureAwait(false);
             }
-            ClearWorkflowAuthority();
-            return false;
+            catch (NativeCommandRefusal refusal) when (
+                !retriedStaleInterrupt
+                && activeRequest.CommandType
+                    == ConversationCommands.InterruptCommandType
+                && refusal.Code == "E_STALE_CURSOR"
+                && refusal.CurrentCursor is { } currentCursor)
+            {
+                activeRequest = ConversationCommands.Interrupt(
+                    new CommandRequestContext(
+                        activeRequest.CommandId,
+                        currentCursor,
+                        activeRequest.ViewId));
+                retriedStaleInterrupt = true;
+            }
+            catch (NativeCommandRefusal refusal)
+            {
+                Refuse(refusal);
+                return false;
+            }
+            catch (NativeProtocolError)
+            {
+                var currentAuthority = CaptureConnectionAuthority();
+                if (currentAuthority.IsLive)
+                {
+                    throw;
+                }
+                ClearWorkflowAuthority();
+                return false;
+            }
         }
     }
 
     private async Task<bool> ReceiveCommandResultAsync(
         string commandId,
+        string commandType,
         CancellationToken cancellationToken)
     {
         for (var received = 0; received < MaxFramesBeforeCommandResult; received++)
@@ -172,7 +223,7 @@ public sealed partial class ShellCoordinator
             var envelope = await _connection.ReceiveAsync(cancellationToken).ConfigureAwait(false);
             if (envelope.Kind == NativeMessageKind.Receipt)
             {
-                return AcceptReceipt(envelope, commandId);
+                return AcceptReceipt(envelope, commandId, commandType);
             }
 
             ApplyCanonicalFrame(envelope);
@@ -214,7 +265,10 @@ public sealed partial class ShellCoordinator
         }
     }
 
-    private bool AcceptReceipt(NativeEnvelope receipt, string commandId)
+    private bool AcceptReceipt(
+        NativeEnvelope receipt,
+        string commandId,
+        string commandType)
     {
         var receivedCommandId = String(receipt.Body, "command_id");
         if (!string.Equals(receivedCommandId, commandId, StringComparison.Ordinal))
@@ -230,14 +284,19 @@ public sealed partial class ShellCoordinator
         {
             ImportedFilePresentation? imported = null;
             if (string.Equals(
-                    _workflow.CommandType,
+                    commandType,
                     ImportCommands.CommandType,
                     StringComparison.Ordinal)
                 && !ImportedFilePresentationMapper.TryFromReceipt(
                     receipt,
                     out imported))
             {
-                _workflow = _workflow.Refuse(commandId, "E_BODY", null);
+                _workflow = _workflow.Refuse(
+                    commandId,
+                    "E_BODY",
+                    "import receipt reference is invalid",
+                    false,
+                    null);
                 _pendingDraftRevision = null;
                 accepted = false;
             }
@@ -269,7 +328,12 @@ public sealed partial class ShellCoordinator
         bool drain;
         lock (_stateLock)
         {
-            _workflow = _workflow.Refuse(refusal.CommandId, refusal.Code, refusal.CurrentCursor);
+            _workflow = _workflow.Refuse(
+                refusal.CommandId,
+                refusal.Code,
+                refusal.Message,
+                refusal.Retryable,
+                refusal.CurrentCursor);
             if (string.Equals(_workflow.CommandId, refusal.CommandId, StringComparison.Ordinal))
             {
                 _pendingDraftRevision = null;
@@ -329,6 +393,12 @@ public sealed partial class ShellCoordinator
     private bool ProjectionPermitsConversationLocked() =>
         _projectionState?.Composer["can_send"] is NativeJsonBoolean { Value: true };
 
+    private bool ProjectionPermitsInterruptionLocked() =>
+        _projectionState?.Composer["can_interrupt"] is NativeJsonBoolean
+        {
+            Value: true,
+        };
+
     private void RefreshMutationAvailability()
     {
         var authority = CaptureConnectionAuthority();
@@ -345,13 +415,17 @@ public sealed partial class ShellCoordinator
     {
         _workflow = _workflow.WithAvailability(new MutationAvailabilitySet(
             AvailabilityLocked(ConversationCommands.CommandType, ProjectionPermitsConversationLocked(), authority),
+            AvailabilityLocked(
+                ConversationCommands.InterruptCommandType,
+                ProjectionPermitsInterruptionLocked(),
+                authority),
             AvailabilityLocked(ImportCommands.CommandType, true, authority),
             AvailabilityLocked(ApprovalCommands.CommandType, true, authority),
             new MutationAvailability(false, "E_OFFICE_JOB_REQUEST_REQUIRED"),
             AvailabilityLocked(OfficeCommands.SelectCommandType, true, authority),
             AvailabilityLocked(OfficeCommands.OpenCommandType, true, authority),
             AvailabilityLocked(OfficeCommands.CompareCommandType, true, authority),
-            new MutationAvailability(false, "E_OFFICE_JOB_REQUEST_REQUIRED"),
+            AvailabilityLocked(OfficeCommands.DraftCommandType, true, authority),
             new MutationAvailability(false, "E_OFFICE_JOB_REQUEST_REQUIRED")));
     }
 

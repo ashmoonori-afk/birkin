@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
+from urllib.parse import urlparse
 
-from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import Locator, TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
 from script.qa.workspace_web_driver_support import (
@@ -17,6 +19,15 @@ from script.qa.workspace_web_driver_support import (
     assert_open_mobile_drawer,
     assert_tablet_overflow,
 )
+
+
+def trigger_and_wait_for_new_text(
+    locator: Locator,
+    trigger: Callable[[], object],
+) -> None:
+    next_index = locator.count()
+    _ = trigger()
+    locator.nth(next_index).wait_for()
 
 
 def run(url: str, evidence: Path) -> int:
@@ -69,16 +80,25 @@ def run(url: str, evidence: Path) -> int:
 
         input_box = page.locator("#workspace-input")
         _ = input_box.fill("approval web")
-        _ = page.locator("#workspace-send").click()
-        page.get_by_text("Approval required. Type approve to resume.").wait_for()
+        trigger_and_wait_for_new_text(
+            page.get_by_text("Approval required. Type approve to resume."),
+            page.locator("#workspace-send").click,
+        )
         page.locator(
             '[data-testid="workspace-shell"][data-last-event="command.completed"]'
         ).wait_for()
         _ = page.locator('[data-panel="approvals"]').click()
-        page.get_by_text("Approve deterministic workspace action").wait_for()
-        _ = page.get_by_text("Approve deterministic workspace action").click()
+        approval_item = page.locator(
+            '#workspace-panel-body [data-item-id="qa-approval"]'
+        )
+        approval_item.get_by_text(
+            re.compile(r"Approve deterministic workspace action")
+        ).first.wait_for()
+        _ = approval_item.click()
         page.get_by_role("button", name="승인 실행").wait_for()
         _ = page.screenshot(path=evidence / "web-1440-approval.png")
+        completed = page.get_by_text("완료되었습니다 ✓ shared continuation")
+        completed_index = completed.count()
         _ = page.get_by_role("button", name="승인 실행").click()
         _ = page.wait_for_function(
             """async () => {
@@ -91,50 +111,112 @@ def run(url: str, evidence: Path) -> int:
               return panel.items.some((item) => item.status === 'approve');
             }"""
         )
-        page.get_by_text("완료되었습니다 ✓ shared continuation").wait_for()
+        completed.nth(completed_index).wait_for()
+        page.locator(
+            '[data-testid="workspace-shell"][data-last-event="command.completed"]'
+        ).wait_for()
+        page.get_by_text(
+            "승인한 작업을 실행했습니다. 영수증 세부 정보에서 결과를 확인하세요.",
+            exact=True,
+        ).wait_for()
+        receipt_summary = page.get_by_text(
+            "영수증 세부 정보 보기",
+            exact=True,
+        )
+        receipt_summary.wait_for()
+        receipt_details = receipt_summary.locator("xpath=..")
+        if receipt_details.get_attribute("open") is not None:
+            raise AssertionError("receipt details opened without user action")
+        if receipt_details.locator("pre").is_visible():
+            raise AssertionError("raw receipt is visible before disclosure")
+        receipt_details.scroll_into_view_if_needed()
+        _ = page.screenshot(path=evidence / "web-1440-receipt-closed.png")
+        _ = receipt_summary.click()
+        receipt_pre = receipt_details.locator("pre")
+        receipt_pre.wait_for(state="visible")
+        receipt_pre.scroll_into_view_if_needed()
+        _ = page.screenshot(path=evidence / "web-1440-receipt-open.png")
+        _ = receipt_summary.click()
 
         _ = input_box.fill("inspect question evidence checkpoint")
         _ = input_box.press("Control+Enter")
-        page.get_by_text(
-            "Question ready with file evidence and checkpoint."
-        ).wait_for()
         _ = page.locator('[data-panel="approvals"]').click()
-        page.get_by_text(
-            re.compile(r"Continue with the inspected evidence")
+        question_item = page.locator(
+            '#workspace-panel-body [data-item-id="qa-question"]'
+        )
+        question_item.get_by_text(
+            re.compile(
+                r"◆ 조치 필요 · Continue with the inspected evidence"
+            ),
         ).wait_for()
-        _ = page.locator("#workspace-panel-body").get_by_text(
-            re.compile(r"Continue with the inspected evidence")
-        ).click()
+        page.locator(
+            '[data-testid="workspace-shell"][data-last-event="command.completed"]'
+        ).wait_for()
+        _ = question_item.click()
         _ = page.screenshot(path=evidence / "web-1440-question.png")
         _ = page.locator(
             '[data-testid="workspace-question-answer"]'
         ).fill("continue")
         _ = page.get_by_text("답변 보내기").click()
-        page.get_by_text("Question answered: continue").wait_for()
+        question_item.get_by_text(
+            re.compile(r"✓ 완료 · Continue with the inspected evidence"),
+        ).wait_for()
+        page.locator(
+            '[data-testid="workspace-shell"][data-last-event="command.completed"]'
+        ).wait_for()
         _ = page.locator('[data-panel="files_evidence"]').click()
-        page.get_by_text("workspace-report.txt").wait_for()
+        page.locator(
+            '#workspace-panel-body [data-item-id="qa-evidence"]'
+        ).wait_for()
         _ = page.screenshot(path=evidence / "web-1440-evidence.png")
         _ = page.locator('[data-panel="checkpoints_restore"]').click()
-        page.get_by_text("Before workspace inspection").wait_for()
-        _ = page.locator("#workspace-panel-body").get_by_text(
-            "Before workspace inspection"
-        ).first.click()
+        checkpoint_item = page.locator(
+            '#workspace-panel-body [data-item-id="a1b2c3d4"]'
+        )
+        checkpoint_item.wait_for()
+        _ = checkpoint_item.click()
         _ = page.screenshot(
             path=evidence / "web-1440-checkpoint-detail.png"
         )
-        _ = page.get_by_text("복원 승인 요청").click()
-        page.locator("#workspace-panel-body").get_by_text(
-            re.compile(r"복원 승인 대기:")
+        with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.endswith("/restore")
+            )
+        ) as restore_response_info:
+            _ = page.get_by_text("복원 승인 요청").click()
+        restore_response = restore_response_info.value
+        if restore_response.status != 202:
+            raise AssertionError(
+                f"restore approval request returned {restore_response.status}"
+            )
+        restore_payload = restore_response.json()
+        restore_approval_id = str(restore_payload["approval_id"])
+        _ = page.locator('[data-panel="approvals"]').click()
+        restore_item = page.locator(
+            f'#workspace-panel-body [data-item-id="{restore_approval_id}"]'
+        )
+        restore_item.get_by_text(
+            re.compile(r"체크포인트 복원:")
         ).wait_for()
         _ = page.screenshot(path=evidence / "web-1440-checkpoint.png")
-        _ = page.locator('[data-panel="approvals"]').click()
-        _ = page.get_by_text(
-            re.compile(r"Restore checkpoint")
-        ).click()
-        _ = page.get_by_text("승인 실행").click()
+        _ = restore_item.click()
+        with page.expect_response(
+            lambda response: (
+                response.request.method == "POST"
+                and response.url.endswith("/commands")
+            )
+        ) as approval_response_info:
+            _ = page.get_by_text("승인 실행").click()
+        if approval_response_info.value.status != 202:
+            raise AssertionError(
+                "restore approval command was not accepted"
+            )
         _ = page.locator('[data-panel="checkpoints_restore"]').click()
-        page.get_by_text(
-            re.compile(r"✓ 완료 · a1b2c3d4")
+        page.locator(
+            '#workspace-panel-body [data-item-id="a1b2c3d4"]'
+        ).get_by_text(
+            re.compile(r"✓ 완료 · Before workspace inspection")
         ).wait_for()
         _ = page.screenshot(
             path=evidence / "web-1440-checkpoint-restored.png"
@@ -161,10 +243,12 @@ def run(url: str, evidence: Path) -> int:
         if input_box.input_value() != "draft survives reload":
             raise AssertionError("composer draft did not survive reload")
         _ = input_box.fill("브라우저 붙여넣기 한글")
-        _ = input_box.press("Control+Enter")
-        page.get_by_text(
-            re.compile(r"Echo complete .*브라우저 붙여넣기 한글")
-        ).wait_for()
+        trigger_and_wait_for_new_text(
+            page.get_by_text(
+                re.compile(r"Echo complete .*브라우저 붙여넣기 한글")
+            ),
+            lambda: input_box.press("Control+Enter"),
+        )
 
         page.set_viewport_size({"width": 390, "height": 844})
         _ = page.locator("#workspace-theme").select_option("high_contrast")
@@ -178,13 +262,17 @@ def run(url: str, evidence: Path) -> int:
             raise AssertionError("mobile back did not restore focus")
 
         _ = input_box.fill("interrupt")
-        _ = input_box.press("Control+Enter")
-        page.get_by_text("interrupt-ready").wait_for()
-        _ = input_box.press("Escape")
-        page.get_by_text("Interrupted safely").wait_for()
+        trigger_and_wait_for_new_text(
+            page.get_by_text("interrupt-ready"),
+            lambda: input_box.press("Control+Enter"),
+        )
+        trigger_and_wait_for_new_text(
+            page.get_by_text("Interrupted safely"),
+            lambda: input_box.press("Escape"),
+        )
         _ = page.reload(wait_until="domcontentloaded")
         _ = page.wait_for_function(CONNECTED)
-        page.get_by_text("Interrupted safely").wait_for()
+        page.get_by_text("Interrupted safely").last.wait_for()
         if page.locator("html").get_attribute("data-theme") != "high_contrast":
             raise AssertionError("high-contrast theme did not survive reload")
         assert_closed_mobile_drawer(page, 844)
@@ -208,13 +296,27 @@ def run(url: str, evidence: Path) -> int:
         }
         browser.close()
 
+    optional_legacy_paths = {"/api/runs", "/api/agent-runs"}
+    optional_failures: list[dict[str, object]] = []
     failures: list[dict[str, object]] = []
     for entry in network:
         status = entry.get("status")
         if isinstance(status, int) and status >= 400:
-            failures.append(entry)
+            path = urlparse(str(entry.get("url") or "")).path
+            if status == 503 and path in optional_legacy_paths:
+                optional_failures.append(entry)
+            else:
+                failures.append(entry)
     console_failures = [
-        entry for entry in console if entry["type"] == "error"
+        entry
+        for entry in console
+        if entry["type"] == "error"
+        and not (
+            optional_failures
+            and entry["text"].startswith(
+                "Failed to load resource: the server responded with a status of 503"
+            )
+        )
     ]
     if failures or console_failures or page_errors:
         message = (

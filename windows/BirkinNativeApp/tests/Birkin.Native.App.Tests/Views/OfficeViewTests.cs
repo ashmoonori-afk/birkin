@@ -90,10 +90,10 @@ public sealed class OfficeViewTests
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
             var view = new OfficeView(fixture.Model, fixture.Coordinator);
             OfficeWorkflowViewHarness.Layout(view);
-            var panel = OfficeWorkflowViewHarness.Find<Expander>(
+            var newPanel = OfficeWorkflowViewHarness.Find<Expander>(
                 view,
                 "office.new-panel");
-            panel.IsExpanded = true;
+            newPanel.IsExpanded = true;
             OfficeWorkflowViewHarness.Layout(view);
             var save = OfficeWorkflowViewHarness.Find<Button>(view, "office.save-unavailable");
 

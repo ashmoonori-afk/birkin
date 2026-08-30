@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import re
 import threading
 from collections.abc import Callable, Iterator
 from http.server import ThreadingHTTPServer
@@ -14,6 +15,7 @@ import pytest
 
 from birkin.web import server as web_server
 from birkin.workspace import WorkspaceHub
+from birkin.workspace import approval_authority
 from script.qa import workspace_web_e2e
 from tests.local_http_support import local_http_timeout
 
@@ -28,6 +30,13 @@ EXPECTED_PANEL_KEYS = (
     "checkpoints_restore",
     "computer_use",
     "settings_status",
+)
+HTML_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "birkin"
+    / "web"
+    / "static"
+    / "index.html"
 )
 
 
@@ -165,6 +174,37 @@ def _command(
     }
 
 
+def _web_approval_payload(
+    approval_id: str,
+    decision: str,
+) -> dict[str, object]:
+    source = HTML_PATH.read_text(encoding="utf-8")
+    match = re.search(
+        r'await sendCommand\("approval\.answer", \{(?P<body>.*?)\n\s*\}\);',
+        source,
+        re.DOTALL,
+    )
+    assert match is not None
+    keys = cast(
+        list[str],
+        re.findall(
+            r"^\s*([a-z_]+)(?::[^,]+)?,\s*$",
+            match.group("body"),
+            re.MULTILINE,
+        ),
+    )
+    values: dict[str, object] = {
+        "approval_id": approval_id,
+        "decision": decision,
+        "detail_fields": [
+            "expected-impact",
+            "rejection-result",
+            "related-evidence",
+        ],
+    }
+    return {key: values[key] for key in keys}
+
+
 def test_workspace_routes_require_capability_before_lookup(
     workspace_server: tuple[int, str, str],
 ) -> None:
@@ -253,6 +293,70 @@ def test_chat_command_streams_ordered_events_and_deduplicates(
     )
     assert code == 200
     assert _json(body)["duplicate"] is True
+
+
+def test_web_approval_payload_executes_through_runtime_authority(
+    workspace_server: tuple[int, str, str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    decided: list[tuple[str, str]] = []
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        assert on_event is not None
+        assert reason == ""
+        decided.append((approval_id, decision))
+        return {
+            "outcome": "approved",
+            "approval_id": approval_id,
+        }
+
+    monkeypatch.setattr(web_server, "_workspace_handlers", None, raising=False)
+    monkeypatch.setattr(web_server, "_workspace_adapters", {}, raising=False)
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    port, token, _ = workspace_server
+    session_id = _create_session(port, token)
+    approval_id = "abc123def456"
+    command = _command(
+        "browser-1:approval-1",
+        expected_cursor=0,
+        command_type="approval.answer",
+        payload=_web_approval_payload(approval_id, "approve"),
+    )
+
+    code, _, body = _request(
+        port,
+        "POST",
+        f"/api/workspace/sessions/{session_id}/commands",
+        token=token,
+        body=command,
+    )
+    assert code == 202
+    assert _json(body)["state"] == "accepted"
+
+    code, _, body = _request(
+        port,
+        "GET",
+        (
+            f"/api/workspace/sessions/{session_id}/events"
+            "?after=0&once=1&until=command.completed"
+        ),
+        token=token,
+    )
+    assert code == 200
+    events = _sse_events(body)
+    assert [event["type"] for event in events] == [
+        "command.accepted",
+        "command.started",
+        "approval.answered",
+        "command.completed",
+    ]
+    assert decided == [(approval_id, "approve")]
 
 
 def test_interrupt_resume_and_actor_spoof_rejection(

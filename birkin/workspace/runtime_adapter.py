@@ -4,24 +4,33 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
-from .. import approvals, config, risk, transcripts, uistate, workbench
+from .. import approvals, config, risk, store, transcripts, uistate, workbench
 from ..browser_aside_control import BrowserControlAuthority
 from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
 from ..computer_use.reducer import ComputerState, reduce_event
 from ..computer_use.runtime import default_backend
 from ..native.jailed_import import JailedImportAuthority
+from ..llm import LLMError, LLMStatus
 from ..office.coordinator_data import canonical_office_home
+from ..office.presentation import format_preview_replacements
+from ..office.preview_semantics import PreviewSummary
 from ..office.service import DocumentService
 from ..runtime import Session, build_session
 
 from . import approval_authority
+from .decision_text import llm_status_summary, provider_failure
+from .approval_receipts import (
+    OfficeReceiptProjection,
+    approval_turn_context,
+    job_id_from_receipt_ref,
+)
 from .owned_terminal import TerminalAuthority
 from .records import PanelSummary, WorkspaceEvent, WorkspaceSnapshot
 from .working_memory import memory_write_handler
@@ -132,6 +141,7 @@ class RuntimeWorkspaceAdapter:
             ),
         )
         self._failed_intent_payload: dict[str, object] | None = None
+        self._pending_approval_context: str | None = None
         self._run_id = (
             f"workspace-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{os.getpid()}"
         )
@@ -150,7 +160,9 @@ class RuntimeWorkspaceAdapter:
             **self._terminal.handlers(),
             "file.import": self._file_import,
             "office.job_request": self._office_job_request,
+            "office.rollback_request": self._office_rollback_request,
             **self.surface_authority.handlers(self._emit),
+            "office.create": self._office_create_request,
         }
 
     def revoke_terminal_leases(self) -> None:
@@ -218,8 +230,40 @@ class RuntimeWorkspaceAdapter:
         if self._session is None:
             cfg = config.load_config()
             cfg["session_id"] = self._session_id
-            self._session = build_session(cfg, on_event=self._runtime_event)
+            self._session = build_session(
+                cfg,
+                on_event=self._runtime_event,
+                on_status=self._runtime_status,
+            )
         return self._session
+
+    def _runtime_status(self, status: LLMStatus) -> None:
+        payload: dict[str, object] = {
+            "summary": llm_status_summary(status),
+            "status": status.kind,
+            "ui_state": (
+                "succeeded"
+                if status.kind == "recovered"
+                else "running"
+            ),
+            "provider": status.provider,
+            "model": status.model,
+            "reason": status.reason,
+        }
+        optional = {
+            "retry_in_seconds": status.retry_in_seconds,
+            "attempt": status.attempt,
+            "max_attempts": status.max_attempts,
+            "provider_status": status.http_status,
+            "fallback_provider": status.fallback_provider,
+            "fallback_model": status.fallback_model,
+        }
+        payload.update({
+            key: value
+            for key, value in optional.items()
+            if value is not None
+        })
+        _ = self._emit("progress.updated", payload)
 
     def _runtime_event(
         self,
@@ -228,6 +272,24 @@ class RuntimeWorkspaceAdapter:
     ) -> None:
         if event == "computer_use":
             self._computer_event(payload)
+            return
+        if event == "office_progress":
+            _ = self._emit(
+                "progress.updated",
+                {
+                    key: payload[key]
+                    for key in (
+                        "progress_id",
+                        "runtime_event",
+                        "office_phase",
+                        "job_id",
+                        "summary",
+                        "status",
+                        "ui_state",
+                    )
+                    if key in payload
+                },
+            )
             return
         is_error = bool(payload.get("is_error", False))
         event_type = {
@@ -240,11 +302,31 @@ class RuntimeWorkspaceAdapter:
         }.get(event, "progress.updated")
         if event == "tool_end" and is_error:
             event_type = "tool.failed"
+        summary = {
+            "tool_start": "도구 실행을 시작했습니다.",
+            "tool_end": (
+                "도구 실행에 실패했습니다."
+                if is_error
+                else "도구 실행을 완료했습니다."
+            ),
+            "subagent.start": "백그라운드 작업을 시작했습니다.",
+            "subagent.done": "백그라운드 작업을 완료했습니다.",
+            "compact": "대화 컨텍스트를 정리했습니다.",
+            "steer": "실행 방향을 업데이트했습니다.",
+        }.get(event, "진행 상태가 업데이트되었습니다.")
         safe: dict[str, object] = {
+            "progress_id": (
+                f"runtime:{'tool' if event.startswith('tool_') else event}:"
+                f"{str(payload.get('name') or payload.get('summary') or 'operation')[:80]}"
+            ),
             "runtime_event": event,
-            "summary": str(payload.get("name") or payload.get("summary") or "")[:300],
+            "summary": summary,
             "state": uistate.from_runtime(event, is_error=is_error).state,
         }
+        safe["status"] = safe["state"]
+        runtime_name = payload.get("name") or payload.get("summary")
+        if runtime_name:
+            safe["runtime_name"] = str(runtime_name)[:300]
         _ = self._emit(event_type, safe)
 
     def _computer_event(self, raw: dict[str, object]) -> None:
@@ -288,9 +370,21 @@ class RuntimeWorkspaceAdapter:
             if event.payload.get("ok") is True
             else "failed"
         )
+        summary = (
+            "컴퓨터 작업을 시작했습니다."
+            if started
+            else "컴퓨터 작업에 승인이 필요합니다."
+            if isinstance(approval_id, str)
+            else "컴퓨터 작업을 완료했습니다."
+            if event.payload.get("ok") is True
+            else (
+                "컴퓨터 작업을 수행하지 못했습니다. "
+                "세부 정보를 확인한 뒤 다시 시도하세요."
+            )
+        )
         safe: dict[str, object] = {
             "runtime_event": "computer_use",
-            "summary": f"{event.kind} · {status}",
+            "summary": summary,
             "status": status,
             "ui_state": ui_state,
             "kind": "computer_use",
@@ -335,6 +429,16 @@ class RuntimeWorkspaceAdapter:
         if attachments:
             user_event["attachments"] = attachments
         _ = self._emit("message.user", user_event)
+        progress_id = f"turn:{self._session_id}"
+        _ = self._emit(
+            "progress.updated",
+            {
+                "progress_id": progress_id,
+                "summary": "응답을 준비하고 있습니다.",
+                "status": "working",
+                "ui_state": "pending",
+            },
+        )
         pieces: list[str] = []
 
         def on_text(piece: str) -> None:
@@ -348,10 +452,37 @@ class RuntimeWorkspaceAdapter:
                 for attachment, _path in validated
             ]
             runtime_text += "\n\nAttached workspace imports (validated):\n" + "\n".join(lines)
+        if self._pending_approval_context is not None:
+            runtime_text = (
+                f"{self._pending_approval_context}\n\n{runtime_text}"
+            )
         session = self._get_session()
         try:
             reply = session.ask(runtime_text, on_text=on_text)
-        except Exception:
+        except LLMError as error:
+            failure = provider_failure(error.kind)
+            self._failed_intent_payload = (
+                {
+                    "text": text,
+                    **({"attachments": attachments} if attachments else {}),
+                }
+                if failure.retryable
+                else None
+            )
+            event_payload: dict[str, object] = {
+                "summary": failure.summary,
+                "status": "failed",
+                "ui_state": "failed",
+                "refusal_code": failure.refusal_code,
+                "retryable": failure.retryable,
+                "provider_kind": error.kind,
+            }
+            if error.status is not None:
+                event_payload["provider_status"] = error.status
+            _ = self._emit("progress.updated", event_payload)
+            raise
+        except (OSError, RuntimeError, ValueError):
+            # Expected runtime failures get bounded product copy, then re-raise.
             self._failed_intent_payload = {
                 "text": text,
                 **({"attachments": attachments} if attachments else {}),
@@ -359,7 +490,10 @@ class RuntimeWorkspaceAdapter:
             _ = self._emit(
                 "progress.updated",
                 {
-                    "summary": "Assistant response failed.",
+                    "progress_id": progress_id,
+                    "summary": (
+                        "응답을 완료하지 못했습니다. 잠시 후 다시 시도하세요."
+                    ),
                     "status": "failed",
                     "ui_state": "failed",
                     "refusal_code": "E_RUNTIME",
@@ -368,10 +502,20 @@ class RuntimeWorkspaceAdapter:
             )
             raise
         final = reply or "".join(pieces)
+        _ = self._emit(
+            "progress.updated",
+            {
+                "progress_id": progress_id,
+                "summary": "응답을 완료했습니다.",
+                "status": "succeeded",
+                "ui_state": "succeeded",
+            },
+        )
         _ = self._emit("message.assistant.completed", {"text": final})
         _ = transcripts.append_turn(
             "workspace", self._run_id, text, final, cfg=session.cfg
         )
+        self._pending_approval_context = None
         self._failed_intent_payload = None
         result: dict[str, object] = {"reply": final}
         if attachments:
@@ -412,7 +556,7 @@ class RuntimeWorkspaceAdapter:
         _ = self._emit(
             "progress.updated",
             {
-                "summary": "Turn interrupted.",
+                "summary": "응답 생성을 중단했습니다.",
                 "status": "interrupted",
                 "ui_state": "paused",
             },
@@ -447,14 +591,17 @@ class RuntimeWorkspaceAdapter:
         return result
 
     def _office_job_request(self, payload: dict[str, object]) -> dict[str, object]:
+        if "format" in payload:
+            return self._office_creation_job_request(payload)
         from ..office.coordinator import (
             OfficeCaller,
             OfficeCoordinator,
             OfficeMutationRequest,
         )
+        from ..office.progress import office_progress_sink
 
         required = {"request", "source", "outcome", "operations", "destination"}
-        optional = {"overwrite_approved"}
+        optional = {"overwrite_approved", "diff_id"}
         if not required <= set(payload) or set(payload) - required - optional:
             raise ValueError("office.job_request payload does not match the canonical contract")
         request = payload["request"]
@@ -463,6 +610,7 @@ class RuntimeWorkspaceAdapter:
         operations = payload["operations"]
         destination = payload["destination"]
         overwrite_approved = payload.get("overwrite_approved", False)
+        diff_id = payload.get("diff_id")
         if not isinstance(request, str) or not request:
             raise ValueError("office.job_request request must be non-empty")
         if not isinstance(source, dict) or any(
@@ -485,6 +633,10 @@ class RuntimeWorkspaceAdapter:
             raise ValueError("office.job_request destination must be non-empty")
         if not isinstance(overwrite_approved, bool):
             raise ValueError("office.job_request overwrite_approved must be boolean")
+        if diff_id is not None and (
+            not isinstance(diff_id, str) or not diff_id
+        ):
+            raise ValueError("office.job_request diff_id must be non-empty")
         client_source = cast(dict[str, object], source)
         source_mapping = self.surface_authority.office.registered_document(
             client_source.get("artifact_id"),
@@ -495,7 +647,8 @@ class RuntimeWorkspaceAdapter:
             OfficeCaller(
                 allowlist_root=self._workspace_root,
                 actor=f"native:{self._session_id}",
-            )
+            ),
+            on_transition=office_progress_sink(self._runtime_event),
         ).request(
             OfficeMutationRequest(
                 request_text=request,
@@ -507,17 +660,20 @@ class RuntimeWorkspaceAdapter:
             )
         )
         source_filename = cast(str, source_mapping["source_filename"])
+        approval["diff_id"] = diff_id or f"diff-{approval['job_id']}"
         approval["source_filename"] = source_filename
         approval["rejection_result"] = (
-            "Rejecting leaves the source unchanged and writes no output."
+            "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다."
         )
+        semantic_summaries = cast(
+            list[PreviewSummary],
+            approval["semantic_summaries"],
+        )
+        description = format_preview_replacements(semantic_summaries)
         queued = approvals.propose(
             category="office_job",
-            title=f"Office mutation: {outcome}",
-            description="\n".join(
-                cast(str, item["summary"])
-                for item in cast(list[dict[str, object]], approval["semantic_summaries"])
-            ),
+            title=f"Office 변경: {outcome}",
+            description=description,
             payload=approval,
             cfg={},
             origin=f"native:{self._session_id}",
@@ -527,11 +683,8 @@ class RuntimeWorkspaceAdapter:
             "approval.requested",
             {
                 "approval_id": approval_id,
-                "summary": queued.get("title", f"Office mutation: {outcome}"),
-                "description": "\n".join(
-                    cast(str, item["summary"])
-                    for item in cast(list[dict[str, object]], approval["semantic_summaries"])
-                ),
+                "summary": queued.get("title", f"Office 변경: {outcome}"),
+                "description": description,
                 "category": "office_job",
                 "status": "pending",
                 "risk": risk.risk_for("office_job"),
@@ -540,6 +693,7 @@ class RuntimeWorkspaceAdapter:
                 "requester": approval["proposer"],
                 "rejection_result": approval["rejection_result"],
                 "job_id": approval["job_id"],
+                "diff_id": approval["diff_id"],
                 "proposal_digest": approval["proposal_digest"],
                 "authority_digest": approval["authority_digest"],
                 "destination": approval["destination"],
@@ -549,6 +703,261 @@ class RuntimeWorkspaceAdapter:
         )
         return {**queued, "category": "office_job", "approval": approval}
 
+    def _office_creation_job_request(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        from ..office.create_approval import (
+            OfficeCreationCaller,
+            OfficeCreationCoordinator,
+            OfficeCreationRequest,
+        )
+        from ..office.errors import DocumentError, DocumentErrorCode
+
+        required = {
+            "request",
+            "format",
+            "content",
+            "outcome",
+            "destination",
+        }
+        optional = {"overwrite_approved"}
+        if not required <= set(payload) or set(payload) - required - optional:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "Office creation job request fields changed",
+            )
+        request_text = payload["request"]
+        outcome = payload["outcome"]
+        destination = payload["destination"]
+        if (
+            not isinstance(request_text, str)
+            or not request_text.strip()
+            or not isinstance(outcome, str)
+            or not outcome.strip()
+            or not isinstance(destination, str)
+            or not destination.strip()
+        ):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "Office creation request, outcome, and destination are required",
+            )
+        if payload["format"] != "docx":
+            raise DocumentError(
+                DocumentErrorCode.UNSUPPORTED_FORMAT,
+                "office_create",
+                "Office creation job request currently supports DOCX only",
+            )
+        raw_content = payload["content"]
+        if not isinstance(raw_content, Mapping) or set(raw_content) != {"paragraphs"}:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation content fields changed",
+            )
+        raw_paragraphs = raw_content.get("paragraphs")
+        if not isinstance(raw_paragraphs, Sequence) or isinstance(
+            raw_paragraphs,
+            (str, bytes),
+        ):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation paragraphs must be an array",
+            )
+        if not all(isinstance(paragraph, str) for paragraph in raw_paragraphs):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation paragraphs must be strings",
+            )
+        overwrite_approved = payload.get("overwrite_approved", False)
+        if not isinstance(overwrite_approved, bool):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "overwrite_approved must be a boolean",
+            )
+        paragraphs = tuple(cast("str", paragraph) for paragraph in raw_paragraphs)
+        approval = OfficeCreationCoordinator(
+            OfficeCreationCaller(
+                allowlist_root=self._workspace_root,
+                actor=f"native:{self._session_id}",
+            )
+        ).request(OfficeCreationRequest(
+            request_text=request_text,
+            paragraphs=paragraphs,
+            outcome=outcome,
+            destination=Path(destination),
+            overwrite_approved=overwrite_approved,
+        ))
+        description = (
+            f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+            f"{approval['destination']}."
+        )
+        queued = approvals.propose(
+            category="office_create",
+            title=f"Office 문서 생성: {outcome}",
+            description=description,
+            payload=approval,
+            cfg={},
+            origin=f"native:{self._session_id}",
+        )
+        approval_id = cast(str, queued["id"])
+        _ = self._emit(
+            "approval.requested",
+            {
+                "approval_id": approval_id,
+                "kind": "approval",
+                "summary": queued["title"],
+                "description": description,
+                "category": "office_create",
+                "status": "pending",
+                "risk": risk.risk_for("office_create"),
+                "sealed": bool(approval["creation_digest"]),
+                "decided": False,
+                "requester": approval["proposer"],
+                "rejection_result": (
+                    "거부하면 저장 위치에 파일을 만들지 않습니다."
+                ),
+                "job_id": approval["job_id"],
+                "creation_digest": approval["creation_digest"],
+                "authority_digest": approval["authority_digest"],
+                "destination": approval["destination"],
+                "overwrite_approved": approval["overwrite_approved"],
+            },
+        )
+        return {**queued, "category": "office_create", "approval": approval}
+
+    def _office_create_request(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        from ..office.create_approval import (
+            OfficeCreationCaller,
+            OfficeCreationCoordinator,
+            OfficeCreationRequest,
+        )
+        from ..office.errors import DocumentError, DocumentErrorCode
+
+        if set(payload) != {"format", "content", "output_name"}:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "native Office creation payload fields changed",
+            )
+        if payload.get("format") != "docx":
+            raise DocumentError(
+                DocumentErrorCode.UNSUPPORTED_FORMAT,
+                "office_create",
+                "native Office creation currently supports DOCX only",
+            )
+        raw_content = payload.get("content")
+        if not isinstance(raw_content, Mapping):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "Office creation content must be an object",
+            )
+        if set(raw_content) != {"paragraphs"}:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation content fields changed",
+            )
+        raw_paragraphs = raw_content.get("paragraphs")
+        if not isinstance(raw_paragraphs, Sequence) or isinstance(
+            raw_paragraphs,
+            (str, bytes),
+        ):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "DOCX creation paragraphs must be an array",
+            )
+        paragraphs: list[str] = []
+        for paragraph in raw_paragraphs:
+            if not isinstance(paragraph, str):
+                raise DocumentError(
+                    DocumentErrorCode.INVALID_INPUT,
+                    "office_create",
+                    "DOCX creation paragraphs must be strings",
+                )
+            paragraphs.append(paragraph)
+        output_name = payload.get("output_name")
+        if not isinstance(output_name, str):
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                "Office creation output_name must be a string",
+            )
+        approval = OfficeCreationCoordinator(
+            OfficeCreationCaller(
+                allowlist_root=self._workspace_root,
+                actor=f"native:{self._session_id}",
+            )
+        ).request(OfficeCreationRequest(
+            request_text=f"Create a new DOCX document at {output_name}",
+            paragraphs=tuple(paragraphs),
+            outcome=f"Create {output_name}",
+            destination=self._workspace_root / output_name,
+        ))
+        description = (
+            f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+            f"{approval['destination']}."
+        )
+        queued = approvals.propose(
+            category="office_create",
+            title=f"Office 문서 생성: {output_name}",
+            description=description,
+            payload=approval,
+            cfg={},
+            origin=f"native:{self._session_id}",
+        )
+        _ = self._emit(
+            "approval.requested",
+            {
+                "id": queued["id"],
+                "kind": "approval",
+                "summary": queued["title"],
+                "description": description,
+                "category": "office_create",
+                "status": "pending",
+                "risk": risk.risk_for("office_create"),
+                "sealed": bool(approval["creation_digest"]),
+                "decided": False,
+                "requester": approval["proposer"],
+                "rejection_result": (
+                    "거부하면 저장 위치에 파일을 만들지 않습니다."
+                ),
+                "creation_digest": approval["creation_digest"],
+                "authority_digest": approval["authority_digest"],
+                "destination": approval["destination"],
+                "overwrite_approved": approval["overwrite_approved"],
+            },
+        )
+        return {**queued, "category": "office_create", "approval": approval}
+
+    def _office_rollback_request(
+        self,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        from ..office.rollback_approval import request_rollback
+
+        if set(payload) != {"receipt_ref"}:
+            raise ValueError(
+                "office.rollback_request requires only receipt_ref"
+            )
+        receipt_ref = payload["receipt_ref"]
+        if not isinstance(receipt_ref, str):
+            raise ValueError("office.rollback_request receipt_ref is required")
+        return request_rollback(
+            job_id_from_receipt_ref(receipt_ref),
+            origin=f"native:{self._session_id}",
+        )
+
     def _approval_answer(self, payload: dict[str, object]) -> dict[str, object]:
         if set(payload) - {"approval_id", "decision", "reason"}:
             raise ValueError("approval.answer payload has unsupported fields")
@@ -556,10 +965,12 @@ class RuntimeWorkspaceAdapter:
         decision = payload.get("decision")
         if not isinstance(approval_id, str):
             raise TypeError("approval_id is required")
+        approval_record = store.get_pending(approval_id)
         result = approval_authority.decide(
             approval_id,
             decision=str(decision),
             reason=str(payload.get("reason") or ""),
+            on_event=self._runtime_event,
         )
         event_payload: dict[str, object] = {
             "approval_id": approval_id,
@@ -567,9 +978,58 @@ class RuntimeWorkspaceAdapter:
             "outcome": str(result["outcome"]),
         }
         receipt = result.get("receipt")
+        receipt_projection: OfficeReceiptProjection | None = None
         if isinstance(receipt, str):
             event_payload["receipt"] = receipt
+            if approval_record is not None:
+                receipt_projection = OfficeReceiptProjection.from_result(
+                    approval_id,
+                    cast(dict[str, object], approval_record),
+                    receipt,
+                )
+        if receipt_projection is not None:
+            projected_payload = receipt_projection.event_payload()
+            for field in (
+                "receipt_ref",
+                "destination",
+                "issued_at",
+                "expires_at",
+                "backup_exists",
+            ):
+                event_payload[field] = projected_payload[field]
+            result["receipt_ref"] = receipt_projection.receipt_ref
+        follow_up_approval_id = result.get("follow_up_approval_id")
+        if isinstance(follow_up_approval_id, str):
+            event_payload["follow_up_approval_id"] = follow_up_approval_id
+            question = result.get("question")
+            if isinstance(question, str):
+                event_payload["question"] = question
         _ = self._emit("approval.answered", event_payload)
+        if receipt_projection is not None:
+            _ = self._emit(
+                "receipt.recorded",
+                receipt_projection.event_payload(),
+            )
+        if isinstance(follow_up_approval_id, str):
+            from .approval_projection import approval_item
+
+            follow_up = store.get_pending(follow_up_approval_id)
+            if follow_up is not None:
+                follow_up_projection = approval_item(follow_up)
+                _ = self._emit(
+                    "approval.requested",
+                    {
+                        **follow_up_projection,
+                        "approval_id": follow_up_approval_id,
+                    },
+                )
+        error = result.get("error")
+        self._pending_approval_context = approval_turn_context(
+            approval_id,
+            str(result["outcome"]),
+            receipt_projection,
+            str(error) if isinstance(error, str) else None,
+        )
         return {str(key): value for key, value in result.items()}
 
     def _question_answer(

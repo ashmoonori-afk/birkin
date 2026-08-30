@@ -161,6 +161,64 @@ def test_happy_path_has_exact_state_sequence() -> None:
     ) == (1, 1, 1, 1, 1)
 
 
+def test_transition_sink_observes_every_office_job_stage() -> None:
+    transitions: list[tuple[str, OfficeJobState]] = []
+    runner = FakeRunner()
+    job = OfficeJob(
+        job_id="job-progress",
+        format_name="docx",
+        source={"uri": "source.docx", "content_hash": "source-sha"},
+        runner=runner,
+        on_transition=lambda job_id, state: transitions.append((job_id, state)),
+    )
+
+    _advance_to_approval(job)
+    job.approve(approver="reviewer", approved_via="test:office-progress")
+    job.execute()
+    job.validate()
+    _ = job.publish(output_name="final.docx")
+    _ = job.export(_request())
+
+    assert transitions == [
+        ("job-progress", state)
+        for state in (
+            OfficeJobState.input_captured,
+            OfficeJobState.outcome_declared,
+            OfficeJobState.operations_proposed,
+            OfficeJobState.preview_ready,
+            OfficeJobState.approval_requested,
+            OfficeJobState.approved,
+            OfficeJobState.executed,
+            OfficeJobState.validated,
+            OfficeJobState.exported,
+        )
+    ]
+
+
+def test_restored_job_transition_sink_observes_execution_stages() -> None:
+    job, runner = _job()
+    _advance_to_approval(job)
+    transitions: list[tuple[str, OfficeJobState]] = []
+    restored = OfficeJob.from_dict(
+        job.to_dict(),
+        runner=runner,
+        on_transition=lambda job_id, state: transitions.append((job_id, state)),
+    )
+
+    restored.approve(approver="reviewer", approved_via="test:office-progress")
+    restored.execute()
+    restored.validate()
+    _ = restored.publish(output_name="final.docx")
+    _ = restored.export(_request())
+
+    assert transitions == [
+        ("job-1", OfficeJobState.approved),
+        ("job-1", OfficeJobState.executed),
+        ("job-1", OfficeJobState.validated),
+        ("job-1", OfficeJobState.exported),
+    ]
+
+
 def test_export_requires_validated_internal_publication() -> None:
     job, runner = _job()
     _advance_to_approval(job)

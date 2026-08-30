@@ -1425,11 +1425,11 @@ class Handler(BaseHTTPRequestHandler):
                 if mode is not RestoreMode.FILES and not session_id:
                     self._json({"error": "session_id is required"}, code=400)
                     return
-                target = (
-                    f" for session {session_id}"
-                    if session_id
-                    else ""
-                )
+                mode_label = {
+                    RestoreMode.FILES: "파일",
+                    RestoreMode.TASK: "작업 상태",
+                    RestoreMode.BOTH: "파일과 작업 상태",
+                }[mode]
                 restore_payload = {
                     "workspace": str(workspace),
                     "checkpoint": checkpoint,
@@ -1439,10 +1439,10 @@ class Handler(BaseHTTPRequestHandler):
                     restore_payload["session_id"] = session_id
                 proposal = approvals.propose(
                     category="checkpoint_restore",
-                    title=f"Restore checkpoint {checkpoint[:7]}",
+                    title=f"체크포인트 복원: {checkpoint[:7]}",
                     description=(
-                        f"Restore {mode.value} for {workspace}{target}. "
-                        "This destructive action is undo-checkpointed before execution."
+                        f"{mode_label} 범위를 복원합니다. "
+                        "실행 전에 되돌리기용 체크포인트를 만들며 승인해야만 적용됩니다."
                     ),
                     payload=restore_payload,
                     cfg=config.load_config(), origin="web:checkpoints",

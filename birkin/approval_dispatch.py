@@ -164,15 +164,32 @@ def execute_action(
             return "Command timed out."
         output = (result.stdout or "") + (result.stderr or "")
         return f"[exit {result.returncode}] {output[:2000]}"
-    if category == "office_job":
-        from .office.coordinator import execute_approved_office_job
-
+    if category == "office_create":
         approval_id = None
         if configured.cfg is not None:
             value = configured.cfg.get("_office_approval_id")
             if isinstance(value, str):
                 approval_id = value
-        return execute_approved_office_job(payload, approval_id=approval_id)
+        from .office.create_execution import execute_approved_office_creation
+
+        return execute_approved_office_creation(
+            payload,
+            approval_id=approval_id,
+        )
+    if category == "office_job":
+        approval_id = None
+        if configured.cfg is not None:
+            value = configured.cfg.get("_office_approval_id")
+            if isinstance(value, str):
+                approval_id = value
+        from .office.coordinator import execute_approved_office_job
+        from .office.progress import office_progress_sink
+
+        return execute_approved_office_job(
+            payload,
+            approval_id=approval_id,
+            on_transition=office_progress_sink(configured.on_event),
+        )
     if category == "office_rollback":
         from .office.rollback_approval import execute_approved_rollback
 

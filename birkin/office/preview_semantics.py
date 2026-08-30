@@ -18,12 +18,11 @@ class _StructuredMapping(Protocol):
 
 
 class PreviewSummary(TypedDict):
-    """One reviewable before-and-after description for a proposed operation."""
+    """One structured before-and-after description for a proposed operation."""
 
     location: str
     before: str
     after: str
-    summary: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,7 +150,6 @@ def summarize_operations(
                 "location": location,
                 "before": node.text,
                 "after": after,
-                "summary": f"Replace {location}: {node.text} -> {after}",
             }
         )
     return summaries

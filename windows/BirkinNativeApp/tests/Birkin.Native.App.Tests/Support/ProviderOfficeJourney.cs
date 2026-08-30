@@ -49,10 +49,8 @@ internal static class ProviderOfficeJourney
                     Assert.AreEqual(1, composition.Session.MaximumConcurrentReceives);
                     Assert.IsTrue(composition.Session.AdvertisedCommands.Contains("chat.send"));
                     Assert.IsTrue(composition.Session.AdvertisedCommands.Contains("office.compare"));
-                    Assert.IsFalse(composition.PresentationModel.OfficeWorkflow.Availability.OfficeDraft.IsEnabled);
-                    Assert.AreEqual(
-                        "E_OFFICE_JOB_REQUEST_REQUIRED",
-                        composition.PresentationModel.OfficeWorkflow.Availability.OfficeDraft.DisabledReason);
+                    Assert.IsTrue(composition.Session.AdvertisedCommands.Contains("office.job_request"));
+                    Assert.IsTrue(composition.PresentationModel.OfficeWorkflow.Availability.OfficeDraft.IsEnabled);
                     evidence.Record("ready", new Dictionary<string, object?>
                     {
                         ["cursor"] = ready.Cursor,

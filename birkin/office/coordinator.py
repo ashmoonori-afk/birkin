@@ -19,9 +19,9 @@ from .coordinator_data import (
 )
 from .errors import DocumentError, DocumentErrorCode
 from .export_types import ExportRequest
-from .job import OfficeJob
+from .job import OfficeJob, OfficeJobTransitionSink
 from .job_runner import DocumentServiceRunner
-from .preview_semantics import summarize_operations
+from .preview_semantics import PreviewSummary, summarize_operations
 from .proposal_integrity import authority_digest
 from .retention import purge_expired_office_state
 from .service import DocumentService
@@ -51,17 +51,9 @@ class OfficeMutationRequest:
 
 def _semantic_summaries(
     preview: Mapping[str, object], operations: tuple[Mapping[str, object], ...]
-) -> list[dict[str, str]]:
+) -> list[PreviewSummary]:
     try:
-        return [
-            {
-                "location": summary["location"],
-                "before": summary["before"],
-                "after": summary["after"],
-                "summary": summary["summary"],
-            }
-            for summary in summarize_operations(preview, operations)
-        ]
+        return summarize_operations(preview, operations)
     except DocumentError:
         if len(operations) != 1:
             raise
@@ -83,7 +75,6 @@ def _semantic_summaries(
             "location": location,
             "before": before,
             "after": after,
-            "summary": f"Replace {location}: {before} -> {after}",
         }]
 
 
@@ -91,8 +82,14 @@ def _semantic_summaries(
 class OfficeCoordinator:
     """Prepare one reviewable Office job without executing its mutation."""
 
-    def __init__(self, caller: OfficeCaller) -> None:
+    def __init__(
+        self,
+        caller: OfficeCaller,
+        *,
+        on_transition: OfficeJobTransitionSink | None = None,
+    ) -> None:
         self._caller = caller
+        self._on_transition = on_transition
         self._home = _office_home()
         self._service = DocumentService(self._home)
         _ = purge_expired_office_state(self._home)
@@ -103,12 +100,27 @@ class OfficeCoordinator:
         format_name = _text(inspection.get("format"), "inspection format")
         source_identity = _mapping(inspection.get("source"), "inspection source")
         source_sha256 = _text(source_identity.get("sha256"), "source sha256")
+        raw_source_filename = request.source.get("source_filename")
+        source_filename = Path(
+            raw_source_filename
+            if isinstance(raw_source_filename, str) and raw_source_filename
+            else _text(request.source.get("uri"), "source uri")
+        ).name
+        source_filename = _text(source_filename, "source filename")
         route = route_office_request(
             request.request_text,
             artifact_names=(_text(request.source.get("uri"), "source uri"),),
         )
+        if route is not None and route.clarification_question is not None:
+            raise _error(
+                DocumentErrorCode.INVALID_INPUT,
+                route.clarification_question,
+            )
         if route is None or route.conflict or route.format_name != format_name:
-            raise _error(DocumentErrorCode.POLICY_DENIED, "request does not route to the inspected Office format")
+            raise _error(
+                DocumentErrorCode.POLICY_DENIED,
+                "request does not route to the inspected Office format",
+            )
         policy = DocumentWorkspace(self._home).export_policy(
             self._caller.allowlist_root
         )
@@ -125,6 +137,7 @@ class OfficeCoordinator:
                 self._service, export_root=self._caller.allowlist_root
             ),
             journal=_journal(self._home),
+            on_transition=self._on_transition,
         )
         job.declare_outcome(request.outcome)
         job.propose_operations(request.operations)
@@ -166,17 +179,28 @@ class OfficeCoordinator:
             "proposer": self._caller.actor,
             "overwrite_approved": request.overwrite_approved,
             "semantic_summaries": summaries,
+            "source_filename": source_filename,
+            "rejection_result": (
+                "Rejecting leaves the source unchanged and writes no output."
+            ),
         }
         return payload
 
 
 def execute_approved_office_job(
-    payload: Mapping[str, object], *, approval_id: str | None
+    payload: Mapping[str, object],
+    *,
+    approval_id: str | None,
+    on_transition: OfficeJobTransitionSink | None = None,
 ) -> str:
     """Resume only the exact payload owned by an executing approval record."""
     from .coordinator_recovery import execute_approved_office_job as resume
 
-    return resume(payload, approval_id=approval_id)
+    return resume(
+        payload,
+        approval_id=approval_id,
+        on_transition=on_transition,
+    )
 
 
 __all__ = [

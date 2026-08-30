@@ -19,7 +19,7 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from .llm import FAILOVER_KINDS, LLMError
+from .llm import FAILOVER_KINDS, LLMError, LLMStatus
 
 # Attributes that belong to the wrapper itself. Everything else is forwarded to
 # the wrapped clients — see __setattr__.
@@ -66,10 +66,10 @@ class FailoverClient:
 
     # -- the one behavior --------------------------------------------------
 
-    def _say(self, message: str) -> None:
+    def _say(self, status: LLMStatus, message: str) -> None:
         sink = getattr(self.primary, "_status", None)
         if sink is not None:
-            sink(message)
+            sink(status)
         else:
             print(f"[birkin] {message}", flush=True)
 
@@ -82,14 +82,33 @@ class FailoverClient:
             if getattr(exc, "kind", "unknown") not in FAILOVER_KINDS:
                 raise
             self._down_until = time.monotonic() + self.cooldown_s
-            self._say(f"{self.primary.provider} unavailable ({exc.kind}) — "
-                      f"switching to {self.fallback.provider}/"
-                      f"{self.fallback.model} for {int(self.cooldown_s)}s")
+            self._say(
+                LLMStatus(
+                    kind="failover",
+                    provider=self.primary.provider,
+                    model=self.primary.model,
+                    reason=exc.kind,
+                    retry_in_seconds=int(self.cooldown_s),
+                    fallback_provider=self.fallback.provider,
+                    fallback_model=self.fallback.model,
+                ),
+                f"{self.primary.provider} unavailable ({exc.kind}) — "
+                f"switching to {self.fallback.provider}/"
+                f"{self.fallback.model} for {int(self.cooldown_s)}s",
+            )
             return self._via_fallback(**kwargs)
         if self._down_until:            # a probe after the cooldown succeeded
             self._down_until = 0.0
-            self._say(f"{self.primary.provider} recovered — back on "
-                      f"{self.primary.model}")
+            self._say(
+                LLMStatus(
+                    kind="recovered",
+                    provider=self.primary.provider,
+                    model=self.primary.model,
+                    reason="primary_recovered",
+                ),
+                f"{self.primary.provider} recovered — back on "
+                f"{self.primary.model}",
+            )
         return result
 
     def _via_fallback(self, **kwargs: Any) -> dict[str, Any]:

@@ -86,6 +86,19 @@ Trusted native and CLI agent prompts include the current operating system and ho
 
 The requested outcome and application scope remain binding: Birkin must not replace an applied profile or memory change with a workspace draft and then claim completion. User-profile facts remain separate from assistant-persona facts, including names assigned to the assistant. This local block is added only to trusted native and CLI prompts; public or untrusted prompts receive neither local path facts nor private profile context.
 
+### Language policy
+
+Birkin-owned user interfaces present approvals, errors, recovery actions,
+progress, and completion results in Korean. Code, identifiers, protocol fields,
+stable error codes, logs, telemetry, and developer diagnostics remain English.
+Presentation layers translate typed machine data instead of making raw enums,
+cursors, exceptions, or receipt JSON the primary explanation; those appear
+only in an explicitly disclosed, bounded detail surface. See
+[the language policy](./docs/language-policy.md).
+This cycle enforces that contract first on approvals, refusals, errors,
+recovery, progress, and completion surfaces; remaining legacy non-decision
+chrome is tracked as follow-up migration rather than claimed complete here.
+
 ## Quick Start
 
 ### Windows PowerShell quick install
@@ -118,6 +131,18 @@ python -m pip install .
 birkin setup
 birkin chat
 ```
+
+### Windows development preview
+
+The WPF development preview opens before the local bridge connects. If the
+Birkin CLI is missing, times out, fails its handshake, or enters a crash loop,
+the app keeps running and shows a bounded reason, a retry action, and a field
+for saving the full executable path to `BIRKIN_EXECUTABLE`. The connection
+indicator is green only when the bridge is ready.
+
+See [`windows/BirkinNativeApp/README.md`](windows/BirkinNativeApp/README.md) for
+Windows build, run, `PATH`, executable-path, troubleshooting, and test
+instructions.
 
 Run the local service surfaces in separate terminals:
 
@@ -294,9 +319,23 @@ Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`
 
 Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
 
+`office_job_request` now accepts a source-free DOCX creation proposal with
+`content.paragraphs`. It writes neither a managed draft nor the caller's
+destination until the separate `office_create` approval executes the bound
+proposal. The returned durable `job_id` can then enter the existing
+`office_rollback_request` approval and receipt flow.
+If execution finds an existing destination without overwrite authority, Birkin
+leaves that file unchanged and queues the explicit follow-up approval
+`기존 파일을 덮어쓸까요?`; approving it rebinds the exact work with overwrite
+authority and retries once.
+
 Office provenance keeps exact reviewed artifact versions and supported runtime ranges as separate contracts. Normal environments validate the declared range; the locked Office CI also verifies exact installed versions.
 
 Office mutation approval binds the proposer, source digest, destination, exact operations, and overwrite decision in an `authority_digest`. Durable receipts retain that digest and the approving principal separately from the proposer.
+
+After an approved Office export, native surfaces retain the decided approval, show its destination and 30-day rollback window, and let the user request rollback from the receipt without remembering an internal job ID.
+
+The web workspace sends approval decisions through that bounded authority contract, releases failed submissions for retry, and keeps execution receipts available in the approval detail without exposing raw receipt data by default.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -316,6 +355,23 @@ Document inputs are jailed to the dedicated `BIRKIN_HOME/office` tree, separate 
 
 On Windows, Birkin applies one protected owner-only inheritable DACL to `BIRKIN_HOME` when the root is first opened and repairs the owner and DACL of existing descendants. Configuration API keys, WebUI session capabilities, pending approvals, Office job receipts, export backups, HMAC keys, and rollback tokens inherit that boundary. POSIX continues to use owner-only modes and refuses a `BIRKIN_HOME` beneath a shared-writable parent. Relative overrides are pinned to their first absolute resolution for the process lifetime.
 
+Workspace turns now emit bounded `progress.updated` events before provider work
+starts and when it succeeds or fails, so native Activity does not remain silent.
+Office inspection, comparison, draft, validation, and export transitions reuse
+one keyed progress row on the web while retaining all five machine phase tokens.
+The default workspace terminal renders all five phase events. `birkin review`
+renders the approval-time draft, validation, and export phases; inspection and
+comparison are emitted when the Office request is queued.
+Activity retains only its 100 newest items.
+Each newly pending approval also emits one redacted `notification.requested`
+event with fixed Korean copy and an opaque approval ID. Windows shows the
+pending count in the title, marks the taskbar, flashes the app once per
+approval, shows a navigation-only system toast, and stops the signal when no
+approval remains. macOS uses the same fixed-copy, navigation-only notification
+boundary. The web subscribes to approval events and performs a 30-second
+fallback refresh without replacing an unchanged active approval card.
+Notification content never grants approval authority.
+
 ```json
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
 ```
@@ -332,7 +388,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.325`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.326`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
@@ -1291,6 +1347,8 @@ and replays pending Slack/Discord obligations when the scheduler daemon starts.
 Free-form shell requests use a fixed non-login platform shell (`%SystemRoot%\System32\cmd.exe /d /s /c` on Windows and `/bin/bash -c` on POSIX) inside an owned process tree. Windows disables AutoRun and selects code page 65001 before user command evaluation, so native `cmd.exe` built-ins and UTF-8 runtimes share the captured stream contract. Birkin preserves the inherited `PATH`, adds known runtime directories without sourcing user profiles, captures UTF-8 streams, and provides writable temporary directories. The same managed runner serves the native shell tool, approved shell continuations, scheduler shell jobs, script monitors, lifecycle hooks, GitHub Action test commands, and worktree setup commands. Worktree setup still exposes only policy-approved payload variables plus non-secret process mechanics such as `PATH`, system interpreter variables, and an isolated `TMPDIR`/`TEMP`/`TMP`; Docker setup shell text remains inside the policy-constrained container. Timeout, interrupt, and Job Object/process-group closure terminate descendants before returning and preserve partial stdout and stderr.
 
 PowerShell is disabled by default on the model-facing native shell tool: set `allow_powershell` to `true` deliberately, or approve one exact queued operation. Other owner-controlled shell surfaces retain their existing explicit authority boundaries. Lifecycle-hook consents recorded before the managed-shell contract require one-time reapproval so old discrete-argv consent cannot silently authorize shell operators. Native macOS and Windows CI exercise commands, pipelines, redirection, quoting, Unicode and spaced working directories, environment and temporary-directory behavior, exit propagation, runtime/package-manager resolution, and descendant cleanup.
+
+When an extensionless command fails with a command-bound PowerShell execution-policy diagnostic, Birkin exhausts same-name `.com`, `.exe`, `.bat`, and `.cmd` candidates in the current directory and `PATH`; it never retries `.ps1`. The retry preserves the exact argument suffix, uses one timeout budget, remains subject to shellguard and approval authority, and does not bypass machine policy.
 
 ### Model providers and the fallback chain
 

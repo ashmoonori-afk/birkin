@@ -31,7 +31,20 @@ internal sealed class OwnedBridgeProcess : IBridgeProcess, IAsyncBridgeProcess, 
 
     public static OwnedBridgeProcess Start(Action<IBridgeProcess> exited)
     {
-        var executable = Environment.GetEnvironmentVariable("BIRKIN_EXECUTABLE") ?? "birkin";
+        var executable =
+            Environment.GetEnvironmentVariable(
+                ExecutablePathSettings.EnvironmentVariableName)
+            ?? Environment.GetEnvironmentVariable(
+                ExecutablePathSettings.EnvironmentVariableName,
+                EnvironmentVariableTarget.User)
+            ?? "birkin";
+        return Start(exited, executable);
+    }
+
+    internal static OwnedBridgeProcess Start(
+        Action<IBridgeProcess> exited,
+        string executable)
+    {
         var startInfo = new ProcessStartInfo(executable, "native-bridge serve --transport loopback")
         {
             CreateNoWindow = true,

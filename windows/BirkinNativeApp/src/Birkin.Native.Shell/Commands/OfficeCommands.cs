@@ -39,7 +39,13 @@ public sealed record OfficeCompareIntent(
     string LeftArtifactId,
     string RightArtifactId);
 
-public sealed record OfficeDraftIntent(string TemplateArtifactId, string DiffId, string OutputName);
+public sealed record OfficeDraftIntent(
+    string Request,
+    string Format,
+    OfficeDocumentContent Content,
+    string Outcome,
+    string Destination,
+    bool OverwriteApproved);
 
 public sealed record OfficeConvertIntent(
     OfficeArtifact Artifact,
@@ -47,14 +53,17 @@ public sealed record OfficeConvertIntent(
     string OutputName,
     OfficeLossBudget LossBudget);
 
+public sealed record OfficeRollbackRequestIntent(string ReceiptRef);
+
 public static class OfficeCommands
 {
     public const string CreateCommandType = "office.create";
     public const string SelectCommandType = "office.select";
     public const string OpenCommandType = "office.open";
     public const string CompareCommandType = "office.compare";
-    public const string DraftCommandType = "office.draft";
+    public const string DraftCommandType = "office.job_request";
     public const string ConvertCommandType = "office.convert";
+    public const string RollbackRequestCommandType = "office.rollback_request";
 
     public static NativeCommandRequest Create(OfficeCreateIntent intent, CommandRequestContext context) =>
         Request(new NativeCommandIntent(CreateCommandType, new NativeJsonObject([
@@ -84,9 +93,15 @@ public static class OfficeCommands
 
     public static NativeCommandRequest Draft(OfficeDraftIntent intent, CommandRequestContext context) =>
         Request(new NativeCommandIntent(DraftCommandType, new NativeJsonObject([
-            new("template_artifact_id", new NativeJsonString(intent.TemplateArtifactId)),
-            new("diff_id", new NativeJsonString(intent.DiffId)),
-            new("output_name", new NativeJsonString(intent.OutputName)),
+            new("request", new NativeJsonString(intent.Request)),
+            new("format", new NativeJsonString(intent.Format)),
+            new("content", new NativeJsonObject([
+                new("paragraphs", new NativeJsonArray(intent.Content.Paragraphs.Select(
+                    paragraph => (NativeJsonValue)new NativeJsonString(paragraph)))),
+            ])),
+            new("outcome", new NativeJsonString(intent.Outcome)),
+            new("destination", new NativeJsonString(intent.Destination)),
+            new("overwrite_approved", new NativeJsonBoolean(intent.OverwriteApproved)),
         ])), context);
 
     public static NativeCommandRequest Convert(OfficeConvertIntent intent, CommandRequestContext context) =>
@@ -96,6 +111,15 @@ public static class OfficeCommands
             new("output_name", new NativeJsonString(intent.OutputName)),
             new("loss_budget", Budget(intent.LossBudget)),
         ])), context);
+
+    public static NativeCommandRequest RollbackRequest(
+        OfficeRollbackRequestIntent intent,
+        CommandRequestContext context) =>
+        Request(new NativeCommandIntent(
+            RollbackRequestCommandType,
+            new NativeJsonObject([
+                new("receipt_ref", new NativeJsonString(intent.ReceiptRef)),
+            ])), context);
 
     private static NativeCommandRequest Request(
         NativeCommandIntent intent,

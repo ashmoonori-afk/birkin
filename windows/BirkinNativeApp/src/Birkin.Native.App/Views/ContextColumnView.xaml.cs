@@ -25,4 +25,10 @@ public partial class ContextColumnView : UserControl
 
     internal void ReportImportSelectionError() =>
         ((OfficeView)OfficeHost.Content).ReportImportSelectionError();
+
+    public void FocusApprovals()
+    {
+        ContextScroll.ScrollToTop();
+        _ = ApprovalsRegion.Focus();
+    }
 }

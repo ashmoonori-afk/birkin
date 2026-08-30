@@ -26,6 +26,7 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -81,6 +82,25 @@ def _mcp_prefix_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 # Streaming callback: receives incremental assistant *text* (not tool args).
 StreamCallback = Optional[Callable[[str], None]]
+
+
+@dataclass(frozen=True, slots=True)
+class LLMStatus:
+    """One typed retry, failover, or recovery status emitted by an LLM client."""
+
+    kind: str
+    provider: str
+    model: str
+    reason: str
+    retry_in_seconds: int | None = None
+    attempt: int | None = None
+    max_attempts: int | None = None
+    http_status: int | None = None
+    fallback_provider: str | None = None
+    fallback_model: str | None = None
+
+
+StatusCallback = Callable[[LLMStatus], None]
 
 
 class LLMError(RuntimeError):
@@ -169,7 +189,7 @@ class LLMClient:
         # Optional status sink for transient conditions (retry/backoff) so a
         # stalled turn is explained rather than silent (P1-3). Defaults to a
         # server-log print; a surface can set it to reach the user.
-        self._status: Callable[[str], None] | None = None
+        self._status: StatusCallback | None = None
         # When True, authenticate to the Anthropic Messages API with a Claude
         # subscription OAuth token (Bearer + Claude Code identity) instead of a
         # paid x-api-key. Set for the "claude-oauth" provider. Keeps birkin's own
@@ -542,12 +562,27 @@ class LLMClient:
         data = json.dumps(payload).encode("utf-8")
         last_exc: Exception | None = None
 
-        def _wait(why: str, attempt: int) -> None:
+        def _wait(
+            why: str,
+            reason: str,
+            attempt: int,
+            *,
+            http_status: int | None = None,
+        ) -> None:
             # Surface the backoff so a stalled turn is explained, not silent
             # (P1-3): a rate-limited retry otherwise looks like a frozen turn.
             backoff = 2 ** attempt
             if self._status is not None:
-                self._status(f"{why} — retrying in {backoff}s ({attempt + 2}/4)")
+                self._status(LLMStatus(
+                    kind="retrying",
+                    provider=self.provider,
+                    model=self.model,
+                    reason=reason,
+                    retry_in_seconds=backoff,
+                    attempt=attempt + 2,
+                    max_attempts=4,
+                    http_status=http_status,
+                ))
             else:
                 print(f"[birkin] {why} — retrying in {backoff}s "
                       f"({attempt + 2}/4)", flush=True)
@@ -563,8 +598,14 @@ class LLMClient:
                 kind = _kind_for_status(exc.code, body)
                 # Retry on rate-limit / transient server errors.
                 if exc.code in (429, 500, 502, 503, 529) and attempt < 3:
-                    _wait(f"rate-limited (HTTP {exc.code})" if exc.code == 429
-                          else f"server error (HTTP {exc.code})", attempt)
+                    _wait(
+                        f"rate-limited (HTTP {exc.code})"
+                        if exc.code == 429
+                        else f"server error (HTTP {exc.code})",
+                        kind,
+                        attempt,
+                        http_status=exc.code,
+                    )
                     last_exc = LLMError(f"HTTP {exc.code}: {body[:500]}",
                                         status=exc.code, kind=kind)
                     continue
@@ -572,7 +613,11 @@ class LLMClient:
                                status=exc.code, kind=kind) from exc
             except urllib.error.URLError as exc:
                 if attempt < 3:
-                    _wait(f"network error ({exc.reason})", attempt)
+                    _wait(
+                        f"network error ({exc.reason})",
+                        "network",
+                        attempt,
+                    )
                     last_exc = LLMError(f"network error: {exc.reason}",
                                         kind="network")
                     continue
@@ -797,7 +842,7 @@ class LLMClient:
         arguments stream as JSON fragments)."""
         text_parts: list[str] = []
         reasoning_parts: list[str] = []
-        tools: dict[int, dict[str, Any]] = {}     # index -> {id,name,args}
+        tools: dict[int | str, dict[str, Any]] = {}  # index/id -> {id,name,args}
         finish = "stop"
         for raw in resp:
             if abort is not None and abort.is_set():

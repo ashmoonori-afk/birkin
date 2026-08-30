@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import TypeAlias, cast
 
@@ -38,6 +39,13 @@ WPF_FILTER = "TestCategory!=LiveBridge&TestCategory!=ExistingAccountProvider"
 ACTION_PIN = re.compile(r"^[^@]+@[0-9a-f]{40}$")
 GOLDEN_ROOT = "macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVectors"
 SOLUTION = "windows/BirkinNativeApp/BirkinNativeApp.sln"
+NOTIFICATION_SMOKE = (
+    "windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/"
+    "Birkin.Native.Notification.Smoke.csproj"
+)
+NOTIFICATION_SMOKE_PROJECT = Path(__file__).parents[1] / NOTIFICATION_SMOKE
+NOTIFICATION_SMOKE_ROOT = NOTIFICATION_SMOKE_PROJECT.parent
+RESTRICTED_PROCESS_LAUNCHER = NOTIFICATION_SMOKE_ROOT / "RestrictedProcessLauncher.cs"
 LOCKED_SYNC = "uv sync --frozen --all-extras --all-groups"
 LOCKED_WINDOWS_PYTHON = "./.venv/Scripts/python.exe"
 ENSURE_LOCKED_WINDOWS_PIP = f"{LOCKED_WINDOWS_PYTHON} -m ensurepip --upgrade"
@@ -234,6 +242,22 @@ def test_wpf_job_prepares_locked_python_and_excludes_separately_gated_categories
     ]
     assert re.findall(r'--filter "([^"]+)"', test_commands[0]) == [WPF_FILTER]
 
+    uploads = [
+        _mapping(step["with"])
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
+    assert {
+        (upload["name"], upload["path"], upload["if-no-files-found"])
+        for upload in uploads
+    } >= {
+        (
+            "native-windows-first-run-failure",
+            ".omo/evidence/native-shell/windows-first-run-failure.png",
+            "error",
+        ),
+    }
+
 
 def test_wpf_dispatcher_harness_bounds_action_and_shutdown_waits() -> None:
     harness = STA_DISPATCHER_HARNESS.read_text(encoding="utf-8")
@@ -241,6 +265,80 @@ def test_wpf_dispatcher_harness_bounds_action_and_shutdown_waits() -> None:
     assert harness.count("WaitAsync(_deadline)") >= 2
     assert "_thread.Join(TimeSpan.FromSeconds(5))" in harness
     assert "_thread.Join();" not in harness
+
+
+def test_wpf_job_executes_real_windows_notification_smoke() -> None:
+    commands = [
+        _normalized(command)
+        for command in _commands(_job(_workflow(), "wpf-windows"))
+    ]
+    restore = f"dotnet restore ./{NOTIFICATION_SMOKE}"
+    build = (
+        f"dotnet build ./{NOTIFICATION_SMOKE} -c Release --no-restore "
+        "--disable-build-servers -p:UseSharedCompilation=false -m:1"
+    )
+    smoke = next(
+        command
+        for command in commands
+        if "WINDOWS_APPROVAL_TOAST_ACCEPTED:" in command
+    )
+    runtime_registration = next(
+        command
+        for command in commands
+        if "Get-AuthenticodeSignature" in command
+        and "Add-AppxPackage" in command
+    )
+    solution_restore = f"dotnet restore ./{SOLUTION}"
+    solution_build = f"dotnet build ./{SOLUTION} -c Release --no-restore"
+
+    assert _mapping(_job(_workflow(), "wpf-windows")["env"])[
+        "MSBUILDDISABLENODEREUSE"
+    ] == "1"
+    assert restore in commands
+    assert build in commands
+    assert commands.index(restore) < commands.index(build)
+    assert "& $executable" in smoke
+    assert "WINDOWS_APPROVAL_TOAST_INTEGRITY:medium" in smoke
+    assert "New-ScheduledTaskPrincipal" not in smoke
+    assert "Register-ScheduledTask" not in smoke
+    assert "Birkin.Native.Notification.Smoke.exe" in smoke
+    assert commands.index(build) < commands.index(smoke)
+    assert "microsoft.windowsappsdk.runtime/2.4.0" in runtime_registration
+    assert "Microsoft.WindowsAppRuntime.Singleton.2.msix" in runtime_registration
+    assert "Microsoft.WindowsAppRuntime.DDLM.2.msix" in runtime_registration
+    assert "Get-AuthenticodeSignature" in runtime_registration
+    assert "O=Microsoft Corporation" in runtime_registration
+    assert "Invoke-WebRequest" not in runtime_registration
+    assert commands.index(build) < commands.index(runtime_registration)
+    assert commands.index(runtime_registration) < commands.index(smoke)
+    assert commands.index(smoke) < commands.index(solution_restore)
+    assert commands.index(solution_restore) < commands.index(solution_build)
+
+
+def test_notification_smoke_creates_a_lua_process_from_the_runner_token() -> None:
+    launcher = RESTRICTED_PROCESS_LAUNCHER.read_text(encoding="utf-8")
+
+    assert "CreateRestrictedToken" in launcher
+    assert "LuaToken" in launcher
+    assert "SetTokenInformation" in launcher
+    assert "S-1-16-8192" in launcher
+    assert "CreateProcessAsUser" in launcher
+    assert "inheritHandles: false" in launcher
+    assert "WaitForSingleObject" in launcher
+    assert "TerminateProcess" in launcher
+
+
+def test_notification_smoke_uses_installed_runtime_package_graph() -> None:
+    root = ET.parse(NOTIFICATION_SMOKE_PROJECT).getroot()
+    properties = {
+        child.tag: child.text
+        for group in root.findall("PropertyGroup")
+        for child in group
+    }
+
+    assert properties["OutputType"] == "Exe"
+    assert properties["WindowsPackageType"] == "None"
+    assert properties["WindowsAppSDKSelfContained"] == "false"
 
 
 def test_fixture_freshness_regenerates_every_normative_vector() -> None:
@@ -262,7 +360,7 @@ def test_fixture_freshness_regenerates_every_normative_vector() -> None:
     assert "raise SystemExit(1)" in commands
 
 
-def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx() -> None:
+def test_live_job_bounds_hangs_and_uploads_all_diagnostics() -> None:
     job = _job(_workflow(), "live-bridge-window")
     assert job["runs-on"] == "windows-latest"
     assert _mapping(job["env"])["UV_NO_SYNC"] == "1"
@@ -270,7 +368,12 @@ def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx(
     assert [command for command in normalized if command.startswith("uv sync ")] == [LOCKED_SYNC]
     commands = _joined_commands(job)
     assert "TestCategory=LiveBridge" in commands
+    assert "--blame-hang --blame-hang-timeout 120s --blame-hang-dump-type mini" in commands
     assert "--logger \"trx;LogFilePrefix=native-windows-live\"" in commands
+    assert "dotnet tool install" in commands
+    assert "dotnet-dump" in commands
+    assert "clrstack -all" in commands
+    assert "managed-stacks.txt" in commands
 
     uploads = [
         step
@@ -281,7 +384,8 @@ def test_live_job_runs_real_authenticated_loopback_journey_and_only_uploads_trx(
     upload = uploads[0]
     assert upload["if"] == "failure()"
     upload_config = _mapping(upload["with"])
-    assert upload_config["path"] == "windows/BirkinNativeApp/**/TestResults/*.trx"
+    assert upload_config["name"] == "native-windows-live-diagnostics"
+    assert upload_config["path"] == "windows/BirkinNativeApp/**/TestResults/**"
     assert upload_config["if-no-files-found"] == "error"
     assert upload_config["retention-days"] == 7
 

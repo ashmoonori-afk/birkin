@@ -71,6 +71,11 @@ untrusted canonical content does not enter notification title, body, or deep
 link. Approval notifications contain no decision actions. Their route opens the
 in-app canonical approval view, so a notification remains navigation rather
 than authority.
+The Windows taskbar signal uses only the pending count and opaque approval ID;
+it ignores projected approval titles, descriptions, and document content.
+Repeated projections of the same pending ID do not trigger another signal.
+Projected `ui_state` values are allowlisted before entering native
+presentation, and Activity retains only its newest 100 items.
 
 ## File, product, and process boundaries
 

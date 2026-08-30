@@ -29,9 +29,7 @@ REQUIRED_ARGUMENTS = {
     "validate_artifact": ["artifact"],
     "office_job_request": [
         "request",
-        "source",
         "outcome",
-        "operations",
         "destination",
     ],
     "office_rollback_request": ["job_id"],
@@ -125,6 +123,11 @@ def test_office_skill_tool_contract_matches_registered_document_tools(
         name: cast(dict[str, object], specs[name])["required"]
         for name in TOOLS
     } == REQUIRED_ARGUMENTS
+    office_job = cast(dict[str, object], specs["office_job_request"])
+    assert office_job["oneOf"] == [
+        {"required": ["source", "operations"]},
+        {"required": ["format", "content"]},
+    ]
 
     extract_properties = cast(
         dict[str, object], cast(dict[str, object], specs["extract_document"])["properties"]

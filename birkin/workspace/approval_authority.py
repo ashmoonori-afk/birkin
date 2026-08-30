@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from birkin import approvals, store
+
+RuntimeEventSink = Callable[[str, dict[str, object]], None]
 
 
 def decide(
@@ -10,6 +14,7 @@ def decide(
     *,
     decision: str,
     reason: str = "",
+    on_event: RuntimeEventSink | None = None,
 ) -> dict[str, object]:
     """Resolve once and normalize a multi-surface losing answer."""
 
@@ -18,6 +23,7 @@ def decide(
             aid,
             approved_by="human:workspace",
             approved_via="workspace:control",
+            on_event=on_event,
         )
         decided_status = "approved"
     elif decision == "reject":
@@ -38,6 +44,14 @@ def decide(
         if "result" in result:
             response["receipt"] = str(result["result"])
         return response
+    follow_up_approval_id = result.get("follow_up_approval_id")
+    if isinstance(follow_up_approval_id, str):
+        return {
+            "outcome": "follow_up_required",
+            "approval_id": aid,
+            "follow_up_approval_id": follow_up_approval_id,
+            "question": str(result.get("error") or ""),
+        }
     current: dict[str, object] | None = store.get_pending(aid)
     if current is not None and current.get("status") != "pending":
         return {"outcome": "answered_elsewhere", "approval_id": aid}

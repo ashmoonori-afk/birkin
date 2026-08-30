@@ -189,9 +189,11 @@ public sealed partial class NativeClientConnection
 
     private static NativeCommandRefusal CreateRefusal(NativeJsonObject body, string commandId)
     {
-        if (!TryString(body, "code", out var code))
+        if (!TryString(body, "code", out var code)
+            || !TryString(body, "message", out var message)
+            || body["retryable"] is not NativeJsonBoolean retryable)
         {
-            throw new NativeProtocolError("E_BODY", "command refusal code is invalid");
+            throw new NativeProtocolError("E_BODY", "command refusal metadata is invalid");
         }
 
         long? currentCursor = body["current_cursor"] is NativeJsonInteger cursor
@@ -203,7 +205,12 @@ public sealed partial class NativeClientConnection
             throw new NativeProtocolError("E_BODY", "stale cursor refusal lacks current_cursor");
         }
 
-        return new NativeCommandRefusal(code, commandId, currentCursor);
+        return new NativeCommandRefusal(
+            code,
+            commandId,
+            message,
+            retryable.Value,
+            currentCursor);
     }
 
     private static bool TryString(NativeJsonObject body, string key, out string value)

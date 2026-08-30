@@ -36,7 +36,7 @@ public static class OfficeDiffPresentationMapper
             && Text(diff, "right") is { } newValue
             && !string.Equals(oldValue, newValue, StringComparison.Ordinal))
         {
-            rows = [new OfficeDiffRowPresentation("Value", oldValue, newValue)];
+            rows = [new OfficeDiffRowPresentation("값", oldValue, newValue)];
         }
 
         return rows.Count == 0
@@ -52,17 +52,24 @@ public static class OfficeDiffPresentationMapper
         && Text(payload, "approval_id") is not null
         && Text(payload, "artifact_id") is not null;
 
+    public static OfficeDiffPresentation ApplyApprovalReceipt(
+        OfficeDiffPresentation current,
+        NativeEnvelope envelope) =>
+        IsCorrelatedApprovalReceipt(envelope, current.DiffId)
+            ? current with { ApprovalState = OfficeDiffApprovalState.Approved }
+            : current;
+
     public static OfficeDiffRowPresentation FromProjected(PanelItemPresentation item)
     {
         var summary = item.Summary ?? string.Empty;
         var arrow = summary.IndexOf(" -> ", StringComparison.Ordinal);
         if (arrow < 0)
         {
-            return new OfficeDiffRowPresentation("Projected difference", string.Empty, summary);
+            return new OfficeDiffRowPresentation("예상 변경", string.Empty, summary);
         }
 
         var labelEnd = summary.LastIndexOf(": ", arrow, StringComparison.Ordinal);
-        var label = labelEnd < 0 ? "Change" : summary[..labelEnd];
+        var label = labelEnd < 0 ? "변경" : summary[..labelEnd];
         var oldStart = labelEnd < 0 ? 0 : labelEnd + 2;
         return new OfficeDiffRowPresentation(
             label,

@@ -12,6 +12,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776AB?logo=python&logoColor=white)](./pyproject.toml)
 [![VS Code](https://img.shields.io/badge/VS_Code-official_extension-007ACC?logo=visualstudiocode&logoColor=white)](./vscode-extension)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ashmoonori-afk/birkin)
 
 [10분 시작하기](#사무직용-10분-시작하기-windows에서-첫-office-리포트) · [존재 이유](#왜-birkin인가) · [빠른 시작](#빠른-시작) · [Office Work OS](#office-work-os-v2) · [GitHub Action](#github-action) · [Sandbox](#격리-실행) · [VS Code](#vs-code-extension) · [비교](#표면-비교) · [아키텍처](#아키텍처) · [명령어](#명령어) · [English](./README.md)
 
@@ -145,6 +146,19 @@ Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다.
 
 요청한 결과와 적용 범위는 계속 구속력을 가집니다. Birkin은 실제 profile 또는 memory 적용을 workspace 초안으로 대체한 뒤 완료라고 주장해서는 안 됩니다. Assistant에게 붙인 이름을 포함한 assistant persona 사실과 사용자 profile 사실도 분리합니다. 이 로컬 block은 신뢰된 native 및 CLI prompt에만 추가되며 public 또는 untrusted prompt에는 로컬 경로 사실이나 private profile context가 들어가지 않습니다.
 
+### 언어 정책
+
+Birkin이 소유하는 사용자 인터페이스의 승인, 오류, 복구 동작, 진행 상태,
+완료 결과는 한국어로 표시합니다. 코드, 식별자, protocol field, stable error
+code, log, telemetry, 개발자 진단은 영어로 유지합니다. 표시 계층은 typed
+machine data를 번역하며 raw enum, cursor, exception, receipt JSON을 기본
+설명으로 삼지 않습니다. 이러한 진단은 명시적으로 공개된 제한된 상세
+화면에서만 표시합니다. 자세한 기준은
+[언어 정책](./docs/language-policy.md)을 참고하십시오.
+이번 사이클은 승인, 거부, 오류, 복구, 진행, 완료 화면부터 이 계약을
+적용합니다. 기존의 비의사결정 UI 문구는 모두 완료됐다고 주장하지 않으며
+후속 migration 대상으로 추적합니다.
+
 ## 빠른 시작
 
 ### Windows PowerShell 빠른 설치
@@ -177,6 +191,18 @@ python -m pip install .
 birkin setup
 birkin chat
 ```
+
+### Windows 개발 프리뷰
+
+WPF 개발 프리뷰는 로컬 bridge 연결 전에 창을 먼저 표시합니다. Birkin CLI가
+없거나, 시작 제한 시간을 넘기거나, handshake에 실패하거나, 반복 종료 상태에
+들어가도 앱은 종료되지 않습니다. 대신 제한된 오류 원인, 재시도 동작,
+`BIRKIN_EXECUTABLE`에 전체 실행 파일 경로를 저장하는 입력란을 표시합니다.
+연결 상태 점은 bridge가 준비된 경우에만 초록색입니다.
+
+Windows 빌드·실행·`PATH`·실행 파일 경로·문제 해결·테스트 방법은
+[`windows/BirkinNativeApp/README.md`](windows/BirkinNativeApp/README.md)를
+참조하십시오.
 
 로컬 서비스 표면은 별도 터미널에서 실행합니다.
 
@@ -354,9 +380,22 @@ Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 
 
 Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
 
+`office_job_request`는 이제 `content.paragraphs`를 사용하는 source 없는 DOCX
+생성 proposal도 받습니다. 별도 `office_create` approval이 결합된 proposal을
+실행하기 전에는 managed draft와 호출자 destination 모두에 파일을 쓰지
+않습니다. 반환된 durable `job_id`는 기존 `office_rollback_request` 승인·receipt
+흐름에 사용할 수 있습니다.
+overwrite 권한 없이 기존 destination을 만나면 해당 파일을 변경하지 않고
+`기존 파일을 덮어쓸까요?` 후속 승인을 생성합니다. 이 승인을 누르면 같은
+작업을 overwrite 권한에 다시 결합해 한 번 재시도합니다.
+
 Office provenance는 검토된 artifact의 정확한 version과 지원 runtime range를 서로 다른 계약으로 유지합니다. 일반 환경은 선언된 range를 검증하고, locked Office CI는 설치된 정확한 version도 함께 검증합니다.
 
 Office mutation 승인은 proposer, source digest, destination, 정확한 operation, overwrite 결정을 `authority_digest`에 결합합니다. Durable receipt는 해당 digest와 승인 주체를 proposer와 분리해 보존합니다.
+
+Office export 승인 뒤 native surface는 결정된 승인 이력을 유지하고 저장 위치와 30일 되돌리기 기한을 표시하며, 사용자가 내부 job ID를 기억하지 않아도 receipt에서 되돌리기를 요청할 수 있게 합니다.
+
+웹 workspace는 같은 bounded authority contract로 승인 결정을 전송하고, 실패한 제출을 다시 시도할 수 있게 해제하며, raw receipt data를 기본 노출하지 않고 승인 상세에서 실행 영수증을 확인할 수 있게 합니다.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -376,6 +415,23 @@ Office mutation 승인은 proposer, source digest, destination, 정확한 operat
 
 Windows에서는 Birkin이 `BIRKIN_HOME`을 처음 열 때 owner-only 상속 DACL을 한 번 적용하고 기존 하위 항목의 owner와 DACL도 교정합니다. Config API key, WebUI session capability, pending approval, Office job receipt, export backup, HMAC key와 rollback token은 이 경계를 상속합니다. POSIX에서는 계속 owner-only mode를 사용하며 shared-writable parent 아래의 `BIRKIN_HOME`을 거부합니다. 상대 경로 override는 process lifetime 동안 최초로 해석된 절대 경로에 고정됩니다.
 
+Workspace turn은 provider 작업 시작 전과 성공·실패 시점에 bounded
+`progress.updated` event를 내보내므로 native Activity가 침묵 상태로 남지
+않습니다. Office 검사·비교·초안·검증·내보내기 전환은 web에서 하나의 keyed
+progress 행을 갱신하며 다섯 machine phase token을 모두 유지합니다. 기본
+workspace terminal은 다섯 phase event를 모두 표시합니다. `birkin review`는
+승인 시점의 초안·검증·내보내기 phase를 표시하며 검사·비교 phase는 Office
+요청을 queue에 등록할 때 표시됩니다. Activity는 최신 100개 항목만 유지합니다.
+새 pending approval마다
+fixed 한국어 copy와 opaque approval ID만
+담은 `notification.requested` event를 한 번 보냅니다. Windows는 title에
+pending 건수를 표시하고 taskbar를 표시하며 approval별로 app을 한 번
+flash하고, 승인 화면으로만 이동하는 system toast를 표시합니다. macOS도 같은
+fixed-copy·navigation-only notification 경계를 사용합니다. Web은 approval
+event를 구독하고 30초 fallback refresh를 수행하되 변경되지 않은 활성 approval
+card를 교체하지 않습니다. Pending approval이 없어지면 flash를 명시적으로
+멈춥니다. Notification 자체에는 승인 권한이 없습니다.
+
 ```json
 {"source":{"content_hash":"<source-sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"projection":"text","max_text_bytes":100000}
 ```
@@ -392,7 +448,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.325`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.326`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -1359,6 +1415,8 @@ scheduler daemon 시작 시 pending Slack/Discord obligation을 replay합니다.
 자유 형식 shell 요청은 소유권이 있는 process tree 안에서 고정된 non-login platform shell(Windows의 `%SystemRoot%\System32\cmd.exe /d /s /c`, POSIX의 `/bin/bash -c`)을 사용합니다. Windows는 AutoRun을 비활성화하고 사용자 명령을 평가하기 전에 code page 65001을 선택하므로 네이티브 `cmd.exe` built-in과 UTF-8 runtime이 같은 stream capture 계약을 따릅니다. Birkin은 상속된 `PATH`를 보존하고 사용자 profile을 읽지 않은 채 알려진 runtime 디렉터리를 추가하며, UTF-8 stream과 쓰기 가능한 임시 디렉터리를 제공합니다. 네이티브 shell tool, 승인된 shell continuation, scheduler shell job, script monitor, lifecycle hook, GitHub Action test command, worktree setup command가 같은 managed runner를 공유합니다. Worktree setup의 payload 환경은 정책이 허용한 변수만 받고, 별도로 비밀이 아닌 `PATH`, system interpreter 변수, 격리된 `TMPDIR`/`TEMP`/`TMP` 같은 process 실행 요소만 받습니다. Docker setup shell text는 정책으로 제한된 container 안에 남습니다. Timeout, interrupt, Job Object/process-group 종료는 반환 전에 descendant를 제거하고 부분 stdout과 stderr를 보존합니다.
 
 모델이 호출하는 네이티브 shell tool에서는 PowerShell이 기본적으로 비활성화됩니다. `allow_powershell`을 의도적으로 `true`로 설정하거나 큐에 들어간 정확한 단일 operation을 승인해야 합니다. 다른 owner-controlled shell surface는 기존의 명시적 권한 경계를 유지합니다. Managed-shell 계약 이전에 저장된 lifecycle-hook 동의는 예전 discrete-argv 동의가 shell operator 권한으로 조용히 확대되지 않도록 한 번 다시 승인해야 합니다. 네이티브 macOS 및 Windows CI는 일반 명령, pipeline, redirection, quoting, Unicode 및 공백이 있는 작업 디렉터리, 환경/임시 디렉터리, exit 전달, runtime/package-manager 해석, descendant cleanup을 검증합니다.
+
+확장자가 없는 명령이 command-bound PowerShell execution-policy diagnostic으로 실패하면 Birkin은 현재 디렉터리와 `PATH`에서 같은 이름의 `.com`, `.exe`, `.bat`, `.cmd` 후보를 모두 시도하며 `.ps1`은 다시 시도하지 않습니다. 재시도는 정확한 argument suffix를 보존하고 하나의 timeout budget을 사용하며 shellguard와 approval authority의 적용을 받고 machine policy를 우회하지 않습니다.
 
 ### Model provider와 fallback chain
 

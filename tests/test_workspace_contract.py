@@ -10,13 +10,16 @@ from typing import cast
 
 import pytest
 
-from birkin import dash, repl, slashcommands, workbench, workspace_terminal
+from birkin import dash, repl, slashcommands, ui, workbench, workspace_terminal
+from birkin.office.job_types import OfficeJobState
+from birkin.office.progress import office_progress_payload
 from birkin.runtime import ConfigError, Session
 from birkin.ui import cell_width
 from birkin.workspace import (
     WorkspaceCommand,
     WorkspaceEvent,
     WorkspaceHub,
+    WorkspaceSession,
     WorkspaceService,
 )
 from birkin.workspace import runtime_adapter
@@ -117,6 +120,100 @@ def test_terminal_snapshot_prefers_canonical_journal(
         "canonical question",
         "canonical reply",
     ]
+
+
+def test_terminal_surface_forwards_office_progress(tmp_path: Path) -> None:
+    session: WorkspaceSession
+
+    def handler(_payload: dict[str, object]) -> dict[str, object]:
+        _ = session.service.emit(
+            "progress.updated",
+            {
+                "progress_id": "office:job-progress",
+                "runtime_event": "office.inspection",
+                "office_phase": "inspection",
+                "job_id": "job-progress",
+                "summary": "문서 검사를 완료했습니다.",
+                "status": "working",
+                "ui_state": "pending",
+            },
+        )
+        _ = session.service.emit(
+            "message.assistant.completed",
+            {"text": "완료"},
+        )
+        return {"reply": "완료"}
+
+    session = WorkspaceSession(
+        root=tmp_path,
+        session_id="terminal-office-progress",
+        handlers={"chat.send": handler},
+        handler_factory=None,
+    )
+    observed: list[tuple[str, dict[str, object]]] = []
+    client = workspace_terminal.WorkspaceTerminalClient(
+        session,
+        actor_id="terminal:test",
+        on_event=lambda event, payload: observed.append((event, payload)),
+    )
+
+    try:
+        assert client.ask("보고서를 준비해줘", lambda _piece: None) == "완료"
+    finally:
+        session.close()
+    assert len(observed) == 1
+    assert observed[0][0] == "office.inspection"
+    assert observed[0][1]["office_phase"] == "inspection"
+    assert observed[0][1]["job_id"] == "job-progress"
+
+
+def test_terminal_surface_renders_all_office_progress_phases(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Given: the workspace journal receives the canonical five Office updates.
+    session: WorkspaceSession
+    states = (
+        OfficeJobState.input_captured,
+        OfficeJobState.operations_proposed,
+        OfficeJobState.approved,
+        OfficeJobState.validated,
+        OfficeJobState.exported,
+    )
+
+    def handler(_payload: dict[str, object]) -> dict[str, object]:
+        for state in states:
+            payload = office_progress_payload("job-progress", state)
+            assert payload is not None
+            _ = session.service.emit("progress.updated", payload)
+        _ = session.service.emit(
+            "message.assistant.completed",
+            {"text": "완료"},
+        )
+        return {"reply": "완료"}
+
+    session = WorkspaceSession(
+        root=tmp_path,
+        session_id="terminal-office-progress-rendering",
+        handlers={"chat.send": handler},
+        handler_factory=None,
+    )
+    client = workspace_terminal.WorkspaceTerminalClient(
+        session,
+        actor_id="terminal:test",
+        on_event=ui.make_event_printer(),
+    )
+
+    # When: the default terminal consumes the real workspace event stream.
+    try:
+        assert client.ask("보고서를 준비해줘", lambda _piece: None) == "완료"
+    finally:
+        session.close()
+
+    # Then: every machine phase token is visible to the terminal user.
+    output = capsys.readouterr().out
+    for phase in ("inspection", "comparison", "draft", "validation", "export"):
+        assert f"[{phase}]" in output
 
 
 def test_runtime_snapshot_hydrates_existing_cron_authority(

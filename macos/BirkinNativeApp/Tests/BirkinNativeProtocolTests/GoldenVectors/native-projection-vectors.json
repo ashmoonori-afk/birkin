@@ -3726,12 +3726,795 @@
           }
         ]
       }
+    },
+    {
+      "frame_base64": "AAABt3sicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTIxIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MjIsImV2ZW50X2lkIjoiZXZlbnQtMjIiLCJ0eXBlIjoicHJvZ3Jlc3MudXBkYXRlZCIsInRpbWVzdGFtcCI6IjIwMjYtMDgtMjBUMTI6MDA6MjJaIiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImNvbW1hbmRfaWQiOiJjb21tYW5kLTEiLCJwYXlsb2FkIjp7InByb2dyZXNzX2lkIjoidHVybjpzZXNzaW9uLTEiLCJzdW1tYXJ5Ijoi7J2R64u17J2EIOykgOu5hO2VmOqzoCDsnojsirXri4jri6QuIiwic3RhdHVzIjoid29ya2luZyIsInVpX3N0YXRlIjoicGVuZGluZyJ9fX0=",
+      "frame_byte_count": 443,
+      "kind": "event",
+      "cursor": 22,
+      "expected_state": {
+        "protocol_version": 1,
+        "session_id": "session-1",
+        "cursor": 22,
+        "panels": [
+          {
+            "key": "tasks_runs",
+            "items": [
+              {
+                "id": "task-1",
+                "summary": "Canonical reducer",
+                "status": "running",
+                "cursor": 3,
+                "kind": "task",
+                "ui_state": "running"
+              }
+            ]
+          },
+          {
+            "key": "approvals",
+            "items": [
+              {
+                "id": "approval-vector",
+                "summary": "Save reviewed workbook",
+                "status": "approved",
+                "cursor": 17,
+                "kind": "approval",
+                "ui_state": "succeeded",
+                "requester": "native:session-1",
+                "description": "Comparison!A1: 7 to 9",
+                "category": "office_job",
+                "rejection_result": "Rejecting leaves the source unchanged and writes no output.",
+                "risk": "high",
+                "destination": "/workspace/approved/comparison.xlsx",
+                "source_filename": "comparison-source.xlsx",
+                "authority_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "sealed": true,
+                "decided": true,
+                "overwrite_approved": false,
+                "receipt_ref": "receipt:approval-vector"
+              },
+              {
+                "id": "approval-refused",
+                "summary": "Save while authority is unavailable",
+                "status": "rejected_by_authority",
+                "cursor": 19,
+                "kind": "approval",
+                "ui_state": "failed",
+                "category": "office_job",
+                "risk": "high",
+                "sealed": true,
+                "decided": false
+              },
+              {
+                "id": "approval-elsewhere",
+                "summary": "Save answered by another reviewer",
+                "status": "answered_elsewhere",
+                "cursor": 21,
+                "kind": "approval",
+                "ui_state": "failed",
+                "category": "office_job",
+                "risk": "high",
+                "sealed": true,
+                "decided": true
+              }
+            ]
+          },
+          {
+            "key": "files_evidence",
+            "items": []
+          },
+          {
+            "key": "sessions_history",
+            "items": [
+              {
+                "id": "event-2",
+                "kind": "assistant_message",
+                "text": "Snapshot ready",
+                "actor_id": "macos:window-main",
+                "cursor": 2
+              },
+              {
+                "id": "event-8",
+                "kind": "assistant_message",
+                "text": "Events reduced",
+                "actor_id": "macos:window-main",
+                "cursor": 8
+              }
+            ]
+          },
+          {
+            "key": "activity_logs",
+            "items": [
+              {
+                "id": "event-9",
+                "summary": "command.completed",
+                "status": "completed",
+                "cursor": 9,
+                "kind": "receipt",
+                "ui_state": "pending"
+              },
+              {
+                "id": "event-14",
+                "summary": "Command completed",
+                "status": "recorded",
+                "cursor": 14,
+                "kind": "receipt",
+                "ui_state": "pending",
+                "receipt_ref": "receipt:command-1"
+              },
+              {
+                "id": "event-15",
+                "summary": "Interrupted receipt sealed",
+                "status": "warning",
+                "cursor": 15,
+                "kind": "integrity_warning",
+                "ui_state": "pending"
+              },
+              {
+                "id": "event-22",
+                "summary": "응답을 준비하고 있습니다.",
+                "status": "working",
+                "cursor": 22,
+                "kind": "activity",
+                "ui_state": "pending"
+              }
+            ]
+          },
+          {
+            "key": "cron",
+            "items": []
+          },
+          {
+            "key": "memory_skills",
+            "items": []
+          },
+          {
+            "key": "checkpoints_restore",
+            "items": []
+          },
+          {
+            "key": "computer_use",
+            "items": []
+          },
+          {
+            "key": "settings_status",
+            "items": []
+          }
+        ],
+        "conversation": [
+          {
+            "id": "event-1",
+            "kind": "user_message",
+            "text": "Ship the reducer",
+            "actor_id": "macos:window-main",
+            "cursor": 1
+          },
+          {
+            "id": "event-2",
+            "kind": "assistant_message",
+            "text": "Snapshot ready",
+            "actor_id": "macos:window-main",
+            "cursor": 2
+          },
+          {
+            "id": "event-5",
+            "kind": "user_message",
+            "text": "Continue in cursor order",
+            "actor_id": "macos:window-main",
+            "cursor": 5
+          },
+          {
+            "id": "event-8",
+            "kind": "assistant_message",
+            "text": "Events reduced",
+            "actor_id": "macos:window-main",
+            "cursor": 8
+          }
+        ],
+        "composer": {
+          "can_send": true,
+          "can_interrupt": false,
+          "can_resume": false
+        },
+        "status": {
+          "connection": "connected"
+        },
+        "working_memory": {
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
+          },
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
+        "terminals": [
+          {
+            "terminal_id": "terminal-vector",
+            "cwd": "/private/workspace",
+            "screen": "hello-native",
+            "output_sequence": 1,
+            "state": "exited",
+            "exit_status": 0,
+            "columns": 100,
+            "rows": 30,
+            "lease": null,
+            "read_only": true
+          }
+        ]
+      }
+    },
+    {
+      "frame_base64": "AAACSHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTIyIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MjMsImV2ZW50X2lkIjoiZXZlbnQtMjMiLCJ0eXBlIjoibm90aWZpY2F0aW9uLnJlcXVlc3RlZCIsInRpbWVzdGFtcCI6IjIwMjYtMDgtMjBUMTI6MDA6MjNaIiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImNvbW1hbmRfaWQiOiJjb21tYW5kLTEiLCJwYXlsb2FkIjp7Im5vdGlmaWNhdGlvbl9pZCI6ImFwcHJvdmFsOmFwcHJvdmFsLTEiLCJraW5kIjoiYXBwcm92YWxfd2FpdGluZyIsInN1bW1hcnkiOiJCaXJraW7sl5DshJwg7Iq57J247J2EIOq4sOuLpOumrOqzoCDsnojsirXri4jri6QuIiwiYm9keSI6IuyVseydhCDsl7TslrQg7Iq57J24IOyalOyyreydhCDtmZXsnbjtlbQg7KO87IS47JqULiIsIml0ZW1faWQiOiJhcHByb3ZhbC0xIiwicm91dGUiOiJhcHByb3ZhbHMiLCJ1aV9zdGF0ZSI6ImFjdGlvbl9uZWVkZWQifX19",
+      "frame_byte_count": 588,
+      "kind": "event",
+      "cursor": 23,
+      "expected_state": {
+        "protocol_version": 1,
+        "session_id": "session-1",
+        "cursor": 23,
+        "panels": [
+          {
+            "key": "tasks_runs",
+            "items": [
+              {
+                "id": "task-1",
+                "summary": "Canonical reducer",
+                "status": "running",
+                "cursor": 3,
+                "kind": "task",
+                "ui_state": "running"
+              }
+            ]
+          },
+          {
+            "key": "approvals",
+            "items": [
+              {
+                "id": "approval-vector",
+                "summary": "Save reviewed workbook",
+                "status": "approved",
+                "cursor": 17,
+                "kind": "approval",
+                "ui_state": "succeeded",
+                "requester": "native:session-1",
+                "description": "Comparison!A1: 7 to 9",
+                "category": "office_job",
+                "rejection_result": "Rejecting leaves the source unchanged and writes no output.",
+                "risk": "high",
+                "destination": "/workspace/approved/comparison.xlsx",
+                "source_filename": "comparison-source.xlsx",
+                "authority_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "sealed": true,
+                "decided": true,
+                "overwrite_approved": false,
+                "receipt_ref": "receipt:approval-vector"
+              },
+              {
+                "id": "approval-refused",
+                "summary": "Save while authority is unavailable",
+                "status": "rejected_by_authority",
+                "cursor": 19,
+                "kind": "approval",
+                "ui_state": "failed",
+                "category": "office_job",
+                "risk": "high",
+                "sealed": true,
+                "decided": false
+              },
+              {
+                "id": "approval-elsewhere",
+                "summary": "Save answered by another reviewer",
+                "status": "answered_elsewhere",
+                "cursor": 21,
+                "kind": "approval",
+                "ui_state": "failed",
+                "category": "office_job",
+                "risk": "high",
+                "sealed": true,
+                "decided": true
+              }
+            ]
+          },
+          {
+            "key": "files_evidence",
+            "items": []
+          },
+          {
+            "key": "sessions_history",
+            "items": [
+              {
+                "id": "event-2",
+                "kind": "assistant_message",
+                "text": "Snapshot ready",
+                "actor_id": "macos:window-main",
+                "cursor": 2
+              },
+              {
+                "id": "event-8",
+                "kind": "assistant_message",
+                "text": "Events reduced",
+                "actor_id": "macos:window-main",
+                "cursor": 8
+              }
+            ]
+          },
+          {
+            "key": "activity_logs",
+            "items": [
+              {
+                "id": "event-9",
+                "summary": "command.completed",
+                "status": "completed",
+                "cursor": 9,
+                "kind": "receipt",
+                "ui_state": "pending"
+              },
+              {
+                "id": "event-14",
+                "summary": "Command completed",
+                "status": "recorded",
+                "cursor": 14,
+                "kind": "receipt",
+                "ui_state": "pending",
+                "receipt_ref": "receipt:command-1"
+              },
+              {
+                "id": "event-15",
+                "summary": "Interrupted receipt sealed",
+                "status": "warning",
+                "cursor": 15,
+                "kind": "integrity_warning",
+                "ui_state": "pending"
+              },
+              {
+                "id": "event-22",
+                "summary": "응답을 준비하고 있습니다.",
+                "status": "working",
+                "cursor": 22,
+                "kind": "activity",
+                "ui_state": "pending"
+              },
+              {
+                "id": "approval:approval-1",
+                "summary": "Birkin에서 승인을 기다리고 있습니다.",
+                "status": "requested",
+                "cursor": 23,
+                "kind": "notification",
+                "ui_state": "action_needed"
+              }
+            ]
+          },
+          {
+            "key": "cron",
+            "items": []
+          },
+          {
+            "key": "memory_skills",
+            "items": []
+          },
+          {
+            "key": "checkpoints_restore",
+            "items": []
+          },
+          {
+            "key": "computer_use",
+            "items": []
+          },
+          {
+            "key": "settings_status",
+            "items": []
+          }
+        ],
+        "conversation": [
+          {
+            "id": "event-1",
+            "kind": "user_message",
+            "text": "Ship the reducer",
+            "actor_id": "macos:window-main",
+            "cursor": 1
+          },
+          {
+            "id": "event-2",
+            "kind": "assistant_message",
+            "text": "Snapshot ready",
+            "actor_id": "macos:window-main",
+            "cursor": 2
+          },
+          {
+            "id": "event-5",
+            "kind": "user_message",
+            "text": "Continue in cursor order",
+            "actor_id": "macos:window-main",
+            "cursor": 5
+          },
+          {
+            "id": "event-8",
+            "kind": "assistant_message",
+            "text": "Events reduced",
+            "actor_id": "macos:window-main",
+            "cursor": 8
+          }
+        ],
+        "composer": {
+          "can_send": true,
+          "can_interrupt": false,
+          "can_resume": false
+        },
+        "status": {
+          "connection": "connected"
+        },
+        "working_memory": {
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
+          },
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
+        "terminals": [
+          {
+            "terminal_id": "terminal-vector",
+            "cwd": "/private/workspace",
+            "screen": "hello-native",
+            "output_sequence": 1,
+            "state": "exited",
+            "exit_status": 0,
+            "columns": 100,
+            "rows": 30,
+            "lease": null,
+            "read_only": true
+          }
+        ]
+      }
+    },
+    {
+      "frame_base64": "AAABtHsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTIzIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MjQsImV2ZW50X2lkIjoiZXZlbnQtMjQiLCJ0eXBlIjoicHJvZ3Jlc3MudXBkYXRlZCIsInRpbWVzdGFtcCI6IjIwMjYtMDgtMjBUMTI6MDA6MjRaIiwiYWN0b3JfaWQiOiJtYWNvczp3aW5kb3ctbWFpbiIsImNvbW1hbmRfaWQiOiJjb21tYW5kLTEiLCJwYXlsb2FkIjp7InByb2dyZXNzX2lkIjoidHVybjpzZXNzaW9uLTEiLCJzdW1tYXJ5Ijoi7J2R64u17J2EIOyZhOujjO2WiOyKteuLiOuLpC4iLCJzdGF0dXMiOiJzdWNjZWVkZWQiLCJ1aV9zdGF0ZSI6InN1Y2NlZWRlZCJ9fX0=",
+      "frame_byte_count": 440,
+      "kind": "event",
+      "cursor": 24,
+      "expected_state": {
+        "protocol_version": 1,
+        "session_id": "session-1",
+        "cursor": 24,
+        "panels": [
+          {
+            "key": "tasks_runs",
+            "items": [
+              {
+                "id": "task-1",
+                "summary": "Canonical reducer",
+                "status": "running",
+                "cursor": 3,
+                "kind": "task",
+                "ui_state": "running"
+              }
+            ]
+          },
+          {
+            "key": "approvals",
+            "items": [
+              {
+                "id": "approval-vector",
+                "summary": "Save reviewed workbook",
+                "status": "approved",
+                "cursor": 17,
+                "kind": "approval",
+                "ui_state": "succeeded",
+                "requester": "native:session-1",
+                "description": "Comparison!A1: 7 to 9",
+                "category": "office_job",
+                "rejection_result": "Rejecting leaves the source unchanged and writes no output.",
+                "risk": "high",
+                "destination": "/workspace/approved/comparison.xlsx",
+                "source_filename": "comparison-source.xlsx",
+                "authority_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                "sealed": true,
+                "decided": true,
+                "overwrite_approved": false,
+                "receipt_ref": "receipt:approval-vector"
+              },
+              {
+                "id": "approval-refused",
+                "summary": "Save while authority is unavailable",
+                "status": "rejected_by_authority",
+                "cursor": 19,
+                "kind": "approval",
+                "ui_state": "failed",
+                "category": "office_job",
+                "risk": "high",
+                "sealed": true,
+                "decided": false
+              },
+              {
+                "id": "approval-elsewhere",
+                "summary": "Save answered by another reviewer",
+                "status": "answered_elsewhere",
+                "cursor": 21,
+                "kind": "approval",
+                "ui_state": "failed",
+                "category": "office_job",
+                "risk": "high",
+                "sealed": true,
+                "decided": true
+              }
+            ]
+          },
+          {
+            "key": "files_evidence",
+            "items": []
+          },
+          {
+            "key": "sessions_history",
+            "items": [
+              {
+                "id": "event-2",
+                "kind": "assistant_message",
+                "text": "Snapshot ready",
+                "actor_id": "macos:window-main",
+                "cursor": 2
+              },
+              {
+                "id": "event-8",
+                "kind": "assistant_message",
+                "text": "Events reduced",
+                "actor_id": "macos:window-main",
+                "cursor": 8
+              }
+            ]
+          },
+          {
+            "key": "activity_logs",
+            "items": [
+              {
+                "id": "event-9",
+                "summary": "command.completed",
+                "status": "completed",
+                "cursor": 9,
+                "kind": "receipt",
+                "ui_state": "pending"
+              },
+              {
+                "id": "event-14",
+                "summary": "Command completed",
+                "status": "recorded",
+                "cursor": 14,
+                "kind": "receipt",
+                "ui_state": "pending",
+                "receipt_ref": "receipt:command-1"
+              },
+              {
+                "id": "event-15",
+                "summary": "Interrupted receipt sealed",
+                "status": "warning",
+                "cursor": 15,
+                "kind": "integrity_warning",
+                "ui_state": "pending"
+              },
+              {
+                "id": "event-22",
+                "summary": "응답을 준비하고 있습니다.",
+                "status": "working",
+                "cursor": 22,
+                "kind": "activity",
+                "ui_state": "pending"
+              },
+              {
+                "id": "approval:approval-1",
+                "summary": "Birkin에서 승인을 기다리고 있습니다.",
+                "status": "requested",
+                "cursor": 23,
+                "kind": "notification",
+                "ui_state": "action_needed"
+              },
+              {
+                "id": "event-24",
+                "summary": "응답을 완료했습니다.",
+                "status": "succeeded",
+                "cursor": 24,
+                "kind": "activity",
+                "ui_state": "succeeded"
+              }
+            ]
+          },
+          {
+            "key": "cron",
+            "items": []
+          },
+          {
+            "key": "memory_skills",
+            "items": []
+          },
+          {
+            "key": "checkpoints_restore",
+            "items": []
+          },
+          {
+            "key": "computer_use",
+            "items": []
+          },
+          {
+            "key": "settings_status",
+            "items": []
+          }
+        ],
+        "conversation": [
+          {
+            "id": "event-1",
+            "kind": "user_message",
+            "text": "Ship the reducer",
+            "actor_id": "macos:window-main",
+            "cursor": 1
+          },
+          {
+            "id": "event-2",
+            "kind": "assistant_message",
+            "text": "Snapshot ready",
+            "actor_id": "macos:window-main",
+            "cursor": 2
+          },
+          {
+            "id": "event-5",
+            "kind": "user_message",
+            "text": "Continue in cursor order",
+            "actor_id": "macos:window-main",
+            "cursor": 5
+          },
+          {
+            "id": "event-8",
+            "kind": "assistant_message",
+            "text": "Events reduced",
+            "actor_id": "macos:window-main",
+            "cursor": 8
+          }
+        ],
+        "composer": {
+          "can_send": true,
+          "can_interrupt": false,
+          "can_resume": false
+        },
+        "status": {
+          "connection": "connected"
+        },
+        "working_memory": {
+          "revision": 1,
+          "goal": {
+            "slug": "ship-native-working-memory",
+            "objective": "Ship native Working Memory",
+            "tokens_used": 0,
+            "status": "active"
+          },
+          "fields": {
+            "corrections": [
+              "Use canonical state"
+            ],
+            "constraints": [
+              "Stay offline"
+            ],
+            "decisions": [
+              "Delegate to Python"
+            ],
+            "incomplete": [
+              "Render five rows"
+            ],
+            "evidence": [
+              "RED captured"
+            ],
+            "next_actions": [
+              "Run GREEN"
+            ]
+          },
+          "files_evidence": [
+            {
+              "id": "checkpoint-1",
+              "summary": "workspace/main.py",
+              "kind": "evidence"
+            }
+          ]
+        },
+        "approval_policy": {
+          "requested": {
+            "auto_approve": null
+          },
+          "effective": {
+            "auto_approve": []
+          },
+          "pending_requests": []
+        },
+        "terminals": [
+          {
+            "terminal_id": "terminal-vector",
+            "cwd": "/private/workspace",
+            "screen": "hello-native",
+            "output_sequence": 1,
+            "state": "exited",
+            "exit_status": 0,
+            "columns": 100,
+            "rows": 30,
+            "lease": null,
+            "read_only": true
+          }
+        ]
+      }
     }
   ],
   "gap_event": {
-    "frame_base64": "AAABVnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTIxIiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MjMsImV2ZW50X2lkIjoiZXZlbnQtMjMiLCJ0eXBlIjoibWVzc2FnZS51c2VyIiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoyM1oiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGV4dCI6Im11c3QgYmUgZGlzY2FyZGVkIn19fQ==",
+    "frame_base64": "AAABVnsicHJvdG9jb2wiOiJiaXJraW4tbG9jYWwtMSIsInByb3RvY29sX3ZlcnNpb24iOjEsImtpbmQiOiJldmVudCIsImlkIjoic2VydmVyLTI0IiwiaW5fcmVwbHlfdG8iOm51bGwsImJvZHkiOnsicHJvdG9jb2xfdmVyc2lvbiI6MSwic2Vzc2lvbl9pZCI6InNlc3Npb24tMSIsImN1cnNvciI6MjYsImV2ZW50X2lkIjoiZXZlbnQtMjYiLCJ0eXBlIjoibWVzc2FnZS51c2VyIiwidGltZXN0YW1wIjoiMjAyNi0wOC0yMFQxMjowMDoyNloiLCJhY3Rvcl9pZCI6Im1hY29zOndpbmRvdy1tYWluIiwiY29tbWFuZF9pZCI6ImNvbW1hbmQtMSIsInBheWxvYWQiOnsidGV4dCI6Im11c3QgYmUgZGlzY2FyZGVkIn19fQ==",
     "frame_byte_count": 346,
     "kind": "event",
-    "cursor": 23
+    "cursor": 26
   }
 }

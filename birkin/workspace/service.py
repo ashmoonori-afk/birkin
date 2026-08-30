@@ -18,6 +18,7 @@ from .contracts import (
 )
 from .approval_projection import approval_items, approval_policy
 from .journal import WorkspaceJournal
+from .notifications import approval_waiting_notification
 from .presets import SESSION_PRESETS, SessionPreset
 from .redaction import bounded_error_text
 from .records import (
@@ -112,12 +113,30 @@ class WorkspaceService:
             receipt = self._active_receipts.get(threading.get_ident())
         if receipt is None:
             raise ProtocolError("workspace event emitted outside a command")
-        return self._append(
+        event = self._append(
             event_type,
             actor_id=receipt.actor_id,
             command_id=receipt.command_id,
             payload=payload,
         )
+        if event_type == "approval.requested":
+            approval_id = payload.get("approval_id")
+            if isinstance(approval_id, str) and approval_id:
+                notification = approval_waiting_notification(approval_id)
+                notification_id = notification["notification_id"]
+                already_emitted = any(
+                    previous.type == "notification.requested"
+                    and previous.payload.get("notification_id") == notification_id
+                    for previous in self._journal.events()
+                )
+                if not already_emitted:
+                    _ = self._append(
+                        "notification.requested",
+                        actor_id=receipt.actor_id,
+                        command_id=receipt.command_id,
+                        payload=notification,
+                    )
+        return event
 
     def submit(
         self,

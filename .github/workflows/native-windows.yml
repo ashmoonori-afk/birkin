@@ -103,6 +103,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
+      MSBUILDDISABLENODEREUSE: "1"
       PYTHONUTF8: "1"
       UV_NO_SYNC: "1"
     steps:
@@ -121,6 +122,69 @@ jobs:
         with:
           dotnet-version: "8.x"
       - run: uv sync --frozen --all-extras --all-groups
+      - run: >-
+          dotnet restore
+          ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
+      - run: >-
+          dotnet build
+          ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
+          -c Release --no-restore
+          --disable-build-servers
+          -p:UseSharedCompilation=false
+          -m:1
+      - name: Register the restored Windows App SDK notification packages
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $packageRoot = Join-Path (
+            Join-Path $env:USERPROFILE ".nuget\packages"
+          ) (
+            "microsoft.windowsappsdk.runtime\2.4.0\" +
+            "tools\MSIX\win10-x64"
+          )
+          $packages = @(
+            "Microsoft.WindowsAppRuntime.2.msix",
+            "Microsoft.WindowsAppRuntime.Main.2.msix",
+            "Microsoft.WindowsAppRuntime.Singleton.2.msix",
+            "Microsoft.WindowsAppRuntime.DDLM.2.msix"
+          )
+          foreach ($package in $packages) {
+            $source = Join-Path $packageRoot $package
+            $signature = Get-AuthenticodeSignature $source
+            if (
+              $signature.Status -ne "Valid" -or
+              $signature.SignerCertificate.Subject -notmatch
+                "O=Microsoft Corporation"
+            ) {
+              throw "Windows App SDK package signature is invalid: $package"
+            }
+            Add-AppxPackage -Path $source
+          }
+      - name: Verify Windows accepts the approval notification
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $executable = Resolve-Path (
+            "./windows/BirkinNativeApp/tests/" +
+            "Birkin.Native.Notification.Smoke/bin/Release/" +
+            "net8.0-windows10.0.19041.0/win-x64/" +
+            "Birkin.Native.Notification.Smoke.exe"
+          )
+          $output = & $executable 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
+          Write-Output $output
+          if ($exitCode -ne 0) {
+            throw "Notification smoke exited $exitCode."
+          }
+          if (
+            $output -notmatch
+              "WINDOWS_APPROVAL_TOAST_INTEGRITY:medium"
+          ) {
+            throw "Notification smoke did not prove medium integrity."
+          }
+          if ($output -notmatch "WINDOWS_APPROVAL_TOAST_ACCEPTED:") {
+            throw "Notification smoke did not emit its acceptance sentinel."
+          }
       - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
       - run: >-
@@ -132,6 +196,12 @@ jobs:
         with:
           name: native-windows-approval-card
           path: .omo/evidence/native-shell/windows-approval-trust-card.png
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: native-windows-first-run-failure
+          path: .omo/evidence/native-shell/windows-first-run-failure.png
           if-no-files-found: error
           retention-days: 14
 
@@ -163,12 +233,32 @@ jobs:
           dotnet test ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj
           -c Release --no-build
           --filter "TestCategory=LiveBridge"
+          --blame-hang --blame-hang-timeout 120s --blame-hang-dump-type mini
           --logger "trx;LogFilePrefix=native-windows-live"
+      - if: failure()
+        shell: pwsh
+        run: |
+          $tools = Join-Path $env:RUNNER_TEMP "dotnet-tools"
+          dotnet tool install --tool-path $tools dotnet-dump --version 9.0.661903
+          $dump = Get-ChildItem `
+            -Path ./windows/BirkinNativeApp `
+            -Recurse `
+            -Filter "*_hangdump.dmp" |
+            Select-Object -First 1
+          if ($null -eq $dump) {
+            throw "The live-bridge failure did not produce a hang dump."
+          }
+          $analysis = Join-Path $dump.Directory.FullName "managed-stacks.txt"
+          & (Join-Path $tools "dotnet-dump.exe") analyze $dump.FullName `
+            -c "clrstack -all" `
+            -c "threads" `
+            -c "exit" |
+            Tee-Object -FilePath $analysis
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: native-windows-live-trx
-          path: windows/BirkinNativeApp/**/TestResults/*.trx
+          name: native-windows-live-diagnostics
+          path: windows/BirkinNativeApp/**/TestResults/**
           if-no-files-found: error
           retention-days: 7
 

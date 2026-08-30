@@ -16,6 +16,7 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
 
     [DataTestMethod]
     [DataRow("chat.send")]
+    [DataRow("chat.interrupt")]
     [DataRow("file.import")]
     [DataRow("approval.answer")]
     [DataRow("office.compare")]
@@ -28,6 +29,7 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
         var submitted = commandType switch
         {
             "chat.send" => await fixture.Coordinator.SendConversationAsync(CancellationToken.None),
+            "chat.interrupt" => await fixture.Coordinator.InterruptConversationAsync(CancellationToken.None),
             "file.import" => await fixture.Coordinator.ImportAsync(new FileImportIntent(@"C:\input.xlsx"), CancellationToken.None),
             "approval.answer" => await fixture.Coordinator.AnswerApprovalAsync(new ApprovalAnswerIntent("approval-1", ApprovalDecision.Reject), CancellationToken.None),
             "office.compare" => await fixture.Coordinator.CompareOfficeDocumentsAsync(new OfficeCompareIntent("artifact-left", "artifact-right"), CancellationToken.None),
@@ -41,16 +43,83 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     }
 
     [TestMethod]
-    public async Task ReportSaveCommands_WhenAdvertised_RemainUnavailableWithoutApprovedJobRequest()
+    public async Task InterruptConversation_WhenCanonicalTurnIsInterruptible_SubmitsEmptyIntent()
     {
-        var commands = new HashSet<string>(["office.create", "office.convert", "office.draft"]);
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["chat.interrupt"]),
+            canInterrupt: true);
+        fixture.Connection.Enqueue(Receipt("command-1", 5));
+
+        var submitted = await fixture.Coordinator.InterruptConversationAsync(
+            CancellationToken.None);
+        fixture.Context.RunAll();
+
+        Assert.IsTrue(submitted);
+        var request = fixture.Connection.Sent.Single();
+        Assert.AreEqual("chat.interrupt", request.CommandType);
+        Assert.AreEqual(4L, request.ExpectedCursor);
+        Assert.AreEqual(0, request.Payload.Count);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task InterruptConversation_WhenProjectionDisallowsInterrupt_NeverWritesTransport()
+    {
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["chat.interrupt"]));
+
+        var submitted = await fixture.Coordinator.InterruptConversationAsync(
+            CancellationToken.None);
+        fixture.Context.RunAll();
+
+        Assert.IsFalse(submitted);
+        Assert.AreEqual(0, fixture.Connection.Sent.Count);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task InterruptConversation_WhenCursorIsStale_RetriesOnceAtAuthorityCursor()
+    {
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["chat.interrupt"]),
+            canInterrupt: true);
+        fixture.Connection.Enqueue(Stale("command-1", 9));
+        fixture.Connection.Enqueue(Receipt("command-1", 10));
+
+        var submitted = await fixture.Coordinator.InterruptConversationAsync(
+            CancellationToken.None);
+        fixture.Context.RunAll();
+
+        Assert.IsTrue(submitted);
+        Assert.AreEqual(2, fixture.Connection.Sent.Count);
+        CollectionAssert.AreEqual(
+            new long[] { 4, 9 },
+            fixture.Connection.Sent.Select(request => request.ExpectedCursor).ToArray());
+        Assert.IsTrue(fixture.Connection.Sent.All(request =>
+            request.CommandId == "command-1"
+            && request.CommandType == "chat.interrupt"));
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task ReportSaveCommands_WhenJobRequestAdvertised_EnableDraftOnly()
+    {
+        var commands = new HashSet<string>(["office.create", "office.convert", "office.job_request"]);
         var fixture = await Fixture.ConnectAsync(commands);
+        Assert.IsTrue(fixture.Model.OfficeWorkflow.Availability.OfficeDraft.IsEnabled);
+        fixture.Connection.Enqueue(Receipt("command-1", 5));
 
         var created = await fixture.Coordinator.CreateOfficeDocumentAsync(
             new OfficeCreateIntent("docx", new OfficeDocumentContent(["Report"]), "report.docx"),
             CancellationToken.None);
         var drafted = await fixture.Coordinator.DraftOfficeDocumentAsync(
-            new OfficeDraftIntent("artifact-template", "diff-1", "report.docx"),
+            new OfficeDraftIntent(
+                "Create the report",
+                "docx",
+                new OfficeDocumentContent(["Report", "Approved body"]),
+                "Create a new report",
+                "report.docx",
+                false),
             CancellationToken.None);
         var converted = await fixture.Coordinator.ConvertOfficeDocumentAsync(
             new OfficeConvertIntent(
@@ -61,11 +130,11 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             CancellationToken.None);
 
         Assert.IsFalse(created);
-        Assert.IsFalse(drafted);
+        Assert.IsTrue(drafted);
         Assert.IsFalse(converted);
-        Assert.AreEqual(0, fixture.Connection.Sent.Count);
+        Assert.AreEqual(1, fixture.Connection.Sent.Count);
+        Assert.AreEqual("office.job_request", fixture.Connection.Sent[0].CommandType);
         Assert.AreEqual("E_OFFICE_JOB_REQUEST_REQUIRED", fixture.Model.OfficeWorkflow.Availability.OfficeCreate.DisabledReason);
-        Assert.AreEqual("E_OFFICE_JOB_REQUEST_REQUIRED", fixture.Model.OfficeWorkflow.Availability.OfficeDraft.DisabledReason);
         Assert.AreEqual("E_OFFICE_JOB_REQUEST_REQUIRED", fixture.Model.OfficeWorkflow.Availability.OfficeConvert.DisabledReason);
         await fixture.DisposeAsync();
     }
@@ -195,6 +264,44 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     }
 
     [TestMethod]
+    public async Task Import_WhenCanonicalEventPrecedesReceipt_ProjectsImportedFile()
+    {
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["file.import"]));
+        fixture.Connection.Enqueue(
+            Event(
+                5,
+                "message.user",
+                Object(("text", new NativeJsonString("import accepted")))));
+        fixture.Connection.Enqueue(
+            Receipt(
+                "command-1",
+                5,
+                Object(
+                    ("reference", Object(
+                        ("kind", new NativeJsonString("workspace_import")),
+                        ("import_id", new NativeJsonString("import-1")),
+                        ("display_name", new NativeJsonString("first-report.xlsx")),
+                        ("jail_name", new NativeJsonString("import-1.xlsx")),
+                        ("sha256", new NativeJsonString(new string('a', 64))),
+                        ("byte_count", new NativeJsonInteger(1200)))))));
+
+        var submitted = await fixture.Coordinator.ImportAsync(
+            new FileImportIntent(@"C:\input.xlsx"),
+            CancellationToken.None);
+        fixture.Context.RunAll();
+
+        Assert.IsTrue(submitted);
+        Assert.AreEqual(
+            WorkflowCommandState.Idle,
+            fixture.Model.OfficeWorkflow.CommandState);
+        Assert.AreEqual(
+            "first-report.xlsx",
+            fixture.Model.OfficeWorkflow.Imports.Single().DisplayName);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
     public async Task Import_WhenReceiptReferenceIsMalformed_RefusesWithoutThrowing()
     {
         var fixture = await Fixture.ConnectAsync(
@@ -283,7 +390,13 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             typeof(NativeCommandRefusal),
             System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
             binder: null,
-            args: ["E_STALE_CURSOR", commandId, cursor],
+            args: [
+                "E_STALE_CURSOR",
+                commandId,
+                "cursor is stale",
+                false,
+                cursor,
+            ],
             culture: null) ?? throw new AssertFailedException());
 
     private static NativeEnvelope Receipt(
@@ -332,7 +445,7 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             ("command_id", new NativeJsonString("command-1")),
             ("payload", payload)));
 
-    private static NativeEnvelope Snapshot() => new(
+    private static NativeEnvelope Snapshot(bool canInterrupt) => new(
         NativeMessageKind.Snapshot,
         "snapshot-1",
         Object(
@@ -341,7 +454,9 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
             ("cursor", new NativeJsonInteger(4)),
             ("panels", new NativeJsonArray([Object(("key", new NativeJsonString("activity_logs")), ("items", new NativeJsonArray([])))])),
             ("conversation", new NativeJsonArray([])),
-            ("composer", Object(("can_send", new NativeJsonBoolean(true)))),
+            ("composer", Object(
+                ("can_send", new NativeJsonBoolean(true)),
+                ("can_interrupt", new NativeJsonBoolean(canInterrupt)))),
             ("status", Object()),
             ("working_memory", Object()),
             ("approval_policy", Object()),
@@ -363,10 +478,12 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
         public ShellPresentationModel Model { get; }
         public ShellCoordinator Coordinator { get; }
 
-        public static async Task<Fixture> ConnectAsync(IReadOnlySet<string> commands)
+        public static async Task<Fixture> ConnectAsync(
+            IReadOnlySet<string> commands,
+            bool canInterrupt = false)
         {
             var connection = new TestConnection(commands);
-            connection.Enqueue(Snapshot());
+            connection.Enqueue(Snapshot(canInterrupt));
             var context = new DeterministicSynchronizationContext();
             var model = new ShellPresentationModel(context);
             var coordinator = new ShellCoordinator(connection, new NativeProjectionStore(), model)
