@@ -240,11 +240,11 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
         for command in commands
         if "WINDOWS_APPROVAL_TOAST_ACCEPTED:" in command
     )
-    runtime_stage = next(
+    runtime_registration = next(
         command
         for command in commands
-        if "birkin-toast-runtime" in command
-        and "Get-AuthenticodeSignature" in command
+        if "Get-AuthenticodeSignature" in command
+        and "Add-AppxPackage" in command
     )
     solution_restore = f"dotnet restore ./{SOLUTION}"
     solution_build = f"dotnet build ./{SOLUTION} -c Release --no-restore"
@@ -255,26 +255,27 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert restore in commands
     assert build in commands
     assert commands.index(restore) < commands.index(build)
-    assert "New-LocalUser" in smoke
-    assert "Start-Process" in smoke
-    assert "Add-AppxPackage" in smoke
-    assert "Microsoft.WindowsAppRuntime.2.msix" in smoke
-    assert "Microsoft.WindowsAppRuntime.Main.2.msix" in smoke
-    assert "Microsoft.WindowsAppRuntime.Singleton.2.msix" in smoke
-    assert "Microsoft.WindowsAppRuntime.DDLM.2.msix" in smoke
-    assert "WaitForExit(120000)" in smoke
-    assert "WaitForExit(45000)" in smoke
-    assert "Stop-Process -Id $process.Id -Force" in smoke
+    assert "New-ScheduledTaskPrincipal" in smoke
+    assert "-LogonType Interactive" in smoke
+    assert "-RunLevel Limited" in smoke
+    assert "Register-ScheduledTask" in smoke
+    assert "Register-ObjectEvent" in smoke
+    assert "Wait-Event" in smoke
+    assert "-Timeout 45" in smoke
+    assert "Stop-ScheduledTask" in smoke
+    assert "Unregister-ScheduledTask" in smoke
+    assert "WINDOWS_APPROVAL_TOAST_EXIT:0" in smoke
     assert "Birkin.Native.Notification.Smoke.exe" in smoke
-    assert "Remove-LocalUser" in smoke
     assert "[Guid]::NewGuid()" in smoke
     assert commands.index(build) < commands.index(smoke)
-    assert "microsoft.windowsappsdk.runtime/2.4.0" in runtime_stage
-    assert "Get-AuthenticodeSignature" in runtime_stage
-    assert "O=Microsoft Corporation" in runtime_stage
-    assert "Invoke-WebRequest" not in runtime_stage
-    assert commands.index(build) < commands.index(runtime_stage)
-    assert commands.index(runtime_stage) < commands.index(smoke)
+    assert "microsoft.windowsappsdk.runtime/2.4.0" in runtime_registration
+    assert "Microsoft.WindowsAppRuntime.Singleton.2.msix" in runtime_registration
+    assert "Microsoft.WindowsAppRuntime.DDLM.2.msix" in runtime_registration
+    assert "Get-AuthenticodeSignature" in runtime_registration
+    assert "O=Microsoft Corporation" in runtime_registration
+    assert "Invoke-WebRequest" not in runtime_registration
+    assert commands.index(build) < commands.index(runtime_registration)
+    assert commands.index(runtime_registration) < commands.index(smoke)
     assert commands.index(smoke) < commands.index(solution_restore)
     assert commands.index(solution_restore) < commands.index(solution_build)
 

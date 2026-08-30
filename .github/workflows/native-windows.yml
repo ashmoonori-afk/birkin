@@ -132,7 +132,7 @@ jobs:
           --disable-build-servers
           -p:UseSharedCompilation=false
           -m:1
-      - name: Stage the restored Windows App SDK notification packages
+      - name: Register the restored Windows App SDK notification packages
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -142,14 +142,12 @@ jobs:
             "microsoft.windowsappsdk.runtime\2.4.0\" +
             "tools\MSIX\win10-x64"
           )
-          $stageRoot = Join-Path $env:RUNNER_TEMP "birkin-toast-runtime"
           $packages = @(
             "Microsoft.WindowsAppRuntime.2.msix",
             "Microsoft.WindowsAppRuntime.Main.2.msix",
             "Microsoft.WindowsAppRuntime.Singleton.2.msix",
             "Microsoft.WindowsAppRuntime.DDLM.2.msix"
           )
-          New-Item -ItemType Directory -Path $stageRoot -Force | Out-Null
           foreach ($package in $packages) {
             $source = Join-Path $packageRoot $package
             $signature = Get-AuthenticodeSignature $source
@@ -160,108 +158,84 @@ jobs:
             ) {
               throw "Windows App SDK package signature is invalid: $package"
             }
-            Copy-Item $source (Join-Path $stageRoot $package)
+            Add-AppxPackage -Path $source
           }
       - name: Verify Windows accepts the approval notification
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $user = "birkin-toast-$PID"
-          $password = [Guid]::NewGuid().ToString("N") + "aA1!"
-          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
-          $credential = [PSCredential]::new(
-            "$env:COMPUTERNAME\$user",
-            $securePassword
-          )
           $executable = Resolve-Path (
             "./windows/BirkinNativeApp/tests/" +
             "Birkin.Native.Notification.Smoke/bin/Release/" +
             "net8.0-windows10.0.19041.0/win-x64/" +
             "Birkin.Native.Notification.Smoke.exe"
           )
-          $stdout = Join-Path $env:RUNNER_TEMP "birkin-toast-smoke.out"
-          $stderr = Join-Path $env:RUNNER_TEMP "birkin-toast-smoke.err"
-          $runtimeRoot = Join-Path $env:RUNNER_TEMP "birkin-toast-runtime"
-          $runtimeScript = Join-Path $env:RUNNER_TEMP "install-toast-runtime.ps1"
-          $runtimeStdout = Join-Path $env:RUNNER_TEMP "birkin-runtime.out"
-          $runtimeStderr = Join-Path $env:RUNNER_TEMP "birkin-runtime.err"
-          @'
-          param([Parameter(Mandatory)][string]$PackageRoot)
-          $ErrorActionPreference = "Stop"
-          $packages = @(
-            "Microsoft.WindowsAppRuntime.2.msix",
-            "Microsoft.WindowsAppRuntime.Main.2.msix",
-            "Microsoft.WindowsAppRuntime.Singleton.2.msix",
-            "Microsoft.WindowsAppRuntime.DDLM.2.msix"
+          $suffix = [Guid]::NewGuid().ToString("N")
+          $taskName = "birkin-toast-$suffix"
+          $taskScript = Join-Path $env:RUNNER_TEMP "$taskName.ps1"
+          $resultPath = Join-Path $env:RUNNER_TEMP "$taskName.result"
+          $escapedExecutable = $executable.Path.Replace("'", "''")
+          $escapedResult = $resultPath.Replace("'", "''")
+          @"
+          `$output = & '$escapedExecutable' 2>&1 | Out-String
+          `$exitCode = `$LASTEXITCODE
+          @(`$output, "WINDOWS_APPROVAL_TOAST_EXIT:`$exitCode") |
+            Set-Content '$escapedResult' -Encoding utf8
+          exit `$exitCode
+          "@ | Set-Content $taskScript -Encoding utf8
+          $watcher = [IO.FileSystemWatcher]::new(
+            $env:RUNNER_TEMP,
+            (Split-Path $resultPath -Leaf)
           )
-          foreach ($package in $packages) {
-            Add-AppxPackage -Path (Join-Path $PackageRoot $package)
-          }
-          '@ | Set-Content $runtimeScript -Encoding utf8
-          New-LocalUser -Name $user -Password $securePassword | Out-Null
+          $watcher.NotifyFilter = [IO.NotifyFilters]::FileName
+          $watcher.EnableRaisingEvents = $true
+          $eventSource = "birkin-toast-result-$suffix"
+          $null = Register-ObjectEvent `
+            -InputObject $watcher `
+            -EventName Created `
+            -SourceIdentifier $eventSource
           try {
-            $runtime = Start-Process `
-              -FilePath (Get-Command pwsh).Source `
-              -ArgumentList @(
-                "-NoProfile",
-                "-NonInteractive",
-                "-File",
-                $runtimeScript,
-                "-PackageRoot",
-                $runtimeRoot
-              ) `
-              -Credential $credential `
-              -RedirectStandardOutput $runtimeStdout `
-              -RedirectStandardError $runtimeStderr `
-              -PassThru
-            if (-not $runtime.WaitForExit(120000)) {
-              Stop-Process -Id $runtime.Id -Force
-              $runtime.WaitForExit()
-              throw "Windows App SDK package registration timed out."
+            $action = New-ScheduledTaskAction `
+              -Execute (Get-Command pwsh).Source `
+              -Argument "-NoProfile -NonInteractive -File $taskScript"
+            $principal = New-ScheduledTaskPrincipal `
+              -UserId "$env:USERDOMAIN\$env:USERNAME" `
+              -LogonType Interactive `
+              -RunLevel Limited
+            Register-ScheduledTask `
+              -TaskName $taskName `
+              -Action $action `
+              -Principal $principal | Out-Null
+            Start-ScheduledTask -TaskName $taskName
+            $completed = Wait-Event `
+              -SourceIdentifier $eventSource `
+              -Timeout 45
+            if ($null -eq $completed) {
+              throw "Notification smoke did not finish within 45 seconds."
             }
-            if ($runtime.ExitCode -ne 0) {
-              $runtimeOutput = Get-Content $runtimeStdout -Raw
-              $runtimeErrors = Get-Content $runtimeStderr -Raw
-              Write-Output $runtimeOutput
-              if ($runtimeErrors) {
-                Write-Output $runtimeErrors
-              }
-              throw "Windows App SDK package registration exited $($runtime.ExitCode)."
-            }
-            $process = Start-Process `
-              -FilePath $executable `
-              -Credential $credential `
-              -RedirectStandardOutput $stdout `
-              -RedirectStandardError $stderr `
-              -PassThru
-            if (-not $process.WaitForExit(45000)) {
-              Stop-Process -Id $process.Id -Force
-              $process.WaitForExit()
-              $output = Get-Content $stdout -Raw
-              $errors = Get-Content $stderr -Raw
-              Write-Output $output
-              if ($errors) {
-                Write-Output $errors
-              }
-              throw "Notification smoke did not exit within 45 seconds."
-            }
-            $output = Get-Content $stdout -Raw
-            $errors = Get-Content $stderr -Raw
+            $output = Get-Content $resultPath -Raw
             Write-Output $output
-            if ($errors) {
-              Write-Error $errors
-            }
-            if ($process.ExitCode -ne 0) {
-              throw "Notification smoke exited $($process.ExitCode)."
+            if ($output -notmatch "WINDOWS_APPROVAL_TOAST_EXIT:0") {
+              throw "Notification smoke exited unsuccessfully."
             }
             if ($output -notmatch "WINDOWS_APPROVAL_TOAST_ACCEPTED:") {
               throw "Notification smoke did not emit its acceptance sentinel."
             }
           }
           finally {
-            Remove-LocalUser -Name $user
-            Remove-Item $runtimeScript -Force -ErrorAction SilentlyContinue
-            Remove-Item $runtimeRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Stop-ScheduledTask `
+              -TaskName $taskName `
+              -ErrorAction SilentlyContinue
+            Unregister-ScheduledTask `
+              -TaskName $taskName `
+              -Confirm:$false `
+              -ErrorAction SilentlyContinue
+            Unregister-Event `
+              -SourceIdentifier $eventSource `
+              -ErrorAction SilentlyContinue
+            $watcher.Dispose()
+            Remove-Item $taskScript -Force -ErrorAction SilentlyContinue
+            Remove-Item $resultPath -Force -ErrorAction SilentlyContinue
           }
       - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
