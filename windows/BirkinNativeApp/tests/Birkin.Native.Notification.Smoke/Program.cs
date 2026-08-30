@@ -5,6 +5,36 @@ using Birkin.Native.Shell.Presentation;
 using Microsoft.Windows.AppNotifications;
 
 Trace.Listeners.Add(new ConsoleTraceListener());
+if (args.Length == 0)
+{
+    return RestrictedProcessLauncher.RunCurrentExecutable();
+}
+
+if (args.Length != 3 ||
+    !string.Equals(args[0], "--medium-child", StringComparison.Ordinal) ||
+    !string.Equals(args[1], "--result", StringComparison.Ordinal))
+{
+    Console.Error.WriteLine(
+        "Usage: Birkin.Native.Notification.Smoke [--medium-child --result PATH]");
+    return 64;
+}
+
+using var output = new StreamWriter(args[2], append: false) { AutoFlush = true };
+Console.SetOut(output);
+Console.SetError(output);
+
+var integrityRid = RestrictedProcessLauncher.GetCurrentIntegrityRid();
+var integrity = RestrictedProcessLauncher.IsMediumIntegrity(integrityRid)
+    ? "medium"
+    : "unexpected";
+Console.WriteLine(
+    $"WINDOWS_APPROVAL_TOAST_INTEGRITY:{integrity};rid=0x{integrityRid:x}");
+if (!RestrictedProcessLauncher.IsMediumIntegrity(integrityRid))
+{
+    Console.Error.WriteLine("The notification smoke child is not medium integrity.");
+    return 4;
+}
+
 using var identity = WindowsIdentity.GetCurrent();
 var principal = new WindowsPrincipal(identity);
 var supported = AppNotificationManager.IsSupported();

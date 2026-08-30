@@ -34,6 +34,8 @@ NOTIFICATION_SMOKE = (
     "Birkin.Native.Notification.Smoke.csproj"
 )
 NOTIFICATION_SMOKE_PROJECT = Path(__file__).parents[1] / NOTIFICATION_SMOKE
+NOTIFICATION_SMOKE_ROOT = NOTIFICATION_SMOKE_PROJECT.parent
+RESTRICTED_PROCESS_LAUNCHER = NOTIFICATION_SMOKE_ROOT / "RestrictedProcessLauncher.cs"
 LOCKED_SYNC = "uv sync --frozen --all-extras --all-groups"
 LOCKED_WINDOWS_PYTHON = "./.venv/Scripts/python.exe"
 ENSURE_LOCKED_WINDOWS_PIP = f"{LOCKED_WINDOWS_PYTHON} -m ensurepip --upgrade"
@@ -255,18 +257,11 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert restore in commands
     assert build in commands
     assert commands.index(restore) < commands.index(build)
-    assert "New-ScheduledTaskPrincipal" in smoke
-    assert "-LogonType Interactive" in smoke
-    assert "-RunLevel Limited" in smoke
-    assert "Register-ScheduledTask" in smoke
-    assert "Register-ObjectEvent" in smoke
-    assert "Wait-Event" in smoke
-    assert "-Timeout 45" in smoke
-    assert "Stop-ScheduledTask" in smoke
-    assert "Unregister-ScheduledTask" in smoke
-    assert "WINDOWS_APPROVAL_TOAST_EXIT:0" in smoke
+    assert "& $executable" in smoke
+    assert "WINDOWS_APPROVAL_TOAST_INTEGRITY:medium" in smoke
+    assert "New-ScheduledTaskPrincipal" not in smoke
+    assert "Register-ScheduledTask" not in smoke
     assert "Birkin.Native.Notification.Smoke.exe" in smoke
-    assert "[Guid]::NewGuid()" in smoke
     assert commands.index(build) < commands.index(smoke)
     assert "microsoft.windowsappsdk.runtime/2.4.0" in runtime_registration
     assert "Microsoft.WindowsAppRuntime.Singleton.2.msix" in runtime_registration
@@ -278,6 +273,17 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert commands.index(runtime_registration) < commands.index(smoke)
     assert commands.index(smoke) < commands.index(solution_restore)
     assert commands.index(solution_restore) < commands.index(solution_build)
+
+
+def test_notification_smoke_creates_a_lua_process_from_the_runner_token() -> None:
+    launcher = RESTRICTED_PROCESS_LAUNCHER.read_text(encoding="utf-8")
+
+    assert "CreateRestrictedToken" in launcher
+    assert "LuaToken" in launcher
+    assert "CreateProcessAsUser" in launcher
+    assert "inheritHandles: false" in launcher
+    assert "WaitForSingleObject" in launcher
+    assert "TerminateProcess" in launcher
 
 
 def test_notification_smoke_uses_installed_runtime_package_graph() -> None:

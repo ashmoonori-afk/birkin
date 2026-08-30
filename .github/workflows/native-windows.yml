@@ -170,72 +170,20 @@ jobs:
             "net8.0-windows10.0.19041.0/win-x64/" +
             "Birkin.Native.Notification.Smoke.exe"
           )
-          $suffix = [Guid]::NewGuid().ToString("N")
-          $taskName = "birkin-toast-$suffix"
-          $taskScript = Join-Path $env:RUNNER_TEMP "$taskName.ps1"
-          $resultPath = Join-Path $env:RUNNER_TEMP "$taskName.result"
-          $escapedExecutable = $executable.Path.Replace("'", "''")
-          $escapedResult = $resultPath.Replace("'", "''")
-          @"
-          `$output = & '$escapedExecutable' 2>&1 | Out-String
-          `$exitCode = `$LASTEXITCODE
-          @(`$output, "WINDOWS_APPROVAL_TOAST_EXIT:`$exitCode") |
-            Set-Content '$escapedResult' -Encoding utf8
-          exit `$exitCode
-          "@ | Set-Content $taskScript -Encoding utf8
-          $watcher = [IO.FileSystemWatcher]::new(
-            $env:RUNNER_TEMP,
-            (Split-Path $resultPath -Leaf)
-          )
-          $watcher.NotifyFilter = [IO.NotifyFilters]::FileName
-          $watcher.EnableRaisingEvents = $true
-          $eventSource = "birkin-toast-result-$suffix"
-          $null = Register-ObjectEvent `
-            -InputObject $watcher `
-            -EventName Created `
-            -SourceIdentifier $eventSource
-          try {
-            $action = New-ScheduledTaskAction `
-              -Execute (Get-Command pwsh).Source `
-              -Argument "-NoProfile -NonInteractive -File $taskScript"
-            $principal = New-ScheduledTaskPrincipal `
-              -UserId "$env:USERDOMAIN\$env:USERNAME" `
-              -LogonType Interactive `
-              -RunLevel Limited
-            Register-ScheduledTask `
-              -TaskName $taskName `
-              -Action $action `
-              -Principal $principal | Out-Null
-            Start-ScheduledTask -TaskName $taskName
-            $completed = Wait-Event `
-              -SourceIdentifier $eventSource `
-              -Timeout 45
-            if ($null -eq $completed) {
-              throw "Notification smoke did not finish within 45 seconds."
-            }
-            $output = Get-Content $resultPath -Raw
-            Write-Output $output
-            if ($output -notmatch "WINDOWS_APPROVAL_TOAST_EXIT:0") {
-              throw "Notification smoke exited unsuccessfully."
-            }
-            if ($output -notmatch "WINDOWS_APPROVAL_TOAST_ACCEPTED:") {
-              throw "Notification smoke did not emit its acceptance sentinel."
-            }
+          $output = & $executable 2>&1 | Out-String
+          $exitCode = $LASTEXITCODE
+          Write-Output $output
+          if ($exitCode -ne 0) {
+            throw "Notification smoke exited $exitCode."
           }
-          finally {
-            Stop-ScheduledTask `
-              -TaskName $taskName `
-              -ErrorAction SilentlyContinue
-            Unregister-ScheduledTask `
-              -TaskName $taskName `
-              -Confirm:$false `
-              -ErrorAction SilentlyContinue
-            Unregister-Event `
-              -SourceIdentifier $eventSource `
-              -ErrorAction SilentlyContinue
-            $watcher.Dispose()
-            Remove-Item $taskScript -Force -ErrorAction SilentlyContinue
-            Remove-Item $resultPath -Force -ErrorAction SilentlyContinue
+          if (
+            $output -notmatch
+              "WINDOWS_APPROVAL_TOAST_INTEGRITY:medium"
+          ) {
+            throw "Notification smoke did not prove medium integrity."
+          }
+          if ($output -notmatch "WINDOWS_APPROVAL_TOAST_ACCEPTED:") {
+            throw "Notification smoke did not emit its acceptance sentinel."
           }
       - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
