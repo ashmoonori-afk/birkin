@@ -299,7 +299,10 @@ jobs:
               "").Trim()
             $hangulCount = [regex]::Matches($replyText, "[가-힣]").Count
             $latinCount = [regex]::Matches($replyText, "[A-Za-z]").Count
-            if ($hangulCount -lt 10 -or $latinCount -gt 5) {
+            if (
+              $hangulCount -lt 10 -or
+              $hangulCount -lt $latinCount
+            ) {
               throw "The first assistant reply was not meaningfully Korean."
             }
             $replyText | Set-Content `

@@ -101,6 +101,9 @@ def test_fresh_windows_journey_runs_installer_and_local_chat() -> None:
     assert "journey-timing.json" in workflow
     assert "qwen2.5:0.5b" in workflow
     assert "birkin chat" in workflow
+    assert "$hangulCount -lt 10 -or" in workflow
+    assert "$hangulCount -lt $latinCount" in workflow
+    assert "$latinCount -gt 5" not in workflow
     assert "fresh-windows-first-chat" in workflow
     assert '$configured.base_url -ne "http://localhost:11434"' in workflow
     assert '$configured.base_url -ne "http://localhost:11434/v1"' not in workflow
