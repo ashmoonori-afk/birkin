@@ -28,6 +28,10 @@ PORTABLE_FILTER = "TestCategory!=LiveBridge&TestCategory!=WindowsOnly"
 ACTION_PIN = re.compile(r"^[^@]+@[0-9a-f]{40}$")
 GOLDEN_ROOT = "macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVectors"
 SOLUTION = "windows/BirkinNativeApp/BirkinNativeApp.sln"
+NOTIFICATION_SMOKE = (
+    "windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/"
+    "Birkin.Native.Notification.Smoke.csproj"
+)
 LOCKED_SYNC = "uv sync --frozen --all-extras --all-groups"
 LOCKED_WINDOWS_PYTHON = "./.venv/Scripts/python.exe"
 ENSURE_LOCKED_WINDOWS_PIP = f"{LOCKED_WINDOWS_PYTHON} -m ensurepip --upgrade"
@@ -217,6 +221,27 @@ def test_wpf_job_prepares_locked_python_before_unfiltered_full_release_solution(
         f'dotnet test ./{SOLUTION} -c Release --no-build --logger "trx;LogFilePrefix=native-windows"'
     ]
     assert "--filter" not in test_commands[0]
+
+
+def test_wpf_job_executes_real_windows_notification_smoke() -> None:
+    commands = [
+        _normalized(command)
+        for command in _commands(_job(_workflow(), "wpf-windows"))
+    ]
+    restore = f"dotnet restore ./{NOTIFICATION_SMOKE}"
+    build = f"dotnet build ./{NOTIFICATION_SMOKE} -c Release --no-restore"
+    run = (
+        f"dotnet run --project ./{NOTIFICATION_SMOKE} "
+        "-c Release --no-build"
+    )
+    solution_build = f"dotnet build ./{SOLUTION} -c Release --no-restore"
+
+    assert restore in commands
+    assert build in commands
+    assert run in commands
+    assert commands.index(restore) < commands.index(build)
+    assert commands.index(build) < commands.index(run)
+    assert commands.index(run) < commands.index(solution_build)
 
 
 def test_fixture_freshness_regenerates_every_normative_vector() -> None:

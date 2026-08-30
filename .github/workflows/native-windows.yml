@@ -122,6 +122,17 @@ jobs:
           dotnet-version: "8.x"
       - run: uv sync --frozen --all-extras --all-groups
       - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
+      - run: >-
+          dotnet restore
+          ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
+      - run: >-
+          dotnet build
+          ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
+          -c Release --no-restore
+      - run: >-
+          dotnet run
+          --project ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
+          -c Release --no-build
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
       - run: >-
           dotnet test ./windows/BirkinNativeApp/BirkinNativeApp.sln
