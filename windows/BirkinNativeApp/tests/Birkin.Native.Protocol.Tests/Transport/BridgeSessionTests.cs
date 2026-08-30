@@ -173,13 +173,14 @@ public sealed class BridgeSessionTests
         Assert.AreEqual(NativeProjectionRecoveryState.ReplayInFlight, store.RecoveryState);
         Assert.IsFalse(store.IsMutationAuthorityAvailable);
 
-        var live = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        store.RecoveryStateChanged += state =>
+        var mutationAuthorityRestored = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        store.MutationAuthorityChanged += available =>
         {
-            if (state == NativeProjectionRecoveryState.Live) live.TrySetResult();
+            if (available) mutationAuthorityRestored.TrySetResult();
         };
         await server.SendAsync(Snapshot("replacement-snapshot"));
-        await live.Task.WaitAsync(deadline.Token);
+        await mutationAuthorityRestored.Task.WaitAsync(deadline.Token);
 
         Assert.AreEqual(NativeProjectionRecoveryState.Live, store.RecoveryState);
         Assert.IsTrue(store.IsMutationAuthorityAvailable);

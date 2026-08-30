@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Birkin.Native.App.Tests.Support;
 using Birkin.Native.Protocol.Framing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -26,9 +27,6 @@ public sealed class OfficeWorkflowJourneyTests
             var draft = OfficeWorkflowViewHarness.Find<TextBox>(
                 shell,
                 "conversation.draft");
-            var approve = OfficeWorkflowViewHarness.Find<Button>(
-                shell,
-                "approval.approve.approval-7");
             draft.Text = "기준 파일과 후보 파일을 비교하고 보고서를 작성해 주세요.";
 
             // When
@@ -37,8 +35,16 @@ public sealed class OfficeWorkflowJourneyTests
                 "conversation.send"
             ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
             await fixture.ResolveLastAsync();
+            await shell.Dispatcher.InvokeAsync(
+                shell.UpdateLayout,
+                DispatcherPriority.Loaded,
+                deadline.Token);
+            var approve = OfficeWorkflowViewHarness.Find<Button>(
+                shell,
+                "approval.approve.approval-7");
             Assert.IsTrue(approve.IsEnabled);
-            approve.RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
+            approve.RaiseEvent(
+                new System.Windows.RoutedEventArgs(Button.ClickEvent));
 
             // Then
             CollectionAssert.AreEqual(new[] { "chat.send", "approval.answer" }, fixture.Connection.Sent.Select(item => item.CommandType).ToArray());
