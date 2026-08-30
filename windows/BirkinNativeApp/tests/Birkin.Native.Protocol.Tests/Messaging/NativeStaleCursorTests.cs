@@ -33,6 +33,8 @@ public sealed class NativeStaleCursorTests
         Assert.AreEqual("E_STALE_CURSOR", refusal.Code);
         Assert.AreEqual("stale-command", refusal.CommandId);
         Assert.AreEqual(9L, refusal.CurrentCursor);
+        Assert.AreEqual("bounded refusal", refusal.Message);
+        Assert.IsFalse(refusal.Retryable);
         Assert.AreEqual("caller-decides-next", String(Object(nextWritten.Body, "command"), "command_id"));
     }
 

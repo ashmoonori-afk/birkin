@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from birkin.office.errors import DocumentError, DocumentErrorCode
+from birkin.office.presentation import format_preview_replacement
 from birkin.office.preview_semantics import summarize_operations
 from birkin.office.service import DocumentService
 
@@ -33,12 +34,17 @@ def test_summaries_describe_each_cell_replacement_from_structured_nodes() -> Non
     # When: the cell operation is summarized.
     summaries = summarize_operations(preview, operations)
 
-    # Then: one complete, human-readable change item is returned.
-    assert len(summaries) == len(operations)
-    assert summaries[0]["location"] == "Revenue!B2"
-    assert summaries[0]["before"] == "42"
-    assert summaries[0]["after"] == "77"
-    assert summaries[0]["summary"]
+    # Then: machine data stays structured until the Korean presentation boundary.
+    assert summaries == [
+        {
+            "location": "Revenue!B2",
+            "before": "42",
+            "after": "77",
+        }
+    ]
+    assert format_preview_replacement(summaries[0]) == (
+        "Revenue!B2 변경: 42 → 77"
+    )
 
 
 def test_summaries_use_a_real_structured_preview_for_paragraph_replacements(
@@ -83,10 +89,13 @@ def test_summaries_use_a_real_structured_preview_for_paragraph_replacements(
 
     # Then: its location and before/after values are preserved without a renderer error.
     assert len(summaries) == len(operations)
-    assert summaries[0]["location"] == "docx paragraph 2"
-    assert summaries[0]["before"] == "Original paragraph"
-    assert summaries[0]["after"] == "Revised paragraph"
-    assert summaries[0]["summary"]
+    assert summaries == [
+        {
+            "location": "docx paragraph 2",
+            "before": "Original paragraph",
+            "after": "Revised paragraph",
+        }
+    ]
 
 
 @pytest.mark.parametrize(

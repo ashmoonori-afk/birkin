@@ -144,6 +144,10 @@ class FixtureRuntimeWorkspaceAdapter:
                     "approval_id": "qa-approval",
                     "decision": "approve",
                     "outcome": "approved",
+                    "receipt": (
+                        '{"destination":"fixture://approved-output",'
+                        '"status":"executed"}'
+                    ),
                 },
             )
             return self._reply(

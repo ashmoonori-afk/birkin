@@ -10,6 +10,11 @@ public sealed record MutationAuthoritySnapshot(
 
 public sealed record MutationAvailability(bool IsEnabled, string? DisabledReason)
 {
+    public string? DisabledReasonText =>
+        DisabledReason is { } code
+            ? KoreanDecisionText.Error(code).UserMessage
+            : null;
+
     public static MutationAvailability ForCommand(
         string commandType,
         MutationAuthoritySnapshot authority)

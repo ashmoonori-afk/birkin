@@ -27,7 +27,7 @@ from . import (
     store,
 )
 from .agent import Agent
-from .llm import LLMClient, LLMError, build_client
+from .llm import LLMClient, LLMError, LLMStatus, build_client
 from .profile_actions import ProfileActions
 from .profile_prompt import render_profile_blocks
 from .profile_review import ProfileReviewService, build_profile_review
@@ -798,7 +798,8 @@ def _build_profile_review_service(
 
 
 def build_session(cfg: Optional[dict[str, Any]] = None,
-                  on_event: Optional[Callable[[str, dict[str, Any]], None]] = None
+                  on_event: Optional[Callable[[str, dict[str, Any]], None]] = None,
+                  on_status: Callable[[LLMStatus], None] | None = None,
                   ) -> Session:
     cfg = dict(cfg or config.load_config())
     cfg.setdefault("session_id", uuid.uuid4().hex)
@@ -816,6 +817,7 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
             f"or run `birkin setup`.")
 
     client = build_client(cfg, api_key)
+    client._status = on_status
     skills = build_manager(cfg)
     memory = Memory(cfg)
     checkpoint_session = [str(cfg["session_id"])]

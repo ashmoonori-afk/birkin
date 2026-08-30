@@ -50,9 +50,10 @@ def request_rollback(
     rollback = prepare_rollback(job_id)
     queued = approvals.propose(
         category="office_rollback",
-        title="Rollback Office export",
+        title="Office 내보내기 되돌리기",
         description=(
-            f"Restore the pre-export destination state at {rollback['destination']}."
+            "내보내기 전 상태로 저장 위치를 복원합니다: "
+            f"{rollback['destination']}"
         ),
         payload=rollback,
         cfg=cfg or {},

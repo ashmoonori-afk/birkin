@@ -6,7 +6,7 @@ import pytest
 
 from birkin import llm
 from birkin.failover import FailoverClient
-from birkin.llm import LLMError
+from birkin.llm import LLMError, LLMStatus
 
 
 class Stub:
@@ -128,13 +128,19 @@ def test_attribute_writes_reach_both_clients():
     primary, fallback, client = _pair()
     client.temperature = 0.2
     client.cli_access = "full"
-    said: list[str] = []
+    said: list[LLMStatus] = []
     client._status = said.append
+    status = LLMStatus(
+        kind="retrying",
+        provider="anthropic",
+        model="primary-model",
+        reason="network",
+    )
     for c in (primary, fallback):
         assert c.temperature == 0.2
         assert c.cli_access == "full"
-        c._status("ping")                    # both sinks reach the same list
-    assert said == ["ping", "ping"]
+        c._status(status)                    # both sinks reach the same list
+    assert said == [status, status]
 
 
 def test_reads_report_the_active_client():
@@ -146,10 +152,20 @@ def test_reads_report_the_active_client():
 
 def test_switch_is_announced_through_the_status_sink():
     primary, fallback, client = _pair(LLMError("x", status=429, kind="rate_limit"))
-    said: list[str] = []
+    said: list[LLMStatus] = []
     client._status = said.append
     client.complete(system="s", messages=[])
-    assert said and "openai/fallback-model" in said[0] and "rate_limit" in said[0]
+    assert said == [
+        LLMStatus(
+            kind="failover",
+            provider="anthropic",
+            model="primary-model",
+            reason="rate_limit",
+            retry_in_seconds=300,
+            fallback_provider="openai",
+            fallback_model="fallback-model",
+        )
+    ]
 
 
 # -- build_client wiring ---------------------------------------------------

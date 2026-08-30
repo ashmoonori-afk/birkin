@@ -41,8 +41,8 @@ public partial class DiffView : UserControl, INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public string ApprovalStateText => _canonicalDiff?.ApprovalState == OfficeDiffApprovalState.Approved
-        ? "APPROVED"
-        : "BEFORE APPROVAL";
+        ? "승인됨"
+        : "승인 전";
 
     public IReadOnlyList<OfficeDiffRowPresentation> DiffRows
     {

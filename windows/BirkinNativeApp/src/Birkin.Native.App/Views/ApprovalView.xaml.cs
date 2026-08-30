@@ -16,7 +16,11 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
     private IReadOnlyList<PanelItemPresentation> _approvalRows = [];
     private IReadOnlyList<PanelItemPresentation> _decidedApprovalRows = [];
 
-    public ApprovalView() => InitializeComponent();
+    public ApprovalView()
+    {
+        InitializeComponent();
+        ConfirmDecision = ConfirmWithDialog;
+    }
 
     public ApprovalView(ShellPresentationModel model, ShellCoordinator coordinator) : this()
     {
@@ -29,8 +33,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
-    internal Func<PanelItemPresentation, ApprovalDecision, bool> ConfirmDecision { get; set; } =
-        ConfirmWithDialog;
+    internal Func<PanelItemPresentation, ApprovalDecision, bool> ConfirmDecision { get; set; }
 
     public IReadOnlyList<PanelItemPresentation> ApprovalRows
     {
@@ -131,14 +134,20 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
-    private static bool ConfirmWithDialog(
+    private bool ConfirmWithDialog(
         PanelItemPresentation card,
         ApprovalDecision decision)
     {
-        var action = decision == ApprovalDecision.Approve ? "approve" : "reject";
+        var action = ResourceText(
+            decision == ApprovalDecision.Approve
+                ? "ApprovalConfirmApproveAction"
+                : "ApprovalConfirmRejectAction");
         var result = MessageBox.Show(
-            ConfirmationMessage(card, action),
-            "Confirm approval decision",
+            ConfirmationMessage(
+                card,
+                action,
+                ResourceText("ApprovalNoDestination")),
+            ResourceText("ApprovalConfirmTitle"),
             MessageBoxButton.YesNo,
             decision == ApprovalDecision.Approve
                 ? MessageBoxImage.Warning
@@ -148,11 +157,16 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
 
     internal static string ConfirmationMessage(
         PanelItemPresentation card,
-        string action) =>
-        $"Confirm {action}?\n\n"
+        string action,
+        string noDestination) =>
+        $"{action}하시겠습니까?\n\n"
         + $"{card.Summary}\n"
-        + $"{card.Destination ?? "No destination"}\n"
+        + $"{card.Destination ?? noDestination}\n"
         + card.OverwriteLabel;
+
+    private string ResourceText(string key) =>
+        FindResource(key) as string
+        ?? throw new InvalidOperationException($"missing Korean string resource: {key}");
 
     private void ModelPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {

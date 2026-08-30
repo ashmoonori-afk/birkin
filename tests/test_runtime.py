@@ -10,6 +10,7 @@ import time
 import pytest
 
 from birkin import config, curator, harness, selfimprove, store
+from birkin.llm import LLMStatus
 from birkin.runtime import ConfigError, build_session
 
 
@@ -27,6 +28,25 @@ def test_build_session_with_cli_provider_no_key_succeeds():
     assert s.agent is not None
     assert s.skills is not None
     assert s.memory is not None
+
+
+def test_build_session_wires_status_sink_to_client():
+    seen: list[LLMStatus] = []
+
+    session = build_session(
+        {"provider": "codex-cli", "model": ""},
+        on_status=seen.append,
+    )
+    status = LLMStatus(
+        kind="retrying",
+        provider="codex-cli",
+        model="",
+        reason="network",
+    )
+
+    assert session.client._status is not None
+    session.client._status(status)
+    assert seen == [status]
 
 
 def test_build_session_assigns_a_stable_unique_harness_session_id():

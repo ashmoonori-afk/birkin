@@ -284,7 +284,7 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert requested.payload["sealed"] is True
     assert requested.payload["requester"] == "native:office-journey"
     assert requested.payload["rejection_result"] == (
-        "Rejecting leaves the source unchanged and writes no output."
+        "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다."
     )
     description = cast(str, requested.payload["description"])
     assert "A1" in description

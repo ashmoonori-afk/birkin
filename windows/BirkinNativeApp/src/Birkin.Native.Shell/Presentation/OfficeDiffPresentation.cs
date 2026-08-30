@@ -36,7 +36,7 @@ public static class OfficeDiffPresentationMapper
             && Text(diff, "right") is { } newValue
             && !string.Equals(oldValue, newValue, StringComparison.Ordinal))
         {
-            rows = [new OfficeDiffRowPresentation("Value", oldValue, newValue)];
+            rows = [new OfficeDiffRowPresentation("값", oldValue, newValue)];
         }
 
         return rows.Count == 0
@@ -65,11 +65,11 @@ public static class OfficeDiffPresentationMapper
         var arrow = summary.IndexOf(" -> ", StringComparison.Ordinal);
         if (arrow < 0)
         {
-            return new OfficeDiffRowPresentation("Projected difference", string.Empty, summary);
+            return new OfficeDiffRowPresentation("예상 변경", string.Empty, summary);
         }
 
         var labelEnd = summary.LastIndexOf(": ", arrow, StringComparison.Ordinal);
-        var label = labelEnd < 0 ? "Change" : summary[..labelEnd];
+        var label = labelEnd < 0 ? "변경" : summary[..labelEnd];
         var oldStart = labelEnd < 0 ? 0 : labelEnd + 2;
         return new OfficeDiffRowPresentation(
             label,

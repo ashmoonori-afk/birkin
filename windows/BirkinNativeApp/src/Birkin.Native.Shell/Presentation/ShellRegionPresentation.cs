@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text;
 
 namespace Birkin.Native.Shell.Presentation;
@@ -6,7 +5,7 @@ namespace Birkin.Native.Shell.Presentation;
 public sealed record MutationAvailabilityPresentation(bool IsEnabled, string DisabledReason)
 {
     public static MutationAvailabilityPresentation PhaseOne { get; } =
-        new(false, "Windows phase 1 is read-only.");
+        new(false, "현재 Windows 작업 변경 경로는 읽기 전용입니다.");
 }
 
 public sealed record ComposerPresentation(
@@ -20,7 +19,10 @@ public sealed record ConversationRowPresentation(
     string Kind,
     string Text,
     string ActorId,
-    long? Cursor);
+    long? Cursor)
+{
+    public string KindLabel => KoreanDecisionText.ConversationKind(Kind);
+}
 
 public sealed record WorkingMemoryRowPresentation(
     string Label,
@@ -68,23 +70,14 @@ public sealed record PanelItemPresentation(
         && expiry > DateTimeOffset.UtcNow;
     public bool HasTrustDetails =>
         HasSourceFilename || HasDestination || HasAuthorityDigest;
-    public string CategoryLabel => (Category ?? "unknown").Replace('_', ' ');
-    public string RiskLabel => $"{Risk?.ToUpperInvariant() ?? "UNKNOWN"} RISK";
-    public string SealedLabel => Sealed ? "SEALED" : "NOT SEALED";
-    public string OutcomeLabel => Status switch
-    {
-        "approved" => "Approved",
-        "rejected" => "Rejected",
-        "answered_elsewhere" => "Answered elsewhere",
-        "expired" => "Expired",
-        "failed" => "Failed",
-        _ => CultureInfo.InvariantCulture.TextInfo.ToTitleCase(
-            (Status ?? "pending").Replace('_', ' ')),
-    };
+    public string CategoryLabel => KoreanDecisionText.ApprovalCategory(Category);
+    public string RiskLabel => KoreanDecisionText.ApprovalRisk(Risk);
+    public string SealedLabel => KoreanDecisionText.ApprovalSeal(Sealed);
+    public string OutcomeLabel => KoreanDecisionText.ApprovalOutcome(Status);
     public string? DestinationDisplay => Abbreviate(Destination, 48);
     public string? AuthorityDigestDisplay => Abbreviate(AuthorityDigest, 27);
-    public string RequesterLabel => $"REQUESTED BY: {Requester ?? "Unavailable"}";
-    public string ExpiryLabel => $"EXPIRES: {ExpiresAt ?? "Not specified"}";
+    public string RequesterLabel => $"요청자: {Requester ?? "확인할 수 없음"}";
+    public string ExpiryLabel => $"만료: {ExpiresAt ?? "미지정"}";
     public string RollbackAvailabilityLabel => ReceiptExpiry switch
     {
         null => "되돌리기 기한을 확인할 수 없습니다.",
@@ -96,7 +89,7 @@ public sealed record PanelItemPresentation(
             $"새 파일은 {expiry.Month}월 {expiry.Day}일까지 되돌리기 가능",
     };
     public string RejectionResultLabel =>
-        RejectionResult ?? "Rejection outcome unavailable";
+        RejectionResult ?? "거부하면 이 작업은 실행되지 않습니다.";
     public string CardAutomationId => AutomationId("card");
     public string RiskAutomationId => AutomationId("risk");
     public string SealedAutomationId => AutomationId("sealed");
@@ -120,12 +113,8 @@ public sealed record PanelItemPresentation(
     public string OutcomeAutomationId => AutomationId("outcome");
     public string ReceiptReferenceAutomationId =>
         AutomationId("receipt-reference");
-    public string OverwriteLabel => OverwriteApproved switch
-    {
-        true => "WARNING: Existing file may be replaced",
-        false => "SAFE: Existing file must not already exist",
-        null => "UNKNOWN: Overwrite authority unavailable",
-    };
+    public string OverwriteLabel =>
+        KoreanDecisionText.ApprovalOverwrite(OverwriteApproved);
 
     private string AutomationId(string part) =>
         $"approval.{part}.{Id ?? "unknown"}";
