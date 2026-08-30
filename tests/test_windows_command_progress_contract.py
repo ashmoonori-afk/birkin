@@ -37,7 +37,7 @@ def test_command_progress_replaces_raw_enum_with_korean_presentation() -> None:
     progress = _element("conversation.command-progress")
     label = _element("conversation.command-progress-label")
 
-    assert "OfficeWorkflow.CommandState" not in source
+    assert "{Binding OfficeWorkflow.CommandState}" not in source
     assert (
         progress.attrib[f"{{{AUTOMATION}}}AutomationProperties.Name"]
         == "{Binding OfficeWorkflow.CommandProgressText}"

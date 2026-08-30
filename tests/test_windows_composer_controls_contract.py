@@ -56,7 +56,7 @@ def test_stop_button_binds_canonical_interrupt_state_and_handler() -> None:
     assert stop.attrib["Click"] == "StopClicked"
     assert (
         stop.attrib[f"{{{AUTOMATION}}}AutomationProperties.Name"]
-        == "Stop response"
+        == "응답 중지"
     )
     assert [child.attrib[automation_id] for child in actions] == [
         "conversation.stop",

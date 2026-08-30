@@ -8,6 +8,12 @@
     <Grid>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <DockPanel Margin="0,0,0,10">
+            <TextBlock DockPanel.Dock="Right"
+                       Text="{Binding OfficeWorkflow.CommandStateText}"
+                       Foreground="{StaticResource AccentBrush}"
+                       VerticalAlignment="Center"
+                       Margin="10,0,0,0"
+                       automation:AutomationProperties.AutomationId="conversation.command-state" />
             <StackPanel DockPanel.Dock="Right"
                         Orientation="Horizontal"
                         VerticalAlignment="Center"
@@ -101,8 +107,8 @@
                                 Orientation="Horizontal"
                                 automation:AutomationProperties.AutomationId="conversation.actions"
                                 automation:AutomationProperties.Name="대화 동작">
-                        <Button x:Name="StopButton" Content="중지" Margin="0,0,8,0" automation:AutomationProperties.AutomationId="conversation.stop" automation:AutomationProperties.Name="응답 중지" automation:AutomationProperties.HelpText="현재 응답을 중지합니다." Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationInterrupt.IsEnabled}" Click="StopClicked" />
-                        <Button x:Name="SendButton" Content="보내기" automation:AutomationProperties.AutomationId="conversation.send" automation:AutomationProperties.Name="메시지 보내기" automation:AutomationProperties.HelpText="Ctrl+Enter로 전송합니다." automation:AutomationProperties.AcceleratorKey="Ctrl+Enter" ToolTip="Ctrl+Enter" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" Click="SendClicked" />
+                        <Button x:Name="StopButton" Content="중지" Margin="0,0,8,0" automation:AutomationProperties.AutomationId="conversation.stop" automation:AutomationProperties.Name="응답 중지" automation:AutomationProperties.HelpText="현재 응답을 중지합니다." Style="{StaticResource ComposerActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationInterrupt.IsEnabled}" Click="StopClicked" />
+                        <Button x:Name="SendButton" Content="보내기" automation:AutomationProperties.AutomationId="conversation.send" automation:AutomationProperties.Name="메시지 보내기" automation:AutomationProperties.HelpText="Ctrl+Enter로 전송합니다." automation:AutomationProperties.AcceleratorKey="Ctrl+Enter" ToolTip="Ctrl+Enter" Style="{StaticResource ComposerActionStyle}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" Click="SendClicked" />
                     </StackPanel>
                     <TextBlock Text="{Binding OfficeWorkflow.Availability.ConversationSend.DisabledReasonText}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" automation:AutomationProperties.AutomationId="composer.read-only-caption" />
                 </DockPanel>

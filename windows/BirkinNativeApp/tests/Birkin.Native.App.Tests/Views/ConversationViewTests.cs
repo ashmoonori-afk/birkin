@@ -64,7 +64,7 @@ public sealed class ConversationViewTests
 
             Assert.IsTrue(stop.IsEnabled);
             Assert.AreEqual(1D, stop.Opacity);
-            Assert.AreEqual("Stop response", AutomationProperties.GetName(stop));
+            Assert.AreEqual("응답 중지", AutomationProperties.GetName(stop));
             CollectionAssert.AreEqual(
                 new[] { "conversation.stop", "conversation.send" },
                 actions.Children
@@ -256,25 +256,43 @@ public sealed class ConversationViewTests
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
             var view = new ConversationView(fixture.Model, fixture.Coordinator);
-            OfficeWorkflowViewHarness.Layout(view);
+            var window = new Window { Content = view };
+            window.Show();
 
-            fixture.Model.PresentOfficeWorkflow(
-                OfficeWorkflowPresentation.Empty.Begin("command-progress", "chat.send"));
+            try
+            {
+                OfficeWorkflowViewHarness.Layout(view);
+                fixture.Model.PresentOfficeWorkflow(
+                    OfficeWorkflowPresentation.Empty.Begin(
+                        "command-progress",
+                        "chat.send"));
+                view.Dispatcher.Invoke(
+                    () => { },
+                    System.Windows.Threading.DispatcherPriority.ContextIdle);
 
-            var progress = OfficeWorkflowViewHarness.Find<StackPanel>(
-                view,
-                "conversation.command-progress");
-            var label = OfficeWorkflowViewHarness.Find<TextBlock>(
-                view,
-                "conversation.command-progress-label");
-            var spinner = OfficeWorkflowViewHarness.Find<Path>(
-                view,
-                "conversation.command-progress-spinner");
+                var progress = OfficeWorkflowViewHarness.Find<StackPanel>(
+                    view,
+                    "conversation.command-progress");
+                var label = OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "conversation.command-progress-label");
+                var spinner = OfficeWorkflowViewHarness.Find<Path>(
+                    view,
+                    "conversation.command-progress-spinner");
 
-            Assert.AreEqual(System.Windows.Visibility.Visible, progress.Visibility);
-            Assert.AreEqual("명령을 전송하고 있습니다.", label.Text);
-            Assert.IsInstanceOfType<RotateTransform>(spinner.RenderTransform);
-            Assert.IsTrue(spinner.RenderTransform.HasAnimatedProperties);
+                Assert.AreEqual(
+                    System.Windows.Visibility.Visible,
+                    progress.Visibility);
+                Assert.AreEqual("명령을 전송하고 있습니다.", label.Text);
+                Assert.IsInstanceOfType<RotateTransform>(
+                    spinner.RenderTransform);
+                Assert.IsTrue(
+                    spinner.RenderTransform.HasAnimatedProperties);
+            }
+            finally
+            {
+                window.Close();
+            }
         });
     }
 }
