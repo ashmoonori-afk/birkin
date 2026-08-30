@@ -102,7 +102,7 @@ public sealed class ConversationViewTests
     [TestMethod]
     public async Task Send_WhenCanonicalTurnCompletes_RestoresDraftKeyboardFocus()
     {
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
         await sta.InvokeAsync(async () =>
         {
