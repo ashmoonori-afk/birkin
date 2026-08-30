@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Windows.Controls;
 using Birkin.Native.App.Tests.Support;
+using Birkin.Native.App.Views;
 using Birkin.Native.Protocol.Framing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -25,6 +26,10 @@ public sealed class OfficeWorkflowJourneyTests
             OfficeWorkflowViewHarness.Layout(window);
             try
             {
+                var approvals = OfficeWorkflowViewHarness.Find<ApprovalView>(
+                    window,
+                    "approval.workflow");
+                approvals.ConfirmDecision = (_, _) => true;
                 var draft = OfficeWorkflowViewHarness.Find<TextBox>(
                     window,
                     "conversation.draft");
@@ -36,6 +41,7 @@ public sealed class OfficeWorkflowJourneyTests
                     "conversation.send"
                 ).RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
                 await fixture.ResolveLastAsync();
+                OfficeWorkflowViewHarness.Layout(window);
                 OfficeWorkflowViewHarness.Find<Button>(
                     window,
                     "approval.approve.approval-7"
