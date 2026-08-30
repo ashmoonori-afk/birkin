@@ -229,7 +229,10 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
         for command in _commands(_job(_workflow(), "wpf-windows"))
     ]
     restore = f"dotnet restore ./{NOTIFICATION_SMOKE}"
-    build = f"dotnet build ./{NOTIFICATION_SMOKE} -c Release --no-restore"
+    build = (
+        f"dotnet build ./{NOTIFICATION_SMOKE} -c Release --no-restore "
+        "--disable-build-servers -p:UseSharedCompilation=false -m:1"
+    )
     run = (
         f"dotnet run --project ./{NOTIFICATION_SMOKE} "
         "-c Release --no-build"

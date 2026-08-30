@@ -129,6 +129,9 @@ jobs:
           dotnet build
           ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
           -c Release --no-restore
+          --disable-build-servers
+          -p:UseSharedCompilation=false
+          -m:1
       - run: >-
           dotnet run
           --project ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
