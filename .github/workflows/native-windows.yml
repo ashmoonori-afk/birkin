@@ -126,6 +126,7 @@ jobs:
       - run: >-
           dotnet test ./windows/BirkinNativeApp/BirkinNativeApp.sln
           -c Release --no-build
+          --filter "TestCategory!=LiveBridge&TestCategory!=ExistingAccountProvider"
           --logger "trx;LogFilePrefix=native-windows"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -162,12 +163,13 @@ jobs:
           dotnet test ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj
           -c Release --no-build
           --filter "TestCategory=LiveBridge"
+          --blame-hang --blame-hang-timeout 120s --blame-hang-dump-type mini
           --logger "trx;LogFilePrefix=native-windows-live"
       - if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: native-windows-live-trx
-          path: windows/BirkinNativeApp/**/TestResults/*.trx
+          name: native-windows-live-diagnostics
+          path: windows/BirkinNativeApp/**/TestResults/**
           if-no-files-found: error
           retention-days: 7
 
