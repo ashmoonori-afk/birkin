@@ -64,6 +64,7 @@ public sealed class DeterministicWindowJourneyTests
                     stage = "initial-render";
                     window.UpdateLayout();
                     var renderedInitial = composition.PresentationModel.Workspace;
+                    Assert.IsNotNull(renderedInitial);
 
                     Assert.IsTrue(options.IsAttached, "journey must attach to the exact bridge owned by its harness");
                     Assert.AreEqual(BridgeSupervisorState.AttachedExternal, composition.Supervisor.State);
