@@ -33,7 +33,15 @@ internal sealed class StaDispatcherHarness : IAsyncDisposable
         return new StaDispatcherHarness(dispatcher, thread);
     }
 
-    public Task<T> InvokeAsync<T>(Func<T> action) => _dispatcher.InvokeAsync(action).Task;
+    public async Task<T> InvokeAsync<T>(Func<T> action)
+    {
+        var result = await _dispatcher.InvokeAsync(action).Task;
+        if (result is Task asyncResult)
+        {
+            await asyncResult;
+        }
+        return result;
+    }
 
     public async ValueTask DisposeAsync()
     {
