@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import json
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
 import pytest
 
-from birkin import approvals
+from birkin import approvals, dash, ui, workbench
 from birkin.office.job_types import OfficeJobState
 from birkin.office.progress import office_progress_payload
 from birkin.tools import build_registry
@@ -44,6 +45,37 @@ def _terminal_request(
         "operations": [{"cell": "A1", "value": 9}],
         "destination": str(destination),
     }
+
+
+def _queue_terminal_job(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    emit: Callable[[str, dict[str, object]], None],
+) -> str:
+    home = tmp_path / "home"
+    office_home = home / "office"
+    caller = tmp_path / "caller"
+    office_home.mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    registry = build_registry(
+        ToolContext(
+            cfg={},
+            client=None,
+            cwd=caller,
+            emit=emit,
+            record_source="user:terminal-progress",
+        ),
+        include={"documents"},
+    )
+    proposed = registry.execute(
+        "office_job_request",
+        _terminal_request(office_home, caller / "approved.xlsx"),
+    )
+    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
+
+    assert not proposed.is_error, body
+    return cast(str, body["id"])
 
 
 @pytest.mark.parametrize(
@@ -96,40 +128,21 @@ def test_terminal_office_tool_emits_all_five_progress_phases(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    home = tmp_path / "home"
-    office_home = home / "office"
-    caller = tmp_path / "caller"
-    office_home.mkdir(parents=True)
-    caller.mkdir()
-    monkeypatch.setenv("BIRKIN_HOME", str(home))
-    request = _terminal_request(office_home, caller / "approved.xlsx")
     events: list[tuple[str, dict[str, object]]] = []
 
     def emit(event: str, payload: dict[str, object]) -> None:
         events.append((event, payload))
 
-    registry = build_registry(
-        ToolContext(
-            cfg={},
-            client=None,
-            cwd=caller,
-            emit=emit,
-            record_source="user:terminal-progress",
-        ),
-        include={"documents"},
-    )
+    approval_id = _queue_terminal_job(tmp_path, monkeypatch, emit)
+    monkeypatch.setattr(ui, "make_event_printer", lambda: emit)
 
-    proposed = registry.execute("office_job_request", request)
-    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
-    approved = approvals.approve(
-        cast(str, body["id"]),
-        on_event=emit,
-        approved_by="human:terminal-progress",
-        approved_via="terminal:review",
-    )
+    def approve_input(_prompt: str) -> str:
+        return "y"
 
-    assert not proposed.is_error, body
-    assert approved["ok"] is True, approved
+    monkeypatch.setattr("builtins.input", approve_input)
+    exit_code = approvals.review_cli()
+
+    assert exit_code == 0
     progress = [
         payload for event, payload in events if event == "office_progress"
     ]
@@ -141,3 +154,59 @@ def test_terminal_office_tool_emits_all_five_progress_phases(
         "export",
     ]
     assert len({payload["progress_id"] for payload in progress}) == 1
+    assert approval_id
+
+
+@pytest.mark.parametrize("surface", ["dash", "workbench"])
+def test_terminal_approval_surfaces_forward_office_progress(
+    surface: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event: str, payload: dict[str, object]) -> None:
+        events.append((event, payload))
+
+    approval_id = _queue_terminal_job(tmp_path, monkeypatch, emit)
+    if surface == "dash":
+        resolver = cast(
+            "Callable[..., dict[str, object]]",
+            getattr(dash, "_resolve_approval"),
+        )
+        approved = resolver(
+            {"id": approval_id},
+            approve=True,
+            on_event=emit,
+        )
+    else:
+        approved = workbench.resolve_approval(
+            approval_id,
+            approve=True,
+            on_event=emit,
+        )
+
+    assert approved["ok"] is True, approved
+    assert [
+        payload["office_phase"]
+        for event, payload in events
+        if event == "office_progress"
+    ] == ["inspection", "comparison", "draft", "validation", "export"]
+
+
+def test_terminal_event_printer_renders_office_progress(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    payload = office_progress_payload(
+        "job-terminal-printer",
+        OfficeJobState.input_captured,
+    )
+    assert payload is not None
+
+    ui.make_event_printer()("office_progress", payload)
+
+    output = capsys.readouterr().out
+    assert "inspection" in output
+    summary = payload["summary"]
+    assert isinstance(summary, str)
+    assert summary in output

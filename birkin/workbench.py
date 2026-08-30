@@ -19,6 +19,7 @@ import atexit
 import os
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -420,13 +421,25 @@ def _load_transcript(path: str) -> list[dict[str, Any]]:
 
 # -- authority boundary -----------------------------------------------------
 
-def resolve_approval(aid: str, *, approve: bool) -> dict[str, Any]:
+def resolve_approval(
+    aid: str,
+    *,
+    approve: bool,
+    on_event: Callable[[str, dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
     """Request a resolution from the Python authority; report, never assume."""
     try:
         from . import approvals
         if approve:
+            if on_event is None:
+                return approvals.approve(
+                    aid,
+                    approved_by="human:terminal",
+                    approved_via="terminal:workbench",
+                ) or {"ok": False, "error": "결과 없음"}
             return approvals.approve(
                 aid,
+                on_event=on_event,
                 approved_by="human:terminal",
                 approved_via="terminal:workbench",
             ) or {"ok": False, "error": "결과 없음"}
@@ -577,7 +590,11 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
                 continue
             state.pop("confirmation", None)
             state["note"] = "요청 전송 중"
-            out = resolve_approval(item["id"], approve=(key == "a"))
+            out = resolve_approval(
+                item["id"],
+                approve=(key == "a"),
+                on_event=session.ctx.emit,
+            )
             state["note"] = (f"✓ {str(out.get('result') or '처리됨')[:100]}"
                              if out.get("ok")
                              else f"⚠ {out.get('error') or '실패'}")

@@ -232,6 +232,8 @@ Workspace turns now emit bounded `progress.updated` events before provider work
 starts and when it succeeds or fails, so native Activity does not remain silent.
 Office inspection, comparison, draft, validation, and export transitions reuse
 one keyed progress row on the web while retaining all five machine phase tokens.
+The classic terminal event stream and approval surfaces render the same five
+phases.
 Activity retains only its 100 newest items.
 Each newly pending approval also emits one redacted `notification.requested`
 event with fixed Korean copy and an opaque approval ID. Windows shows the

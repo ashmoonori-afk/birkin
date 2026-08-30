@@ -250,6 +250,9 @@ def review_cli() -> int:
     if not pending:
         print("No pending approvals.")
         return 0
+    from . import ui
+
+    on_event = ui.make_event_printer()
     print(f"{len(pending)} pending action(s) (highest-risk first).\n")
     for rec in pending:
         tier = risk.risk_for(rec.get("category", ""))
@@ -266,6 +269,7 @@ def review_cli() -> int:
         if choice in ("y", "yes"):
             res = approve(
                 rec["id"],
+                on_event=on_event,
                 approved_by="human:terminal",
                 approved_via="terminal:review",
             )
