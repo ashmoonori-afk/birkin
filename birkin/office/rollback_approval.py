@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
-from birkin import config, store
+from birkin import approvals, config, store
 
 from .coordinator_data import canonical_office_home, job_journal
 from .errors import DocumentError, DocumentErrorCode
@@ -38,6 +38,30 @@ def prepare_rollback(job_id: str) -> dict[str, object]:
         "job_id": job_id,
         "destination": destination,
         "receipt_hmac": receipt_hmac,
+    }
+
+
+def request_rollback(
+    job_id: str,
+    *,
+    origin: str,
+    cfg: dict[str, object] | None = None,
+) -> dict[str, object]:
+    rollback = prepare_rollback(job_id)
+    queued = approvals.propose(
+        category="office_rollback",
+        title="Rollback Office export",
+        description=(
+            f"Restore the pre-export destination state at {rollback['destination']}."
+        ),
+        payload=rollback,
+        cfg=cfg or {},
+        origin=origin,
+    )
+    return {
+        **queued,
+        "category": "office_rollback",
+        "approval": rollback,
     }
 
 

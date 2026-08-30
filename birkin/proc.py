@@ -19,10 +19,13 @@ import signal
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypedDict
+
+from birkin.operation_policy import is_powershell_execution_policy_failure
 
 # cmd.exe re-parses these inside each argument even when argv is discrete, so a
 # value like ``foo & calc`` smuggled into a CLI arg would chain a second command.
@@ -31,6 +34,8 @@ from typing import Protocol, TypedDict
 # strings have their own intentional path (``shell_argv``), which this never gates.
 _WIN_SHELL_METACHARS = frozenset("&|<>^")
 _WINDOWS_CREATE_SUSPENDED = 0x00000004
+_WINDOWS_NATIVE_EXTENSIONS = (".com", ".exe", ".bat", ".cmd")
+_WINDOWS_NATIVE_PATH_METACHARS = frozenset("%!&|<>^()")
 _POSIX_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
 _SHELL_ENVIRONMENT = frozenset({
     "COLORTERM",
@@ -261,7 +266,41 @@ def run_shell_command(
     request: ShellCommand,
 ) -> subprocess.CompletedProcess[str]:
     """Run a shell request in an independently killable process tree."""
-    argv = shell_argv(request.command)
+    deadline = time.monotonic() + request.timeout
+    original = _run_shell_attempt(
+        shell_argv(request.command),
+        request,
+        deadline,
+    )
+    if (
+        os.name != "nt"
+        or original.returncode == 0
+        or not is_powershell_execution_policy_failure(
+            original.stderr or "",
+            request.command,
+        )
+    ):
+        return original
+    for command in _windows_native_shim_commands(request):
+        result = _run_shell_attempt(
+            shell_argv(command),
+            request,
+            deadline,
+        )
+        if result.returncode == 0:
+            return result
+    return original
+
+
+def _run_shell_attempt(
+    argv: list[str],
+    request: ShellCommand,
+    deadline: float,
+) -> subprocess.CompletedProcess[str]:
+    """Run one managed attempt within the request's monotonic deadline."""
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired(argv, request.timeout)
     managed_tree: ManagedProcessTree | None = None
     if os.name == "nt":
         process, managed_tree = spawn_managed_windows_shell(argv, request)
@@ -271,7 +310,7 @@ def run_shell_command(
         try:
             stdout, stderr = process.communicate(
                 input=request.stdin,
-                timeout=request.timeout,
+                timeout=remaining,
             )
         except subprocess.TimeoutExpired:
             if managed_tree is not None:
@@ -309,6 +348,59 @@ def run_shell_command(
     finally:
         if managed_tree is not None:
             managed_tree.close()
+
+
+def _windows_native_shim_commands(request: ShellCommand) -> tuple[str, ...]:
+    """Return safe absolute native replacements for one bare command token."""
+    separator = next(
+        (index for index, char in enumerate(request.command) if char.isspace()),
+        len(request.command),
+    )
+    name = request.command[:separator]
+    if (
+        not name
+        or not all(
+            char.isascii() and (char.isalnum() or char in "_-")
+            for char in name
+        )
+        or ntpath.splitext(name)[1]
+    ):
+        return ()
+    suffix = request.command[separator:]
+    cwd = (request.cwd or Path.cwd()).resolve()
+    directories = [cwd]
+    for value in request.environment.get("PATH", "").split(os.pathsep):
+        if not value:
+            continue
+        directory = Path(value)
+        directories.append(
+            directory.resolve()
+            if directory.is_absolute()
+            else (cwd / directory).resolve()
+        )
+
+    commands: list[str] = []
+    seen: set[str] = set()
+    for directory in directories:
+        for extension in _WINDOWS_NATIVE_EXTENSIONS:
+            candidate = (directory / f"{name}{extension}").resolve()
+            normalized = str(candidate).casefold()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            candidate_text = str(candidate)
+            if (
+                not candidate.is_file()
+                or _WINDOWS_NATIVE_PATH_METACHARS.intersection(candidate_text)
+            ):
+                continue
+            executable = (
+                f'"{candidate_text}"'
+                if any(char.isspace() for char in candidate_text)
+                else candidate_text
+            )
+            commands.append(f"{executable}{suffix}")
+    return tuple(commands)
 
 
 def spawn_managed_windows_shell(

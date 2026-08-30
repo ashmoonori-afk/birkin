@@ -97,9 +97,9 @@ def test_permission_error_queues_operation_without_retrying(
             "git_safe_directory",
         ),
         (
-            "omo --version",
-            "omo.ps1 cannot be loaded because running scripts is disabled "
-            "on this system. PSSecurityException",
+            "bunx tokscale@latest submit",
+            "C:\\Users\\me\\AppData\\Roaming\\npm\\bunx.ps1 cannot be loaded "
+            "because running scripts is disabled. PSSecurityException",
             "powershell_execution_policy",
         ),
     ],
@@ -127,7 +127,7 @@ def test_execution_policy_diagnostics_queue_exact_operation(
 
     monkeypatch.setattr(shell_mod, "run_shell_command", blocked_run)
     registry = build_registry(ToolContext(
-        cfg={},
+        cfg={"shell_approval": "off"},
         client=None,
         cwd=tmp_path,
     ), include={"shell"})
@@ -155,6 +155,44 @@ def test_execution_policy_diagnostics_queue_exact_operation(
         }
     else:
         assert environment == {"PSExecutionPolicyPreference": "Bypass"}
+
+
+def test_execution_policy_diagnostics_ignore_unrelated_powershell_script(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # Given: bunx fails, but the policy diagnostic names an unrelated script.
+    calls: list[str] = []
+
+    class FailedProcess:
+        returncode = 1
+        stdout = ""
+        stderr = (
+            "C:\\tools\\other.ps1 cannot be loaded because running scripts "
+            "is disabled. PSSecurityException"
+        )
+
+    def failed_run(request) -> FailedProcess:
+        calls.append(request.command)
+        return FailedProcess()
+
+    monkeypatch.setattr(shell_mod, "run_shell_command", failed_run)
+    registry = build_registry(ToolContext(
+        cfg={},
+        client=None,
+        cwd=tmp_path,
+    ), include={"shell"})
+
+    # When: the unrelated diagnostic is returned for an extensionless command.
+    result = registry.execute(
+        "run_shell",
+        {"command": "bunx --version", "timeout": 20},
+    )
+
+    # Then: Birkin must not grant a PowerShell bypass for another script.
+    assert result.is_error
+    assert calls == ["bunx --version"]
+    assert store.list_pending() == []
 
 
 def test_bun_temp_diagnostic_queues_workspace_local_retry(
@@ -274,3 +312,99 @@ def test_approved_tokscale_submit_uses_managed_workspace_temp(
     assert environment["TEMP"] == str(workspace / ".birkin-tmp")
     assert environment["TMP"] == str(workspace / ".birkin-tmp")
     assert Path(environment["TEMP"]).is_dir()
+
+
+@pytest.mark.skipif(
+    __import__("os").name != "nt",
+    reason="Windows native shim approval replay contract",
+)
+def test_approved_tokscale_native_shim_fallback_preserves_authority(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # Given: one approved Tokscale command and two native shim candidates.
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    bin_dir = tmp_path / "native-bin"
+    bin_dir.mkdir()
+    executable = bin_dir / "bunx.exe"
+    command_shim = bin_dir / "bunx.cmd"
+    executable.touch()
+    command_shim.touch()
+    monkeypatch.setenv("PATH", str(bin_dir))
+    monkeypatch.setenv("PATHEXT", ".EXE;.CMD")
+    attempts = []
+    outcomes = [
+        (
+            1,
+            "",
+            "bunx.ps1 cannot be loaded because running scripts is disabled. "
+            "PSSecurityException",
+        ),
+        (1, "", "native exe failed"),
+        (0, "submitted", ""),
+    ]
+
+    class Process:
+        pid = 4312
+
+        def __init__(self, outcome) -> None:
+            self.returncode, self.stdout, self.stderr = outcome
+
+        def communicate(self, **_kwargs):
+            return self.stdout, self.stderr
+
+        def wait(self) -> int:
+            return self.returncode
+
+        def kill(self) -> None:
+            pass
+
+    class ManagedTree:
+        def terminate(self, _exit_code: int = 1) -> None:
+            pass
+
+        def close(self) -> None:
+            pass
+
+    def spawn(argv, request):
+        attempts.append((argv[-1].split(" & ", 1)[-1], request))
+        return Process(outcomes[len(attempts) - 1]), ManagedTree()
+
+    monkeypatch.setattr("birkin.proc.spawn_managed_windows_shell", spawn)
+    command = "bunx tokscale@latest submit"
+    status = approvals.propose(
+        category="shell",
+        title="Tokscale submit",
+        description="approved native fallback",
+        payload={"command": command, "cwd": str(workspace)},
+        cfg={"auto_approve": []},
+        origin="shellguard",
+    )
+
+    # When: the sealed approval is executed and then replay is attempted.
+    resolution = approvals.approve(
+        status["id"],
+        approved_by="human:test",
+        approved_via="test",
+    )
+    replay = approvals.approve(
+        status["id"],
+        approved_by="human:test",
+        approved_via="test",
+    )
+
+    # Then: only that authority covers original -> .exe -> .cmd once.
+    assert resolution["ok"] is True, resolution
+    assert replay["ok"] is not True
+    assert [attempt[0] for attempt in attempts] == [
+        command,
+        f"{executable} tokscale@latest submit",
+        f"{command_shim} tokscale@latest submit",
+    ]
+    assert all(attempt[1].cwd == workspace for attempt in attempts)
+    assert all(
+        attempt[1].environment["TEMP"] == str(workspace / ".birkin-tmp")
+        and attempt[1].environment["TMP"] == str(workspace / ".birkin-tmp")
+        for attempt in attempts
+    )
