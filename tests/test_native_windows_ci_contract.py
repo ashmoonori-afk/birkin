@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import TypeAlias, cast
 
@@ -32,6 +33,7 @@ NOTIFICATION_SMOKE = (
     "windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/"
     "Birkin.Native.Notification.Smoke.csproj"
 )
+NOTIFICATION_SMOKE_PROJECT = Path(__file__).parents[1] / NOTIFICATION_SMOKE
 LOCKED_SYNC = "uv sync --frozen --all-extras --all-groups"
 LOCKED_WINDOWS_PYTHON = "./.venv/Scripts/python.exe"
 ENSURE_LOCKED_WINDOWS_PIP = f"{LOCKED_WINDOWS_PYTHON} -m ensurepip --upgrade"
@@ -271,6 +273,19 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
     assert commands.index(runtime_install) < commands.index(smoke)
     assert commands.index(smoke) < commands.index(solution_restore)
     assert commands.index(solution_restore) < commands.index(solution_build)
+
+
+def test_notification_smoke_uses_installed_runtime_package_graph() -> None:
+    root = ET.parse(NOTIFICATION_SMOKE_PROJECT).getroot()
+    properties = {
+        child.tag: child.text
+        for group in root.findall("PropertyGroup")
+        for child in group
+    }
+
+    assert properties["OutputType"] == "Exe"
+    assert properties["WindowsPackageType"] == "None"
+    assert properties["WindowsAppSDKSelfContained"] == "false"
 
 
 def test_fixture_freshness_regenerates_every_normative_vector() -> None:
