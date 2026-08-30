@@ -234,14 +234,19 @@ def test_wpf_job_executes_real_windows_notification_smoke() -> None:
         f"dotnet run --project ./{NOTIFICATION_SMOKE} "
         "-c Release --no-build"
     )
+    solution_restore = f"dotnet restore ./{SOLUTION}"
     solution_build = f"dotnet build ./{SOLUTION} -c Release --no-restore"
 
+    assert _mapping(_job(_workflow(), "wpf-windows")["env"])[
+        "MSBUILDDISABLENODEREUSE"
+    ] == "1"
     assert restore in commands
     assert build in commands
     assert run in commands
     assert commands.index(restore) < commands.index(build)
     assert commands.index(build) < commands.index(run)
-    assert commands.index(run) < commands.index(solution_build)
+    assert commands.index(run) < commands.index(solution_restore)
+    assert commands.index(solution_restore) < commands.index(solution_build)
 
 
 def test_fixture_freshness_regenerates_every_normative_vector() -> None:

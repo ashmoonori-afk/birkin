@@ -103,6 +103,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
+      MSBUILDDISABLENODEREUSE: "1"
       PYTHONUTF8: "1"
       UV_NO_SYNC: "1"
     steps:
@@ -121,7 +122,6 @@ jobs:
         with:
           dotnet-version: "8.x"
       - run: uv sync --frozen --all-extras --all-groups
-      - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: >-
           dotnet restore
           ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
@@ -133,6 +133,7 @@ jobs:
           dotnet run
           --project ./windows/BirkinNativeApp/tests/Birkin.Native.Notification.Smoke/Birkin.Native.Notification.Smoke.csproj
           -c Release --no-build
+      - run: dotnet restore ./windows/BirkinNativeApp/BirkinNativeApp.sln
       - run: dotnet build ./windows/BirkinNativeApp/BirkinNativeApp.sln -c Release --no-restore
       - run: >-
           dotnet test ./windows/BirkinNativeApp/BirkinNativeApp.sln
