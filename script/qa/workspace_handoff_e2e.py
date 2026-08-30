@@ -90,6 +90,19 @@ def run(evidence: Path = EVIDENCE) -> int:
 
             page.on("response", record_response)
             _ = page.goto(url, wait_until="domcontentloaded")
+            initial_snapshot = workspace_snapshot(page)
+            initial_texts = [
+                str(message["text"])
+                for message in cast(
+                    list[dict[str, object]],
+                    initial_snapshot["conversation"],
+                )
+            ]
+            if not any("handoff terminal" in text for text in initial_texts):
+                raise AssertionError(
+                    "terminal seed was absent from the browser snapshot"
+                )
+            _ = cast(object, page.evaluate("refreshWorkspaceSnapshot()"))
             page.get_by_text("Echo complete 🧵: handoff terminal").wait_for()
             reset_planned_restart_errors()
             print("QA_HANDOFF_STAGE=browser-attached", flush=True)
@@ -137,8 +150,18 @@ def run(evidence: Path = EVIDENCE) -> int:
                   const panel = snapshot.panels.find(
                     (item) => item.key === 'approvals'
                   );
-                  return panel.items.some((item) => item.status === 'approve');
+                  return panel.items.some(
+                    (item) => item.status === 'approved'
+                      && item.ui_state === 'succeeded'
+                  );
                 }"""
+            )
+            _ = page.get_by_text("실행 영수증 보기").click()
+            page.get_by_text(
+                "Action executed: fixture approval executed"
+            ).wait_for()
+            _ = page.screenshot(
+                path=evidence / "web-office-job-approved.png"
             )
             assert_browser_clean("approval")
             stop_terminal(child)
@@ -256,10 +279,13 @@ def run(evidence: Path = EVIDENCE) -> int:
                         f"handoff port remained open: {closed_port}"
                     )
         assert_browser_clean("final-reattach")
-        if png_dimensions(
-            evidence / "cross-surface-handoff.png"
-        ) != (1024, 800):
-            raise AssertionError("handoff screenshot dimensions changed")
+        for screenshot in (
+            "web-office-job-approval.png",
+            "web-office-job-approved.png",
+            "cross-surface-handoff.png",
+        ):
+            if png_dimensions(evidence / screenshot) != (1024, 800):
+                raise AssertionError(f"{screenshot} dimensions changed")
 
         metadata = {
             "terminal_pids": terminal_pids,
