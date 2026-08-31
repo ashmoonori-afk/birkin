@@ -128,10 +128,11 @@ wheels = [
 
 [[package]]
 name = "birkin"
-version = "0.4.329"
+version = "0.4.330"
 source = { editable = "." }
 dependencies = [
     { name = "psutil" },
+    { name = "pydantic" },
     { name = "typing-extensions" },
 ]
 
@@ -252,6 +253,7 @@ requires-dist = [
     { name = "playwright", marker = "extra == 'browser'", specifier = ">=1.54,<2" },
     { name = "playwright", marker = "extra == 'full'", specifier = ">=1.54,<2" },
     { name = "psutil", specifier = ">=6" },
+    { name = "pydantic", specifier = ">=2,<3" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin' and extra == 'desktop'", specifier = ">=12.0" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin' and extra == 'dev'", specifier = ">=12.0" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin' and extra == 'full'", specifier = ">=12.0" },

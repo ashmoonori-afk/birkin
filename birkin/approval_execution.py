@@ -127,7 +127,7 @@ def execute_claimed(
     else:
         from .approval_execution_recovery import recover_one
 
-        result = recover_one(approval_id, wait=True) or {
+        result = recover_one(approval_id, wait=True, on_event=on_event) or {
             "ok": False,
             "error": "approval execution state is missing",
         }

@@ -2,22 +2,26 @@
 
 from __future__ import annotations
 
-import os
-import secrets
 import subprocess
-import sys
 
 from typing_extensions import assert_never
 
 from . import config, procreg, store
-from .approval_execution_codec import JSONValue, JournalCodecError, parse_mapping
-from .approval_execution_helper import helper_argv, project_terminal
+from .approval_execution_codec import (
+    JSONValue,
+    JournalCodecError,
+    parse_mapping,
+)
+from .approval_execution_events import drain_helper_stdout
+from .approval_execution_helper import project_terminal
 from .approval_execution_journal import (
     ExecutionJournal,
     JournalCorruptionError,
     authority_digest,
 )
+from .approval_execution_process import launch_helper
 from .approval_execution_state import JournalPhase
+from .approval_execution_types import EventSink
 
 
 def recover_all() -> list[str]:
@@ -43,10 +47,12 @@ def recover_one(
     approval_id: str,
     *,
     wait: bool = False,
+    on_event: EventSink | None = None,
 ) -> dict[str, JSONValue] | None:
     """Project terminal state, launch ready work, or freeze an unknown outcome."""
     path = config.pending_dir() / f"{approval_id}.json"
     process: subprocess.Popen[bytes] | None = None
+    capture_events = wait and on_event is not None
     try:
         with store.file_lock(path):
             record: dict[str, JSONValue] | None = store.get_pending(approval_id)
@@ -75,15 +81,18 @@ def recover_one(
                 case JournalPhase.ARMED:
                     journal.ready()
                     _ = store.resolve_pending(approval_id, "executing")
-                    process = _launch(journal)
+                    process = launch_helper(journal, capture_stdout=capture_events)
                 case JournalPhase.READY:
-                    process = _launch(journal)
+                    process = launch_helper(journal, capture_stdout=capture_events)
                 case JournalPhase.HELPER_STARTED:
                     if not _owner_alive(
                         snapshot.owner_pid,
                         snapshot.owner_generation,
                     ):
-                        process = _launch(journal)
+                        process = launch_helper(
+                            journal,
+                            capture_stdout=capture_events,
+                        )
                 case JournalPhase.ATTEMPT_COMMITTED:
                     if not _owner_alive(
                         snapshot.owner_pid,
@@ -91,7 +100,10 @@ def recover_one(
                     ):
                         if snapshot.category.startswith("office_"):
                             journal.resume_office()
-                            process = _launch(journal)
+                            process = launch_helper(
+                                journal,
+                                capture_stdout=capture_events,
+                            )
                         else:
                             journal.outcome_unknown()
                             project_terminal(approval_id, record, journal.load())
@@ -108,6 +120,8 @@ def recover_one(
         _freeze(approval_id, str(exc))
         return {"ok": False, "error": str(exc)}
     if process is not None and wait:
+        if on_event is not None and process.stdout is not None:
+            drain_helper_stdout(process.stdout, on_event)
         return_code = process.wait()
         try:
             phase = ExecutionJournal(approval_id).load().phase
@@ -119,13 +133,13 @@ def recover_one(
             JournalPhase.RETRYABLE_FAILURE,
             JournalPhase.ACTION_OUTCOME_UNKNOWN,
         }:
-            return recover_one(approval_id)
+            return recover_one(approval_id, on_event=on_event)
         if return_code != 0:
             return {
                 "ok": False,
                 "error": f"approval helper exited with status {return_code}",
             }
-        return recover_one(approval_id)
+        return recover_one(approval_id, on_event=on_event)
     current: dict[str, JSONValue] | None = store.get_pending(approval_id)
     if current is None:
         return None
@@ -165,50 +179,6 @@ def recover_one(
             "error": str(current.get("execution_error") or "execution frozen"),
         }
     return {"ok": True, "status": status}
-
-
-def _launch(journal: ExecutionJournal) -> subprocess.Popen[bytes]:
-    owner_token = secrets.token_hex(32)
-    command = helper_argv(
-        journal.approval_id,
-        owner_token,
-        executable=sys.executable,
-        frozen=bool(getattr(sys, "frozen", False)),
-    )
-    if os.name == "nt":
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            shell=False,
-            close_fds=True,
-            creationflags=(
-                subprocess.CREATE_NEW_PROCESS_GROUP
-                | subprocess.CREATE_BREAKAWAY_FROM_JOB
-            ),
-        )
-    else:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            shell=False,
-            close_fds=True,
-            start_new_session=True,
-        )
-    try:
-        journal.helper_started(
-            owner_pid=process.pid,
-            owner_token=owner_token,
-            owner_generation=procreg.process_generation(process.pid),
-        )
-    except (OSError, JournalCorruptionError):
-        process.kill()
-        _ = process.wait()
-        raise
-    return process
 
 
 def _owner_alive(pid: int | None, generation: str | None) -> bool:

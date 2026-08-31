@@ -10,19 +10,15 @@ from typing_extensions import assert_never
 
 from . import approval_dispatch, config, procreg, store
 from .approval_execution_codec import JSONValue
-from .approval_execution_journal import (
-    ExecutionJournal,
-    JournalCorruptionError,
-    authority_digest,
-)
+from .approval_execution_events import emit_event
+from .approval_execution_journal import ExecutionJournal, JournalCorruptionError
+from .approval_execution_journal import authority_digest
 from .approval_execution_state import JournalPhase, JournalSnapshot
 from .approval_execution_types import SealedApprovalId
 from .office.errors import DocumentError, DocumentErrorCode
 
 _EXIT_BEFORE_ATTEMPT = "before_attempt"
 _EXIT_AFTER_EFFECT = "after_effect_before_receipt"
-
-
 @dataclass(frozen=True, slots=True)
 class _PreparedExecution:
     snapshot: JournalSnapshot
@@ -65,6 +61,7 @@ def run(approval_id: str, owner_token: str) -> int:
                 snapshot.payload,
                 approval_dispatch.DispatchOptions(
                     cfg=config.load_config(),
+                    on_event=emit_event,
                     office_approval_id=sealed_approval_id,
                 ),
             )

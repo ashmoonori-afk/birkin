@@ -22,6 +22,7 @@ import urllib.parse
 import urllib.request
 import uuid
 from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Final, Protocol, TypeAlias, TypeGuard
 
@@ -1665,8 +1666,13 @@ class TelegramChannel(Channel):
                 worker = self._start_public_worker(
                     self._workers,
                     chat_id,
-                    lambda: self._run_turn(
-                        gateway, chat_id, text, offset, sender_id=sender_id
+                    partial(
+                        self._run_turn,
+                        gateway,
+                        chat_id,
+                        text,
+                        offset,
+                        sender_id=sender_id,
                     ),
                 )
                 if worker is None:

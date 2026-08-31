@@ -7,7 +7,7 @@ from typing import NewType, Protocol
 
 from .approval_execution_codec import JSONValue
 
-EventSink = Callable[[dict[str, JSONValue]], None]
+EventSink = Callable[..., None]
 SealedApprovalId = NewType("SealedApprovalId", str)
 
 
