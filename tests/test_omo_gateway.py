@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import runpy
-import sys
 from pathlib import Path
 
 import pytest
@@ -9,6 +7,7 @@ import pytest
 from birkin import cli
 from birkin.gateway import core
 from birkin.gateway import turn_router
+from birkin.gateway.telegram_lease import format_gateway_diagnostics
 from birkin.omo import OmoController, parse_omo_command
 from birkin.omo_rpc import command_for_session
 from tests.omo_gateway_support import (
@@ -144,15 +143,9 @@ def test_omo_gateway_routes_only_authorized_explicit_commands(monkeypatch) -> No
 
 
 def test_gateway_diagnostics_report_owner_channel_and_omo_state(
-    capsys,
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    overlay_path = Path(__file__).parents[1] / ".birkin" / "omo_gateway.py"
-    namespace = runpy.run_path(str(overlay_path), run_name="omo_gateway_test")
-    gateway_main = namespace["main"]
-    original_menu = core.command_menu
-    original_gateway = core.Gateway
     token = "1234567890:diagnostic-secret-token"
     cfg = {
         "channels": {
@@ -164,18 +157,7 @@ def test_gateway_diagnostics_report_owner_channel_and_omo_state(
         }
     }
     monkeypatch.setattr(core.config, "birkin_home", lambda: tmp_path)
-    monkeypatch.setattr(core.config, "load_config", lambda: cfg)
-    monkeypatch.setattr(core, "run", lambda: 7)
-    monkeypatch.setattr(sys, "argv", ["omo_gateway.py", "--diagnose"])
-
-    try:
-        exit_code = gateway_main()
-    finally:
-        core.command_menu = original_menu
-        core.Gateway = original_gateway
-
-    output = capsys.readouterr().out
-    assert exit_code == 0
+    output = format_gateway_diagnostics(cfg)
     assert "Telegram owner: unclaimed" in output
     assert "Telegram channel: enabled" in output
     assert "OMO control: enabled for 1 configured Telegram chat ID" in output
