@@ -612,6 +612,11 @@ Every row describes a surface shipped in this repository; `No` means that surfac
 
 The model proposes. Runtime code owns scheduling and policy evaluation; Birkin keeps **memory in files, control flow in code, and authority inside explicit boundaries**.
 
+The [2026-08-31 read-only code-diet audit](./reports/code-diet/2026-08-31/Birkin-code-diet-report.ko.md)
+quantifies immediate deletion candidates, migration-gated cleanup, retained
+compatibility boundaries, and refactor-only movement. The report directory also
+contains the reviewed PDF, DOCX, and evidence ledgers.
+
 ```mermaid
 flowchart LR
     U[CLI · Web · Gateway · VS Code] --> P[promptgate.py]
