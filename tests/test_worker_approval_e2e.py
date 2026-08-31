@@ -119,10 +119,12 @@ def test_worker_request_waits_for_approval_then_executes_exact_argv(
     assert payload["request"] == worker_input
     assert seen_argv == []
 
-    approved = approval_execution.approve(text(record, "id"), approvals.execute_action)
+    approved = approval_execution.approve(text(record, "id"), approvals.execute_action, approved_by="human:test", approved_via="test")
 
     assert approved == {"ok": True, "result": "[exit 0] seeded"}
     assert any(sentinel in argument for argument in seen_argv[0])
     assert seen_shell == [False]
     resolved = store.get_pending(text(record, "id"))
     assert resolved is not None and resolved["status"] == "approved"
+    assert resolved["approved_by"] == "human:test"
+    assert resolved["approved_via"] == "test"

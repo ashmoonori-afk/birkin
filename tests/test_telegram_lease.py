@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import multiprocessing
 import os
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import FileIO, TextIOWrapper
 from multiprocessing.connection import PipeConnection, wait
@@ -17,6 +19,7 @@ from unittest.mock import patch
 
 import pytest
 
+from birkin import store
 from birkin.approval_execution_codec import JSONValue
 from birkin.gateway.telegram_lease import (
     TelegramGatewayLease,
@@ -185,6 +188,76 @@ def test_publication_links_only_a_complete_private_owner_record(
     assert published_path == lease.path
     assert unpublished_path != lease.path
     assert not unpublished_path.exists()
+    lease.release()
+
+
+def test_release_checks_and_unlinks_owner_inside_acquisition_guard(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: a lease whose guard, owner read, and unlink boundaries are observed.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    lease = TelegramGatewayLease.acquire_for_config(_CONFIG)
+    assert lease is not None
+    guard_held = False
+    operations: list[tuple[str, bool]] = []
+    original_read_text = Path.read_text
+    original_unlink = Path.unlink
+
+    @contextmanager
+    def observed_file_lock(path: Path) -> Generator[None, None, None]:
+        nonlocal guard_held
+        assert path == lease.path.with_suffix(".guard")
+        guard_held = True
+        try:
+            yield
+        finally:
+            guard_held = False
+
+    def observed_read_text(path: Path, *, encoding: str) -> str:
+        operations.append(("read", guard_held))
+        return original_read_text(path, encoding=encoding)
+
+    def observed_unlink(path: Path) -> None:
+        operations.append(("unlink", guard_held))
+        original_unlink(path)
+
+    monkeypatch.setattr(store, "file_lock", observed_file_lock)
+    monkeypatch.setattr(Path, "read_text", observed_read_text)
+    monkeypatch.setattr(Path, "unlink", observed_unlink)
+
+    # When: the owner releases its lease.
+    lease.release()
+
+    # Then: identity validation and removal share acquisition's OS guard.
+    assert operations == [("read", True), ("unlink", True)]
+
+
+@pytest.mark.parametrize(
+    "lock_error",
+    [store.FileLockTimeout(), PermissionError()],
+    ids=("timeout", "os-contention"),
+)
+def test_release_guard_failures_are_typed_lease_races(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    lock_error: OSError,
+) -> None:
+    # Given: an owned lease whose shared OS guard refuses release.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    lease = TelegramGatewayLease.acquire_for_config(_CONFIG)
+    assert lease is not None
+
+    def refuse_lock(_path: Path) -> store.file_lock:
+        raise lock_error
+
+    # When/Then: release exposes the established typed contention error.
+    with monkeypatch.context() as lock_patch:
+        lock_patch.setattr(store, "file_lock", refuse_lock)
+        with pytest.raises(TelegramGatewayLeaseRaceError) as caught:
+            lease.release()
+    assert caught.value.__cause__ is lock_error
+    assert lease.path.exists()
     lease.release()
 
 

@@ -52,6 +52,7 @@ def admit_turn(
         command_arg=command_arg,
         display_text=normalized,
         skill_query=normalized,
+        sender_id=str(sender_id).strip() if sender_id is not None else None,
     )
     return _prepare_neurosis(gateway, request)
 

@@ -159,7 +159,12 @@ def test_approved_replay_keeps_checkpoint_and_hook_observers(
     approval_id = store.list_pending()[0]["id"]
 
     # When: approval replays the digest-bound operation.
-    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
+    resolution = approval_execution.approve(
+        approval_id,
+        approvals.execute_action,
+        approved_by="human:test",
+        approved_via="test",
+    )
 
     # Then: replay remains checkpointed and visible to both hook phases.
     assert resolution["ok"] is True, resolution

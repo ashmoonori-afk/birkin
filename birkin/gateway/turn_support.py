@@ -22,7 +22,7 @@ from .turn_types import (
 )
 from .workflow import WORKFLOW_POLICY
 
-InflightOwner = tuple[  # noqa: OBJECT_OK - opaque identity token contract
+InflightOwner = tuple[  # Opaque identity token contract.
     object, AskSession, threading.Event
 ]
 
@@ -155,7 +155,7 @@ def ask_session(
     """
     import inspect
 
-    kwargs: dict[str, object] = {  # noqa: OBJECT_OK - dynamic ask signature
+    kwargs: dict[str, object] = {  # Dynamic ask signature.
         "on_text": on_text
     }
     if timeout is not None:

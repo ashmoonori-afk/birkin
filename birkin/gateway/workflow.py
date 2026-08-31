@@ -248,7 +248,14 @@ def is_running(aid: str, chat_id: str) -> bool:
     )
 
 
-def resolve_proposal(aid: str, chat_id: str, *, approve: bool) -> WorkflowResolution:
+def resolve_proposal(
+    aid: str,
+    chat_id: str,
+    *,
+    approve: bool,
+    actor_id: str,
+    via: str,
+) -> WorkflowResolution:
     if not store.valid_pending_id(aid):
         return WorkflowResolution("⚠ 올바르지 않은 작업 제안 ID입니다.")
     path = config.pending_dir() / f"{aid}.json"
@@ -263,15 +270,30 @@ def resolve_proposal(aid: str, chat_id: str, *, approve: bool) -> WorkflowResolu
             if str(payload.get("chat_id", "")) != str(chat_id):
                 return WorkflowResolution("⚠ 이 제안은 다른 채팅에 속합니다.")
             if not approve:
-                _ = store.resolve_pending(aid, "rejected")
-                store.append_activity(f"workflow[{aid}]: rejected via telegram")
+                _ = store.resolve_pending(
+                    aid,
+                    "rejected",
+                    rejected_by=actor_id,
+                    rejected_via=via,
+                )
+                store.append_activity(f"workflow[{aid}]: rejected via {via}")
                 return WorkflowResolution("❌ 작업 제안을 거부했습니다.")
             plan = _workflow_plan(payload)
             if plan is None:
-                _ = store.resolve_pending(aid, "error")
+                _ = store.resolve_pending(
+                    aid,
+                    "error",
+                    approved_by=actor_id,
+                    approved_via=via,
+                )
                 return WorkflowResolution("⚠ 저장된 작업 제안이 손상됐습니다.")
             task, steps = plan
-            _ = store.resolve_pending(aid, "claimed")
+            _ = store.resolve_pending(
+                aid,
+                "claimed",
+                approved_by=actor_id,
+                approved_via=via,
+            )
     except store.FileLockTimeout:
         return WorkflowResolution("⚠ 승인 저장소가 사용 중입니다. 다시 시도해 주세요.")
 
@@ -284,7 +306,7 @@ def resolve_proposal(aid: str, chat_id: str, *, approve: bool) -> WorkflowResolu
         f"Original request:\n{task}\n\nApproved plan:\n{plan}\n"
         f"{APPROVED_CLOSE}"
     )
-    store.append_activity(f"workflow[{aid}]: approved via telegram")
+    store.append_activity(f"workflow[{aid}]: approved via {via}")
     return WorkflowResolution("✅ 승인됨 — 작업을 시작합니다.", resume)
 
 

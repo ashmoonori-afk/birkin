@@ -61,7 +61,7 @@ def test_final_replace_contention_recovers_without_reexecuting(
 
     first_error: OSError | None = None
     try:
-        first = approval_execution.approve(approval_id, executor)
+        first = approval_execution.approve(approval_id, executor, approved_by="human:test", approved_via="test")
     except OSError as exc:
         first_error = exc
         first = {"ok": False, "error": str(exc)}
@@ -84,7 +84,7 @@ def test_final_replace_contention_recovers_without_reexecuting(
     # Toggle the injected destination contention off and simulate a restarted
     # approval surface using only durable disk state.
     contention_enabled = False
-    restarted = approval_execution.approve(approval_id, executor)
+    restarted = approval_execution.approve(approval_id, executor, approved_by="human:test", approved_via="test")
 
     assert restarted == {"ok": True, "result": "durable action result"}
     assert action_runs == 1
@@ -130,7 +130,7 @@ def test_recovery_receipt_cannot_finalize_changed_authority(
         return "committed"
 
     monkeypatch.setattr(os, "replace", contended_replace)
-    first = approval_execution.approve(approval_id, executor)
+    first = approval_execution.approve(approval_id, executor, approved_by="human:test", approved_via="test")
     assert first["recoverable"] is True
     assert action_runs == 1
 
@@ -140,7 +140,7 @@ def test_recovery_receipt_cannot_finalize_changed_authority(
     _ = approval_path.write_text(json.dumps(changed), encoding="utf-8")
     contention_enabled = False
 
-    restarted = approval_execution.approve(approval_id, executor)
+    restarted = approval_execution.approve(approval_id, executor, approved_by="human:test", approved_via="test")
 
     assert restarted == {
         "ok": False,
@@ -183,7 +183,7 @@ def test_orphan_receipt_cannot_skip_a_pending_action(
         action_runs += 1
         return "real result"
 
-    result = approval_execution.approve(approval_id, executor)
+    result = approval_execution.approve(approval_id, executor, approved_by="human:test", approved_via="test")
 
     assert result == {"ok": True, "result": "real result"}
     assert action_runs == 1
@@ -223,7 +223,7 @@ def test_continuation_terminal_state_removes_action_receipt(
         return "action result"
 
     events: list[dict[str, Any]] = []
-    result = approval_execution.approve(approval_id, executor, on_event=events.append)
+    result = approval_execution.approve(approval_id, executor, on_event=events.append, approved_by="human:test", approved_via="test")
 
     assert result["ok"] is True
     assert result["result"] == "action result"
@@ -267,7 +267,7 @@ def test_twenty_concurrent_approvers_execute_exactly_once(
 
     def approve_at_once(_index: int) -> dict[str, Any]:
         _ = start.wait(timeout=10)
-        return approval_execution.approve(approval_id, executor)
+        return approval_execution.approve(approval_id, executor, approved_by="human:test", approved_via="test")
 
     with ThreadPoolExecutor(max_workers=20) as pool:
         results = list(pool.map(approve_at_once, range(20)))

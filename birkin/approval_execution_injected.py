@@ -9,6 +9,7 @@ from .approval_execution_codec import JSONValue, parse_mapping
 from .approval_execution_journal import ExecutionJournal, JournalCorruptionError
 from .approval_execution_state import JournalPhase
 from .approval_execution_types import ActionExecutor, EventSink
+from .office.errors import DocumentError, DocumentErrorCode
 
 
 def execute(
@@ -35,8 +36,13 @@ def execute(
     category = str(record.get("category") or "")
     payload = parse_mapping(record.get("payload"))
     try:
-        if category == "office_job":
-            result = executor(category, payload, {"_office_approval_id": approval_id})
+        if category.startswith("office_"):
+            result = executor(
+                category,
+                payload,
+                {"_office_approval_id": approval_id},
+                on_event=on_event,
+            )
         elif on_event is not None:
             result = executor(category, payload, on_event=on_event)
         else:
@@ -54,6 +60,46 @@ def execute(
                 return {"ok": False, "error": "approval store is busy"}
             return {"ok": False, "error": str(exc)}
         return _persist_failure(approval_id, journal, exc)
+    except DocumentError as exc:
+        if (
+            exc.code is DocumentErrorCode.OUTPUT_EXISTS
+            and category in {"office_create", "office_job"}
+        ):
+            from .office.overwrite_retry import (
+                OVERWRITE_QUESTION,
+                queue_overwrite_follow_up,
+            )
+
+            follow_up = queue_overwrite_follow_up(
+                approval_id=approval_id,
+                category=category,
+                payload=payload,
+            )
+            try:
+                with store.file_lock(path):
+                    _ = store.resolve_pending(
+                        approval_id,
+                        "executing",
+                        updates={
+                            "failure_code": exc.code.value,
+                            "follow_up_approval_id": str(follow_up["id"]),
+                        },
+                    )
+                    journal.failed(str(exc))
+                    current = store.get_pending(approval_id)
+                    if current is not None:
+                        project_terminal(approval_id, current, journal.load())
+            except store.FileLockTimeout:
+                return {"ok": False, "error": "approval store is busy"}
+            return {
+                "ok": False,
+                "error": OVERWRITE_QUESTION,
+                "follow_up_approval_id": str(follow_up["id"]),
+            }
+        if exc.retryable and category.startswith("office_"):
+            journal.resume_office()
+            return {"ok": False, "error": f"action recovery required: {exc}"}
+        return _persist_failure(approval_id, journal, exc)
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
         return _persist_failure(approval_id, journal, exc)
     try:
@@ -62,7 +108,10 @@ def execute(
             project_terminal(approval_id, record, journal.load())
     except (OSError, store.FileLockTimeout, JournalCorruptionError) as exc:
         return _persist_failure(approval_id, journal, exc)
-    return {"ok": True, "result": result if category == "office_job" else result[:2000]}
+    return {
+        "ok": True,
+        "result": result if category.startswith("office_") else result[:2000],
+    }
 
 
 def _persist_failure(

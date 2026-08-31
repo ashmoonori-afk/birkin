@@ -9,7 +9,7 @@ from typing import cast
 
 import pytest
 
-from birkin import config, private_storage as private_storage_core, store
+from birkin import config, private_storage as private_storage_core
 from birkin.native import private_storage
 
 _WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Windows ACL contract")
@@ -218,12 +218,15 @@ def test_birkin_home_dacl_covers_secret_descendants(
     for target in targets:
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.suffix == ".json":
-            store._write_json(target, {"secret": "value"})
+            _ = target.write_text(
+                json.dumps({"secret": "value"}),
+                encoding="utf-8",
+            )
         else:
             _ = target.write_bytes(b"secret")
 
     system = Path(os.environ["SystemRoot"]) / "System32"
-    subprocess.run(
+    _ = subprocess.run(
         [
             str(system / "icacls.exe"),
             str(home),

@@ -144,7 +144,14 @@ def dispatch_command_or_acquire(
                 CommandContract.handle_omo(gateway, channel, chat_id, request.text)
             )
         if command == "deny":
-            return CommandReply(gateway.deny_command(arg))
+            principal = request.sender_id or chat_id
+            return CommandReply(
+                gateway.deny_command(
+                    arg,
+                    actor_id=f"human:{channel}:{principal}",
+                    via=f"gateway:{channel}",
+                )
+            )
         if command == "remind":
             return CommandReply(gateway.remind_command(arg, channel, chat_id))
         if command in ("commitment", "checkin", "companion"):

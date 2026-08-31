@@ -42,14 +42,14 @@ class ModelContract(TurnContract, Protocol):
     @staticmethod
     def chat_history(
         gateway: GatewayTurn, key: tuple[str, str]
-    ) -> list[dict[str, object]]:  # noqa: OBJECT_OK - runtime message contract
+    ) -> list[dict[str, object]]:  # Runtime message contract.
         return gateway._chats.get(key, [])
 
     @staticmethod
     def save_chat_history(
         gateway: GatewayTurn,
         key: tuple[str, str],
-        history: list[dict[str, object]],  # noqa: OBJECT_OK - runtime message contract
+        history: list[dict[str, object]],  # Runtime message contract.
     ) -> None:
         gateway._chats[key] = history
 
@@ -114,7 +114,7 @@ def ask_model(
             one_shot.close()
     if lease.persistent:
         if lease.session is None:
-            raise RuntimeError(  # noqa: GENERIC_ERR_OK - impossible lease invariant
+            raise RuntimeError(  # Impossible lease invariant.
                 "persistent turn has no borrowed session"
             )
         session_skill_state = skill_state(lease.session)

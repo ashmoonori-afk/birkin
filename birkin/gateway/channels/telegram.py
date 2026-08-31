@@ -85,6 +85,27 @@ class _ClaimGateway(Protocol):
     ) -> str: ...
 
 
+class _ActionResolver(Protocol):
+    def resolve_action(
+        self,
+        aid: str,
+        approve: bool,
+        *,
+        actor_id: str,
+        via: str,
+    ) -> str: ...
+
+
+class _ActionClaimer(Protocol):
+    def claim_action(
+        self,
+        aid: str,
+        *,
+        actor_id: str,
+        via: str,
+    ) -> tuple[str, bool]: ...
+
+
 class _TrustCheck(Protocol):
     def __call__(self, channel: str) -> bool: ...
 
@@ -120,6 +141,14 @@ def _get_attribute(
 
 def _is_trust_check(value: object) -> TypeGuard[_TrustCheck]:
     return callable(value)
+
+
+def _is_action_resolver(value: object) -> TypeGuard[_ActionResolver]:
+    return callable(getattr(value, "resolve_action", None))
+
+
+def _is_action_claimer(value: object) -> TypeGuard[_ActionClaimer]:
+    return callable(getattr(value, "claim_action", None))
 
 
 def _command_is_trusted(gateway: ChannelGateway) -> bool:
@@ -1018,7 +1047,13 @@ class TelegramChannel(Channel):
             ):
                 self._answer_callback(cq_id, "다른 작업이 진행 중입니다")
                 return
-            resolution = resolve_proposal(aid, chat_id, approve=(verb == "apv"))
+            resolution = resolve_proposal(
+                aid,
+                chat_id,
+                approve=(verb == "apv"),
+                actor_id=f"human:telegram:{from_id}",
+                via="gateway:telegram",
+            )
             result = resolution.message
             resume_prompt = resolution.resume_prompt
             self._answer_callback(cq_id, result[:190])
@@ -1058,13 +1093,19 @@ class TelegramChannel(Channel):
 
         claimed = False
         if verb == "rej":
-            result = gateway.resolve_action(
+            resolver_gateway = gateway
+            if not _is_action_resolver(resolver_gateway):
+                raise TypeError(type(resolver_gateway).__name__)
+            result = resolver_gateway.resolve_action(
                 aid,
                 approve=False,
                 actor_id=f"human:telegram:{from_id}",
                 via="gateway:telegram",
             )
         else:
+            claimer_gateway = gateway
+            if not _is_action_claimer(claimer_gateway):
+                raise TypeError(type(claimer_gateway).__name__)
             prev = self._workers.get(chat_id)
             action = self._action_workers.get(chat_id)
             if (prev is not None and prev.is_alive()) or (
@@ -1072,7 +1113,7 @@ class TelegramChannel(Channel):
             ):
                 self._answer_callback(cq_id, "다른 작업이 진행 중입니다")
                 return
-            result, claimed = gateway.claim_action(
+            result, claimed = claimer_gateway.claim_action(
                 aid,
                 actor_id=f"human:telegram:{from_id}",
                 via="gateway:telegram",

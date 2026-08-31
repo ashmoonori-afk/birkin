@@ -193,4 +193,12 @@ def execute_approved_office_creation(
     return canonical_integrity_json(result)
 
 
-__all__ = ["execute_approved_office_creation"]
+def approved_creation_receipt(payload: Mapping[str, object]) -> str:
+    job_id = required_text(payload.get("job_id"), "job_id")
+    result = CreationJobJournal(canonical_office_home()).latest(job_id).get("result")
+    if not isinstance(result, Mapping):
+        raise creation_error("durable creation receipt is unavailable")
+    return canonical_integrity_json(result)
+
+
+__all__ = ["approved_creation_receipt", "execute_approved_office_creation"]

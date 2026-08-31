@@ -38,7 +38,11 @@ def test_pre_arm_crash_restores_usable_pending_authority(
         action_runs += 1
         return "restored action result"
 
-    assert approval_execution.claim(approval_id) == {"ok": True}
+    assert approval_execution.claim(approval_id, approved_by="human:test", approved_via="test") == {"ok": True}
+    claimed = store.get_pending(approval_id)
+    assert claimed is not None
+    assert claimed["approved_by"] == "human:test"
+    assert claimed["approved_via"] == "test"
     journal = ExecutionJournal(approval_id)
     assert not journal.path.exists()
 
@@ -54,7 +58,7 @@ def test_pre_arm_crash_restores_usable_pending_authority(
     assert action_runs == 0
 
     # When: the restored authority is reclaimed and executed through the real seam.
-    assert approval_execution.claim(approval_id) == {"ok": True}
+    assert approval_execution.claim(approval_id, approved_by="human:test", approved_via="test") == {"ok": True}
     executed = approval_execution.execute_claimed(approval_id, executor)
     recovered_terminal = approval_execution_recovery.recover_one(approval_id)
 

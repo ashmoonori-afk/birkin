@@ -112,6 +112,21 @@ def queue_overwrite_follow_up(
                 DocumentErrorCode.POLICY_DENIED,
                 "Office category does not support overwrite follow-up",
             )
+    origin = f"overwrite-retry:{approval_id}"
+    existing = next(
+        (
+            record
+            for record in store.list_pending()
+            if record.get("origin") == origin and record.get("category") == category
+        ),
+        None,
+    )
+    if existing is not None:
+        return {
+            "auto": False,
+            "id": str(existing["id"]),
+            "title": OVERWRITE_QUESTION,
+        }
     queued = store.add_pending(
         category=category,
         title=OVERWRITE_QUESTION,
@@ -120,7 +135,7 @@ def queue_overwrite_follow_up(
             "기존 파일이 있습니다. 승인하면 정확히 같은 작업으로 교체합니다."
         ),
         payload=rebound,
-        origin=f"overwrite-retry:{approval_id}",
+        origin=origin,
         details={
             "retry_of_approval_id": approval_id,
             "overwrite_retry": True,

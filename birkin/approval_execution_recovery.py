@@ -89,7 +89,7 @@ def recover_one(
                         snapshot.owner_pid,
                         snapshot.owner_generation,
                     ):
-                        if snapshot.category == "office_job":
+                        if snapshot.category.startswith("office_"):
                             journal.resume_office()
                             process = _launch(journal)
                         else:
@@ -134,6 +134,15 @@ def recover_one(
         return {"ok": True, "result": str(current.get("action_receipt") or "")}
     if status == "error":
         detail = str(current.get("execution_error") or "unknown error")
+        follow_up_approval_id = current.get("follow_up_approval_id")
+        if isinstance(follow_up_approval_id, str):
+            from .office.overwrite_retry import OVERWRITE_QUESTION
+
+            return {
+                "ok": False,
+                "error": OVERWRITE_QUESTION,
+                "follow_up_approval_id": follow_up_approval_id,
+            }
         error = (
             detail
             if detail.startswith("action failed:")

@@ -51,7 +51,14 @@ def test_approved_harness_refine_persists_private_digest_bound_request(
     request_dir = harness.refine_requests_dir("local")
     assert not request_dir.exists()
 
-    approved = mapping(approvals.approve(text(record, "id")), "approval result")
+    approved = mapping(
+        approvals.approve(
+            text(record, "id"),
+            approved_by="human:test",
+            approved_via="test",
+        ),
+        "approval result",
+    )
 
     assert approved["ok"] is True
     result = approved["result"]
@@ -102,7 +109,11 @@ def test_empty_harness_refine_approval_fails_without_artifact(
     assert not proposed.is_error
     record = pending()
 
-    approved = approvals.approve(text(record, "id"))
+    approved = approvals.approve(
+        text(record, "id"),
+        approved_by="human:test",
+        approved_via="test",
+    )
 
     assert approved["ok"] is False
     assert not harness.refine_requests_dir("local").exists()
@@ -128,7 +139,14 @@ def test_unique_harness_refine_approvals_each_persist(
             for item in store.list_pending()
             if item.get("status") == "pending"
         ]
-        assert approvals.approve(text(pending_records[0], "id"))["ok"] is True
+        assert (
+            approvals.approve(
+                text(pending_records[0], "id"),
+                approved_by="human:test",
+                approved_via="test",
+            )["ok"]
+            is True
+        )
 
     artifacts = harness.refine_requests("global")
     assert [item["target"] for item in artifacts] == [
@@ -149,7 +167,11 @@ def test_approved_odyssey_executes_real_cli_and_persists_seed(
     assert not proposed.is_error
     record = pending()
 
-    approved = approvals.approve(text(record, "id"))
+    approved = approvals.approve(
+        text(record, "id"),
+        approved_by="human:test",
+        approved_via="test",
+    )
 
     assert approved["ok"] is True
     path = tmp_path / "boulder" / "c001-approval-fidelity-sentinel.json"
@@ -190,7 +212,7 @@ def test_worker_execution_failure_marks_approval_error(
     assert not proposed.is_error
     record = pending()
 
-    approved = approval_execution.approve(text(record, "id"), approvals.execute_action)
+    approved = approval_execution.approve(text(record, "id"), approvals.execute_action, approved_by="human:test", approved_via="test")
 
     assert approved["ok"] is False
     assert "action failed" in str(approved["error"])

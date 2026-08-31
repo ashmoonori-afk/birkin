@@ -11,6 +11,7 @@ from multiprocessing.connection import Listener
 from multiprocessing.synchronize import Barrier as BarrierType
 
 import pytest
+import psutil
 
 from birkin import approval_execution, approval_execution_recovery, store
 from birkin.approval_execution_helper import helper_argv
@@ -26,7 +27,7 @@ def _recover_at_barrier(home: str, approval_id: str, barrier: BarrierType) -> No
 
 def _approve_parent(home: str, approval_id: str) -> None:
     os.environ["BIRKIN_HOME"] = home
-    approval_execution.approve(approval_id)
+    approval_execution.approve(approval_id, approved_by="human:test", approved_via="test")
 
 
 def _executing(tmp_path: Path) -> tuple[str, ExecutionJournal]:
@@ -198,7 +199,7 @@ def test_helper_hard_exit_before_attempt_is_recoverable(
     )
 
     # When: approval launches and waits for that helper.
-    first = approval_execution.approve(str(record["id"]))
+    first = approval_execution.approve(str(record["id"]), approved_by="human:test", approved_via="test")
     monkeypatch.delenv("BIRKIN_APPROVAL_HELPER_TEST_EXIT")
     recovered = approval_execution_recovery.recover_one(str(record["id"]), wait=True)
 
@@ -247,7 +248,11 @@ def test_parent_hard_exit_after_action_start_keeps_helper_receipt(
             parent.join(timeout=30)
             signal.send("continue")
             assert signal.recv() == "effect"
+            owner_pid = ExecutionJournal(str(record["id"])).load().owner_pid
+            assert owner_pid is not None
+            helper = psutil.Process(owner_pid)
             signal.send("finish")
+            _ = helper.wait(timeout=30)
     with store.file_lock(
         tmp_path / "pending" / f"{record['id']}.json",
         timeout=30,
@@ -317,7 +322,7 @@ def test_helper_hard_exit_after_effect_becomes_unknown_without_duplicate(
     )
 
     # When: the effect returns but the helper dies before its terminal receipt.
-    first = approval_execution.approve(str(record["id"]))
+    first = approval_execution.approve(str(record["id"]), approved_by="human:test", approved_via="test")
     monkeypatch.delenv("BIRKIN_APPROVAL_HELPER_TEST_EXIT")
     recovered = approval_execution_recovery.recover_one(str(record["id"]))
 

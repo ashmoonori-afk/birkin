@@ -229,11 +229,11 @@ class RuntimeWorkspaceAdapter:
             self._session = build_session(
                 cfg,
                 on_event=self.runtime_event,
-                on_status=self._runtime_status,
+                on_status=self.runtime_status,
             )
         return self._session
 
-    def _runtime_status(self, status: LLMStatus) -> None:
+    def runtime_status(self, status: LLMStatus) -> None:
         payload: dict[str, object] = {
             "summary": llm_status_summary(status),
             "status": status.kind,
@@ -324,14 +324,6 @@ class RuntimeWorkspaceAdapter:
         if runtime_name:
             safe["runtime_name"] = str(runtime_name)[:300]
         _ = self._emit(event_type, safe)
-
-    def _runtime_event(
-        self,
-        event: str,
-        payload: dict[str, object],
-    ) -> None:
-        """Delegate legacy callback users to the public runtime event sink."""
-        self.runtime_event(event, payload)
 
     def _computer_event(self, raw: dict[str, object]) -> None:
         version = raw.get("version")
@@ -759,13 +751,13 @@ class RuntimeWorkspaceAdapter:
                 "Office creation job request currently supports DOCX only",
             )
         raw_content = payload["content"]
-        if not isinstance(raw_content, Mapping) or set(raw_content) != {"paragraphs"}:
+        if not isinstance(raw_content, dict) or raw_content.keys() != {"paragraphs"}:
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "DOCX creation content fields changed",
             )
-        raw_paragraphs = raw_content.get("paragraphs")
+        raw_paragraphs = cast(object, raw_content["paragraphs"])
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
             raw_paragraphs,
             (str, bytes),
@@ -863,19 +855,19 @@ class RuntimeWorkspaceAdapter:
                 "native Office creation currently supports DOCX only",
             )
         raw_content = payload.get("content")
-        if not isinstance(raw_content, Mapping):
+        if not isinstance(raw_content, dict):
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "Office creation content must be an object",
             )
-        if set(raw_content) != {"paragraphs"}:
+        if raw_content.keys() != {"paragraphs"}:
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "DOCX creation content fields changed",
             )
-        raw_paragraphs = raw_content.get("paragraphs")
+        raw_paragraphs = cast(object, raw_content["paragraphs"])
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
             raw_paragraphs,
             (str, bytes),

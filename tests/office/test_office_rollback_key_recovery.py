@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from birkin import approvals, store
+from birkin import approval_execution, approvals, store
 from birkin.office import export_policy
 from birkin.tools import build_registry
 from birkin.tools._types import ToolContext
@@ -52,8 +52,9 @@ def test_missing_receipt_key_preserves_rollback_execution(
     key_bytes = key.read_bytes()
     key.unlink()
 
-    interrupted = approvals.approve(
+    interrupted = approval_execution.approve(
         approval_id,
+        approvals.execute_action,
         approved_by="human:rollback-reviewer",
         approved_via="test:office-rollback",
     )
@@ -71,7 +72,7 @@ def test_missing_receipt_key_preserves_rollback_execution(
         approved_by="human:rollback-reviewer",
         approved_via="test:office-rollback",
     )
-    assert recovered["ok"] is True
+    assert recovered["ok"] is True, recovered
     assert not destination.exists()
 
 
@@ -121,8 +122,9 @@ def test_rollback_sync_failure_preserves_execution_for_retry(
         real_sync(path, identity)
 
     monkeypatch.setattr(export_policy, "sync_directory", fail_once)
-    interrupted = approvals.approve(
+    interrupted = approval_execution.approve(
         approval_id,
+        approvals.execute_action,
         approved_by="human:rollback-reviewer",
         approved_via="test:office-rollback",
     )

@@ -50,8 +50,20 @@ def test_approved_workflow_is_bound_to_chat_and_builds_resume_prompt(
     aid = workflow.queue_proposal(_proposal(), "원래 작업", "42")
 
     # When
-    denied = workflow.resolve_proposal(aid, "99", approve=True)
-    approved = workflow.resolve_proposal(aid, "42", approve=True)
+    denied = workflow.resolve_proposal(
+        aid,
+        "99",
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
+    approved = workflow.resolve_proposal(
+        aid,
+        "42",
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
 
     # Then
     assert denied.resume_prompt is None
@@ -60,7 +72,10 @@ def test_approved_workflow_is_bound_to_chat_and_builds_resume_prompt(
     assert workflow.APPROVED_OPEN in approved.resume_prompt
     assert "원래 작업" in approved.resume_prompt
     assert "관련 경로 조사" in approved.resume_prompt
-    assert store.get_pending(aid)["status"] == "claimed"
+    resolved = store.get_pending(aid)
+    assert resolved["status"] == "claimed"
+    assert resolved["approved_by"] == "human:telegram:42"
+    assert resolved["approved_via"] == "gateway:telegram"
 
 
 def test_telegram_execution_policy_has_in_chat_delivery_contract() -> None:
@@ -85,12 +100,21 @@ def test_rejected_workflow_never_builds_resume_prompt(tmp_path, monkeypatch) -> 
     aid = workflow.queue_proposal(_proposal(), "원래 작업", "42")
 
     # When
-    rejected = workflow.resolve_proposal(aid, "42", approve=False)
+    rejected = workflow.resolve_proposal(
+        aid,
+        "42",
+        approve=False,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
 
     # Then
     assert rejected.resume_prompt is None
     assert rejected.message.startswith("❌")
-    assert store.get_pending(aid)["status"] == "rejected"
+    resolved = store.get_pending(aid)
+    assert resolved["status"] == "rejected"
+    assert resolved["rejected_by"] == "human:telegram:42"
+    assert resolved["rejected_via"] == "gateway:telegram"
 
 
 def test_streamer_holds_workflow_envelope_until_buttons_render() -> None:
@@ -293,6 +317,37 @@ def test_workflow_button_acknowledges_then_resumes_same_chat(
     assert methods.index("answerCallbackQuery") < methods.index("editMessageText")
     assert resumed and resumed[0][0] == "42" and resumed[0][2] == 17
     assert workflow.APPROVED_OPEN in resumed[0][1]
+    resolved = store.get_pending(aid)
+    assert resolved["approved_by"] == "human:telegram:42"
+    assert resolved["approved_via"] == "gateway:telegram"
+
+
+def test_workflow_rejection_callback_persists_telegram_resolver(
+        tmp_path, monkeypatch) -> None:
+    # Given
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    aid = workflow.queue_proposal(_proposal(), "원래 작업", "42")
+    channel = TelegramChannel("token", allowed_chat_ids=["42"])
+    monkeypatch.setattr(
+        channel,
+        "_call",
+        lambda *_args, **_kwargs: {"ok": True},
+    )
+    callback = {
+        "id": "cb-reject",
+        "data": f"rej:{aid}",
+        "from": {"id": 42},
+        "message": {"chat": {"id": 42}, "message_id": 9, "text": "proposal"},
+    }
+
+    # When
+    channel._handle_callback(object(), callback)
+
+    # Then
+    resolved = store.get_pending(aid)
+    assert resolved["status"] == "rejected"
+    assert resolved["rejected_by"] == "human:telegram:42"
+    assert resolved["rejected_via"] == "gateway:telegram"
 
 
 def test_long_turn_heartbeat_updates_one_message_and_cleans_it_up(

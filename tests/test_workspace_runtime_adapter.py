@@ -133,7 +133,7 @@ def test_llm_retry_status_emits_korean_progress_event(tmp_path: Path) -> None:
         workspace_root=tmp_path / "workspace",
     )
 
-    adapter._runtime_status(
+    adapter.runtime_status(
         LLMStatus(
             kind="retrying",
             provider="anthropic",
@@ -217,7 +217,7 @@ def test_llm_transition_status_emits_korean_progress_event(
         workspace_root=tmp_path / "workspace",
     )
 
-    adapter._runtime_status(status)
+    adapter.runtime_status(status)
 
     assert emitted == [
         (
@@ -1024,7 +1024,7 @@ def test_tool_end_is_error_uses_truthiness(
 def test_runtime_event_hides_tool_identifier_behind_korean_summary() -> None:
     adapter, emitted = _runtime_adapter()
 
-    adapter._runtime_event("tool_start", {"name": "shell_exec"})
+    adapter.runtime_event("tool_start", {"name": "shell_exec"})
 
     payload = emitted[0][1]
     assert payload["summary"] == "도구 실행을 시작했습니다."

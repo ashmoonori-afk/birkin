@@ -65,7 +65,12 @@ def test_tampered_sealed_operation_fails_closed(tmp_path: Path) -> None:
     record_path.write_text(json.dumps(record), encoding="utf-8")
 
     # When: approval executes the now-mismatched record.
-    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
+    resolution = approval_execution.approve(
+        approval_id,
+        approvals.execute_action,
+        approved_by="human:test",
+        approved_via="test",
+    )
 
     # Then: digest verification rejects it without side effects.
     assert resolution["ok"] is False
@@ -97,7 +102,12 @@ def test_approved_permission_failure_does_not_requeue(
     approval_id = store.list_pending()[0]["id"]
 
     # When: the one approved retry reaches the same OS boundary.
-    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
+    resolution = approval_execution.approve(
+        approval_id,
+        approvals.execute_action,
+        approved_by="human:test",
+        approved_via="test",
+    )
 
     # Then: it terminates as an error and creates no recursive approval.
     assert resolution["ok"] is False

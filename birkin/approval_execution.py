@@ -27,10 +27,12 @@ _authority_digest = authority_digest
 def claim(
     approval_id: str,
     *,
-    approved_by: str | None = None,
-    approved_via: str | None = None,
+    approved_by: str,
+    approved_via: str,
 ) -> dict[str, JSONValue]:
     """Atomically claim pending approval authority."""
+    if not approved_by.strip() or not approved_via.strip():
+        raise ValueError("approval resolver identity must be non-empty")
     if not store.valid_pending_id(approval_id):
         return {"ok": False, "error": "invalid approval id"}
     try:
@@ -194,9 +196,11 @@ def approve(
     executor: ActionExecutor | None = None,
     on_event: EventSink | None = None,
     *,
-    approved_by: str | None = None,
-    approved_via: str | None = None,
+    approved_by: str,
+    approved_via: str,
 ) -> dict[str, JSONValue]:
+    if not approved_by.strip() or not approved_via.strip():
+        raise ValueError("approval resolver identity must be non-empty")
     current: dict[str, JSONValue] | None = store.get_pending(approval_id)
     if current is not None and current.get("status") == "executing":
         if (
@@ -243,9 +247,11 @@ def reject(
     approval_id: str,
     reason: str = "",
     *,
-    rejected_by: str | None = None,
-    rejected_via: str | None = None,
+    rejected_by: str,
+    rejected_via: str,
 ) -> dict[str, JSONValue]:
+    if not rejected_by.strip() or not rejected_via.strip():
+        raise ValueError("rejection resolver identity must be non-empty")
     if not store.valid_pending_id(approval_id):
         return {"ok": False}
     try:

@@ -83,7 +83,7 @@ def run_model_turn(
         return recover_codex_timeout(
             gateway, request, started, prepared.progress_seen, on_progress, exc
         )
-    except Exception as exc:  # noqa: BROAD_EXCEPT_OK - model boundary returns safe reply
+    except Exception as exc:  # Model boundary returns a safe reply.
         elapsed = time.monotonic() - started
         print(
             f"[gateway] {request.channel}:{request.chat_id} ✗ error after "

@@ -229,13 +229,17 @@ class TelegramGatewayLease:
         )
 
     def release(self) -> None:
-        owner = _read_owner(self.path)
-        if owner is None or owner.instance_id != self.owner.instance_id:
-            return
         try:
-            self.path.unlink()
-        except FileNotFoundError:
-            return
+            with store.file_lock(self.path.with_suffix(".guard")):
+                owner = _read_owner(self.path)
+                if owner is None or owner.instance_id != self.owner.instance_id:
+                    return
+                try:
+                    self.path.unlink()
+                except FileNotFoundError:
+                    return
+        except (store.FileLockTimeout, OSError) as exc:
+            raise TelegramGatewayLeaseRaceError from exc
 
 
 def format_gateway_diagnostics(cfg: dict[str, JSONValue]) -> str:

@@ -25,11 +25,11 @@ class _StoppingServer:
 def test_explicit_remote_mode_supplies_httpserver_wildcard_host(
     monkeypatch: MonkeyPatch,
 ) -> None:
-    # Given: both remote-mode acknowledgements were explicitly enabled.
+    # Given: remote mode has an explicit public HTTPS origin.
     cfg = {
         **web_server.config.load_config(),
         "web_remote_access": True,
-        "web_remote_insecure_ack": True,
+        "web_external_url": "https://birkin-host.example:8765",
     }
     bound_addresses: list[tuple[str, int]] = []
 

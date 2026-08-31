@@ -124,7 +124,7 @@ class ExecutionJournal:
     def resume_office(self) -> None:
         snapshot = self.load()
         if (
-            snapshot.category != "office_job"
+            not snapshot.category.startswith("office_")
             or snapshot.phase is not JournalPhase.ATTEMPT_COMMITTED
         ):
             raise JournalCorruptionError("Office approval execution cannot resume now")

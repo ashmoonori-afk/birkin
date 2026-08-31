@@ -177,7 +177,12 @@ def test_manual_cron_approval_restores_pending_on_cron_lock_timeout(
         ),
     )
 
-    result = approvals.approve(rec["id"], approved_by="human:test", approved_via="test")
+    result = approval_execution.approve(
+        rec["id"],
+        approvals.execute_action,
+        approved_by="human:test",
+        approved_via="test",
+    )
 
     assert result == {"ok": False, "error": "cron store is busy; retry."}
     assert store.get_pending(rec["id"])["status"] == "pending"

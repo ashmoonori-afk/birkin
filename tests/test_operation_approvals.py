@@ -392,8 +392,9 @@ def test_approved_tokscale_native_shim_fallback_preserves_authority(
     )
 
     # When: the sealed approval is executed and then replay is attempted.
-    resolution = approvals.approve(
+    resolution = approval_execution.approve(
         status["id"],
+        approvals.execute_action,
         approved_by="human:test",
         approved_via="test",
     )

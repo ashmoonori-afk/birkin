@@ -51,6 +51,9 @@ def test_public_resolution_api_requires_explicit_identity() -> None:
         approvals.approve: ("approved_by", "approved_via"),
         approvals.reject: ("rejected_by", "rejected_via"),
         approvals.claim: ("approved_by", "approved_via"),
+        approval_execution.approve: ("approved_by", "approved_via"),
+        approval_execution.reject: ("rejected_by", "rejected_via"),
+        approval_execution.claim: ("approved_by", "approved_via"),
     }
     for resolver, parameters in required.items():
         resolver_signature = signature(resolver)
@@ -58,6 +61,59 @@ def test_public_resolution_api_requires_explicit_identity() -> None:
             resolver_signature.parameters[name].default is Parameter.empty
             for name in parameters
         )
+
+
+def test_low_level_claim_rejects_empty_identity() -> None:
+    with pytest.raises(ValueError, match="identity must be non-empty"):
+        _ = approval_execution.claim(
+            "0123456789ab",
+            approved_by="",
+            approved_via="test",
+        )
+
+
+def test_low_level_approve_rejects_empty_identity() -> None:
+    with pytest.raises(ValueError, match="identity must be non-empty"):
+        _ = approval_execution.approve(
+            "0123456789ab",
+            approved_by="human:test",
+            approved_via=" ",
+        )
+
+
+def test_low_level_reject_rejects_empty_identity() -> None:
+    with pytest.raises(ValueError, match="identity must be non-empty"):
+        _ = approval_execution.reject(
+            "0123456789ab",
+            rejected_by=" ",
+            rejected_via="test",
+        )
+
+
+def test_facade_approval_uses_helper_unless_shell_runner_is_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executors = []
+
+    def resolve(_approval_id, executor=None, **_kwargs):
+        executors.append(executor)
+        return {"ok": True}
+
+    monkeypatch.setattr(approval_execution, "approve", resolve)
+
+    assert approvals.approve(
+        "0123456789ab",
+        approved_by="human:test",
+        approved_via="test",
+    ) == {"ok": True}
+    monkeypatch.setattr(approvals, "run_shell_command", lambda _request: None)
+    assert approvals.approve(
+        "0123456789ab",
+        approved_by="human:test",
+        approved_via="test",
+    ) == {"ok": True}
+
+    assert executors == [None, approvals.execute_action]
 
 
 def test_failed_auto_skill_proposal_is_audited_as_error():
@@ -231,7 +287,7 @@ def test_concurrent_shell_approval_executes_exactly_once(
     )
 
     def approve_once(_index: int) -> dict[str, object]:
-        return approval_execution.approve(proposal["id"], approvals.execute_action)
+        return approval_execution.approve(proposal["id"], approvals.execute_action, approved_by="human:test", approved_via="test")
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(

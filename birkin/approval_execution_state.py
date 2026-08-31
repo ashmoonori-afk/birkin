@@ -68,7 +68,10 @@ def snapshot(events: list[dict[str, JSONValue]]) -> JournalSnapshot:
             raise JournalStateError("approval execution phase is invalid") from exc
         transition_valid = allowed[candidate] is phase
         if candidate is JournalPhase.READY and (
-            (phase is JournalPhase.ATTEMPT_COMMITTED and category == "office_job")
+            (
+                phase is JournalPhase.ATTEMPT_COMMITTED
+                and category.startswith("office_")
+            )
             or (phase is JournalPhase.RETRYABLE_FAILURE and category == "cron")
         ):
             transition_valid = True

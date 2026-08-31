@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from birkin import config
+from birkin import approvals, config, store
 from birkin.gateway import core as gateway_core
 from birkin.llm import LLMClient, StreamCallback
 
@@ -71,6 +71,38 @@ def test_public_channel_requires_allowlisted_sender(tmp_path, monkeypatch):
         ) == gateway_core.UNTRUSTED_CHANNEL_REPLY
 
     assert dispatched == [""]
+
+
+def test_trusted_public_sender_identity_reaches_deny(tmp_path, monkeypatch):
+    # Given
+    gateway = _gateway(
+        tmp_path,
+        monkeypatch,
+        {"kakao": {"allowed_sender_ids": ["owner"]}},
+    )
+    pending = approvals.propose(
+        category="shell",
+        title="shell: remove build",
+        description="flagged",
+        payload={"command": "rm -rf build"},
+        cfg={"auto_approve": []},
+        origin="shellguard",
+    )
+
+    # When
+    reply = gateway.handle(
+        "kakao",
+        "room-1",
+        f"/deny {pending['id']} keep build",
+        sender_id="owner",
+    )
+
+    # Then
+    resolved = store.get_pending(pending["id"])
+    assert "거부" in reply
+    assert resolved is not None
+    assert resolved["rejected_by"] == "human:kakao:owner"
+    assert resolved["rejected_via"] == "gateway:kakao"
 
 
 def test_gateway_turn_rebinds_checkpoint_state_to_conversation(

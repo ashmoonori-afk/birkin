@@ -175,14 +175,23 @@ def test_stale_owner_reclamation_is_one_serialized_transaction(
         assert published["instance_id"]
 
         release_owner.set()
-        winner_receiver = receivers[outcomes.index(winner)]
-        assert wait([winner_receiver], timeout=30) == [winner_receiver]
-        assert winner_receiver.recv()[0] == "released"
+        owner_receivers = [
+            receivers[index]
+            for index, outcome in enumerate(outcomes)
+            if outcome[0] == "owned"
+        ]
+        assert set(wait(owner_receivers, timeout=30)) == set(owner_receivers)
+        assert all(receiver.recv()[0] == "released" for receiver in owner_receivers)
     finally:
         release_owner.set()
-        exited = set(wait([process.sentinel for process in processes], timeout=30))
+        pending_sentinels = {process.sentinel for process in processes}
+        while pending_sentinels:
+            exited = set(wait(pending_sentinels, timeout=30))
+            if not exited:
+                break
+            pending_sentinels.difference_update(exited)
         for process in processes:
-            if process.sentinel not in exited:
+            if process.sentinel in pending_sentinels:
                 process.terminate()
             process.join(timeout=30)
         for receiver, sender in endpoints:

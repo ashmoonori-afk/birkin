@@ -148,12 +148,13 @@ def publish_private_temp(
         parent_after.st_ino,
     ):
         raise OSError("private storage directory changed while publishing")
-    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
-    descriptor = os.open(destination.parent, flags)
-    try:
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
+    if os.name != "nt":
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        descriptor = os.open(destination.parent, flags)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
     return True
 
 

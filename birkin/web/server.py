@@ -1006,11 +1006,16 @@ class Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             self._send(403, b"forbidden host", "text/plain")
             return
+        route = match_get(self.path)
+        get_route = route.route
+        match get_route:
+            case GetRoute():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
         if not self._cookie_origin_ok(write=False):
             self._json({"error": "cross-origin capability request"}, code=403)
             return
-        route = match_get(self.path)
-        get_route = route.route
         match get_route:
             case GetRoute.BROWSER:
                 self._handle_browser_get()
@@ -1078,7 +1083,6 @@ class Handler(BaseHTTPRequestHandler):
             ).consume_bootstrap(
                 nonce,
                 host=self.headers.get("Host", ""),
-                allow_remote_host=(self.client_address[0] not in _LOOPBACK_PEERS),
             )
         except BrowserRequestDenied as exc:
             self._send_browser_denial(exc)
@@ -1560,7 +1564,6 @@ class Handler(BaseHTTPRequestHandler):
         if mode is not RestoreMode.FILES and not session_id:
             self._json({"error": "session_id is required"}, code=400)
             return
-        target = f" for session {session_id}" if session_id else ""
         restore_payload = {
             "workspace": str(workspace),
             "checkpoint": checkpoint,
@@ -1568,12 +1571,17 @@ class Handler(BaseHTTPRequestHandler):
         }
         if session_id:
             restore_payload["session_id"] = session_id
+        scope = {
+            RestoreMode.FILES: "파일 범위",
+            RestoreMode.TASK: "작업 상태",
+            RestoreMode.BOTH: "파일과 작업 상태",
+        }[mode]
         proposal = approvals.propose(
             category="checkpoint_restore",
-            title=f"Restore checkpoint {checkpoint[:7]}",
+            title=f"체크포인트 복원: {checkpoint[:7]}",
             description=(
-                f"Restore {mode.value} for {workspace}{target}. "
-                "This destructive action is undo-checkpointed before execution."
+                f"{scope}를 복원합니다. 실행 전에 되돌리기용 체크포인트를 만들며 "
+                "승인해야만 적용됩니다."
             ),
             payload=restore_payload,
             cfg=config.load_config(),

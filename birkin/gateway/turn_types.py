@@ -37,6 +37,7 @@ class TurnRequest:
     command_arg: str
     display_text: str
     skill_query: str
+    sender_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,7 +120,7 @@ class GatewayTurn(Protocol):
 
     def pending_text(self) -> str: ...
 
-    def deny_command(self, arg: str) -> str: ...
+    def deny_command(self, arg: str, *, actor_id: str, via: str) -> str: ...
 
     def remind_command(self, arg: str, channel: str, chat_id: str) -> str: ...
 

@@ -7,6 +7,7 @@ from typing import cast
 import pytest
 
 from birkin import (
+    approval_execution,
     approval_execution_recovery,
     approvals,
     config,
@@ -118,7 +119,7 @@ def test_each_durable_job_checkpoint_resumes_without_repeating_state(
 
     monkeypatch.setattr(OfficeJobJournal, "append", crash_after_checkpoint)
     with pytest.raises(SimulatedCrash):
-        _ = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
+        _ = approval_execution.approve(approval_id, approvals.execute_action, approved_by="human:test", approved_via="test")
     monkeypatch.setattr(OfficeJobJournal, "append", real_append)
     monkeypatch.setattr(
         approval_execution_recovery.procreg,
@@ -166,7 +167,7 @@ def test_publication_commit_before_job_snapshot_is_reconciled(
 
     monkeypatch.setattr(DocumentServiceRunner, "publish", crash_after_publish)
     with pytest.raises(SimulatedCrash):
-        _ = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
+        _ = approval_execution.approve(approval_id, approvals.execute_action, approved_by="human:test", approved_via="test")
     monkeypatch.setattr(DocumentServiceRunner, "publish", real_publish)
     monkeypatch.setattr(
         approval_execution_recovery.procreg,
