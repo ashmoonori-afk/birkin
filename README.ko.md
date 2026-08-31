@@ -676,6 +676,11 @@ Command Palette에서 **Birkin: Review Plan Before Execution**을 실행하십�
 
 모델은 제안합니다. Runtime code가 scheduling과 policy evaluation을 담당하며, Birkin은 **기억은 파일에, 제어 흐름은 코드에, 권한은 명시적 경계 안에** 둡니다.
 
+[2026-08-31 읽기 전용 코드 다이어트 감사 보고서](./reports/code-diet/2026-08-31/Birkin-code-diet-report.ko.md)는
+즉시 삭제 후보, 마이그레이션 이후 정리 대상, 유지해야 할 호환성 경계,
+구조 분할로 이동할 코드량을 각각 정량화합니다. 같은 디렉터리에 검토가 끝난
+PDF, DOCX, 근거 원장을 함께 제공합니다.
+
 ```mermaid
 flowchart LR
     U[CLI · Web · Gateway · VS Code] --> P[promptgate.py]

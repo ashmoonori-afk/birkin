@@ -1,0 +1,120 @@
+{
+  "pdf": {
+    "pages": [
+      {
+        "page": 1,
+        "text_chars": 1121,
+        "width": 893,
+        "height": 1263,
+        "gray_mean": 243.04,
+        "gray_extrema": [
+          44,
+          255
+        ],
+        "image": "page-01.png"
+      },
+      {
+        "page": 2,
+        "text_chars": 1215,
+        "width": 893,
+        "height": 1263,
+        "gray_mean": 248.39,
+        "gray_extrema": [
+          44,
+          255
+        ],
+        "image": "page-02.png"
+      },
+      {
+        "page": 3,
+        "text_chars": 1941,
+        "width": 893,
+        "height": 1263,
+        "gray_mean": 243.49,
+        "gray_extrema": [
+          44,
+          255
+        ],
+        "image": "page-03.png"
+      },
+      {
+        "page": 4,
+        "text_chars": 1895,
+        "width": 893,
+        "height": 1263,
+        "gray_mean": 242.54,
+        "gray_extrema": [
+          44,
+          255
+        ],
+        "image": "page-04.png"
+      },
+      {
+        "page": 5,
+        "text_chars": 2253,
+        "width": 893,
+        "height": 1263,
+        "gray_mean": 243.24,
+        "gray_extrema": [
+          44,
+          255
+        ],
+        "image": "page-05.png"
+      },
+      {
+        "page": 6,
+        "text_chars": 1377,
+        "width": 893,
+        "height": 1263,
+        "gray_mean": 244.37,
+        "gray_extrema": [
+          44,
+          255
+        ],
+        "image": "page-06.png"
+      },
+      {
+        "page": 7,
+        "text_chars": 840,
+        "width": 893,
+        "height": 1263,
+        "gray_mean": 248.95,
+        "gray_extrema": [
+          44,
+          255
+        ],
+        "image": "page-07.png"
+      }
+    ],
+    "page_count": 7,
+    "required_text": {
+      "Birkin 코드 다이어트 전수 감사 보고서": true,
+      "168-186": true,
+      "654-692": true,
+      "868-906": true,
+      "18,172": true
+    },
+    "near_empty_pages": [],
+    "invalid_dimensions": [],
+    "blank_pages": []
+  },
+  "docx": {
+    "zip_bad_member": null,
+    "paragraphs": 115,
+    "tables": 11,
+    "inline_shapes": 1,
+    "media_files": [
+      "word/media/image1.png"
+    ],
+    "normal_font_points": 9.0,
+    "navy_header_fill_count": 39,
+    "empty_table_runs": 0,
+    "required_text": {
+      "Birkin 코드 다이어트 전수 감사 보고서": true,
+      "168-186": true,
+      "654-692": true,
+      "868-906": true,
+      "18,172": true
+    }
+  }
+}
