@@ -3,7 +3,8 @@
 A goal is broken into an ordered list of small, independently-verifiable steps;
 each step is checked off only after the Odyssey skill's inline Osiris check
 confirms it. The plan
-lives on disk (``~/.birkin/boulder/<slug>.json``, atomic + 0o600 via ``store``)
+lives on disk (``~/.birkin/boulder/<slug>.json``, atomic + owner-only via
+``private_storage``)
 so an interrupted run — crash, context limit — resumes from the first unchecked
 step. The Odyssey skill drives this; Morpheus could reuse it for a headless run.
 
@@ -13,17 +14,18 @@ Pure standard library. Borrowed from oh-my-openagent's "Durable Boulder" +
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from . import config, neurosis, store
+from . import config, neurosis, private_storage, store
 
 
 def boulder_dir() -> Path:
     d = config.birkin_home() / "boulder"
-    d.mkdir(parents=True, exist_ok=True)
+    private_storage.harden_private_directory(d)
     return d
 
 
@@ -35,18 +37,64 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _read_state(path: Path) -> dict[str, object] | None:
+    try:
+        decoded: object = json.loads(private_storage.read_private_text(path))
+    except FileNotFoundError:
+        return None
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(decoded, dict):
+        return None
+    return {key: value for key, value in decoded.items() if isinstance(key, str)}
+
+
+def _write_state(path: Path, state: object) -> None:
+    private_storage.atomic_write_private_text(
+        path,
+        json.dumps(state, indent=2, ensure_ascii=False),
+    )
+
+
+def seed(goal: str, *, max_iters: int, critics: int) -> dict[str, object]:
+    """Persist an inactive Odyssey request without creating a runnable plan."""
+    slug = neurosis._slug(goal)
+    path = _path(slug)
+    existing = _read_state(path)
+    if existing is not None and (
+        existing.get("active") is True or existing.get("seeded") is True
+    ):
+        return existing
+    state: dict[str, object] = {
+        "goal": goal,
+        "slug": slug,
+        "created_at": _now(),
+        "max_iters": max_iters,
+        "critics": critics,
+        "seeded": True,
+        "active": False,
+        "steps": [],
+    }
+    _write_state(path, state)
+    store.append_activity(f"boulder: seeded Odyssey '{goal[:80]}'")
+    return state
+
+
 def _norm_step(step: Any) -> dict[str, Any]:
     """Accept a plain title string or a ``{title, acceptance}`` dict."""
     if isinstance(step, str):
         return {"title": step, "acceptance": "", "done": False, "verdict": ""}
-    return {"title": str(step.get("title", "")).strip() or "(step)",
-            "acceptance": str(step.get("acceptance", "")),
-            "done": bool(step.get("done", False)),
-            "verdict": str(step.get("verdict", ""))}
+    return {
+        "title": str(step.get("title", "")).strip() or "(step)",
+        "acceptance": str(step.get("acceptance", "")),
+        "done": bool(step.get("done", False)),
+        "verdict": str(step.get("verdict", "")),
+    }
 
 
-def create(goal: str, steps: list[Any], *,
-           cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def create(
+    goal: str, steps: list[Any], *, cfg: Optional[dict[str, Any]] = None
+) -> dict[str, Any]:
     """Create (or RESUME, never clobber) a boulder plan for ``goal``.
 
     If an active plan for the same idea-slug exists it is returned unchanged, so
@@ -54,7 +102,7 @@ def create(goal: str, steps: list[Any], *,
     """
     slug = neurosis._slug(goal)
     p = _path(slug)
-    existing = store._read_json(p, None)
+    existing = _read_state(p)
     if isinstance(existing, dict) and existing.get("active"):
         return _descriptor(existing, resumed=True)
     # Fresh steps always start UNCHECKED — only check() (after Osiris) may flip
@@ -66,19 +114,23 @@ def create(goal: str, steps: list[Any], *,
         raise ValueError("boulder plan needs at least one step")
     now = _now()
     state = {
-        "active": True, "id": uuid.uuid4().hex, "goal": goal, "slug": slug,
-        "created_at": now, "updated_at": now,
+        "active": True,
+        "id": uuid.uuid4().hex,
+        "goal": goal,
+        "slug": slug,
+        "created_at": now,
+        "updated_at": now,
         "steps": fresh,
         "max_iters": int((cfg or {}).get("boulder_max_iters", 100)),
     }
-    store._write_json(p, state)
-    store.append_activity(f"boulder: created '{goal[:80]}' ({len(state['steps'])} steps)")
+    _write_state(p, state)
+    store.append_activity(f"boulder: created '{goal[:80]}' ({len(fresh)} steps)")
     return _descriptor(state, resumed=False)
 
 
 def load(slug: str) -> Optional[dict[str, Any]]:
-    rec = store._read_json(_path(slug), None)
-    return rec if isinstance(rec, dict) else None
+    rec = _read_state(_path(slug))
+    return rec
 
 
 def next_index(state: dict[str, Any]) -> Optional[int]:
@@ -104,19 +156,19 @@ def check(slug: str, index: int, *, verdict: str = "") -> dict[str, Any]:
         raise IndexError(f"step {index} out of range (plan has {len(steps)})")
     steps[index] = {**steps[index], "done": True, "verdict": verdict}
     done_all = all(s.get("done") for s in steps)
-    new_state = {**state, "steps": steps, "active": not done_all,
-                 "updated_at": _now()}
-    store._write_json(_path(slug), new_state)
+    new_state = {**state, "steps": steps, "active": not done_all, "updated_at": _now()}
+    _write_state(_path(slug), new_state)
     store.append_activity(
         f"boulder: step {index + 1}/{len(steps)} done"
-        + (" — goal complete" if done_all else ""))
+        + (" — goal complete" if done_all else "")
+    )
     return _descriptor(new_state, resumed=False)
 
 
 def active() -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for p in boulder_dir().glob("*.json"):
-        rec = store._read_json(p, None)
+        rec = _read_state(p)
         if isinstance(rec, dict) and rec.get("active"):
             out.append(_descriptor(rec, resumed=False))
     out.sort(key=lambda d: str(d.get("created_at", "")))
@@ -127,9 +179,15 @@ def _descriptor(state: dict[str, Any], *, resumed: bool) -> dict[str, Any]:
     steps = state.get("steps", [])
     done = sum(1 for s in steps if s.get("done"))
     return {
-        "slug": state.get("slug", ""), "goal": state.get("goal", ""),
-        "total": len(steps), "done": done, "remaining": len(steps) - done,
-        "active": bool(state.get("active")), "next_index": next_index(state),
-        "steps": steps, "path": str(_path(state.get("slug", ""))),
-        "resumed": resumed, "created_at": state.get("created_at", ""),
+        "slug": state.get("slug", ""),
+        "goal": state.get("goal", ""),
+        "total": len(steps),
+        "done": done,
+        "remaining": len(steps) - done,
+        "active": bool(state.get("active")),
+        "next_index": next_index(state),
+        "steps": steps,
+        "path": str(_path(state.get("slug", ""))),
+        "resumed": resumed,
+        "created_at": state.get("created_at", ""),
     }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from birkin.workspace import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
-from birkin.workspace.snapshot import _panel_item
+from birkin.workspace.snapshot import panel_item
 
 
 def test_tool_end_failure_reaches_rendered_panel_state() -> None:
@@ -24,9 +24,9 @@ def test_tool_end_failure_reaches_rendered_panel_state() -> None:
         return event
 
     adapter = RuntimeWorkspaceAdapter("surface-session", emit)
-    adapter._runtime_event("tool_end", {"name": "read", "is_error": False})
-    adapter._runtime_event("tool_end", {"name": "read", "is_error": True})
+    adapter.runtime_event("tool_end", {"name": "read", "is_error": False})
+    adapter.runtime_event("tool_end", {"name": "read", "is_error": True})
 
-    panel_items = [_panel_item(event) for event in emitted]
+    panel_items = [panel_item(event) for event in emitted]
 
     assert [item["ui_state"] for item in panel_items] == ["succeeded", "failed"]

@@ -100,16 +100,23 @@ def test_runtime_adapter_registers_product_surface_authority_and_commands(
     )
 
     assert adapter.surface_authority.surface_names == (
-        "browser_aside", "computer_use", "office"
+        "browser_aside",
+        "computer_use",
+        "office",
     )
     assert {
-        "browser.start", "browser.navigate", "office.create", "office.open"
+        "browser.start",
+        "browser.navigate",
+        "office.create",
+        "office.open",
     }.issubset(adapter.handlers())
-    snapshots = adapter.surface_authority.snapshots({
-        "browser_aside": 0, "computer_use": 0, "office": 0
-    })
+    snapshots = adapter.surface_authority.snapshots(
+        {"browser_aside": 0, "computer_use": 0, "office": 0}
+    )
     assert [snapshot.surface for snapshot in snapshots] == [
-        "browser_aside", "computer_use", "office"
+        "browser_aside",
+        "computer_use",
+        "office",
     ]
 
 
@@ -265,9 +272,7 @@ def test_computer_use_surface_projects_the_selected_backend_capability(
 ) -> None:
     """Given a platform backend reporting granted permissions, When the runtime
     adapter composes product surfaces, Then Computer Use projects that grant."""
-    monkeypatch.setattr(
-        runtime_adapter, "default_backend", lambda: _GrantedBackend()
-    )
+    monkeypatch.setattr(runtime_adapter, "default_backend", lambda: _GrantedBackend())
     adapter = RuntimeWorkspaceAdapter(
         "capability-session", _event, workspace_root=tmp_path / "workspace"
     )
@@ -347,14 +352,18 @@ def test_chat_send_accepts_only_unchanged_imports_from_its_session(
     workspace = tmp_path / "workspace"
     source = tmp_path / "attachment.txt"
     _ = source.write_text("trusted attachment", encoding="utf-8")
-    adapter = RuntimeWorkspaceAdapter("attachment-session", _event, workspace_root=workspace)
+    adapter = RuntimeWorkspaceAdapter(
+        "attachment-session", _event, workspace_root=workspace
+    )
     imported = adapter.handlers()["file.import"]({"source_path": str(source)})
     reference = cast(dict[str, object], imported["reference"])
 
-    result = adapter.handlers()["chat.send"]({
-        "text": "inspect this",
-        "attachments": [reference],
-    })
+    result = adapter.handlers()["chat.send"](
+        {
+            "text": "inspect this",
+            "attachments": [reference],
+        }
+    )
 
     assert result["attachments"] == [reference]
     assert "attachment.txt" in cast(str, result["reply"])
@@ -362,16 +371,20 @@ def test_chat_send_accepts_only_unchanged_imports_from_its_session(
     jailed = workspace / "imports" / str(reference["jail_name"])
     _ = jailed.write_text("changed", encoding="utf-8")
     with pytest.raises(ValueError, match="changed"):
-        _ = adapter.handlers()["chat.send"]({
-            "text": "inspect this",
-            "attachments": [reference],
-        })
+        _ = adapter.handlers()["chat.send"](
+            {
+                "text": "inspect this",
+                "attachments": [reference],
+            }
+        )
     jailed.unlink()
     with pytest.raises(ValueError, match="deleted"):
-        _ = adapter.handlers()["chat.send"]({
-            "text": "inspect this",
-            "attachments": [reference],
-        })
+        _ = adapter.handlers()["chat.send"](
+            {
+                "text": "inspect this",
+                "attachments": [reference],
+            }
+        )
 
 
 def test_chat_send_rejects_unknown_and_cross_session_imports(tmp_path: Path) -> None:
@@ -387,7 +400,9 @@ def test_chat_send_rejects_unknown_and_cross_session_imports(tmp_path: Path) -> 
     reference = cast(dict[str, object], imported["reference"])
 
     with pytest.raises(ValueError, match="unknown.*session"):
-        _ = second.handlers()["chat.send"]({"text": "inspect", "attachments": [reference]})
+        _ = second.handlers()["chat.send"](
+            {"text": "inspect", "attachments": [reference]}
+        )
 
     unknown = dict(reference)
     unknown["import_id"] = "import-00000000000000000000000000000000"
@@ -929,11 +944,11 @@ def _runtime_adapter() -> tuple[
 def test_tool_end_error_distinguishable_from_success() -> None:
     adapter, emitted = _runtime_adapter()
 
-    adapter._runtime_event(
+    adapter.runtime_event(
         "tool_end",
         {"name": "grep", "is_error": False, "content": "ok"},
     )
-    adapter._runtime_event(
+    adapter.runtime_event(
         "tool_end",
         {"name": "grep", "is_error": True, "content": "boom"},
     )
@@ -950,7 +965,7 @@ def test_tool_end_error_distinguishable_from_success() -> None:
 def test_aborted_tool_maps_failed() -> None:
     adapter, emitted = _runtime_adapter()
 
-    adapter._runtime_event(
+    adapter.runtime_event(
         "tool_end",
         {"content": "aborted", "is_error": True},
     )
@@ -971,9 +986,9 @@ def test_all_emitted_states_in_uistate_vocabulary() -> None:
     )
 
     for event in events:
-        adapter._runtime_event(event, {})
-        adapter._runtime_event(event, {"is_error": True})
-    adapter._runtime_event("no_such_event", {})
+        adapter.runtime_event(event, {})
+        adapter.runtime_event(event, {"is_error": True})
+    adapter.runtime_event("no_such_event", {})
 
     for _event_type, payload in emitted:
         assert payload["state"] in uistate.UI_STATES
@@ -1000,7 +1015,7 @@ def test_tool_end_is_error_uses_truthiness(
 ) -> None:
     adapter, emitted = _runtime_adapter()
 
-    adapter._runtime_event("tool_end", payload)
+    adapter.runtime_event("tool_end", payload)
 
     assert emitted[0][0] == expected_event_type
     assert emitted[0][1]["state"] == expected_state
@@ -1035,7 +1050,7 @@ def test_event_type_table_pin() -> None:
     )
 
     for event, payload in runtime_events:
-        adapter._runtime_event(event, payload)
+        adapter.runtime_event(event, payload)
 
     assert [event_type for event_type, _payload in emitted] == [
         "tool.started",
@@ -1047,6 +1062,8 @@ def test_event_type_table_pin() -> None:
         "progress.updated",
         "progress.updated",
     ]
+
+
 def test_runtime_adapter_registers_the_working_memory_command(tmp_path: Path) -> None:
     """Given the production runtime adapter, When its handlers are read, Then
     Working Memory mutation is registered so the shell can advertise it."""

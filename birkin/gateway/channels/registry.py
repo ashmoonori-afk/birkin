@@ -8,21 +8,8 @@ are lightweight outbound targets created only when a delivery names them.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
-from typing import Any
 
-
-@dataclass(frozen=True)
-class ChannelEntry:
-    """Contract for one named outbound channel adapter."""
-
-    name: str
-    factory: Callable[[dict[str, Any]], Any]
-    validate_cfg: Callable[[dict[str, Any]], list[str]]
-    health: Callable[[], str]
-    max_message_len: int
-    allowed: Callable[[str], bool]
-    direction: str = "send-only"
+from .registry_types import ChannelEntry, Config, DeliveryTarget
 
 
 class Registry:
@@ -54,12 +41,16 @@ class Registry:
     def labels(self) -> tuple[str, ...]:
         """Human-facing names that make channel direction explicit."""
         return tuple(
-            f"{entry.name} ({entry.direction})"
-            for entry in self._entries.values()
+            f"{entry.name} ({entry.direction})" for entry in self._entries.values()
         )
 
-    def resolve(self, name: str, cfg: dict[str, Any], *,
-                fallback: Callable[[str], Any] | None = None) -> Any | None:
+    def resolve(
+        self,
+        name: str,
+        cfg: Config,
+        *,
+        fallback: Callable[[str], DeliveryTarget | None] | None = None,
+    ) -> DeliveryTarget | None:
         """Create a registered, enabled target or use ``fallback``.
 
         A known but disabled/invalid channel does not fall through: treating a
@@ -70,9 +61,15 @@ class Registry:
         entry = self.get(normalized)
         if entry is None:
             return fallback(normalized) if fallback is not None else None
-        configured_channels = cfg.get("channels", {}) or {}
-        channel_cfg = configured_channels.get(normalized)
-        if isinstance(channel_cfg, dict) and not channel_cfg.get("enabled", False):
+        configured_channels = cfg.get("channels")
+        channel_cfg = (
+            configured_channels.get(normalized)
+            if isinstance(configured_channels, dict)
+            else None
+        )
+        if isinstance(channel_cfg, dict) and not bool(
+            channel_cfg.get("enabled", False)
+        ):
             return None
         if entry.validate_cfg(cfg):
             return None
@@ -111,9 +108,12 @@ def labels() -> tuple[str, ...]:
 
 
 def resolve_delivery_target(
-        name: str, cfg: dict[str, Any], *,
-        fallback: Callable[[str], Any] | None = None,
-        registry: Registry = default_registry) -> Any | None:
+    name: str,
+    cfg: Config,
+    *,
+    fallback: Callable[[str], DeliveryTarget | None] | None = None,
+    registry: Registry = default_registry,
+) -> DeliveryTarget | None:
     """Resolve an outbound channel, preserving legacy behavior as fallback."""
     return registry.resolve(name, cfg, fallback=fallback)
 

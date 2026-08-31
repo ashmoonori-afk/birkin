@@ -3,17 +3,31 @@
 from __future__ import annotations
 
 import hashlib
-import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Mapping, Sequence
 
+from .private_storage import (
+    atomic_write_private_text,
+    harden_private_directory,
+    harden_private_file,
+    read_private_text,
+)
 from .profile_lock import profile_lock
 
-PROFILE_ORDER: tuple[str, ...] = ("mask", "user", "preferences", "workflow", "automation")
+PROFILE_ORDER: tuple[str, ...] = (
+    "mask",
+    "user",
+    "preferences",
+    "workflow",
+    "automation",
+)
 DEFAULT_PROFILE_LIMITS: Mapping[str, int] = {
-    "mask": 800, "user": 1375, "preferences": 1375, "workflow": 1000, "automation": 800,
+    "mask": 800,
+    "user": 1375,
+    "preferences": 1375,
+    "workflow": 1000,
+    "automation": 800,
 }
 _DESCRIPTIONS = {
     "mask": "Conversation style and interaction guidance.",
@@ -22,6 +36,8 @@ _DESCRIPTIONS = {
     "workflow": "User work process and execution guidance.",
     "automation": "User workflow automation guidance.",
 }
+
+
 @dataclass(frozen=True)
 class ProfileDocument:
     """One role-profile document as stored under ``<home>/profile``."""
@@ -60,6 +76,7 @@ class ProfileBudgetExceeded(RuntimeError):
     revision: str
     entries: tuple[tuple[int, str], ...]
 
+
 class ProfileRevisionError(RuntimeError):
     """The supplied optimistic revision no longer matches disk."""
 
@@ -77,18 +94,25 @@ class ProfileStore:
 
     def bootstrap(self) -> None:
         """Create any missing profile files without changing existing content."""
+        self._prepare_root()
         with profile_lock(self.home):
-            self.root.mkdir(parents=True, exist_ok=True)
+            self._prepare_root()
             for name in PROFILE_ORDER:
                 path = self._path(name)
-                if not path.exists():
+                try:
+                    harden_private_file(path)
+                except FileNotFoundError:
                     self._atomic_write(path, self._format(name, ()))
 
     def snapshot(self) -> ProfileSnapshot:
         """Return a lock-consistent snapshot of all profile documents."""
-        if not self.root.exists():
+        try:
+            self.root.lstat()
+        except FileNotFoundError:
             return ProfileSnapshot(documents={}, revision=_hash(""))
+        self._prepare_root()
         with profile_lock(self.home):
+            self._prepare_root()
             return self._snapshot_unlocked()
 
     def apply(
@@ -107,6 +131,7 @@ class ProfileStore:
         expected_revision: str | None = None,
     ) -> ProfileSnapshot:
         """Apply a batch of edits as one optimistic transaction."""
+        self._prepare_root()
         with profile_lock(self.home):
             self.bootstrap()
             before = self._snapshot_unlocked()
@@ -123,7 +148,9 @@ class ProfileStore:
                     if content in entries:
                         continue
                     entries.append(content)
-                    self._check_budget(edit.target, tuple(entries), before.documents[edit.target])
+                    self._check_budget(
+                        edit.target, tuple(entries), before.documents[edit.target]
+                    )
                 elif edit.action == "replace":
                     old = _normalize(edit.old_text)
                     if old in entries:
@@ -145,7 +172,9 @@ class ProfileStore:
             return self._snapshot_unlocked()
 
     def _snapshot_unlocked(self) -> ProfileSnapshot:
-        if not self.root.exists():
+        try:
+            self.root.lstat()
+        except FileNotFoundError:
             return ProfileSnapshot(documents={}, revision=_hash(""))
         documents = {name: self._read_document(name) for name in PROFILE_ORDER}
         revision = _hash("\n".join(documents[name].revision for name in PROFILE_ORDER))
@@ -153,10 +182,10 @@ class ProfileStore:
 
     def _read_document(self, name: str) -> ProfileDocument:
         path = self._path(name)
-        if not path.exists():
+        try:
+            text = read_private_text(path)
+        except FileNotFoundError:
             text = self._format(name, ())
-        else:
-            text = path.read_text(encoding="utf-8")
         entries = _entries(text)
         guidance = "\n".join(entries)
         used = _used(entries)
@@ -198,6 +227,13 @@ class ProfileStore:
         if edit.action == "remove" and not _normalize(edit.old_text):
             raise ValueError("remove requires old_text")
 
+    def _prepare_root(self) -> None:
+        harden_private_directory(self.root)
+        try:
+            harden_private_file(self.root / ".profile.lock")
+        except FileNotFoundError:
+            pass
+
     def _path(self, name: str) -> Path:
         return self.root / f"{name}.md"
 
@@ -213,18 +249,7 @@ class ProfileStore:
         )
 
     def _atomic_write(self, path: Path, text: str) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-                handle.write(text)
-            os.replace(tmp, path)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        atomic_write_private_text(path, text)
 
 
 def _normalize(text: str) -> str:

@@ -65,10 +65,14 @@ class NativeServeOptions:
         transport: str | None = None,
         session_id: str | None = None,
         root: Path | None = None,
+        platform_name: str | None = None,
     ) -> NativeServeOptions:
+        resolved_platform = os.name if platform_name is None else platform_name
         resolved_transport = (
-            "loopback" if os.name == "nt" else "uds"
-        ) if transport is None else transport
+            ("loopback" if resolved_platform == "nt" else "uds")
+            if transport is None
+            else transport
+        )
         if resolved_transport not in _SUPPORTED_TRANSPORTS:
             raise ValueError(f"transport must be one of {_SUPPORTED_TRANSPORTS}")
         resolved_root = root or (config.birkin_home() / "native-bridge")
@@ -113,9 +117,7 @@ class BridgeProcess:
             instance_id=self._instance_id,
             server_version=__version__,
             on_disconnect=self._revoke_terminal_leases,
-            surface_authority=_SelectedSurfaceAuthority(
-                self._hub, self._adapters
-            ),
+            surface_authority=_SelectedSurfaceAuthority(self._hub, self._adapters),
         )
 
     def _session_handlers(
@@ -138,9 +140,7 @@ class BridgeProcess:
 
     def _open(self) -> NativeBridgeEndpoint:
         if self._options.transport == "uds":
-            return NativeBridgeEndpoint.uds(
-                self._bridge, socket_path=self._socket_path
-            )
+            return NativeBridgeEndpoint.uds(self._bridge, socket_path=self._socket_path)
         return NativeBridgeEndpoint.loopback(
             self._bridge,
             capabilities=self._capabilities,
@@ -189,11 +189,14 @@ class BridgeProcess:
             restore()
             endpoint.close()
             self.close()
-            _emit(self._announce, {
-                "event": "stopped",
-                "socket_exists": self._socket_path.exists(),
-                "discovery_exists": self._capabilities.endpoint_path.exists(),
-            })
+            _emit(
+                self._announce,
+                {
+                    "event": "stopped",
+                    "socket_exists": self._socket_path.exists(),
+                    "discovery_exists": self._capabilities.endpoint_path.exists(),
+                },
+            )
         return 0
 
     def serve_one(self, endpoint: ServingEndpoint) -> None:
@@ -212,10 +215,13 @@ class BridgeProcess:
         except Exception as exc:  # noqa: BLE001 - service boundary
             if self._stopping.is_set():
                 return
-            _emit(self._announce, {
-                "event": "connection_failed",
-                "error": f"{type(exc).__name__}: {exc}"[:200],
-            })
+            _emit(
+                self._announce,
+                {
+                    "event": "connection_failed",
+                    "error": f"{type(exc).__name__}: {exc}"[:200],
+                },
+            )
         self._accept_failures = 0
 
     def _absorb_socket_error(self, exc: OSError) -> None:
@@ -232,11 +238,14 @@ class BridgeProcess:
         self._accept_failures += 1
         if self._accept_failures > MAX_CONSECUTIVE_ACCEPT_FAILURES:
             raise exc
-        _emit(self._announce, {
-            "event": "accept_failed",
-            "error": f"OSError({exc.errno}): {exc.strerror}"[:200],
-            "consecutive_failures": self._accept_failures,
-        })
+        _emit(
+            self._announce,
+            {
+                "event": "accept_failed",
+                "error": f"OSError({exc.errno}): {exc.strerror}"[:200],
+                "consecutive_failures": self._accept_failures,
+            },
+        )
 
 
 def _install_signal_handlers(stop: Callable[[], None]) -> Callable[[], None]:

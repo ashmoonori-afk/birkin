@@ -13,13 +13,38 @@ from birkin.private_storage_windows_handle import open_windows_private_file
 _windows_owner_sid = _windows.windows_owner_sid
 
 __all__ = [
+    "atomic_write_private_text",
     "create_private_temp",
     "harden_private_directory",
     "harden_private_file",
     "harden_private_tree",
     "open_private_file_for_read",
     "publish_private_temp",
+    "read_private_text",
 ]
+
+
+def _is_reparse(metadata: os.stat_result) -> bool:
+    attributes = getattr(metadata, "st_file_attributes", 0)
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _validate_path(path: Path, *, directory: bool) -> os.stat_result:
+    metadata = path.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or _is_reparse(metadata):
+        raise OSError(f"private storage path is a symlink or reparse point: {path}")
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if not expected(metadata.st_mode):
+        kind = "directory" if directory else "regular file"
+        raise OSError(f"private storage path is not a {kind}: {path}")
+    return metadata
+
+
+def _validate_parent(path: Path) -> None:
+    try:
+        _validate_path(path, directory=True)
+    except FileNotFoundError:
+        pass
 
 
 def create_private_temp(
@@ -35,20 +60,39 @@ def create_private_temp(
 
 
 def harden_private_directory(path: Path) -> None:
+    _validate_parent(path.parent)
     path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if path.is_symlink() or not path.is_dir():
-        raise OSError("private storage root must be a real directory")
+    before = _validate_path(path, directory=True)
     if os.name == "nt":
         _harden_windows_path(path, directory=True)
     else:
-        path.chmod(0o700)
+        flags = (
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        )
+        descriptor = os.open(path, flags)
+        try:
+            os.fchmod(descriptor, 0o700)
+        finally:
+            os.close(descriptor)
+    after = _validate_path(path, directory=True)
+    if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+        raise OSError("private storage directory changed while being secured")
 
 
 def harden_private_file(path: Path) -> None:
+    _validate_parent(path.parent)
+    before = _validate_path(path, directory=False)
     if os.name == "nt":
         _harden_windows_path(path, directory=False)
     else:
-        path.chmod(0o600)
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
+    after = _validate_path(path, directory=False)
+    if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+        raise OSError("private storage file changed while being secured")
 
 
 def harden_private_tree(root: Path) -> None:
@@ -78,15 +122,32 @@ def publish_private_temp(
     temporary: Path,
     destination: Path,
 ) -> bool:
+    temporary_before = _validate_path(temporary, directory=False)
+    parent_before = _validate_path(destination.parent, directory=True)
     if os.name == "nt":
-        return _windows.publish_windows_private_temp(
+        published = _windows.publish_windows_private_temp(
             temporary,
             destination,
         )
-    try:
-        os.link(temporary, destination)
-    except FileExistsError:
-        return False
+        if not published:
+            return False
+    else:
+        try:
+            os.link(temporary, destination)
+        except FileExistsError:
+            return False
+    destination_after = _validate_path(destination, directory=False)
+    parent_after = _validate_path(destination.parent, directory=True)
+    if (temporary_before.st_dev, temporary_before.st_ino) != (
+        destination_after.st_dev,
+        destination_after.st_ino,
+    ):
+        raise OSError("private temporary file changed while being published")
+    if (parent_before.st_dev, parent_before.st_ino) != (
+        parent_after.st_dev,
+        parent_after.st_ino,
+    ):
+        raise OSError("private storage directory changed while publishing")
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
     descriptor = os.open(destination.parent, flags)
     try:
@@ -98,16 +159,74 @@ def publish_private_temp(
 
 def open_private_file_for_read(path: Path) -> int:
     """Open one regular owner-only file and transfer descriptor ownership."""
+    _validate_parent(path.parent)
+    before = _validate_path(path, directory=False)
     if os.name == "nt":
-        return open_windows_private_file(path)
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags)
+        descriptor = open_windows_private_file(path)
+    else:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
     try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
             raise OSError("private storage path is not a regular file")
-        os.fchmod(descriptor, 0o600)
+        if os.name != "nt":
+            os.fchmod(descriptor, 0o600)
+        after = _validate_path(path, directory=False)
+        identity = (opened.st_dev, opened.st_ino)
+        if identity != (before.st_dev, before.st_ino) or identity != (
+            after.st_dev,
+            after.st_ino,
+        ):
+            raise OSError("private storage file changed while being opened")
     except OSError:
         os.close(descriptor)
         raise
     return descriptor
+
+
+def read_private_text(path: Path, *, encoding: str = "utf-8") -> str:
+    descriptor = open_private_file_for_read(path)
+    with os.fdopen(descriptor, "r", encoding=encoding) as handle:
+        return handle.read()
+
+
+def atomic_write_private_text(
+    path: Path,
+    text: str,
+    *,
+    encoding: str = "utf-8",
+) -> None:
+    harden_private_directory(path.parent)
+    try:
+        harden_private_file(path)
+    except FileNotFoundError:
+        pass
+    descriptor, temporary_name = create_private_temp(
+        path.parent,
+        prefix=f".{path.name}.",
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding=encoding, newline="") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        harden_private_directory(path.parent)
+        try:
+            harden_private_file(path)
+        except FileNotFoundError:
+            pass
+        os.replace(temporary, path)
+        harden_private_file(path)
+        if os.name != "nt":
+            directory = os.open(
+                path.parent,
+                os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+            )
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+    finally:
+        temporary.unlink(missing_ok=True)

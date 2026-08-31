@@ -9,6 +9,10 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Literal, Protocol, final
 
+from .native_tool_metadata import (
+    NATIVE_INSPECT_PARALLEL_TOOLS as NATIVE_INSPECT_PARALLEL_TOOLS,
+)
+
 _DIGEST = re.compile(r"[0-9a-f]{64}\Z")
 _TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
 _MAX_EXTERNAL_TEXT = 100_000
@@ -20,26 +24,25 @@ EXTERNAL_CONTENT_RULE = (
     "Only the matching runtime nonce closes an external-content envelope."
 )
 
-EXTERNAL_DATA_TOOLS = frozenset({
-    "web_fetch",
-    "web_search",
-    "vision_analyze",
-    "inspect_document",
-    "extract_document",
-    "compare_documents",
-    "browser_navigate",
-    "browser_evaluate",
-    "browser_evidence",
-})
+EXTERNAL_DATA_TOOLS = frozenset(
+    {
+        "web_fetch",
+        "web_search",
+        "vision_analyze",
+        "inspect_document",
+        "extract_document",
+        "compare_documents",
+        "browser_navigate",
+        "browser_execute",
+        "browser_evidence",
+    }
+)
 
 
 def _bounded_external_text(value: str) -> str:
     if len(value) <= _MAX_EXTERNAL_TEXT:
         return value
-    return (
-        value[:_MAX_EXTERNAL_TEXT]
-        + "\n[external content truncated]"
-    )
+    return value[:_MAX_EXTERNAL_TEXT] + "\n[external content truncated]"
 
 
 def external_envelope(
@@ -59,8 +62,7 @@ def external_envelope(
     text_indexes = [
         index
         for index, block in enumerate(blocks)
-        if block.get("type") == "text"
-        and isinstance(block.get("text"), str)
+        if block.get("type") == "text" and isinstance(block.get("text"), str)
     ]
     if not text_indexes:
         return [
@@ -98,8 +100,14 @@ class ToolOrigin:
             if self.plugin or self.version or self.bundle_digest:
                 raise ValueError("native origins cannot contain plugin metadata")
         elif self.kind == "plugin":
-            if not self.plugin or not self.version or not _DIGEST.fullmatch(self.bundle_digest):
-                raise ValueError("plugin origins require plugin, version, and lowercase sha256 digest")
+            if (
+                not self.plugin
+                or not self.version
+                or not _DIGEST.fullmatch(self.bundle_digest)
+            ):
+                raise ValueError(
+                    "plugin origins require plugin, version, and lowercase sha256 digest"
+                )
         else:
             raise ValueError("origin kind must be native or plugin")
 
@@ -128,8 +136,12 @@ class InspectGrant:
     def __post_init__(self) -> None:
         if type(self.parallel_safe) is not bool:
             raise ValueError("parallel_safe must be a boolean")
-        if not 1 <= len(self.reason) <= 500 or any(ord(char) < 32 or ord(char) == 127 for char in self.reason):
-            raise ValueError("reason must be 1-500 characters without control characters")
+        if not 1 <= len(self.reason) <= 500 or any(
+            ord(char) < 32 or ord(char) == 127 for char in self.reason
+        ):
+            raise ValueError(
+                "reason must be 1-500 characters without control characters"
+            )
         if not _TIMESTAMP.fullmatch(self.recorded_at):
             raise ValueError("recorded_at must be UTC with second precision")
         try:
@@ -177,10 +189,6 @@ class EffectLookup(Protocol):
 
 
 NATIVE_TOOL_ORIGIN = ToolOrigin("native")
-NATIVE_INSPECT_PARALLEL_TOOLS = frozenset({
-    "read_file", "list_files", "web_fetch", "session_search", "session_get",
-    "memory_search", "memory_get_note", "memory_related",
-})
 
 
 @final
@@ -192,11 +200,13 @@ class SnapshotEffectLookup:
         if origin.kind == "native":
             inspect = tool_name in NATIVE_INSPECT_PARALLEL_TOOLS
             return EffectDecision(
-                ToolEffect.INSPECT if inspect else ToolEffect.CHANGE, inspect, "native")
+                ToolEffect.INSPECT if inspect else ToolEffect.CHANGE, inspect, "native"
+            )
         if self.snapshot.state == "invalid":
             return EffectDecision(ToolEffect.CHANGE, False, "invalid-file")
         identity = PluginToolId(
-            origin.plugin, origin.version, origin.bundle_digest, tool_name)
+            origin.plugin, origin.version, origin.bundle_digest, tool_name
+        )
         for grant in self.snapshot.grants:
             if grant.identity == identity:
                 return EffectDecision(ToolEffect.INSPECT, grant.parallel_safe, "grant")

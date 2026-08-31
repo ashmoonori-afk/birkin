@@ -12,9 +12,7 @@ import pytest
 from birkin import config, private_storage as private_storage_core, store
 from birkin.native import private_storage
 
-_WINDOWS_ONLY = pytest.mark.skipif(
-    os.name != "nt", reason="Windows ACL contract"
-)
+_WINDOWS_ONLY = pytest.mark.skipif(os.name != "nt", reason="Windows ACL contract")
 
 
 def _windows_owner_sid(system: Path) -> str:
@@ -102,12 +100,9 @@ def assert_owner_only(path: Path, *, posix_mode: int) -> None:
 
 
 def test_windows_owner_sid_ignores_localized_username_bytes() -> None:
-    output = (
-        "사용자".encode("cp949")
-        + b',"S-1-5-21-1000"\r\n'
-    )
+    output = "사용자".encode("cp949") + b',"S-1-5-21-1000"\r\n'
 
-    assert private_storage._windows_owner_sid(output) == "S-1-5-21-1000"
+    assert private_storage.windows_owner_sid(output) == "S-1-5-21-1000"
 
 
 @_WINDOWS_ONLY
@@ -117,7 +112,7 @@ def test_windows_private_file_removes_explicit_everyone_ace(
     path = tmp_path / "bootstrap.json"
     _ = path.write_text("secret", encoding="utf-8")
     system = Path(os.environ["SystemRoot"]) / "System32"
-    subprocess.run(
+    _ = subprocess.run(
         [
             str(system / "icacls.exe"),
             str(path),
@@ -149,7 +144,7 @@ def test_windows_private_temp_is_owner_only_at_creation(
             _ = handle.write("secret")
         _ = published.write_text("old", encoding="utf-8")
         system = Path(os.environ["SystemRoot"]) / "System32"
-        subprocess.run(
+        _ = subprocess.run(
             [
                 str(system / "icacls.exe"),
                 str(published),

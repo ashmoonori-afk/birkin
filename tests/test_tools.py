@@ -24,6 +24,7 @@ def _ctx(cwd: Path) -> ToolContext:
 
 # ---------------- files ----------------
 
+
 def test_files_read_write_list_roundtrip(tmp_path: Path):
     ctx = _ctx(tmp_path)
     write = next(t for t in files_mod.tools() if t.name == "write_file").fn
@@ -221,6 +222,7 @@ def test_files_read_truncates_large(tmp_path: Path, monkeypatch):
 
 # ---------------- shell (run via argv shell, no shell=True) ----------------
 
+
 def test_shell_runs_echo_and_returns_exit(tmp_path: Path):
     ctx = _ctx(tmp_path)
     fn = next(t for t in shell_mod.tools() if t.name == "run_shell").fn
@@ -239,11 +241,9 @@ def test_shell_empty_command_errors(tmp_path: Path):
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows TEMP normalization")
 def test_shell_replaces_unwritable_windows_temp_env(
-        tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    expected_temp = tempfile.gettempdir()
-    protected_temp = str(
-        Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32"
-    )
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    protected_temp = str(Path(os.environ.get("SystemRoot", "C:\\Windows")) / "System32")
     monkeypatch.setenv("TEMP", protected_temp)
     monkeypatch.setenv("TMP", protected_temp)
     captured: list[object] = []
@@ -256,26 +256,38 @@ def test_shell_replaces_unwritable_windows_temp_env(
     fn = next(t for t in shell_mod.tools() if t.name == "run_shell").fn
 
     result = fn({"command": "echo ok"}, _ctx(tmp_path))
+    repeated_result = fn({"command": "echo ok"}, _ctx(tmp_path))
     request = cast("shell_mod.ShellCommand", captured[0])
-    child_env = request.environment
+    repeated_request = cast("shell_mod.ShellCommand", captured[1])
+    child_temp = Path(request.environment["TEMP"])
 
     assert result.is_error is False
-    assert Path(child_env["TEMP"]).samefile(expected_temp)
-    assert Path(child_env["TMP"]).samefile(expected_temp)
+    assert repeated_result.is_error is False
+    assert child_temp.samefile(request.environment["TMP"])
+    assert not child_temp.samefile(protected_temp)
+    assert child_temp.samefile(repeated_request.environment["TEMP"])
+    with tempfile.NamedTemporaryFile(dir=child_temp):
+        pass
 
 
 # ---------------- web (monkeypatch the opener — no network) ----------------
 # web_fetch opens via build_opener(_GuardedRedirectHandler) (SSRF guard), so
 # tests patch build_opener + DNS resolution, not the plain urlopen.
 
+
 class _FakeResp:
     def __init__(self, body: bytes, ctype: str = "text/html"):
         self._body = body
         self.headers = {"Content-Type": ctype}
 
-    def __enter__(self): return self
-    def __exit__(self, *a): return False
-    def read(self, n=None): return self._body if n is None else self._body[:n]
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+    def read(self, n=None):
+        return self._body if n is None else self._body[:n]
 
 
 class _FakeOpener:
@@ -291,16 +303,22 @@ class _FakeOpener:
 def _hermetic_web(monkeypatch, resp):
     """No-network web_fetch: public DNS answer + canned opener response."""
     import socket
-    monkeypatch.setattr(socket, "getaddrinfo",
-                        lambda host, port, *a, **k: [
-                            (2, 1, 6, "", ("93.184.216.34", 0))])
-    monkeypatch.setattr(urllib.request, "build_opener",
-                        lambda *handlers: _FakeOpener(resp))
+
+    monkeypatch.setattr(
+        socket,
+        "getaddrinfo",
+        lambda host, port, *a, **k: [(2, 1, 6, "", ("93.184.216.34", 0))],
+    )
+    monkeypatch.setattr(
+        urllib.request, "build_opener", lambda *handlers: _FakeOpener(resp)
+    )
 
 
 def test_web_fetch_returns_text_stripped_of_html(monkeypatch, tmp_path):
-    html = b"<html><head><style>x{}</style></head><body><h1>Hello</h1>" \
-           b"<script>bad</script><p>World</p></body></html>"
+    html = (
+        b"<html><head><style>x{}</style></head><body><h1>Hello</h1>"
+        b"<script>bad</script><p>World</p></body></html>"
+    )
     _hermetic_web(monkeypatch, _FakeResp(html, "text/html; charset=utf-8"))
     ctx = _ctx(tmp_path)
     fn = next(t for t in web_mod.tools() if t.name == "web_fetch").fn
@@ -319,6 +337,7 @@ def test_web_fetch_missing_url(tmp_path):
 
 def test_web_fetch_network_error(monkeypatch, tmp_path):
     import urllib.error
+
     _hermetic_web(monkeypatch, urllib.error.URLError("nope"))
     ctx = _ctx(tmp_path)
     fn = next(t for t in web_mod.tools() if t.name == "web_fetch").fn
@@ -328,12 +347,21 @@ def test_web_fetch_network_error(monkeypatch, tmp_path):
 
 # ---------------- subagent_tool (monkeypatch run_subagent) ----------------
 
+
 def test_subagent_tool_delegates(monkeypatch, tmp_path):
     from birkin import subagent as subagent_mod
+
     seen = {}
 
-    def fake_run(task, ctx, skill_names=None, max_turns=12, detach=False,
-                 reserve_tokens=0, reserve_usd=0.0):
+    def fake_run(
+        task,
+        ctx,
+        skill_names=None,
+        max_turns=12,
+        detach=False,
+        reserve_tokens=0,
+        reserve_usd=0.0,
+    ):
         seen["detach"] = detach
         seen["reserve"] = (reserve_tokens, reserve_usd)
         return f"sub-reply:{task[:20]}"
@@ -341,11 +369,14 @@ def test_subagent_tool_delegates(monkeypatch, tmp_path):
     monkeypatch.setattr(subagent_mod, "run_subagent", fake_run)
     ctx = _ctx(tmp_path)
     fn = next(t for t in st_mod.subagent_tools() if t.name == "spawn_subagent").fn
-    res = fn({
-        "task": "investigate xyz",
-        "reserve_tokens": 200,
-        "reserve_usd": 0.25,
-    }, ctx)
+    res = fn(
+        {
+            "task": "investigate xyz",
+            "reserve_tokens": 200,
+            "reserve_usd": 0.25,
+        },
+        ctx,
+    )
     assert not res.is_error and res.content.startswith("sub-reply:")
     assert seen["detach"] is False
     assert seen["reserve"] == (200, 0.25)
@@ -362,14 +393,22 @@ def test_subagent_tool_missing_task(tmp_path):
 
 
 def test_subagent_tool_depth_limit(tmp_path):
-    ctx = ToolContext(cfg={}, client=None, cwd=tmp_path, skills=None, memory=None,
-                      depth=5, max_depth=2)
+    ctx = ToolContext(
+        cfg={},
+        client=None,
+        cwd=tmp_path,
+        skills=None,
+        memory=None,
+        depth=5,
+        max_depth=2,
+    )
     fn = next(t for t in st_mod.subagent_tools() if t.name == "spawn_subagent").fn
     res = fn({"task": "x"}, ctx)
     assert res.is_error and "depth" in res.content.lower()
 
 
 # ---------------- registry includes/excludes ----------------
+
 
 def test_build_registry_include_groups(tmp_path):
     ctx = _ctx(tmp_path)
@@ -386,8 +425,13 @@ def test_build_registry_unknown_tool_returns_error(tmp_path):
 
 
 def test_build_registry_disabled_tools_filtered(tmp_path):
-    ctx = ToolContext(cfg={"disabled_tools": ["run_shell"]}, client=None,
-                      cwd=tmp_path, skills=None, memory=None)
+    ctx = ToolContext(
+        cfg={"disabled_tools": ["run_shell"]},
+        client=None,
+        cwd=tmp_path,
+        skills=None,
+        memory=None,
+    )
     names = build_registry(ctx).names()
     assert "run_shell" not in names
     assert "read_file" in names

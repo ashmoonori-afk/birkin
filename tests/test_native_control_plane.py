@@ -2,72 +2,28 @@ from __future__ import annotations
 
 import socket
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from pathlib import Path
+from typing import Final
 
 import pytest
 
 from birkin.native.bridge_stream import NativeBridgeStream
-from birkin.native.capability import BootstrapSecretStore
-from birkin.native.protocol import encode_frame
-from birkin.native.server import NativeBridgeServer
 from birkin.workspace import WorkspaceService
 from tests.native_bridge_support import (
     CorrelatedFrameReader,
-    envelope,
     handshake,
     local_peer_uid,
     serve,
 )
+from tests.native_control_support import (
+    bridge as _bridge,
+    send_command as _send,
+    send_goodbye as _send_goodbye,
+)
+from tests.thread_deadline import ThreadDeadline
 
-
-def _send(
-    client: socket.socket,
-    token: str,
-    command_type: str,
-    command_id: str,
-    cursor: int,
-    payload: Mapping[str, object],
-    *,
-    view_id: str = "main",
-) -> None:
-    client.sendall(encode_frame(envelope(
-        "command",
-        frame_id=command_id,
-        body={
-            "session_capability": token,
-            "command": {
-                "protocol_version": 1,
-                "command_id": command_id,
-                "expected_cursor": cursor,
-                "type": command_type,
-                "payload": dict(payload),
-                "client_context": {"surface": "macos", "view_id": view_id},
-            },
-        },
-    )))
-
-
-def _bridge(
-    tmp_path: Path,
-    handlers: Mapping[str, Callable[[dict[str, object]], dict[str, object]]],
-    *,
-    cleanup: Callable[[], None] | None = None,
-) -> tuple[NativeBridgeServer, WorkspaceService]:
-    source = WorkspaceService(
-        root=tmp_path / "workspace",
-        session_id="session-1",
-        handlers=handlers,
-    )
-    return NativeBridgeServer(
-        source,
-        capabilities=BootstrapSecretStore(tmp_path / "native"),
-        instance_id="instance-1",
-        server_version="1.0.0",
-        heartbeat_interval=0.05,
-        peer_timeout=0.5,
-        on_disconnect=cleanup,
-    ), source
+_TEST_DEADLINE_SECONDS: Final = 20.0
 
 
 def test_controls_execute_with_canonical_authority_during_active_normal_command(
@@ -105,18 +61,22 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
         _ = source.emit("turn.resumed", {})
         return {"resumed": True}
 
-    bridge, source = _bridge(tmp_path, {
-        "chat.send": chat_send,
-        "chat.interrupt": interrupt,
-        "chat.steer": steer,
-        "chat.resume": resume,
-    })
+    bridge, source = _bridge(
+        tmp_path,
+        {
+            "chat.send": chat_send,
+            "chat.interrupt": interrupt,
+            "chat.steer": steer,
+            "chat.resume": resume,
+        },
+    )
     server_socket, client = socket.socketpair()
     client.settimeout(2)
     thread, errors = serve(
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
     token = handshake(client)
+    client.settimeout(0)
     replies = CorrelatedFrameReader(client, token)
     try:
         _send(client, token, "chat.send", "turn", 0, {"text": "work"})
@@ -139,7 +99,14 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
         assert replies.receive("resume").kind == "receipt"
 
         replies.expect("second-normal")
-        _send(client, token, "chat.send", "second-normal", source.snapshot().cursor, {"text": "no"})
+        _send(
+            client,
+            token,
+            "chat.send",
+            "second-normal",
+            source.snapshot().cursor,
+            {"text": "no"},
+        )
         refusal = replies.receive("second-normal")
         assert refusal.body["code"] == "E_FLOW_VIOLATION"
 
@@ -159,7 +126,9 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
 
         assert steered.is_set()
         assert resumed.is_set()
-        assert [event.type for event in source.events() if event.type.startswith("turn.")] == [
+        assert [
+            event.type for event in source.events() if event.type.startswith("turn.")
+        ] == [
             "turn.interrupted",
             "turn.steered",
             "turn.resumed",
@@ -168,13 +137,14 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
         release_turn.set()
         replies.close()
         thread.join(timeout=3)
-    assert errors == []
+    assert (thread.is_alive(), errors) == (False, [])
 
 
 def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    deadline = ThreadDeadline.after(_TEST_DEADLINE_SECONDS)
     normal_entered = threading.Event()
     heartbeat_acknowledged = threading.Event()
     acknowledge_pong = NativeBridgeStream.acknowledge_pong
@@ -184,7 +154,9 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
         heartbeat_acknowledged.set()
 
     monkeypatch.setattr(NativeBridgeStream, "acknowledge_pong", observe_pong)
-    control_entered = {name: threading.Event() for name in ("interrupt", "steer", "resume")}
+    control_entered = {
+        name: threading.Event() for name in ("interrupt", "steer", "resume")
+    }
     control_completed = {name: threading.Event() for name in control_entered}
     release_normal = threading.Event()
     release_controls = threading.Event()
@@ -193,16 +165,14 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
 
     def normal(payload: dict[str, object]) -> dict[str, object]:
         normal_entered.set()
-        if not release_normal.wait(timeout=10):
-            raise AssertionError("test did not release normal command")
+        deadline.wait_for(release_normal, "normal command release")
         ordering.append("normal")
         return {"reply": str(payload["text"])}
 
     def control(name: str) -> Callable[[dict[str, object]], dict[str, object]]:
         def run(_payload: dict[str, object]) -> dict[str, object]:
             control_entered[name].set()
-            if not release_controls.wait(timeout=10):
-                raise AssertionError(f"test did not release {name}")
+            deadline.wait_for(release_controls, f"{name} release")
             ordering.append(name)
             control_completed[name].set()
             return {name: True}
@@ -213,14 +183,18 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
         ordering.append("cleanup")
         cleaned.set()
 
-    bridge, source = _bridge(tmp_path, {
-        "chat.send": normal,
-        "chat.interrupt": control("interrupt"),
-        "chat.steer": control("steer"),
-        "chat.resume": control("resume"),
-    }, cleanup=cleanup)
+    bridge, source = _bridge(
+        tmp_path,
+        {
+            "chat.send": normal,
+            "chat.interrupt": control("interrupt"),
+            "chat.steer": control("steer"),
+            "chat.resume": control("resume"),
+        },
+        cleanup=cleanup,
+    )
     server_socket, client = socket.socketpair()
-    client.settimeout(2)
+    client.settimeout(deadline.remaining)
     thread, errors = serve(
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
@@ -228,56 +202,76 @@ def test_control_lanes_are_individually_bounded_and_join_disconnect_cleanup(
     replies = CorrelatedFrameReader(client, token)
     try:
         _send(client, token, "chat.send", "normal", 0, {"text": "work"})
-        assert normal_entered.wait(timeout=1)
-        assert heartbeat_acknowledged.wait(timeout=1)
+        deadline.wait_for(normal_entered, "normal lane admission")
+        deadline.wait_for(heartbeat_acknowledged, "heartbeat acknowledgement")
         for index, (name, event) in enumerate(control_entered.items(), start=1):
             payload = {"text": "direction"} if name == "steer" else {}
-            _send(client, token, f"chat.{name}", name, source.snapshot().cursor, payload)
-            assert event.wait(timeout=1)
+            _send(
+                client, token, f"chat.{name}", name, source.snapshot().cursor, payload
+            )
+            deadline.wait_for(event, f"{name} lane admission")
             request_id = f"second-{name}"
             replies.expect(request_id)
-            _send(client, token, f"chat.{name}", request_id, source.snapshot().cursor, payload)
-            refusal = replies.receive(request_id)
+            _send(
+                client,
+                token,
+                f"chat.{name}",
+                request_id,
+                source.snapshot().cursor,
+                payload,
+            )
+            refusal = replies.receive(request_id, timeout=deadline.remaining)
             assert refusal.body["code"] == "E_FLOW_VIOLATION"
             assert index <= 3
 
         workers = [
-            worker for worker in threading.enumerate()
+            worker
+            for worker in threading.enumerate()
             if worker.name.startswith("birkin-native-command")
         ]
         assert len(workers) <= 4
 
-        replies.close()
-        thread.join(timeout=2)
-        assert not thread.is_alive()
+        replies.expect_disconnect()
+        _send_goodbye(client, token, "first-goodbye")
+        deadline.join(thread, "first server disconnect")
+        replies.close(timeout=deadline.remaining)
         assert not cleaned.is_set()
 
         second_server, second_client = socket.socketpair()
-        second_client.settimeout(2)
+        second_client.settimeout(deadline.remaining)
         second_thread, second_errors = serve(
             bridge, second_server, transport="uds", peer_uid=local_peer_uid()
         )
         second_token = handshake(second_client)
         second_replies = CorrelatedFrameReader(second_client, second_token)
         second_replies.expect("after-disconnect")
-        _send(second_client, second_token, "chat.send", "after-disconnect", source.snapshot().cursor, {"text": "no"})
-        refusal = second_replies.receive("after-disconnect")
+        _send(
+            second_client,
+            second_token,
+            "chat.send",
+            "after-disconnect",
+            source.snapshot().cursor,
+            {"text": "no"},
+        )
+        refusal = second_replies.receive("after-disconnect", timeout=deadline.remaining)
         assert refusal.kind == "error"
         assert refusal.body["code"] == "E_FLOW_VIOLATION"
-        second_replies.close()
-        second_thread.join(timeout=2)
+        second_replies.expect_disconnect()
+        _send_goodbye(second_client, second_token, "second-goodbye")
+        deadline.join(second_thread, "second server disconnect")
+        second_replies.close(timeout=deadline.remaining)
         assert second_errors == []
 
         release_controls.set()
-        for event in control_completed.values():
-            assert event.wait(timeout=2)
+        for name, event in control_completed.items():
+            deadline.wait_for(event, f"{name} completion")
         assert not cleaned.is_set()
         release_normal.set()
-        assert cleaned.wait(timeout=2)
+        deadline.wait_for(cleaned, "disconnect cleanup")
         assert ordering[-1] == "cleanup"
     finally:
         release_controls.set()
         release_normal.set()
-        replies.close()
-        thread.join(timeout=3)
+        replies.close(timeout=deadline.remaining)
+        deadline.join(thread, "first server shutdown")
     assert errors == []

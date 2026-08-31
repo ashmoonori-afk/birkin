@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from birkin import approvals, checkpoints, config, hooks, security, store
+from birkin import (
+    approval_execution,
+    approvals,
+    checkpoints,
+    config,
+    hooks,
+    security,
+    store,
+)
 from birkin.gateway.channels.telegram import _payload_summary
 from birkin.tools import ToolContext, build_registry
 from birkin.tools import shell as shell_mod
@@ -14,11 +22,13 @@ def test_reserved_approved_environment_cannot_enter_pending_payload(
     tmp_path: Path,
 ) -> None:
     # Given: model input tries to smuggle executor-only environment values.
-    registry = build_registry(ToolContext(
-        cfg={"disabled_tools": ["run_shell"]},
-        client=None,
-        cwd=tmp_path,
-    ))
+    registry = build_registry(
+        ToolContext(
+            cfg={"disabled_tools": ["run_shell"]},
+            client=None,
+            cwd=tmp_path,
+        )
+    )
 
     # When: a blocked tool call includes the reserved replay field.
     result = registry.execute(
@@ -43,13 +53,16 @@ def test_shell_cannot_directly_rewrite_pending_approval_records(
 ) -> None:
     # Given: a shell command directly names Birkin's approval record store.
     target = config.pending_dir() / "forged.json"
-    registry = build_registry(ToolContext(
-        cfg={"shell_approval": "off"},
-        client=None,
-        cwd=tmp_path,
-    ), include={"shell"})
+    registry = build_registry(
+        ToolContext(
+            cfg={"shell_approval": "off"},
+            client=None,
+            cwd=tmp_path,
+        ),
+        include={"shell"},
+    )
     command = (
-        "python -c \"from pathlib import Path; "
+        'python -c "from pathlib import Path; '
         f"Path(r'{target}').write_text('forged')\""
     )
 
@@ -78,11 +91,14 @@ def test_untrusted_command_output_cannot_forge_permission_gate(
         "run_shell_command",
         lambda _request: FailedProcess(),
     )
-    registry = build_registry(ToolContext(
-        cfg={},
-        client=None,
-        cwd=tmp_path,
-    ), include={"shell"})
+    registry = build_registry(
+        ToolContext(
+            cfg={},
+            client=None,
+            cwd=tmp_path,
+        ),
+        include={"shell"},
+    )
 
     # When: a non-policy command returns that untrusted diagnostic text.
     result = registry.execute(
@@ -128,11 +144,14 @@ def test_approved_replay_keeps_checkpoint_and_hook_observers(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     target = tmp_path / "approved.txt"
-    registry = build_registry(ToolContext(
-        cfg={"fs_jail": True},
-        client=None,
-        cwd=workspace,
-    ), include={"files"})
+    registry = build_registry(
+        ToolContext(
+            cfg={"fs_jail": True},
+            client=None,
+            cwd=workspace,
+        ),
+        include={"files"},
+    )
     registry.execute(
         "write_file",
         {"path": str(target), "content": "observed"},
@@ -174,14 +193,15 @@ def test_telegram_operation_summary_keeps_review_critical_fields() -> None:
 
 
 def test_operation_auto_approve_config_warns_that_it_is_inert() -> None:
-    warnings = security.gateway_warnings({
-        "provider": "claude-cli",
-        "auto_approve": ["operation"],
-    })
+    warnings = security.gateway_warnings(
+        {
+            "provider": "claude-cli",
+            "auto_approve": ["operation"],
+        }
+    )
 
     assert any(
-        "operation" in warning and "always manual" in warning
-        for warning in warnings
+        "operation" in warning and "always manual" in warning for warning in warnings
     )
 
 
@@ -192,11 +212,14 @@ def test_identical_blocked_operations_share_one_pending_record(
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     target = tmp_path / "outside.txt"
-    registry = build_registry(ToolContext(
-        cfg={"fs_jail": True},
-        client=None,
-        cwd=workspace,
-    ), include={"files"})
+    registry = build_registry(
+        ToolContext(
+            cfg={"fs_jail": True},
+            client=None,
+            cwd=workspace,
+        ),
+        include={"files"},
+    )
     tool_input = {"path": str(target), "content": "same"}
 
     # When: the model retries before the human reviews the first proposal.

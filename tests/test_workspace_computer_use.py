@@ -48,7 +48,7 @@ def _submit_event(
     command_id: str,
 ) -> None:
     pending.append(event)
-    service.submit(
+    _ = service.submit(
         WorkspaceCommand(
             protocol_version=1,
             command_id=command_id,
@@ -80,7 +80,7 @@ def _harness(
     pending: list[dict[str, object]] = []
 
     def handle(_payload: dict[str, object]) -> dict[str, object]:
-        adapter._runtime_event("computer_use", pending.pop(0))
+        adapter.runtime_event("computer_use", pending.pop(0))
         return {}
 
     service.set_handlers({"chat.send": handle})

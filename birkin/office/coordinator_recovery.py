@@ -61,7 +61,9 @@ def _authority(
         approved_by=required_text(record.get("approved_by"), "approved_by"),
         approved_via=required_text(record.get("approved_via"), "approved_via"),
         destination=Path(required_text(payload.get("destination"), "destination")),
-        allowlist_root=Path(required_text(payload.get("allowlist_root"), "allowlist_root")),
+        allowlist_root=Path(
+            required_text(payload.get("allowlist_root"), "allowlist_root")
+        ),
         overwrite_approved=overwrite,
     )
 
@@ -120,7 +122,10 @@ def _verify_snapshot(
         )
     match state:
         case OfficeJobState.approval_requested:
-            if snapshot.get("approval") is not None or snapshot.get("approved_digest") is not None:
+            if (
+                snapshot.get("approval") is not None
+                or snapshot.get("approved_digest") is not None
+            ):
                 raise coordinator_error(
                     DocumentErrorCode.POLICY_DENIED,
                     "unapproved Office snapshot contains approval authority",
@@ -171,7 +176,8 @@ def _verify_current_source(
     identity = required_mapping(current.get("source"), "inspection source")
     if identity.get("sha256") != authority.source_sha256:
         raise coordinator_error(
-            DocumentErrorCode.POLICY_DENIED, "Office source changed after approval request"
+            DocumentErrorCode.POLICY_DENIED,
+            "Office source changed after approval request",
         )
 
 
@@ -204,8 +210,12 @@ def _resume(
                         "rolled-back Office export cannot resume automatically",
                     )
                 if snapshot.get("publication") is None:
-                    format_name = required_text(snapshot.get("format_name"), "format_name")
-                    _ = job.publish(output_name=f"{snapshot['job_id']}.validated.{format_name}")
+                    format_name = required_text(
+                        snapshot.get("format_name"), "format_name"
+                    )
+                    _ = job.publish(
+                        output_name=f"{snapshot['job_id']}.validated.{format_name}"
+                    )
                 else:
                     _ = job.export(request)
             case OfficeJobState.exported:
@@ -224,6 +234,20 @@ def _resume(
                 )
             case unreachable:
                 assert_never(unreachable)
+
+
+def approved_office_receipt(payload: Mapping[str, object]) -> str:
+    """Restore the complete receipt from the Office action journal."""
+    home = canonical_office_home()
+    runner = DocumentServiceRunner(
+        DocumentService(home),
+        export_root=Path(
+            required_text(payload.get("allowlist_root"), "allowlist_root")
+        ),
+    )
+    job_id = required_text(payload.get("job_id"), "job_id")
+    job = job_journal(home).restore(job_id, runner=runner)
+    return canonical_json(job.receipt())
 
 
 def execute_approved_office_job(

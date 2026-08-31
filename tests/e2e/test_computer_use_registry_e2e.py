@@ -48,7 +48,7 @@ def test_registry_routes_computer_use_events_into_workspace(
         },
         client=None,
         cwd=tmp_path,
-        emit=workspace._runtime_event,
+        emit=workspace.runtime_event,
     )
     service = _service(context)
     service.backend = FakeBackend()

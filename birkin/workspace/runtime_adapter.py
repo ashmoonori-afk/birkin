@@ -133,12 +133,8 @@ class RuntimeWorkspaceAdapter:
             browser=BrowserSurfaceAuthority(
                 BrowserAsideService(session_id), BrowserControlAuthority(time.monotonic)
             ),
-            computer_use=ComputerUseSurfaceAuthority(
-                probe=default_backend().probe()
-            ),
-            office=OfficeSurfaceAuthority(
-                DocumentService(canonical_office_home())
-            ),
+            computer_use=ComputerUseSurfaceAuthority(probe=default_backend().probe()),
+            office=OfficeSurfaceAuthority(DocumentService(canonical_office_home())),
         )
         self._failed_intent_payload: dict[str, object] | None = None
         self._pending_approval_context: str | None = None
@@ -232,7 +228,7 @@ class RuntimeWorkspaceAdapter:
             cfg["session_id"] = self._session_id
             self._session = build_session(
                 cfg,
-                on_event=self._runtime_event,
+                on_event=self.runtime_event,
                 on_status=self._runtime_status,
             )
         return self._session
@@ -265,7 +261,7 @@ class RuntimeWorkspaceAdapter:
         })
         _ = self._emit("progress.updated", payload)
 
-    def _runtime_event(
+    def runtime_event(
         self,
         event: str,
         payload: dict[str, object],
@@ -328,6 +324,14 @@ class RuntimeWorkspaceAdapter:
         if runtime_name:
             safe["runtime_name"] = str(runtime_name)[:300]
         _ = self._emit(event_type, safe)
+
+    def _runtime_event(
+        self,
+        event: str,
+        payload: dict[str, object],
+    ) -> None:
+        """Delegate legacy callback users to the public runtime event sink."""
+        self.runtime_event(event, payload)
 
     def _computer_event(self, raw: dict[str, object]) -> None:
         version = raw.get("version")
@@ -451,7 +455,9 @@ class RuntimeWorkspaceAdapter:
                 f"- {attachment.display_name}: imports/{attachment.jail_name}"
                 for attachment, _path in validated
             ]
-            runtime_text += "\n\nAttached workspace imports (validated):\n" + "\n".join(lines)
+            runtime_text += (
+                "\n\nAttached workspace imports (validated):\n" + "\n".join(lines)
+            )
         if self._pending_approval_context is not None:
             runtime_text = (
                 f"{self._pending_approval_context}\n\n{runtime_text}"
@@ -603,7 +609,9 @@ class RuntimeWorkspaceAdapter:
         required = {"request", "source", "outcome", "operations", "destination"}
         optional = {"overwrite_approved", "diff_id"}
         if not required <= set(payload) or set(payload) - required - optional:
-            raise ValueError("office.job_request payload does not match the canonical contract")
+            raise ValueError(
+                "office.job_request payload does not match the canonical contract"
+            )
         request = payload["request"]
         source = payload["source"]
         outcome = payload["outcome"]
@@ -648,7 +656,7 @@ class RuntimeWorkspaceAdapter:
                 allowlist_root=self._workspace_root,
                 actor=f"native:{self._session_id}",
             ),
-            on_transition=office_progress_sink(self._runtime_event),
+            on_transition=office_progress_sink(self.runtime_event),
         ).request(
             OfficeMutationRequest(
                 request_text=request,
@@ -970,7 +978,7 @@ class RuntimeWorkspaceAdapter:
             approval_id,
             decision=str(decision),
             reason=str(payload.get("reason") or ""),
-            on_event=self._runtime_event,
+            on_event=self.runtime_event,
         )
         event_payload: dict[str, object] = {
             "approval_id": approval_id,

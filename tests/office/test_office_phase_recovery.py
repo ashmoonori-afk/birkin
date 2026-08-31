@@ -6,7 +6,12 @@ from typing import cast
 
 import pytest
 
-from birkin import approvals, config, store
+from birkin import (
+    approval_execution_recovery,
+    approvals,
+    config,
+    store,
+)
 from birkin.office.job import OfficeJob
 from birkin.office.job_journal import OfficeJobJournal
 from birkin.office.job_runner import DocumentServiceRunner
@@ -115,6 +120,11 @@ def test_each_durable_job_checkpoint_resumes_without_repeating_state(
     with pytest.raises(SimulatedCrash):
         _ = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
     monkeypatch.setattr(OfficeJobJournal, "append", real_append)
+    monkeypatch.setattr(
+        approval_execution_recovery.procreg,
+        "pid_alive",
+        lambda _pid: False,
+    )
     pending = store.get_pending(approval_id)
     assert pending is not None
     assert pending["status"] == "executing"
@@ -158,6 +168,11 @@ def test_publication_commit_before_job_snapshot_is_reconciled(
     with pytest.raises(SimulatedCrash):
         _ = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
     monkeypatch.setattr(DocumentServiceRunner, "publish", real_publish)
+    monkeypatch.setattr(
+        approval_execution_recovery.procreg,
+        "pid_alive",
+        lambda _pid: False,
+    )
 
     # When: restart resumes a validated job with its deterministic output present.
     result = approvals.approve(approval_id, approved_by="human:test", approved_via="test")

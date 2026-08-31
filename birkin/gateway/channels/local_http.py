@@ -14,23 +14,76 @@ import os
 import secrets
 import socket
 import threading
+from email.message import Message
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import BufferedIOBase
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Protocol
 
-from .base import Channel
+from typing_extensions import override
+
+from .base import Channel, ChannelGateway
 from .capability_file import load_or_create_token as _load_or_create_token
-
-if TYPE_CHECKING:
-    from ..core import Gateway
+from .registry_types import JsonValue
 
 _ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
 _LOOPBACK_PEERS = {"127.0.0.1", "::1"}
 _MAX_BODY = 1_000_000  # 1 MB cap on a request body — this endpoint takes a chat line
 _BODY_TIMEOUT_SECONDS = 2.0
+_REJECTED_BODY_TIMEOUT_SECONDS = 0.5
+
+
+class _JsonLoader(Protocol):
+    def __call__(self, s: str | bytes | bytearray) -> JsonValue: ...
+
+
+_JSON_LOADER: _JsonLoader = json.loads
+
+
+class _RejectedBodyRequest(Protocol):
+    @property
+    def headers(self) -> Message: ...
+
+    @property
+    def connection(self) -> socket.socket: ...
+
+    @property
+    def rfile(self) -> BufferedIOBase: ...
+
+
+def _drain_rejected_body(request: _RejectedBodyRequest) -> None:
+    """Discard a bounded invalid-path body so Windows can deliver the 404."""
+    try:
+        length = int(request.headers.get("Content-Length") or 0)
+    except (TypeError, ValueError):
+        return
+    if not 0 < length <= _MAX_BODY:
+        return
+    try:
+        previous_timeout = request.connection.gettimeout()
+        request.connection.settimeout(_REJECTED_BODY_TIMEOUT_SECONDS)
+        try:
+            remaining = length
+            while remaining > 0:
+                chunk = request.rfile.read(min(remaining, 8192))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+        finally:
+            request.connection.settimeout(previous_timeout)
+    except (OSError, ValueError):
+        return
+
 
 class LocalHTTPChannel(Channel):
-    name = "http"
+    name: str = "http"
+    port: int
+    _configured_token: str
+    insecure_no_token: bool
+    _ready: threading.Event
+    _stop_requested: threading.Event
+    _httpd: ThreadingHTTPServer | None
+    _lifecycle_lock: threading.Lock
 
     def __init__(
         self,
@@ -38,14 +91,14 @@ class LocalHTTPChannel(Channel):
         *,
         token: str | None = None,
         insecure_no_token: bool = False,
-    ):
+    ) -> None:
         self.port = port
         self._configured_token = (token or "").strip()
         self.insecure_no_token = insecure_no_token
         self.token: str | None = None
         self._ready = threading.Event()
         self._stop_requested = threading.Event()
-        self._httpd: ThreadingHTTPServer | None = None
+        self._httpd = None
         self._lifecycle_lock = threading.Lock()
 
     def wait_until_ready(self, timeout: float | None = None) -> bool:
@@ -67,12 +120,11 @@ class LocalHTTPChannel(Channel):
             except OSError:
                 pass
 
-    def start(self, gateway: Gateway) -> None:
+    @override
+    def start(self, gateway: ChannelGateway) -> None:
         self._stop_requested.clear()
         gw = gateway
-        environment_token = (
-            os.environ.get("BIRKIN_HTTP_TOKEN") or ""
-        ).strip()
+        environment_token = (os.environ.get("BIRKIN_HTTP_TOKEN") or "").strip()
         token_path: Path | None = None
         if environment_token:
             required_token: str | None = environment_token
@@ -85,7 +137,12 @@ class LocalHTTPChannel(Channel):
         self.token = required_token
 
         class Handler(BaseHTTPRequestHandler):
-            def log_message(self, format: str, *args: Any) -> None:
+            connection: socket.socket
+            rfile: BufferedIOBase
+            close_connection: bool
+
+            @override
+            def log_message(self, format: str, *args: str) -> None:
                 pass
 
             def _host_ok(self) -> bool:
@@ -94,13 +151,13 @@ class LocalHTTPChannel(Channel):
                 host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
                 return host in _ALLOWED_HOSTS
 
-            def _json(self, obj: Any, code: int = 200) -> None:
-                body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+            def _json(self, payload: JsonValue, code: int = 200) -> None:
+                body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
-                self.wfile.write(body)
+                _ = self.wfile.write(body)
 
             def do_GET(self) -> None:
                 if not self._host_ok():
@@ -116,6 +173,7 @@ class LocalHTTPChannel(Channel):
                     self._json({"error": "forbidden host"}, 403)
                     return
                 if self.path != "/message":
+                    _drain_rejected_body(self)
                     self._json({"error": "not found"}, 404)
                     return
                 # CSRF defense: require Content-Type application/json. A browser
@@ -125,16 +183,17 @@ class LocalHTTPChannel(Channel):
                 # This blocks a visited website from driving the agent. Legit
                 # local clients already send JSON.
                 ctype = (
-                    self.headers.get("Content-Type", "") or ""
-                ).split(";", 1)[0].strip().lower()
+                    (self.headers.get("Content-Type", "") or "")
+                    .split(";", 1)[0]
+                    .strip()
+                    .lower()
+                )
                 if ctype != "application/json":
-                    self._json(
-                        {"error": "Content-Type must be application/json"}, 415)
+                    self._json({"error": "Content-Type must be application/json"}, 415)
                     return
-                if required_token is not None and not secrets.compare_digest(
-                        self.headers.get("X-Birkin-Token", ""), required_token):
-                    self._json({"error": "unauthorized"}, 401)
-                    return
+                token_matches = required_token is None or secrets.compare_digest(
+                    self.headers.get("X-Birkin-Token", ""), required_token
+                )
                 # Tolerate junk: bad Content-Length, non-UTF-8 bytes (port
                 # scanners / wrong-encoding clients), or non-object JSON must
                 # return 400 — never crash the request handler.
@@ -159,7 +218,14 @@ class LocalHTTPChannel(Channel):
                         self.close_connection = True
                         self._json({"error": "incomplete request body"}, 400)
                         return
-                    payload = json.loads(body or b"{}")
+                except ValueError:
+                    self._json({"error": "bad request"}, 400)
+                    return
+                if not token_matches:
+                    self._json({"error": "unauthorized"}, 401)
+                    return
+                try:
+                    payload = _JSON_LOADER(body or b"{}")
                 except (ValueError, UnicodeDecodeError):
                     self._json({"error": "bad request"}, 400)
                     return
@@ -173,10 +239,7 @@ class LocalHTTPChannel(Channel):
                 text = raw_text.strip()
                 session_id = str(payload.get("session", "default"))
                 channel = payload.get("channel", "http")
-                if (
-                    not isinstance(channel, str)
-                    or channel not in {"http", "voice"}
-                ):
+                if not isinstance(channel, str) or channel not in {"http", "voice"}:
                     self._json({"error": "invalid channel"}, 400)
                     return
                 if not text:
@@ -210,7 +273,7 @@ class LocalHTTPChannel(Channel):
         )
         print(
             f"  · http channel on http://127.0.0.1:{self.port} "
-            f"(POST /message, GET /health; {capability})"
+            + f"(POST /message, GET /health; {capability})"
         )
         try:
             while not self._stop_requested.is_set():

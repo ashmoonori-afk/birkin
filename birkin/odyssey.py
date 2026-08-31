@@ -18,25 +18,33 @@ from . import boulder, config, neurosis
 
 
 def seed(goal: str, *, cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
-    """Describe an Odyssey run for ``goal`` (does NOT pre-create the plan — the
-    agent writes real steps into the Boulder file during Phase 2; an active plan
-    for the same slug is resumed)."""
+    """Persist an inactive Odyssey seed, or resume an existing active plan."""
     cfg = cfg or config.load_config()
     slug = neurosis._slug(goal)
-    existing = boulder.load(slug)
+    max_iters = int((cfg or {}).get("boulder_max_iters", 100))
+    critics = int((cfg or {}).get("critique_agents", 3))
+    state = boulder.seed(goal, max_iters=max_iters, critics=critics)
+    stored_max_iters = state.get("max_iters")
+    stored_critics = state.get("critics")
     return {
-        "slug": slug, "goal": goal,
+        "slug": slug,
+        "goal": goal,
         "boulder_path": str(boulder._path(slug)),
-        "resume": bool(existing and existing.get("active") and existing.get("steps")),
-        "max_iters": int((cfg or {}).get("boulder_max_iters", 100)),
-        "critics": int((cfg or {}).get("critique_agents", 3)),
+        "resume": bool(state.get("active") and state.get("steps")),
+        "max_iters": (
+            stored_max_iters if isinstance(stored_max_iters, int) else max_iters
+        ),
+        "critics": (stored_critics if isinstance(stored_critics, int) else critics),
     }
 
 
 def start_prompt(s: dict[str, Any]) -> str:
     """The goal kickoff prompt a surface feeds the agent to run the cycle."""
-    head = ("Resume the **[Odyssey]** goal-completion cycle"
-            if s.get("resume") else "Run the **[Odyssey]** goal-completion cycle")
+    head = (
+        "Resume the **[Odyssey]** goal-completion cycle"
+        if s.get("resume")
+        else "Run the **[Odyssey]** goal-completion cycle"
+    )
     return (
         f"{head} for this GOAL:\n  goal: {s['goal']}\n"
         "Load the skill: if you have load_skill, call load_skill('odyssey'); "
@@ -56,4 +64,5 @@ def start_prompt(s: dict[str, Any]) -> str:
         "6. Stop when every box is checked AND [Osiris] confirms the goal. "
         "Consequential actions (shell/cron) go to the approval queue, never auto. "
         "Report progress as remaining steps (예상 남은 단계: ~N), not internals. "
-        "Resume from the Boulder file if interrupted.")
+        "Resume from the Boulder file if interrupted."
+    )

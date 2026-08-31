@@ -865,6 +865,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin setup` | Provider와 workspace 안내 설정. |
 | `birkin chat` | 기본 terminal chat workspace와 private loopback web authority 실행. |
 | `birkin gateway` | Loopback HTTP와 설정된 message channel을 실행하고, 중단 후 답변 재전송을 단일 owner가 배타적으로 claim하도록 보장. |
+| `birkin omo diagnose` | Secret을 노출하지 않고 Telegram ownership과 OMO gateway 준비 상태 확인. |
 | `birkin web [--no-browser]` | 독립 인증 chat workspace와 control API 실행. |
 | `birkin native-bridge serve` | macOS와 Windows native client가 사용하는 인증된 local bridge 실행. |
 | `birkin review` | 결과가 생기는 대기 action 승인 또는 거절. |

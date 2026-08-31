@@ -10,6 +10,7 @@ import pytest
 from docx import Document
 
 from birkin import approvals, config, store
+from birkin.approval_execution_journal import ExecutionJournal
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.tools import build_registry
 from birkin.tools._types import ToolContext
@@ -119,9 +120,7 @@ def test_docx_paragraph_request_executes_through_registry_and_approval(
         "destination": str(destination),
     }
     registry = build_registry(
-        ToolContext(
-            cfg={}, client=None, cwd=caller, record_source="user:docx-e2e"
-        ),
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:docx-e2e"),
         include={"documents"},
     )
 
@@ -211,15 +210,20 @@ def test_approved_queue_executes_validates_materializes_and_exports(
     body, _, source, destination, source_sha256 = queue_office_job(tmp_path, monkeypatch)
 
     # When: the canonical approval queue executes the exact proposal.
+    approval_id = cast(str, body["id"])
     result = approvals.approve(
-        cast(str, body["id"]),
+        approval_id,
         approved_by="human:test-reviewer",
         approved_via="test:office-coordinator",
     )
 
     # Then: a validated internal artifact is exported with real hash proof.
     assert result["ok"] is True, result
-    receipt = cast("dict[str, object]", json.loads(cast(str, result["result"])))
+    full_result = cast(str, result["result"])
+    bounded_result = ExecutionJournal(approval_id).load().result
+    assert len(full_result) > 2000
+    assert bounded_result is not None and len(bounded_result) <= 2000
+    receipt = cast("dict[str, object]", json.loads(full_result))
     publication = cast("dict[str, object]", receipt["publication"])
     exported = cast("dict[str, object]", receipt["export"])
     internal = Path(cast(str, publication["path"]))

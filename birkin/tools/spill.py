@@ -20,7 +20,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .. import config
+from .. import config, private_storage
 
 SPILL_EXEMPT = frozenset({"read_file"})
 PREVIEW_CHARS = 2_000
@@ -29,9 +29,12 @@ MARKER = "<persisted-output>"
 
 def spill_dir(cfg: dict[str, Any]) -> Path:
     configured = (cfg.get("spill_dir") or "").strip()
-    path = Path(configured).expanduser() if configured \
+    path = (
+        Path(configured).expanduser()
+        if configured
         else config.birkin_home() / "tool-results"
-    path.mkdir(parents=True, exist_ok=True)
+    )
+    private_storage.harden_private_directory(path)
     return path
 
 
@@ -58,7 +61,8 @@ def _sweep(directory: Path, retention_days: int) -> None:
             if entry.stat().st_mtime < cutoff:
                 entry.unlink()
         except OSError:
-            pass
+            # A raced or already-deleted stale spill must not block this result.
+            continue
 
 
 def maybe_spill(content: str, tool_name: str, cfg: dict[str, Any]) -> str:
@@ -69,8 +73,12 @@ def maybe_spill(content: str, tool_name: str, cfg: dict[str, Any]) -> str:
     the tool.
     """
     threshold = int(cfg.get("spill_threshold", 30_000) or 0)
-    if (tool_name in SPILL_EXEMPT or threshold <= 0
-            or not isinstance(content, str) or len(content) <= threshold):
+    if (
+        tool_name in SPILL_EXEMPT
+        or threshold <= 0
+        or not isinstance(content, str)
+        or len(content) <= threshold
+    ):
         return content
 
     try:
@@ -79,18 +87,20 @@ def maybe_spill(content: str, tool_name: str, cfg: dict[str, Any]) -> str:
         # Self-generated name: the registry never sees the tool_use_id, and
         # threading it through just to name a file is not worth the churn.
         path = directory / f"{stamp}_{tool_name}_{uuid.uuid4().hex[:8]}.txt"
-        path.write_text(content, encoding="utf-8", errors="replace")
+        private_storage.atomic_write_private_text(path, content)
         _sweep(directory, int(cfg.get("spill_retention_days", 7) or 0))
     except OSError:
         return content[:threshold] + "\n[output truncated]"
 
-    return (f"{MARKER}\n"
-            f"This result was too large to inline ({len(content)} chars). "
-            f"The full output is saved at:\n{path}\n"
-            f"Page through it with read_file(path, offset=N) — each read tells "
-            f"you the next offset. A shell search also works, but check its "
-            f"exit status: a shell that mishandles the path can report zero "
-            f"matches rather than an error.\n\n"
-            f"Preview (first {PREVIEW_CHARS} chars):\n"
-            f"{_preview(content)}\n"
-            f"</persisted-output>")
+    return (
+        f"{MARKER}\n"
+        f"This result was too large to inline ({len(content)} chars). "
+        f"The full output is saved at:\n{path}\n"
+        f"Page through it with read_file(path, offset=N) — each read tells "
+        f"you the next offset. A shell search also works, but check its "
+        f"exit status: a shell that mishandles the path can report zero "
+        f"matches rather than an error.\n\n"
+        f"Preview (first {PREVIEW_CHARS} chars):\n"
+        f"{_preview(content)}\n"
+        f"</persisted-output>"
+    )

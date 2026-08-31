@@ -17,21 +17,14 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-# Tools that only read and hold no cross-call state.
-#
-# load_skill is deliberately ABSENT despite looking like a read: it calls
-# reload_if_changed (mutating SkillManager state) and records usage in the
-# curator ledger, opening a SQLite connection per call.
-PARALLEL_SAFE_TOOLS = frozenset({
-    "read_file",
-    "list_files",
-    "web_fetch",
-    "session_search",
-    "session_get",
-    "memory_search",
-    "memory_get_note",
-    "memory_related",
-})
+from .native_tool_metadata import (
+    NATIVE_INSPECT_PARALLEL_TOOLS as NATIVE_INSPECT_PARALLEL_TOOLS,
+)
+
+# Backwards-compatible planner name; native posture is declared once in
+# native_tool_metadata. load_skill is intentionally not safe because it mutates
+# SkillManager state and records usage in the curator ledger.
+PARALLEL_SAFE_TOOLS = NATIVE_INSPECT_PARALLEL_TOOLS
 
 # A "parallel" run of one buys nothing but costs a thread.
 _MIN_PARALLEL = 2
@@ -42,8 +35,9 @@ def _legacy_can_parallelize(name: str) -> bool:
 
 
 def is_safe(tool_use: dict[str, Any]) -> bool:
-    return (tool_use.get("name", "") in PARALLEL_SAFE_TOOLS
-            and isinstance(tool_use.get("input", {}) or {}, dict))
+    return tool_use.get("name", "") in PARALLEL_SAFE_TOOLS and isinstance(
+        tool_use.get("input", {}) or {}, dict
+    )
 
 
 def plan_segments(
@@ -59,15 +53,11 @@ def plan_segments(
     Emission order is preserved: a run only ever groups calls that were already
     adjacent, so a write between two reads still separates them.
     """
-    classify = (can_parallelize if callable(can_parallelize)
-                else _legacy_can_parallelize)
+    classify = can_parallelize if callable(can_parallelize) else _legacy_can_parallelize
     segments: list[tuple[str, list[dict[str, Any]]]] = []
     for call in tool_uses:
         tool_input = call.get("input", {}) or {}
-        eligible = (
-            isinstance(tool_input, dict)
-            and classify(str(call.get("name", "")))
-        )
+        eligible = isinstance(tool_input, dict) and classify(str(call.get("name", "")))
         kind = "parallel" if eligible else "sequential"
         if segments and segments[-1][0] == kind:
             segments[-1][1].append(call)

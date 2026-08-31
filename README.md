@@ -798,6 +798,7 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin setup` | Guided provider and workspace onboarding. |
 | `birkin chat` | Default terminal chat workspace plus private loopback web authority. |
 | `birkin gateway` | Run loopback HTTP and configured message channels with crash-durable, exclusively claimed reply redelivery. |
+| `birkin omo diagnose` | Print secret-free Telegram ownership and OMO gateway readiness. |
 | `birkin web [--no-browser]` | Run the standalone authenticated chat workspace and control API. |
 | `birkin native-bridge serve` | Serve the authenticated local bridge used by the macOS and Windows native clients. |
 | `birkin review` | Approve or reject pending consequential actions. |

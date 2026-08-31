@@ -4,14 +4,15 @@ import threading
 
 import pytest
 
-from birkin import approvals, config, cron, store
+from birkin import approval_execution, approvals, config, cron, store
+from birkin.approval_execution_codec import JSONValue
+from birkin.approval_execution_types import EventSink
 from birkin.gateway import workflow
 from birkin.gateway.channels.telegram import TelegramChannel
 from birkin.tools import ToolContext, build_registry
 
 
-def test_claimed_action_executes_only_its_stored_payload(
-        tmp_path, monkeypatch) -> None:
+def test_claimed_action_executes_only_its_stored_payload(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     rec = store.add_pending(
         category="note",
@@ -28,7 +29,7 @@ def test_claimed_action_executes_only_its_stored_payload(
         lambda category, payload: executed.append((category, payload)) or "done",
     )
 
-    result = approvals.execute_claimed(rec["id"])
+    result = approval_execution.execute_claimed(rec["id"], approvals.execute_action)
 
     assert result["ok"] is True
     assert executed == [("note", {"value": "stored"})]
@@ -36,7 +37,8 @@ def test_claimed_action_executes_only_its_stored_payload(
 
 
 def test_generic_approval_surfaces_hide_telegram_workflows(
-        tmp_path, monkeypatch) -> None:
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     workflow.queue_proposal(
         workflow.WorkflowProposal("workflow", "telegram only", ("run",)),
@@ -76,8 +78,7 @@ def test_generic_approval_worker_has_a_dedicated_slot(monkeypatch) -> None:
             return "done"
 
     channel = TelegramChannel("token", allowed_chat_ids=["42"])
-    monkeypatch.setattr(
-        channel, "_call", lambda *_args, **_kwargs: {"ok": True})
+    monkeypatch.setattr(channel, "_call", lambda *_args, **_kwargs: {"ok": True})
     callback = {
         "id": "cb",
         "data": f"apv:{'a' * 12}",
@@ -111,18 +112,26 @@ def test_native_subagent_tool_requires_approved_gateway_work(tmp_path) -> None:
     assert "approved" in result.content.lower()
 
 
-@pytest.mark.parametrize(("transition", "initial_status", "expected"), [
-    ("claim", "pending", {"ok": False, "error": "approval store is busy"}),
-    ("execute_claimed", "approving",
-     {"ok": False, "error": "approval store is busy"}),
-    ("restore_claim", "approving", False),
-    ("reject", "pending", {"ok": False}),
-])
+@pytest.mark.parametrize(
+    ("transition", "initial_status", "expected"),
+    [
+        ("claim", "pending", {"ok": False, "error": "approval store is busy"}),
+        (
+            "execute_claimed",
+            "approving",
+            {"ok": False, "error": "approval store is busy"},
+        ),
+        ("restore_claim", "approving", False),
+        ("reject", "pending", {"ok": False}),
+    ],
+)
 def test_approval_transitions_preserve_busy_contract_on_lock_timeout(
-        tmp_path, monkeypatch, transition, initial_status, expected) -> None:
+    tmp_path, monkeypatch, transition, initial_status, expected
+) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     rec = store.add_pending(
-        category="note", title="locked", description="", payload={}, origin="test")
+        category="note", title="locked", description="", payload={}, origin="test"
+    )
     if initial_status != "pending":
         store.resolve_pending(rec["id"], initial_status)
     pending_path = config.pending_dir() / f"{rec['id']}.json"
@@ -152,53 +161,81 @@ def test_approval_transitions_preserve_busy_contract_on_lock_timeout(
 
 
 def test_manual_cron_approval_restores_pending_on_cron_lock_timeout(
-        tmp_path, monkeypatch) -> None:
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     rec = store.add_pending(
-        category="cron", title="daily", description="", payload={}, origin="test")
+        category="cron", title="daily", description="", payload={}, origin="test"
+    )
     cron_path = config.cron_path()
     before = (cron_path.exists(), cron_path.read_bytes() if cron_path.exists() else b"")
     monkeypatch.setattr(
-        cron, "add_job",
+        cron,
+        "add_job",
         lambda **_kwargs: (_ for _ in ()).throw(
-            store.FileLockTimeout("cron store is busy; retry.")),
+            store.FileLockTimeout("cron store is busy; retry.")
+        ),
     )
 
     result = approvals.approve(rec["id"], approved_by="human:test", approved_via="test")
 
     assert result == {"ok": False, "error": "cron store is busy; retry."}
     assert store.get_pending(rec["id"])["status"] == "pending"
-    assert (cron_path.exists(), cron_path.read_bytes() if cron_path.exists() else b"") == before
+    assert (
+        cron_path.exists(),
+        cron_path.read_bytes() if cron_path.exists() else b"",
+    ) == before
 
 
 def test_auto_cron_approval_restores_pending_on_cron_lock_timeout(
-        tmp_path, monkeypatch) -> None:
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     cron_path = config.cron_path()
     before = (cron_path.exists(), cron_path.read_bytes() if cron_path.exists() else b"")
     monkeypatch.setattr(
-        cron, "add_job",
+        cron,
+        "add_job",
         lambda **_kwargs: (_ for _ in ()).throw(
-            store.FileLockTimeout("cron store is busy; retry.")),
+            store.FileLockTimeout("cron store is busy; retry.")
+        ),
     )
 
+    real_execute_action = approvals.execute_action
+
+    def execute_action(
+        category: str,
+        payload: dict[str, JSONValue],
+        cfg: dict[str, JSONValue] | None = None,
+        on_event: EventSink | None = None,
+    ) -> str:
+        return real_execute_action(category, payload, cfg, on_event)
+
+    monkeypatch.setattr(approvals, "execute_action", execute_action)
     result = approvals.propose(
-        category="cron", title="daily", description="", payload={},
-        cfg={"auto_approve": ["cron"]}, origin="test",
+        category="cron",
+        title="daily",
+        description="",
+        payload={},
+        cfg={"auto_approve": ["cron"]},
+        origin="test",
     )
 
     assert result["auto"] is True
     assert result["ok"] is False
     assert result["result"] == "cron store is busy; retry."
     assert store.get_pending(result["id"])["status"] == "pending"
-    assert (cron_path.exists(), cron_path.read_bytes() if cron_path.exists() else b"") == before
+    assert (
+        cron_path.exists(),
+        cron_path.read_bytes() if cron_path.exists() else b"",
+    ) == before
 
 
-def test_cron_approval_restore_timeout_leaves_executing(
-        tmp_path, monkeypatch) -> None:
+def test_cron_approval_restore_timeout_leaves_executing(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     rec = store.add_pending(
-        category="cron", title="daily", description="", payload={}, origin="test")
+        category="cron", title="daily", description="", payload={}, origin="test"
+    )
     store.resolve_pending(rec["id"], "approving")
     real_file_lock = store.file_lock
     acquisitions = 0
@@ -217,22 +254,26 @@ def test_cron_approval_restore_timeout_leaves_executing(
 
     monkeypatch.setattr(store, "file_lock", lock)
     monkeypatch.setattr(
-        cron, "add_job",
+        cron,
+        "add_job",
         lambda **_kwargs: (_ for _ in ()).throw(
-            store.FileLockTimeout("cron store is busy; retry.")),
+            store.FileLockTimeout("cron store is busy; retry.")
+        ),
     )
 
-    result = approvals.execute_claimed(rec["id"])
+    result = approval_execution.execute_claimed(rec["id"], approvals.execute_action)
 
     assert result == {"ok": False, "error": "approval store is busy"}
     assert store.get_pending(rec["id"])["status"] == "executing"
 
 
 def test_cron_approval_restore_does_not_overwrite_changed_state(
-        tmp_path, monkeypatch) -> None:
+    tmp_path, monkeypatch
+) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     rec = store.add_pending(
-        category="cron", title="daily", description="", payload={}, origin="test")
+        category="cron", title="daily", description="", payload={}, origin="test"
+    )
     store.resolve_pending(rec["id"], "approving")
     real_file_lock = store.file_lock
     acquisitions = 0
@@ -256,12 +297,14 @@ def test_cron_approval_restore_does_not_overwrite_changed_state(
 
     monkeypatch.setattr(store, "file_lock", lock)
     monkeypatch.setattr(
-        cron, "add_job",
+        cron,
+        "add_job",
         lambda **_kwargs: (_ for _ in ()).throw(
-            store.FileLockTimeout("cron store is busy; retry.")),
+            store.FileLockTimeout("cron store is busy; retry.")
+        ),
     )
 
-    result = approvals.execute_claimed(rec["id"])
+    result = approval_execution.execute_claimed(rec["id"], approvals.execute_action)
 
     assert result == {"ok": False, "error": "approval store is busy"}
     assert store.get_pending(rec["id"])["status"] == "rejected"

@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from birkin import approvals, store
+import pytest
+
+from birkin import approvals, store, worker_hooks
 
 
 def _continuation(worker: str = "odyssey") -> dict[str, Any]:
@@ -15,7 +17,8 @@ def _continuation(worker: str = "odyssey") -> dict[str, Any]:
 
 
 def test_approved_worker_hook_executes_and_resumes_once(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     calls: list[str] = []
@@ -64,7 +67,8 @@ def test_approved_worker_hook_executes_and_resumes_once(
 
 
 def test_rejected_worker_hook_never_executes_or_resumes(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     calls: list[str] = []
@@ -98,7 +102,8 @@ def test_rejected_worker_hook_never_executes_or_resumes(
 
 
 def test_repeated_worker_hook_approval_is_at_most_once(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     calls: list[str] = []
@@ -130,7 +135,8 @@ def test_repeated_worker_hook_approval_is_at_most_once(
 
 
 def test_worker_hook_preserves_worker_authority_boundaries(
-    tmp_path, monkeypatch,
+    tmp_path,
+    monkeypatch,
 ) -> None:
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     contract = approvals.worker_hook_contract()
@@ -143,10 +149,10 @@ def test_worker_hook_preserves_worker_authority_boundaries(
         "boulder",
         "harness",
         "odyssey",
-        "osiris",
         "daedalus",
     )
     assert contract["no_model"] == ("mnemosyne", "daedalus")
+    assert contract["reserved"] == ("osiris",)
     assert contract["persistence_owner"] == {"osiris": "boulder"}
 
     for worker in contract["workers"]:
@@ -164,7 +170,7 @@ def test_worker_hook_preserves_worker_authority_boundaries(
         assert pending["continuation"]["worker"] == worker
         assert approvals.reject(queued["id"], rejected_by="human:test", rejected_via="test") == {"ok": True}
 
-    try:
+    with pytest.raises(worker_hooks.WorkerHookError, match="unknown worker"):
         approvals.propose(
             category="shell",
             title="unknown worker",
@@ -174,37 +180,44 @@ def test_worker_hook_preserves_worker_authority_boundaries(
             origin="unknown",
             continuation=_continuation("unknown"),
         )
-    except ValueError as exc:
-        assert "unknown worker" in str(exc)
-    else:
-        raise AssertionError("unknown worker continuation was accepted")
 
 
-def test_every_declared_worker_resolves_to_an_implementation() -> None:
-    """The authority contract must not name workers that do not exist.
+def test_reserved_worker_cannot_validate_queue_or_dispatch(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    continuation = _continuation("osiris")
+    events: list[dict[str, Any]] = []
 
-    ``WORKERS`` is the machine-consumed authority boundary: ``validate`` accepts
-    a continuation for any name in it and ``dispatch`` emits a ``worker_resume``
-    event for that name. A declared worker with no implementation therefore
-    passes validation and then resumes nothing, so the contract has to stay
-    pinned to what is actually reachable.
-    """
+    with pytest.raises(worker_hooks.WorkerHookError, match="unknown worker: osiris"):
+        worker_hooks.validate(continuation)
+    with pytest.raises(worker_hooks.WorkerHookError, match="unknown worker: osiris"):
+        approvals.propose(
+            category="shell",
+            title="reserved worker",
+            description="reserved authorities must not enter the queue",
+            payload={"command": "step"},
+            cfg={"auto_approve": []},
+            origin="osiris",
+            continuation=continuation,
+        )
+    assert store.list_pending() == []
+    with pytest.raises(worker_hooks.WorkerHookError, match="unknown worker: osiris"):
+        worker_hooks.dispatch(continuation, on_event=events.append)
+    assert events == []
+
+
+def test_every_accepted_worker_resolves_to_an_implementation() -> None:
+    """Every name accepted at the continuation boundary must be reachable."""
     import importlib
-
-    from birkin import worker_hooks
 
     missing = []
     for worker in worker_hooks.WORKERS:
-        if worker in worker_hooks.RESERVED_WORKERS:
-            continue
         try:
             importlib.import_module(f"birkin.{worker}")
         except ImportError:
             missing.append(worker)
-    assert missing == [], (
-        f"declared but unimplemented workers: {missing} — either implement "
-        f"them or list them in worker_hooks.RESERVED_WORKERS"
-    )
+    assert missing == [], f"accepted but unimplemented workers: {missing}"
 
 
 def test_reserved_workers_own_no_persistence_they_cannot_write() -> None:
@@ -216,11 +229,11 @@ def test_reserved_workers_own_no_persistence_they_cannot_write() -> None:
     """
     import importlib
 
-    from birkin import worker_hooks
-
     for worker, owner in worker_hooks.PERSISTENCE_OWNER.items():
-        assert worker in worker_hooks.WORKERS, f"{worker} is not a declared worker"
-        assert owner in worker_hooks.WORKERS, f"{owner} is not a declared worker"
+        assert worker in (*worker_hooks.WORKERS, *worker_hooks.RESERVED_WORKERS), (
+            f"{worker} is neither an accepted nor reserved worker"
+        )
+        assert owner in worker_hooks.WORKERS, f"{owner} is not an accepted worker"
         assert owner not in worker_hooks.RESERVED_WORKERS, (
             f"{worker} persistence is owned by reserved worker {owner}"
         )

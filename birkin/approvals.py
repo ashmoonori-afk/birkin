@@ -27,6 +27,7 @@ from . import (
     store,
     worker_hooks,
 )
+from .approval_execution_types import SealedApprovalId
 from .proc import run_shell_command
 
 
@@ -55,10 +56,16 @@ def _is_shell_cron(category: str, payload: dict[str, Any]) -> bool:
     return bool(str(payload.get("monitor_script") or "").strip())
 
 
-def propose(*, category: str, title: str, description: str,
-            payload: dict[str, Any], cfg: dict[str, Any],
-            origin: str = "morpheus",
-            continuation: dict[str, Any] | None = None) -> dict[str, Any]:
+def propose(
+    *,
+    category: str,
+    title: str,
+    description: str,
+    payload: dict[str, Any],
+    cfg: dict[str, Any],
+    origin: str = "morpheus",
+    continuation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Apply (if auto-approved) or queue an action. Returns a status dict.
 
     SECURITY: an auto-approved ``cron`` must not launder a *shell* payload past
@@ -74,13 +81,16 @@ def propose(*, category: str, title: str, description: str,
         category != "operation"
         and continuation is None
         and is_auto(category, cfg)
-        and not (
-        _is_shell_cron(category, payload) and not is_auto("shell", cfg))
+        and not (_is_shell_cron(category, payload) and not is_auto("shell", cfg))
     )
-    rec = store.add_pending(category=category, title=title,
-                            description=description, payload=payload,
-                            origin=origin,
-                            continuation=parsed_continuation)
+    rec = store.add_pending(
+        category=category,
+        title=title,
+        description=description,
+        payload=payload,
+        origin=origin,
+        continuation=parsed_continuation,
+    )
     if auto:
         resolved = approve(
             rec["id"],
@@ -146,6 +156,11 @@ def execute_action(
     on_event: Any = None,
 ) -> str:
     """Carry out an action that already has durable approval authority."""
+    office_approval_id: SealedApprovalId | None = None
+    if cfg is not None:
+        value = cfg.get("_office_approval_id")
+        if isinstance(value, str):
+            office_approval_id = SealedApprovalId(value)
     return approval_dispatch.execute_action(
         category,
         payload,
@@ -153,15 +168,20 @@ def execute_action(
             cfg=cfg,
             on_event=on_event,
             shell_runner=run_shell_command,
+            office_approval_id=office_approval_id,
         ),
     )
 
 
+_DEFAULT_EXECUTE_ACTION = execute_action
+_DEFAULT_RUN_SHELL_COMMAND = run_shell_command
+
+
 # -- CLI review ------------------------------------------------------------
 
+
 def reviewable_pending() -> list[dict[str, Any]]:
-    return [rec for rec in store.list_pending()
-            if rec.get("category") != "workflow"]
+    return [rec for rec in store.list_pending() if rec.get("category") != "workflow"]
 
 
 def claim(
@@ -178,9 +198,7 @@ def claim(
 
 
 def execute_claimed(aid: str, on_event: Any = None) -> dict[str, Any]:
-    return approval_execution.execute_claimed(
-        aid, execute_action, on_event=on_event
-    )
+    return approval_execution.execute_claimed(aid, on_event=on_event)
 
 
 def execute_continuation(aid: str, on_event: Any = None) -> dict[str, Any]:
@@ -198,9 +216,15 @@ def approve(
     approved_by: str,
     approved_via: str,
 ) -> dict[str, Any]:
+    injected = (
+        execute_action
+        if execute_action is not _DEFAULT_EXECUTE_ACTION
+        or run_shell_command is not _DEFAULT_RUN_SHELL_COMMAND
+        else None
+    )
     return approval_execution.approve(
         aid,
-        execute_action,
+        injected,
         on_event=on_event,
         approved_by=approved_by,
         approved_via=approved_via,
@@ -277,8 +301,7 @@ def review_cli() -> int:
         elif choice in ("n", "no"):
             why = ""
             try:
-                why = input("   why? (optional, helps the agent) "
-                            ).strip()
+                why = input("   why? (optional, helps the agent) ").strip()
             except (EOFError, KeyboardInterrupt):
                 why = ""
             reject(

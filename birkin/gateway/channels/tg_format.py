@@ -19,17 +19,20 @@ Telegram ever rejects the HTML, so a converter edge case can never drop a reply.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 
-TG_LIMIT = 4096          # Telegram hard cap per message, in UTF-16 code units
-_SAFE_LIMIT = 3900       # leave headroom (emojis cost 2 units; tag overhead)
+TG_LIMIT = 4096  # Telegram hard cap per message, in UTF-16 code units
+_SAFE_LIMIT = 3900  # leave headroom (emojis cost 2 units; tag overhead)
 
 _FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 _LINK_RE = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
 _BOLDITALIC_RE = re.compile(r"\*\*\*(.+?)\*\*\*|___(.+?)___")
 _BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__")
-_ITALIC_RE = re.compile(r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])"
-                        r"|(?<![\w_])_(?!\s)([^_\n]+?)(?<!\s)_(?![\w_])")
+_ITALIC_RE = re.compile(
+    r"(?<![\w*])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![\w*])"
+    + r"|(?<![\w_])_(?!\s)([^_\n]+?)(?<!\s)_(?![\w_])"
+)
 _STRIKE_RE = re.compile(r"~~(.+?)~~")
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")
 _HR_RE = re.compile(r"^\s{0,3}([-*_])(?:\s*\1){2,}\s*$")
@@ -72,8 +75,11 @@ def _split_row(line: str) -> list[str]:
 
 def _is_separator(line: str) -> bool:
     cells = _split_row(line)
-    return bool(cells) and all(_SEP_CELL_RE.match(c) for c in cells if c != "" or len(cells) == 1) \
+    return (
+        bool(cells)
+        and all(_SEP_CELL_RE.match(c) for c in cells if c != "" or len(cells) == 1)
         and any(c for c in cells)
+    )
 
 
 def _render_table_cards(header: list[str], rows: list[list[str]]) -> str:
@@ -110,7 +116,9 @@ def to_html(md: str) -> str:
 
     # 1. Fenced code blocks first, so nothing inside them is reinterpreted.
     md = _FENCE_RE.sub(
-        lambda m: "\n" + put(f"<pre>{_esc(m.group(1).rstrip(chr(10)))}</pre>") + "\n", md)
+        lambda m: "\n" + put(f"<pre>{_esc(m.group(1).rstrip(chr(10)))}</pre>") + "\n",
+        md,
+    )
 
     # 2. Pipe tables -> stacked labeled cards (Telegram has no <table>).
     md = _tables_to_cards(md, put)
@@ -118,7 +126,8 @@ def to_html(md: str) -> str:
     # 3. Inline code, links — captured from raw text, escaped into stable tags.
     md = _INLINE_CODE_RE.sub(lambda m: put(f"<code>{_esc(m.group(1))}</code>"), md)
     md = _LINK_RE.sub(
-        lambda m: put(f'<a href="{_esc_attr(m.group(2))}">{_esc(m.group(1))}</a>'), md)
+        lambda m: put(f'<a href="{_esc_attr(m.group(2))}">{_esc(m.group(1))}</a>'), md
+    )
 
     # 4. Escape everything else, then apply emphasis on the escaped text
     #    (the * _ ~ # > markers survive HTML escaping).
@@ -162,14 +171,15 @@ def to_html(md: str) -> str:
 def _inline(escaped: str) -> str:
     """Bold/italic/strikethrough on already-HTML-escaped text, with the output
     guaranteed tag-balanced (Telegram 400s on crossed/overlapping tags)."""
-    escaped = _BOLDITALIC_RE.sub(            # ***x*** / ___x___  -> bold+italic
-        lambda m: f"<b><i>{m.group(1) or m.group(2)}</i></b>", escaped)
-    escaped = _BOLD_RE.sub(
-        lambda m: f"<b>{m.group(1) or m.group(2)}</b>", escaped)
+    escaped = _BOLDITALIC_RE.sub(  # ***x*** / ___x___  -> bold+italic
+        lambda m: f"<b><i>{m.group(1) or m.group(2)}</i></b>", escaped
+    )
+    escaped = _BOLD_RE.sub(lambda m: f"<b>{m.group(1) or m.group(2)}</b>", escaped)
     escaped = _STRIKE_RE.sub(lambda m: f"<s>{m.group(1)}</s>", escaped)
     escaped = _ITALIC_RE.sub(
         lambda m: f"<i>{m.group(1) or m.group(2) or m.group(3) or m.group(4)}</i>",
-        escaped)
+        escaped,
+    )
     return _balance_emphasis(escaped)
 
 
@@ -182,22 +192,25 @@ def _balance_emphasis(s: str) -> str:
     for m in _EMPH_TAG_RE.finditer(s):
         tag = m.group()
         if tag[1] == "/":
-            if not stack or stack[-1] != tag[2]:
+            if not stack or stack.pop() != tag[2]:
                 return _EMPH_TAG_RE.sub("", s)
-            stack.pop()
         else:
             stack.append(tag[1])
     return _EMPH_TAG_RE.sub("", s) if stack else s
 
 
-def _tables_to_cards(md: str, put) -> str:
+def _tables_to_cards(md: str, put: Callable[[str], str]) -> str:
     lines = md.split("\n")
     out: list[str] = []
     i = 0
     n = len(lines)
     while i < n:
-        if ("|" in lines[i] and i + 1 < n and "|" in lines[i + 1]
-                and _is_separator(lines[i + 1])):
+        if (
+            "|" in lines[i]
+            and i + 1 < n
+            and "|" in lines[i + 1]
+            and _is_separator(lines[i + 1])
+        ):
             header = _split_row(lines[i])
             j = i + 2
             rows: list[list[str]] = []
@@ -223,8 +236,9 @@ def split(html: str, limit: int = _SAFE_LIMIT) -> list[str]:
     Never splits inside a ``<pre>`` block (that would break the tag); an oversized
     ``<pre>`` is broken into multiple ``<pre>`` blocks along its inner lines.
     """
-    blocks = re.split(r"(<pre>.*?</pre>|<blockquote>.*?</blockquote>)",
-                      html, flags=re.DOTALL)
+    blocks = re.split(
+        r"(<pre>.*?</pre>|<blockquote>.*?</blockquote>)", html, flags=re.DOTALL
+    )
     chunks: list[str] = []
     cur = ""
 
@@ -259,7 +273,7 @@ def split(html: str, limit: int = _SAFE_LIMIT) -> list[str]:
         # A long non-pre run: split on line boundaries.
         for ln in block.split("\n"):
             seg = ln + "\n"
-            if _tg_len(seg) > limit:                 # pathological single line
+            if _tg_len(seg) > limit:  # pathological single line
                 for hard in _hard_split(seg, limit):
                     add(hard)
             else:
@@ -272,7 +286,7 @@ def _split_wrapped(block: str, tag: str, limit: int) -> list[str]:
     """Split an oversized ``<tag>…</tag>`` block along its inner lines into
     several VALID ``<tag>…</tag>`` blocks, so a tag is never torn across chunks."""
     open_t, close_t = f"<{tag}>", f"</{tag}>"
-    inner = block[len(open_t):-len(close_t)]
+    inner = block[len(open_t) : -len(close_t)]
     overhead = len(open_t) + len(close_t)
     parts: list[str] = []
     cur: list[str] = []
@@ -290,7 +304,7 @@ def _split_wrapped(block: str, tag: str, limit: int) -> list[str]:
 
 
 def _hard_split(s: str, limit: int) -> list[str]:
-    return [s[i:i + limit] for i in range(0, len(s), limit)]
+    return [s[i : i + limit] for i in range(0, len(s), limit)]
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -299,5 +313,4 @@ _TAG_RE = re.compile(r"<[^>]+>")
 def to_plain(html: str) -> str:
     """Strip HTML back to readable plain text — the no-parse_mode fallback."""
     s = _TAG_RE.sub("", html)
-    return (s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
-            .strip())
+    return s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&").strip()

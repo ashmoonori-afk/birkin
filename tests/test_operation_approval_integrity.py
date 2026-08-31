@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from birkin import approvals, config, store
+from birkin import approval_execution, approvals, config, store
 from birkin.tools import ToolContext, build_registry
 from birkin.tools import files
 from birkin.tools import shell as shell_mod
@@ -19,11 +19,13 @@ def _disable_unrelated_checkpoints() -> None:
 
 
 def _registry(tmp_path: Path, cfg: dict | None = None):
-    return build_registry(ToolContext(
-        cfg=cfg or {},
-        client=None,
-        cwd=tmp_path,
-    ))
+    return build_registry(
+        ToolContext(
+            cfg=cfg or {},
+            client=None,
+            cwd=tmp_path,
+        )
+    )
 
 
 def test_disabled_native_tool_queues_instead_of_disappearing(
@@ -195,8 +197,7 @@ def test_approved_temp_policy_retry_uses_local_scoped_directories(
         if attempts == 1:
             return Process(
                 1,
-                "Access is denied: "
-                "C:\\Users\\me\\AppData\\Local\\Temp\\uv-cache",
+                "Access is denied: C:\\Users\\me\\AppData\\Local\\Temp\\uv-cache",
             )
         environment = request.environment
         assert environment["TEMP"] == str(tmp_path / ".birkin-tmp")

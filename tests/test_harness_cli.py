@@ -13,21 +13,31 @@ import sys
 from birkin import cli, harness
 
 
-def _seed(title: str = "Test note", scope: str = "global",
-          session_id: str | None = None) -> dict:
+def _seed(
+    title: str = "Test note", scope: str = "global", session_id: str | None = None
+) -> dict:
     return harness.apply(
         harness.load(scope, session_id=session_id),
-        {"summary": f"learned about {title}",
-         "rationale": "the user corrected me twice",
-         "expectedOutcome": "fewer repeats",
-         "edits": [{"action": "create", "kind": "memory", "title": title,
-                    "content": "remember this"}]},
+        {
+            "summary": f"learned about {title}",
+            "rationale": "the user corrected me twice",
+            "expectedOutcome": "fewer repeats",
+            "edits": [
+                {
+                    "action": "create",
+                    "kind": "memory",
+                    "title": title,
+                    "content": "remember this",
+                }
+            ],
+        },
         scope=scope,
         session_id=session_id,
     )
 
 
 # ---------------- show ----------------
+
 
 def test_show_empty_is_friendly_and_exits_zero(capsys):
     rc = cli.main(["harness", "show"])
@@ -57,15 +67,26 @@ def test_show_local_selects_an_explicit_session(capsys):
     _seed("Alpha only", scope="local", session_id="alpha")
     _seed("Beta only", scope="local", session_id="beta")
 
-    assert cli.main([
-        "harness", "show", "--scope", "local", "--session-id", "alpha",
-    ]) == 0
+    assert (
+        cli.main(
+            [
+                "harness",
+                "show",
+                "--scope",
+                "local",
+                "--session-id",
+                "alpha",
+            ]
+        )
+        == 0
+    )
     output = capsys.readouterr().out
     assert "Alpha only" in output
     assert "Beta only" not in output
 
 
 # ---------------- history ----------------
+
 
 def test_history_empty_is_friendly_and_exits_zero(capsys):
     rc = cli.main(["harness", "history"])
@@ -97,6 +118,7 @@ def test_history_limit_flag_trims_output(capsys):
 
 # ---------------- rollback ----------------
 
+
 def test_rollback_restores_and_reports(capsys):
     event = _seed()
     assert "test_note" in harness.load()["entries"]["memory"]
@@ -118,6 +140,7 @@ def test_rollback_unknown_id_exits_one_without_traceback(capsys):
 
 # ---------------- export ----------------
 
+
 def test_export_writes_state_json(tmp_path, capsys):
     _seed()
     target = tmp_path / "out" / "harness.json"
@@ -137,25 +160,56 @@ def test_export_without_a_path_errors(capsys):
 
 # ---------------- refine ----------------
 
-def test_refine_is_honest_about_where_proposals_come_from(capsys):
+
+def test_refine_records_all_instruction_words_and_prints_identity(capsys):
     rc = cli.main(["harness", "refine", "be", "terser"])
     out = capsys.readouterr().out
+
     assert rc == 0
-    assert "morpheus" in out.lower()
+    artifact = harness.refine_requests("global")[0]
+    assert artifact["target"] == "be terser"
+    assert artifact["instructions"] == "be terser"
+    assert artifact["status"] == "recorded"
+    assert "request_digest" in artifact
+    assert "approved" not in out.lower()
+    assert str(artifact["id"]) in out
+    assert str(harness.refine_request_path(str(artifact["id"]))) in out
 
 
-def test_refine_accepts_the_global_flag(capsys):
+def test_refine_empty_target_fails_before_artifact(capsys):
     rc = cli.main(["harness", "refine", "--global"])
-    assert rc == 0
-    assert capsys.readouterr().out.strip()
+
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "target" in (captured.out + captured.err).lower()
+    assert not harness.refine_requests_dir("global").exists()
+
+
+def test_refine_rejects_oversized_target_before_artifact(capsys):
+    rc = cli.main(
+        [
+            "harness",
+            "refine",
+            "x" * (harness.REFINE_REQUEST_MAX_TEXT + 1),
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "at most" in (captured.out + captured.err).lower()
+    assert not harness.refine_requests_dir("global").exists()
 
 
 # ---------------- the argparse surface is real ----------------
 
+
 def test_harness_help_runs_as_a_real_subcommand():
     proc = subprocess.run(
         [sys.executable, "-m", "birkin", "harness", "--help"],
-        capture_output=True, text=True, timeout=120)
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     assert proc.returncode == 0, proc.stderr
     for action in ("show", "history", "rollback", "export", "refine"):
         assert action in proc.stdout
