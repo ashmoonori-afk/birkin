@@ -106,6 +106,12 @@ def test_facade_approval_uses_helper_unless_shell_runner_is_injected(
         approved_by="human:test",
         approved_via="test",
     ) == {"ok": True}
+    assert approvals.approve(
+        "0123456789ab",
+        on_event=lambda _event: None,
+        approved_by="human:test",
+        approved_via="test",
+    ) == {"ok": True}
     monkeypatch.setattr(approvals, "run_shell_command", lambda _request: None)
     assert approvals.approve(
         "0123456789ab",
@@ -113,7 +119,7 @@ def test_facade_approval_uses_helper_unless_shell_runner_is_injected(
         approved_via="test",
     ) == {"ok": True}
 
-    assert executors == [None, approvals.execute_action]
+    assert executors == [None, None, approvals.execute_action]
 
 
 def test_failed_auto_skill_proposal_is_audited_as_error():

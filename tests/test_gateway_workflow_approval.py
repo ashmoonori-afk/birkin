@@ -267,7 +267,7 @@ def test_workflow_button_acknowledges_then_resumes_same_chat(
     aid = workflow.queue_proposal(_proposal(), "원래 작업", "42")
     channel = TelegramChannel("token", allowed_chat_ids=["42"])
     calls: list[tuple[str, dict]] = []
-    resumed: list[tuple[str, str, int]] = []
+    resumed: list[tuple[str, str, int, str | None]] = []
     started = threading.Event()
     release = threading.Event()
     monkeypatch.setattr(
@@ -283,8 +283,9 @@ def test_workflow_button_acknowledges_then_resumes_same_chat(
         text,
         offset,
         workflow_id=None,
+        sender_id=None,
     ) -> None:
-        resumed.append((chat_id, text, offset))
+        resumed.append((chat_id, text, offset, sender_id))
         started.set()
         assert release.wait(timeout=2)
 
@@ -316,6 +317,7 @@ def test_workflow_button_acknowledges_then_resumes_same_chat(
     methods = [method for method, _params in calls]
     assert methods.index("answerCallbackQuery") < methods.index("editMessageText")
     assert resumed and resumed[0][0] == "42" and resumed[0][2] == 17
+    assert resumed[0][3] == "42"
     assert workflow.APPROVED_OPEN in resumed[0][1]
     resolved = store.get_pending(aid)
     assert resolved["approved_by"] == "human:telegram:42"

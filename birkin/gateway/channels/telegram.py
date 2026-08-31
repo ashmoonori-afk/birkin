@@ -523,6 +523,7 @@ class TelegramChannel(Channel):
         self,
         token: str,
         allowed_chat_ids: list[str] | None = None,
+        allowed_sender_ids: list[str] | None = None,
         stream: bool = True,
         max_public_workers: int = 4,
     ):
@@ -532,6 +533,7 @@ class TelegramChannel(Channel):
         # When non-empty, only these chat ids may drive the agent (access control
         # for a reachable bot). build_channels refuses an empty allowlist.
         self.allowed_chat_ids: set[str] = set(allowed_chat_ids or [])
+        self.allowed_sender_ids: set[str] = set(allowed_sender_ids or [])
         self.stream: bool = bool(stream)
         # Per-chat edit cooldown from 429 retry_after — edits during the
         # cooldown are skipped locally instead of hammering the API.
@@ -546,6 +548,18 @@ class TelegramChannel(Channel):
         )
         self._worker_lock: threading.Lock = threading.Lock()
         self._progress: dict[str, dict[str, object]] = {}
+
+    def _sender_authorized(
+        self, chat_id: str, sender_id: str, chat_type: str
+    ) -> bool:
+        """Authorize the Telegram principal before any message side effect."""
+        if not self.allowed_chat_ids:
+            return True
+        if chat_id not in self.allowed_chat_ids or not sender_id:
+            return False
+        if chat_type not in {"group", "supergroup"} and sender_id == chat_id:
+            return True
+        return sender_id in self.allowed_sender_ids
 
     def _start_public_worker(
         self,
@@ -1011,6 +1025,7 @@ class TelegramChannel(Channel):
         sender = _json_object(cq.get("from"))
         chat_id = str(chat.get("id", ""))
         from_id = str(sender.get("id", ""))
+        chat_type = str(chat.get("type", ""))
         if not self.allowed_chat_ids:
             # An OPEN bot must not allow one-tap approval of queued actions.
             self._answer_callback(cq_id, "approvals need allowed_chat_ids")
@@ -1019,7 +1034,7 @@ class TelegramChannel(Channel):
         # in an allowlisted group any member could otherwise approve. The
         # tapping user's id must itself be allowlisted (for a private chat
         # chat_id == user_id, so this is unchanged there).
-        if chat_id not in self.allowed_chat_ids or from_id not in self.allowed_chat_ids:
+        if not self._sender_authorized(chat_id, from_id, chat_type):
             self._answer_callback(cq_id, "unauthorized")
             return
         if ":" not in data:
@@ -1074,6 +1089,7 @@ class TelegramChannel(Channel):
                         resume_prompt,
                         offset,
                         aid,
+                        from_id,
                     ),
                 )
                 if worker is None:
@@ -1348,6 +1364,7 @@ class TelegramChannel(Channel):
         text: str,
         _offset: int,
         workflow_id: str | None = None,
+        sender_id: str | None = None,
     ) -> None:
         """One turn, run in its own thread so the poll loop stays responsive
         (and a follow-up message can interrupt this via gateway.interrupt)."""
@@ -1399,11 +1416,45 @@ class TelegramChannel(Channel):
                 )
                 _takes_progress = "on_progress" in _params or _takes_kwargs
                 _takes_workflow = "workflow_id" in _params or _takes_kwargs
+                _takes_sender = "sender_id" in _params or _takes_kwargs
             except (TypeError, ValueError):
                 _takes_progress = False
                 _takes_workflow = False
+                _takes_sender = False
             on_text = streamer.feed if streamer else None
-            if _takes_progress and _takes_workflow:
+            if _takes_progress and _takes_workflow and _takes_sender:
+                reply = gateway.handle(
+                    "telegram",
+                    chat_id,
+                    text,
+                    on_text=on_text,
+                    workflow_id=workflow_id,
+                    on_progress=progress.update,
+                    sender_id=sender_id,
+                )
+            elif _takes_progress and _takes_sender:
+                reply = gateway.handle(
+                    "telegram",
+                    chat_id,
+                    text,
+                    on_text=on_text,
+                    on_progress=progress.update,
+                    sender_id=sender_id,
+                )
+            elif _takes_workflow and _takes_sender:
+                reply = gateway.handle(
+                    "telegram",
+                    chat_id,
+                    text,
+                    on_text=on_text,
+                    workflow_id=workflow_id,
+                    sender_id=sender_id,
+                )
+            elif _takes_sender:
+                reply = gateway.handle(
+                    "telegram", chat_id, text, on_text=on_text, sender_id=sender_id
+                )
+            elif _takes_progress and _takes_workflow:
                 reply = gateway.handle(
                     "telegram",
                     chat_id,
@@ -1571,6 +1622,9 @@ class TelegramChannel(Channel):
                 msg = _json_object(upd.get("message"))
                 chat = _json_object(msg.get("chat"))
                 chat_id = str(chat.get("id", ""))
+                chat_type = str(chat.get("type", ""))
+                sender = _json_object(msg.get("from"))
+                sender_id = str(sender.get("id", ""))
                 raw_text = msg.get("text")
                 text = recover_inbound_text(
                     raw_text if isinstance(raw_text, str) else "",
@@ -1580,9 +1634,9 @@ class TelegramChannel(Channel):
                     continue
                 # Access control BEFORE any download — an unauthorized chat must
                 # not make us fetch its files.
-                if self.allowed_chat_ids and chat_id not in self.allowed_chat_ids:
+                if not self._sender_authorized(chat_id, sender_id, chat_type):
                     print(
-                        f"[telegram] ignoring message from unauthorized chat {chat_id}"
+                        f"[telegram] ignoring unauthorized sender in chat {chat_id}"
                     )
                     continue
                 if not text:
@@ -1611,7 +1665,9 @@ class TelegramChannel(Channel):
                 worker = self._start_public_worker(
                     self._workers,
                     chat_id,
-                    lambda: self._run_turn(gateway, chat_id, text, offset),
+                    lambda: self._run_turn(
+                        gateway, chat_id, text, offset, sender_id=sender_id
+                    ),
                 )
                 if worker is None:
                     _ = self._send_plain(chat_id, _BUSY_REPLY)

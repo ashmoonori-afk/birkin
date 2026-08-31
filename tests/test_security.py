@@ -148,8 +148,13 @@ def test_telegram_token_prefers_env(monkeypatch):
 
 def test_telegram_allowlist_stored():
     from birkin.gateway.channels.telegram import TelegramChannel
-    ch = TelegramChannel("tok", allowed_chat_ids=["111", "222"])
+    ch = TelegramChannel(
+        "tok",
+        allowed_chat_ids=["111", "222"],
+        allowed_sender_ids=["333", "444"],
+    )
     assert ch.allowed_chat_ids == {"111", "222"}
+    assert ch.allowed_sender_ids == {"333", "444"}
 
 
 def test_gateway_forces_workspace_over_full(tmp_path, monkeypatch):

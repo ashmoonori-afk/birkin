@@ -284,12 +284,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "channels": {
         "http": {"enabled": True},
         # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
-        # "allowed_chat_ids" gates who may drive the bot. Telegram is refused
-        # at startup when this list is empty.
+        # "allowed_chat_ids" gates which chats may drive trusted turns.
+        # "allowed_sender_ids" is additionally required for group members.
         # "stream": edit-stream partial replies into the chat as they arrive
         # (hermes-style perceived latency) instead of one final message.
         "telegram": {"enabled": False, "token": "", "allowed_chat_ids": [],
-                     "stream": True, "max_public_workers": 4},
+                     "allowed_sender_ids": [], "stream": True,
+                     "max_public_workers": 4},
         # Send-only incoming-webhook targets. They do not start listeners and
         # remain inert unless explicitly enabled with an HTTPS URL.
         "slack": {
@@ -852,7 +853,8 @@ def _prune(cfg: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
 
     A top-level-only diff still pinned the sub-keys of the one nested section
     that carries defaults: enabling Telegram wrote channels.http.enabled,
-    channels.telegram.allowed_chat_ids and channels.telegram.stream, none of
+    channels.telegram.allowed_chat_ids, channels.telegram.allowed_sender_ids,
+    and channels.telegram.stream, none of
     which the user chose. Same bug as the outer one, one level down.
     """
     out: dict[str, Any] = {}

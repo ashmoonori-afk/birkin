@@ -670,9 +670,13 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
             {"update_id": 1, "message": {
                 "chat": {"id": 99}, "text": "unauthorized"}},
             {"update_id": 2, "message": {
-                "chat": {"id": 42}, "text": "/pending"}},
+                "chat": {"id": 42, "type": "private"},
+                "from": {"id": 42},
+                "text": "/pending"}},
             {"update_id": 3, "message": {
-                "chat": {"id": 42}, "text": "hello"}},
+                "chat": {"id": 42, "type": "private"},
+                "from": {"id": 42},
+                "text": "hello"}},
         ]},
     ]
 
@@ -688,7 +692,7 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
         lambda _gateway, chat_id: pending.append(chat_id))
     monkeypatch.setattr(
         ch, "_run_turn",
-        lambda _gateway, chat_id, text, _offset:
+        lambda _gateway, chat_id, text, _offset, sender_id=None:
         turns.append((chat_id, text)))
     monkeypatch.setattr(telegram.threading, "Thread", _InlineThread)
 
@@ -700,3 +704,102 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
     assert dead.join_calls == 0
     assert pending == ["42"]
     assert turns == [("42", "hello")]
+
+
+def test_telegram_group_sender_is_authorized_before_dispatch_or_media(
+        tmp_path, monkeypatch):
+    from birkin import delivery
+    from birkin.gateway.channels import telegram
+
+    class _StopPolling(BaseException):
+        pass
+
+    class _Gateway:
+        pending_hard_restart = False
+
+        def __init__(self):
+            self.handled = []
+            self.interrupts = []
+
+        def take_restart_greeting(self, _channel):
+            return None
+
+        def command_menu(self):
+            return []
+
+        def _command_trusted(self, _channel):
+            return True
+
+        def interrupt(self, channel, chat_id):
+            self.interrupts.append((channel, chat_id))
+            return False
+
+        def handle(
+                self, channel, chat_id, text, on_text=None,
+                workflow_id=None, on_progress=None, sender_id=None):
+            self.handled.append((channel, chat_id, text, sender_id))
+            return "ok"
+
+        def do_hard_restart(self):
+            raise AssertionError("unexpected restart")
+
+    channel = telegram.TelegramChannel(
+        "tok",
+        allowed_chat_ids=["-100"],
+        allowed_sender_ids=["777"],
+        stream=False,
+    )
+    gateway = _Gateway()
+    batches = [[
+        {"update_id": 1, "message": {
+            "chat": {"id": -100, "type": "supergroup"},
+            "from": {"id": 666},
+            "text": "/models",
+        }},
+        {"update_id": 2, "message": {
+            "chat": {"id": -100, "type": "supergroup"},
+            "from": {"id": 666},
+            "photo": [{"file_id": "hostile", "file_size": 100}],
+        }},
+        {"update_id": 3, "message": {
+            "chat": {"id": -100, "type": "supergroup"},
+            "from": {"id": 777},
+            "text": "hello",
+        }},
+    ]]
+
+    def call(method, _params, timeout=60):
+        if method != "getUpdates":
+            return {"ok": True}
+        if batches:
+            return {"ok": True, "result": batches.pop(0)}
+        raise _StopPolling
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    monkeypatch.setattr(channel, "_call", call)
+    monkeypatch.setattr(
+        channel,
+        "_compose_media_text",
+        lambda _message: pytest.fail("unauthorized media was inspected"),
+    )
+    monkeypatch.setattr(channel, "_keep_typing", lambda *_args: None)
+    monkeypatch.setattr(
+        channel,
+        "_deliver_reply",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(delivery, "record", lambda *_args: "obligation")
+    monkeypatch.setattr(delivery, "clear", lambda _obligation: None)
+    monkeypatch.setattr(
+        channel,
+        "_start_public_worker",
+        lambda _registry, _key, target, args=(): target(*args) or object(),
+    )
+
+    with pytest.raises(_StopPolling):
+        channel.start(gateway)
+
+    assert gateway.interrupts == [("telegram", "-100")]
+    assert gateway.handled == [
+        ("telegram", "-100", "hello", "777"),
+    ]

@@ -109,6 +109,10 @@
               "type": "array",
               "items": {"type": ["string", "integer"]}
             },
+            "allowed_sender_ids": {
+              "type": "array",
+              "items": {"type": ["string", "integer"]}
+            },
             "stream": {"type": "boolean"}
           }
         }

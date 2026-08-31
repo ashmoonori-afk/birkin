@@ -85,6 +85,16 @@ def build_channels(cfg: Config) -> list[Channel]:
                 if isinstance(raw_allowed, list)
                 else []
             )
+            raw_allowed_senders = tg.get("allowed_sender_ids")
+            allowed_senders = (
+                [
+                    str(sender_id).strip()
+                    for sender_id in raw_allowed_senders
+                    if str(sender_id).strip()
+                ]
+                if isinstance(raw_allowed_senders, list)
+                else []
+            )
             if not allowed:
                 print(
                     "[gateway] Telegram is public and capability-stripped: "
@@ -102,6 +112,7 @@ def build_channels(cfg: Config) -> list[Channel]:
                     token,
                     cfg=polish_cfg,
                     allowed_chat_ids=allowed,
+                    allowed_sender_ids=allowed_senders,
                     stream=bool(tg.get("stream", True)),
                     max_public_workers=_config_int(tg.get("max_public_workers", 4), 4),
                 )

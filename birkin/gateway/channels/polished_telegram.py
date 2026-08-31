@@ -109,12 +109,14 @@ class PolishedTelegramChannel(TelegramChannel):
         token: str,
         cfg: PolishConfig,
         allowed_chat_ids: list[str] | None = None,
+        allowed_sender_ids: list[str] | None = None,
         stream: bool = True,
         max_public_workers: int = 4,
     ) -> None:
         super().__init__(
             token,
             allowed_chat_ids=allowed_chat_ids,
+            allowed_sender_ids=allowed_sender_ids,
             stream=stream,
             max_public_workers=max_public_workers,
         )
@@ -128,9 +130,16 @@ class PolishedTelegramChannel(TelegramChannel):
         text: str,
         offset: int,
         workflow_id: str | None = None,
+        sender_id: str | None = None,
     ) -> None:
         if workflow_id is None:
-            super()._run_turn(gateway, chat_id, text, offset)
+            super()._run_turn(
+                gateway,
+                chat_id,
+                text,
+                offset,
+                sender_id=sender_id,
+            )
             return
         super()._run_turn(
             _PolishingGateway(gateway, self._polish_cfg),
@@ -138,4 +147,5 @@ class PolishedTelegramChannel(TelegramChannel):
             text,
             offset,
             workflow_id,
+            sender_id,
         )

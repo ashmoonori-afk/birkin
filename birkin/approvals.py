@@ -220,7 +220,6 @@ def approve(
         execute_action
         if execute_action is not _DEFAULT_EXECUTE_ACTION
         or run_shell_command is not _DEFAULT_RUN_SHELL_COMMAND
-        or on_event is not None
         else None
     )
     return approval_execution.approve(

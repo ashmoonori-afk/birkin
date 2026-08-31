@@ -254,6 +254,7 @@ def test_build_channels_allows_capability_stripped_open_telegram():
                 "enabled": True,
                 "token": "test-token",
                 "allowed_chat_ids": [],
+                "allowed_sender_ids": [123, "456"],
                 "stream": True,
             },
         },
@@ -262,3 +263,4 @@ def test_build_channels_allows_capability_stripped_open_telegram():
     channels = build_channels(cfg)
 
     assert [channel.name for channel in channels] == ["telegram"]
+    assert channels[0].allowed_sender_ids == {"123", "456"}

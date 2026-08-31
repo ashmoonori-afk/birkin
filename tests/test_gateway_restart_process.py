@@ -97,7 +97,8 @@ def test_telegram_hard_restart_does_not_start_second_get_updates(
                         {
                             "update_id": 1,
                             "message": {
-                                "chat": {"id": "42"},
+                                "chat": {"id": "42", "type": "private"},
+                                "from": {"id": "42"},
                                 "text": "/hard-restart",
                             },
                         }

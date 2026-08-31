@@ -174,6 +174,28 @@ def test_integer_telegram_chat_ids_survive_a_save_round_trip(
     assert on_disk["channels"]["telegram"]["allowed_chat_ids"] == chat_ids
 
 
+def test_integer_telegram_sender_ids_survive_a_save_round_trip(
+    tmp_path, monkeypatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    sender_ids = [1170346056, "1170346057"]
+    config.config_path().write_text(
+        json.dumps({
+            "channels": {
+                "telegram": {"allowed_sender_ids": sender_ids},
+            },
+        }),
+        encoding="utf-8",
+    )
+
+    loaded = config.load_config()
+
+    assert loaded["channels"]["telegram"]["allowed_sender_ids"] == sender_ids
+    config.save_config(loaded)
+    on_disk = json.loads(config.config_path().read_text(encoding="utf-8"))
+    assert on_disk["channels"]["telegram"]["allowed_sender_ids"] == sender_ids
+
+
 def test_cli_access_none_falls_back_to_safe_workspace(
     tmp_path, monkeypatch,
 ) -> None:

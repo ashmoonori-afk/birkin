@@ -116,13 +116,14 @@ Schema version: 1
 | `profile.background_review.digest_recent_turns` | `integer` | `6` | Birkin 설정 `profile.background_review.digest_recent_turns`. |
 | `neurosis_threshold` | `any` | `null` | Birkin 설정 `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin 설정 `neurosis_auto`. |
-| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true, "max_public_workers": 4}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin 설정 `channels`. |
+| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "allowed_sender_ids": [], "stream": true, "max_public_workers": 4}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin 설정 `channels`. |
 | `channels.http` | `object` | `{"enabled": true}` | Birkin 설정 `channels.http`. |
 | `channels.http.enabled` | `boolean` | `true` | Birkin 설정 `channels.http.enabled`. |
-| `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true, "max_public_workers": 4}` | Birkin 설정 `channels.telegram`. |
+| `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "allowed_sender_ids": [], "stream": true, "max_public_workers": 4}` | Birkin 설정 `channels.telegram`. |
 | `channels.telegram.enabled` | `boolean` | `false` | Birkin 설정 `channels.telegram.enabled`. |
 | `channels.telegram.token` | `string` | `""` | Birkin 설정 `channels.telegram.token`. |
 | `channels.telegram.allowed_chat_ids` | `array` | `[]` | Birkin 설정 `channels.telegram.allowed_chat_ids`. |
+| `channels.telegram.allowed_sender_ids` | `array` | `[]` | Birkin 설정 `channels.telegram.allowed_sender_ids`. |
 | `channels.telegram.stream` | `boolean` | `true` | Birkin 설정 `channels.telegram.stream`. |
 | `channels.telegram.max_public_workers` | `integer` | `4` | Birkin 설정 `channels.telegram.max_public_workers`. |
 | `channels.slack` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin 설정 `channels.slack`. |

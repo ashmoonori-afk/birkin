@@ -242,7 +242,9 @@ def test_double_workflow_tap_starts_only_one_worker(tmp_path, monkeypatch) -> No
         _text,
         _offset,
         workflow_id=None,
+        sender_id=None,
     ) -> None:
+        assert sender_id == "42"
         resumed.append(str(workflow_id))
         started.set()
         assert release.wait(timeout=2)
