@@ -167,13 +167,14 @@ def spawn_terminal(
     return child, url, int(port_match.group(1))
 
 
-def stop_terminal(child: PexpectSpawn[str] | ConptySpawn) -> None:
+def stop_terminal(child: PexpectSpawn[str] | ConptySpawn) -> int:
     send_terminal(child, "/quit")
     _ = child.expect_exact("bye.")
     _ = child.expect(pexpect.EOF)
     _ = child.close()
     if child.exitstatus != 0:
         raise AssertionError(f"terminal fixture exited {child.exitstatus}")
+    return child.exitstatus
 
 
 def png_dimensions(path: Path) -> tuple[int, int]:

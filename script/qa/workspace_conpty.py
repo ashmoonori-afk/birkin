@@ -161,11 +161,14 @@ class ConptySpawn:
         timeout: float | None = None,
     ) -> int:
         """Consume through a regular expression or the terminal EOF marker."""
-        if pattern is pexpect.EOF:
-            self._wait_for_eof(timeout)
-            return 0
-        assert isinstance(pattern, str)
-        return self._expect(pattern, exact=False, timeout=timeout)
+        match pattern:
+            case str() as expression:
+                return self._expect(expression, exact=False, timeout=timeout)
+            case eof if eof is pexpect.EOF:
+                self._wait_for_eof(timeout)
+                return 0
+            case unreachable:
+                assert_never(unreachable)
 
     def close(self, force: bool = False) -> None:
         """Close the exact ConPTY process and await reader termination."""
@@ -193,12 +196,15 @@ class ConptySpawn:
 
     def _read_chunks(self) -> None:
         decoder = codecs.getincrementaldecoder(self._encoding)(errors="strict")
+        control_tail = ""
         try:
             while True:
                 raw = self._process.read(4096).encode(self._encoding)
                 text = decoder.decode(raw)
-                if "\x1b[c" in text:
+                controls = control_tail + text
+                if "\x1b[c" in controls:
                     _ = self._process.write("\x1b[?1;2c")
+                control_tail = controls[-2:]
                 if text:
                     self._events.put(_Chunk(text))
         except EOFError:
