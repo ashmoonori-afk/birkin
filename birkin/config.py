@@ -15,7 +15,6 @@ import copy
 import json
 import os
 import stat
-import uuid
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
@@ -915,32 +914,14 @@ def set_config(key: str, value: Any) -> ConfigSetResult:
 
 
 def save_config(cfg: dict[str, Any]) -> Path:
-    # config.json may hold an API key, so write atomically (mirrors
-    # store._write_json): write a temp sibling, restrict it before it is
-    # briefly visible, then os.replace() for an atomic swap. A crash mid-write
-    # then cannot truncate the live config.
-    cfg = _overrides_only(cfg)
+    """Persist user overrides through the owner-only storage authority."""
+    from . import private_storage
+
     path = config_path()
-    tmp = path.with_suffix(
-        path.suffix + f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    private_storage.atomic_write_private_text(
+        path,
+        json.dumps(_overrides_only(cfg), indent=2, ensure_ascii=False),
     )
-    try:
-        fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(cfg, indent=2, ensure_ascii=False))
-        os.replace(tmp, path)
-    except OSError:
-        try:  # don't leave a partial .tmp behind on a failed write
-            tmp.unlink()
-        except OSError:
-            pass
-        raise
-    # config.json may hold an API key. The owner-only mode is enforced on POSIX;
-    # Windows relies on the directory's inherited ACL.
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
     return path
 
 

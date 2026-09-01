@@ -133,7 +133,7 @@ def run() -> int:
             print(
                 f"  {DIM}권장: `{command}`로 현재 shell에 설정하세요. "
                 + "여기에 입력하면 config.json에 plaintext로 저장됩니다 "
-                + f"(chmod 600).{RESET}",
+                + f"(소유자 전용 권한).{RESET}",
             )
             key = _ask("API key (비워두면 건너뜀)", "")
             if key:
