@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.331"
+version = "0.4.332"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -102,6 +102,7 @@ dev = [
     "build>=1.2",
     "ruff>=0.12",
     "pexpect>=4.9,<5",
+    "pywinpty>=2.0.14; sys_platform == 'win32'",
 ]
 
 [project.scripts]
