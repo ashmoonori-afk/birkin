@@ -9,35 +9,18 @@ namespace Birkin.Native.App.Tests.Startup;
 [TestClass]
 public sealed class FirstRunWindowTests
 {
+    private static readonly TimeSpan SurfaceTimeout = TimeSpan.FromSeconds(20);
+
     [TestMethod]
     [TestCategory("WindowsOnly")]
     public void Startup_WhenPathCannotResolveBirkin_ShowsGuidanceAndRetries()
     {
-        var executable = Path.ChangeExtension(
-            typeof(App).Assembly.Location,
-            ".exe");
-        Assert.IsTrue(
-            File.Exists(executable),
-            $"The WPF application executable was not found at {executable}.");
+        var startInfo = FirstRunStartInfo();
 
-        var startInfo = new ProcessStartInfo(executable)
-        {
-            UseShellExecute = false,
-        };
-        startInfo.Environment["PATH"] = Path.Combine(
-            Path.GetTempPath(),
-            $"birkin-empty-{Guid.NewGuid():N}");
-        startInfo.Environment[ExecutablePathSettings.EnvironmentVariableName] =
-            "birkin";
-
-        using var process = Process.Start(startInfo)
-            ?? throw new InvalidOperationException(
-                "The WPF application process could not be started.");
+        using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("The WPF application process could not be started.");
         try
         {
-            Assert.IsTrue(
-                process.WaitForInputIdle(milliseconds: 10_000),
-                "The WPF dispatcher did not become ready.");
+            var window = WaitForWindow(process);
             process.Refresh();
             Assert.AreNotEqual(
                 IntPtr.Zero,
@@ -47,9 +30,7 @@ public sealed class FirstRunWindowTests
                 "Birkin for Windows - Development Preview",
                 process.MainWindowTitle);
 
-            var window = AutomationElement.FromHandle(
-                process.MainWindowHandle);
-            var title = FindByAutomationId(
+            var title = WaitForAutomationId(
                 window,
                 "startup.failure.title");
             Assert.AreEqual(
@@ -112,14 +93,165 @@ public sealed class FirstRunWindowTests
         }
         finally
         {
-            if (!process.HasExited)
-            {
-                process.Kill(entireProcessTree: true);
-                Assert.IsTrue(
-                    process.WaitForExit(milliseconds: 5_000),
-                    "The WPF application did not exit after test cleanup.");
-            }
+            KillProcessTree(process);
         }
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsOnly")]
+    public void Startup_WhenBridgeAnnouncementArgumentIsInvalid_RecoversInWindow()
+    {
+        var startInfo = FirstRunStartInfo();
+        startInfo.ArgumentList.Add("--bridge-announcement-file");
+        startInfo.ArgumentList.Add(Path.Combine(
+            Path.GetTempPath(),
+            $"birkin-absent-announcement-{Guid.NewGuid():N}.json"));
+
+        using var process = Process.Start(startInfo)
+            ?? throw new InvalidOperationException("The WPF application process could not be started.");
+        try
+        {
+            var window = WaitForWindow(process);
+            process.Refresh();
+            Assert.AreNotEqual(
+                IntPtr.Zero,
+                process.MainWindowHandle,
+                "An invalid argument prevented the main window from being shown.");
+
+            var code = WaitForAutomationId(
+                window,
+                "startup.failure.code");
+            Assert.AreEqual(
+                "E_CLI_STARTUP",
+                code.Current.Name);
+            Assert.IsFalse(
+                FindByAutomationId(
+                    window,
+                    "startup.failure.retry").Current.IsEnabled,
+                "An invalid argument is not recoverable by retrying startup.");
+            process.Refresh();
+            Assert.IsFalse(
+                process.HasExited,
+                "An invalid argument terminated the application instead of presenting "
+                + "the in-window recovery surface.");
+        }
+        finally
+        {
+            KillProcessTree(process);
+        }
+    }
+
+    private static ProcessStartInfo FirstRunStartInfo()
+    {
+        var executable = Path.ChangeExtension(typeof(App).Assembly.Location, ".exe");
+        Assert.IsTrue(File.Exists(executable), $"The WPF application executable was not found at {executable}.");
+
+        var startInfo = new ProcessStartInfo(executable)
+        {
+            UseShellExecute = false,
+        };
+        startInfo.Environment["PATH"] = Path.Combine(Path.GetTempPath(), $"birkin-empty-{Guid.NewGuid():N}");
+        startInfo.Environment[ExecutablePathSettings.EnvironmentVariableName] = "birkin";
+        return startInfo;
+    }
+
+    private static void KillProcessTree(Process process)
+    {
+        if (process.HasExited)
+        {
+            return;
+        }
+        process.Kill(entireProcessTree: true);
+        Assert.IsTrue(
+            process.WaitForExit(milliseconds: 5_000),
+            "The WPF application did not exit after test cleanup.");
+    }
+
+    private static AutomationElement WaitForWindow(Process process)
+    {
+        var condition = new AndCondition(
+            new PropertyCondition(
+                AutomationElement.ProcessIdProperty,
+                process.Id),
+            new PropertyCondition(
+                AutomationElement.ClassNameProperty,
+                "Window"));
+        using var opened = new ManualResetEventSlim();
+        AutomationEventHandler handler = (sender, _) =>
+        {
+            if (sender is AutomationElement openedWindow
+                && openedWindow.Current.ProcessId == process.Id
+                && openedWindow.Current.ClassName == "Window")
+            {
+                opened.Set();
+            }
+        };
+        Automation.AddAutomationEventHandler(
+            WindowPattern.WindowOpenedEvent,
+            AutomationElement.RootElement,
+            TreeScope.Children,
+            handler);
+        try
+        {
+            return WaitForElement(
+                () => AutomationElement.RootElement.FindFirst(
+                    TreeScope.Children,
+                    condition),
+                opened,
+                "The application did not open a window.");
+        }
+        finally
+        {
+            Automation.RemoveAutomationEventHandler(WindowPattern.WindowOpenedEvent, AutomationElement.RootElement, handler);
+        }
+    }
+
+    private static AutomationElement WaitForAutomationId(
+        AutomationElement window,
+        string automationId)
+    {
+        using var changed = new ManualResetEventSlim();
+        Func<AutomationElement?> find = () => window.FindFirst(
+            TreeScope.Descendants,
+            new PropertyCondition(
+                AutomationElement.AutomationIdProperty,
+                automationId));
+        StructureChangedEventHandler handler = (_, _) =>
+        {
+            if (find() is not null)
+            {
+                changed.Set();
+            }
+        };
+        Automation.AddStructureChangedEventHandler(
+            window, TreeScope.Subtree, handler);
+        try
+        {
+            return WaitForElement(
+                find,
+                changed,
+                $"Missing automation element: {automationId}");
+        }
+        finally
+        {
+            Automation.RemoveStructureChangedEventHandler(window, handler);
+        }
+    }
+
+    private static AutomationElement WaitForElement(
+        Func<AutomationElement?> find,
+        ManualResetEventSlim signal,
+        string absenceMessage)
+    {
+        if (find() is { } existingElement)
+        {
+            return existingElement;
+        }
+        if (!signal.Wait(SurfaceTimeout))
+        {
+            throw new AssertFailedException(absenceMessage);
+        }
+        return find() ?? throw new AssertFailedException(absenceMessage);
     }
 
     private static AutomationElement FindByAutomationId(

@@ -2,9 +2,10 @@
 
 Birkin for Windows is a WPF development preview that connects to the local
 `birkin native-bridge` process. The window opens before the bridge connection
-finishes. If the CLI is missing, exits repeatedly, fails its handshake, or does
-not announce an endpoint within 15 seconds, the app keeps running and shows a
-reason, recovery instructions, an executable-path field, and a retry action.
+finishes. If startup arguments are invalid, the CLI is missing, exits
+repeatedly, fails its handshake, or does not announce an endpoint within 15
+seconds, the app keeps running and shows a reason and recovery instructions.
+Recoverable CLI failures also show an executable-path field and retry actions.
 
 ## Requirements
 
@@ -83,7 +84,7 @@ $env:BIRKIN_EXECUTABLE = "C:\path\to\Python\Scripts\birkin.exe"
 | --- | --- | --- |
 | `E_CLI_LAUNCH` | Windows could not start the configured Birkin executable. | Install Birkin, fix `PATH`, or configure the full executable path, then retry. |
 | `E_CLI_TIMEOUT` | The CLI did not announce a bridge endpoint within 15 seconds. | Check the executable and retry. |
-| `E_CLI_STARTUP` | The CLI started but its bridge announcement or handshake failed. | Run the native bridge command in a terminal, inspect the error, then retry. |
+| `E_CLI_STARTUP` | Startup arguments were invalid, or the CLI bridge announcement or handshake failed. | Correct the launch configuration, or inspect the native bridge command in a terminal. |
 | `E_CLI_CRASH_LOOP` | The CLI exited five times within one minute. | Resolve the CLI failure before retrying. |
 
 The failure card never renders raw exception messages, process IDs, or private
@@ -100,7 +101,9 @@ The Windows suite includes these user-facing proofs:
 
 - `FirstRunWindowTests` starts the real WPF executable with an isolated `PATH`,
   confirms the Korean missing-CLI guidance, invokes **다시 시도**, and verifies
-  that the recoverable failure state returns.
+  that the recoverable failure state returns. It also verifies that invalid
+  bridge-announcement arguments stay in the main window as a non-retryable
+  `E_CLI_STARTUP` failure instead of opening a modal dialog.
 - `StartupFailureViewTests` renders the complete recovery card and verifies the
   executable-path and retry actions.
 - `WorkspaceSnapshotViewTests` drives every connection state and verifies that
