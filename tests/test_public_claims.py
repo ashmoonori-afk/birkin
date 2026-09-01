@@ -12,19 +12,14 @@ from __future__ import annotations
 
 import re
 import subprocess
-import sys
 from dataclasses import dataclass
 from datetime import date
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Final
+from typing import ClassVar, Final
 
 import pytest
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # Python 3.10
-    import tomli as tomllib
+import tomli
+from pydantic import BaseModel, ConfigDict
 
 _ROOT = Path(__file__).resolve().parent.parent
 _READMES = ("README.md", "README.ko.md")
@@ -43,26 +38,37 @@ class _ClaimTruth:
     skills: int
 
 
-def _mapping(value: object, path: str) -> Mapping[str, object]:
-    if not isinstance(value, Mapping):
-        raise AssertionError(f"invalid TOML mapping at {path}")
-    result: dict[str, object] = {}
-    for key, item in value.items():
-        if not isinstance(key, str):
-            raise AssertionError(f"invalid TOML key at {path}")
-        result[key] = item
-    return result
+class _FrozenModel(BaseModel):
+    model_config: ClassVar[ConfigDict] = ConfigDict(frozen=True)
 
 
-def _strings(value: object, path: str) -> list[str]:
-    if not isinstance(value, list):
-        raise AssertionError(f"invalid TOML string list at {path}")
-    result: list[str] = []
-    for item in value:
-        if not isinstance(item, str):
-            raise AssertionError(f"invalid TOML string list at {path}")
-        result.append(item)
-    return result
+class _ProjectConfig(_FrozenModel):
+    dependencies: tuple[str, ...]
+
+
+class _WheelConfig(_FrozenModel):
+    packages: tuple[str, ...]
+
+
+class _TargetsConfig(_FrozenModel):
+    wheel: _WheelConfig
+
+
+class _BuildConfig(_FrozenModel):
+    targets: _TargetsConfig
+
+
+class _HatchConfig(_FrozenModel):
+    build: _BuildConfig
+
+
+class _ToolConfig(_FrozenModel):
+    hatch: _HatchConfig
+
+
+class _Manifest(_FrozenModel):
+    project: _ProjectConfig
+    tool: _ToolConfig
 
 
 def _normalize(name: str) -> str:
@@ -70,18 +76,12 @@ def _normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name.strip()).lower()
 
 
-def _pyproject() -> tuple[list[str], list[str]]:
+def _pyproject() -> tuple[tuple[str, ...], tuple[str, ...]]:
     with (_ROOT / "pyproject.toml").open("rb") as handle:
-        manifest = _mapping(tomllib.load(handle), "root")
-    project = _mapping(manifest.get("project"), "project")
-    tool = _mapping(manifest.get("tool"), "tool")
-    hatch = _mapping(tool.get("hatch"), "tool.hatch")
-    build = _mapping(hatch.get("build"), "tool.hatch.build")
-    targets = _mapping(build.get("targets"), "tool.hatch.build.targets")
-    wheel = _mapping(targets.get("wheel"), "tool.hatch.build.targets.wheel")
+        manifest = _Manifest.model_validate(tomli.load(handle))
     return (
-        _strings(project.get("dependencies"), "project.dependencies"),
-        _strings(wheel.get("packages"), "tool.hatch.build.targets.wheel.packages"),
+        manifest.project.dependencies,
+        manifest.tool.hatch.build.targets.wheel.packages,
     )
 
 
@@ -114,7 +114,10 @@ def _claims_paragraph(text: str) -> str:
     paragraphs = [
         block
         for block in re.split(r"\n\s*\n", text)
-        if "`" in block and any(_COUNT.fullmatch(bold) for bold in _BOLD.findall(block))
+        if "`" in block
+        and any(
+            _COUNT.fullmatch(match.group(1)) for match in _BOLD.finditer(block)
+        )
     ]
     assert len(paragraphs) == 1, (
         f"expected exactly 1 claims paragraph, found {len(paragraphs)}"
@@ -124,9 +127,9 @@ def _claims_paragraph(text: str) -> str:
 
 def _claimed_skill_count(paragraph: str) -> int:
     counts = [
-        int(match.group(1))
-        for bold in _BOLD.findall(paragraph)
-        if (match := _COUNT.fullmatch(bold))
+        int(count.group(1))
+        for bold in _BOLD.finditer(paragraph)
+        if (count := _COUNT.fullmatch(bold.group(1)))
     ]
     assert len(counts) == 1, f"expected exactly 1 bold count claim, found {len(counts)}"
     return counts[0]
@@ -135,7 +138,7 @@ def _claimed_skill_count(paragraph: str) -> int:
 def _claim_gaps(paragraph: str, truth: _ClaimTruth) -> list[str]:
     """ASCII descriptions of every machine value the paragraph gets wrong."""
     claimed = frozenset(
-        _normalize(token) for token in _BACKTICKED.findall(paragraph)
+        _normalize(match.group(1)) for match in _BACKTICKED.finditer(paragraph)
     ) - truth.bundled
     gaps = [f"missing dependency claim: {name}" for name in sorted(truth.dependencies - claimed)]
     gaps += [
