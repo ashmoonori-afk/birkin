@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO, cast, final
+from typing import cast, final
 
 from playwright.sync_api import Page, Response
 
@@ -129,7 +130,7 @@ def write_handoff_report(
     *,
     evidence: Path,
     profile: Path,
-    terminal_log: TextIO,
+    terminal_log: io.StringIO,
     terminal_pids: list[int | None],
     ports: list[int],
     snapshot: dict[str, object],
