@@ -6,14 +6,13 @@ import io
 from dataclasses import dataclass
 from pathlib import Path
 
-import pexpect
-
 from script.qa.workspace_handoff_support import (
     resize_terminal,
     send_terminal,
     spawn_terminal,
     stop_terminal,
 )
+from script.qa.workspace_terminal_protocol import TerminalProcess
 
 PROMPT_READY = "\x1b[>1u"
 
@@ -31,20 +30,29 @@ class ChildExit:
 
 
 @dataclass(frozen=True, slots=True)
+class TerminalObservations:
+    approval: bool
+    unicode_paste: bool
+    interrupt: bool
+    reconnect: bool
+
+
+@dataclass(frozen=True, slots=True)
 class TerminalScenario:
     transcript: str
     captures: tuple[TerminalCapture, ...]
     children: tuple[ChildExit, ...]
+    observations: TerminalObservations
     first_port: int
     reconnect_port: int
 
 
-def _prompt(child: pexpect.spawn[str]) -> None:
+def _prompt(child: TerminalProcess) -> None:
     _ = child.expect_exact(PROMPT_READY)
 
 
 def _capture(
-    child: pexpect.spawn[str],
+    child: TerminalProcess,
     complete: io.StringIO,
     *,
     rows: int,
@@ -54,7 +62,7 @@ def _capture(
 ) -> TerminalCapture:
     resize_terminal(child, rows, columns)
     output = io.StringIO()
-    child.logfile_read = output
+    child.set_logfile_read(output)
     send_terminal(child, action)
     _ = child.expect_exact(sentinel)
     _prompt(child)
@@ -116,7 +124,7 @@ def run_terminal_scenario(profile: Path) -> TerminalScenario:
 
         resize_terminal(child, 30, 100)
         output_100 = io.StringIO()
-        child.logfile_read = output_100
+        child.set_logfile_read(output_100)
         send_terminal(child, "interrupt")
         _ = child.expect_exact("interrupt-ready")
         _ = child.send("\x1b")
@@ -154,6 +162,12 @@ def run_terminal_scenario(profile: Path) -> TerminalScenario:
         children=(
             ChildExit(pid=first_pid, exit_code=first_exit),
             ChildExit(pid=reconnect_pid, exit_code=reconnect_exit),
+        ),
+        observations=TerminalObservations(
+            approval=True,
+            unicode_paste=True,
+            interrupt=True,
+            reconnect=True,
         ),
         first_port=first_port,
         reconnect_port=reconnect_port,

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import argparse
 import shutil
+import sys
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import pexpect
@@ -21,11 +23,17 @@ ROOT = Path(__file__).resolve().parents[2]
 EVIDENCE = ROOT / ".omo" / "evidence" / "terminal-workspace"
 
 
-def _evidence_argument() -> Path:
-    parser = argparse.ArgumentParser()
-    _ = parser.add_argument("--evidence-dir", type=Path, default=EVIDENCE)
-    namespace = parser.parse_args()
-    return Path(namespace.evidence_dir).resolve()
+def _evidence_argument(argv: Sequence[str] | None = None) -> Path:
+    arguments = tuple(sys.argv[1:] if argv is None else argv)
+    match arguments:
+        case ():
+            return EVIDENCE.resolve()
+        case ("--evidence-dir", raw):
+            return Path(raw).resolve()
+        case _:
+            parser = argparse.ArgumentParser()
+            _ = parser.add_argument("--evidence-dir", type=Path, default=EVIDENCE)
+            parser.error("expected --evidence-dir PATH")
 
 
 def main() -> int:

@@ -1,63 +1,28 @@
-"""Typed artifact and cleanup contract for portable terminal QA."""
+"""Artifact emission and cleanup contract for portable terminal QA."""
 
 from __future__ import annotations
 
-import hashlib
 import html
 import json
 import re
 import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
 from pathlib import Path
-from typing import Final, override
 
-from pydantic import BaseModel, ConfigDict
-
+from script.qa.workspace_terminal_manifest import (
+    ArtifactKind,
+    ArtifactRecord,
+    ChildRecord,
+    CleanupRecord,
+    EvidenceError,
+    EvidenceManifest,
+    WIDTHS,
+    artifact_record,
+    register_browser_screenshot,
+    verify_evidence,
+)
 from script.qa.workspace_terminal_pty import TerminalScenario
-
-WIDTHS: Final = (60, 80, 100, 120, 160)
-
-
-class ArtifactKind(StrEnum):
-    REAL_PTY = "real_pty"
-    SEMANTIC_SVG = "semantic_svg"
-    BROWSER_SCREENSHOT = "browser_screenshot"
-
-
-class ArtifactRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    path: str
-    kind: ArtifactKind
-    sha256: str
-    bytes: int
-
-
-class ChildRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    pid: int
-    exit_code: int | None
-    exited: bool
-
-
-class CleanupRecord(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    children: tuple[ChildRecord, ...]
-    profile_removed: bool
-    reason: str | None
-
-
-class EvidenceManifest(BaseModel):
-    model_config = ConfigDict(frozen=True)
-
-    status: str
-    reason: str | None
-    artifacts: tuple[ArtifactRecord, ...]
-    cleanup: CleanupRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,28 +37,6 @@ class EvidenceResult:
     ok: bool
     reason: str | None
     exit_code: int
-
-
-@dataclass(frozen=True, slots=True)
-class EvidenceError(Exception):
-    reason: str
-
-    @override
-    def __str__(self) -> str:
-        return self.reason
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _artifact(path: Path, kind: ArtifactKind) -> ArtifactRecord:
-    return ArtifactRecord(
-        path=path.name,
-        kind=kind,
-        sha256=_sha256(path),
-        bytes=path.stat().st_size,
-    )
 
 
 def _write_terminal_svg(path: Path, raw: str, columns: int) -> None:
@@ -137,6 +80,14 @@ def emit_terminal_evidence(
 ) -> EvidenceResult:
     """Write all scenario evidence, perform cleanup, and retain failures."""
     inputs.evidence.mkdir(parents=True, exist_ok=True)
+    for name in (
+        "manifest.json",
+        "terminal-pty.raw.txt",
+        "terminal-pty.json",
+        "terminal.png",
+        *(f"terminal-{width}.svg" for width in WIDTHS),
+    ):
+        (inputs.evidence / name).unlink(missing_ok=True)
     transcript = inputs.evidence / "terminal-pty.raw.txt"
     _ = transcript.write_text(inputs.scenario.transcript, encoding="utf-8")
     captures = {capture.width: capture.raw for capture in inputs.scenario.captures}
@@ -152,10 +103,10 @@ def emit_terminal_evidence(
             {"pid": child.pid, "exit_code": child.exit_code}
             for child in inputs.scenario.children
         ],
-        "approval": "Approval required" in inputs.scenario.transcript,
-        "unicode_paste": "붙여넣기-" in inputs.scenario.transcript,
-        "interrupt": "Interrupted safely" in inputs.scenario.transcript,
-        "reconnect": "--- RECONNECT ---" in inputs.scenario.transcript,
+        "approval": inputs.scenario.observations.approval,
+        "unicode_paste": inputs.scenario.observations.unicode_paste,
+        "interrupt": inputs.scenario.observations.interrupt,
+        "reconnect": inputs.scenario.observations.reconnect,
     }
     metadata_path = inputs.evidence / "terminal-pty.json"
     _ = metadata_path.write_text(
@@ -196,7 +147,7 @@ def emit_terminal_evidence(
         if (inputs.evidence / f"terminal-{width}.svg").is_file()
     )
     artifacts = tuple(
-        _artifact(
+        artifact_record(
             path,
             ArtifactKind.SEMANTIC_SVG if path.suffix == ".svg" else ArtifactKind.REAL_PTY,
         )
@@ -223,41 +174,14 @@ def emit_terminal_evidence(
     )
 
 
-def register_browser_screenshot(evidence: Path, screenshot: Path) -> None:
-    """Add one browser-rendered PNG to an existing verified manifest."""
-    if screenshot.read_bytes()[:8] != b"\x89PNG\r\n\x1a\n":
-        raise EvidenceError("browser screenshot is not a PNG")
-    manifest_path = evidence / "manifest.json"
-    manifest = EvidenceManifest.model_validate_json(manifest_path.read_text(encoding="utf-8"))
-    screenshot_record = _artifact(screenshot, ArtifactKind.BROWSER_SCREENSHOT)
-    updated = manifest.model_copy(
-        update={"artifacts": (*manifest.artifacts, screenshot_record)}
-    )
-    _ = manifest_path.write_text(updated.model_dump_json(indent=2) + "\n", encoding="utf-8")
-
-
-def verify_evidence(evidence: Path, *, require_browser: bool = False) -> None:
-    """Reject the first absent, empty, kind-invalid, or digest-invalid artifact."""
-    manifest = EvidenceManifest.model_validate_json(
-        (evidence / "manifest.json").read_text(encoding="utf-8")
-    )
-    if manifest.status != "PASS":
-        raise EvidenceError(manifest.reason or "terminal evidence failed")
-    if not manifest.cleanup.profile_removed:
-        raise EvidenceError(manifest.cleanup.reason or "profile cleanup failed")
-    if any(not child.exited for child in manifest.cleanup.children):
-        raise EvidenceError("live child remains")
-    if require_browser and not any(
-        artifact.kind is ArtifactKind.BROWSER_SCREENSHOT for artifact in manifest.artifacts
-    ):
-        raise EvidenceError("missing artifact: terminal.png")
-    for artifact in manifest.artifacts:
-        path = evidence / artifact.path
-        if not path.exists():
-            raise EvidenceError(f"missing artifact: {artifact.path}")
-        if path.stat().st_size == 0:
-            raise EvidenceError(f"empty artifact: {artifact.path}")
-        if _sha256(path) != artifact.sha256:
-            raise EvidenceError(f"digest mismatch: {artifact.path}")
-        if path.suffix == ".svg" and artifact.kind is not ArtifactKind.SEMANTIC_SVG:
-            raise EvidenceError(f"kind mismatch: {artifact.path}")
+__all__ = [
+    "ArtifactKind",
+    "ArtifactRecord",
+    "EvidenceError",
+    "EvidenceInputs",
+    "EvidenceManifest",
+    "EvidenceResult",
+    "emit_terminal_evidence",
+    "register_browser_screenshot",
+    "verify_evidence",
+]

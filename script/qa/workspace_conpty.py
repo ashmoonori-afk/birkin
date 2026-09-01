@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import codecs
 import os
 import queue
 import re
@@ -14,7 +13,7 @@ from pathlib import Path
 from typing import Protocol, TextIO, TypeAlias, final
 
 import pexpect
-from typing_extensions import assert_never, override
+from typing_extensions import override
 
 
 class _CancelableIo(Protocol):
@@ -81,7 +80,8 @@ class ConptySpawn:
             raise ConptySpawnError("ConPTY child has no process identifier")
         self._process = process
         self._pid = process.pid
-        self._encoding = encoding
+        if encoding.lower().replace("_", "-") != "utf-8":
+            raise ConptySpawnError("ConPTY supports UTF-8 text only")
         self.timeout = timeout
         self.logfile_read: TextIO | None = None
         self.match: re.Match[str] | None = None
@@ -143,6 +143,16 @@ class ConptySpawn:
     def reader_alive(self) -> bool:
         return self._reader.is_alive() or self._waiter.is_alive()
 
+    def set_logfile_read(self, logfile: TextIO | None) -> None:
+        """Route subsequently consumed output to the active text log."""
+        self.logfile_read = logfile
+
+    def matched_group(self, index: int) -> str:
+        """Return one group from the latest regular-expression match."""
+        if self.match is None:
+            raise ConptySpawnError("ConPTY has no regular-expression match")
+        return self.match.group(index)
+
     def send(self, value: str) -> int:
         """Write terminal input and return the number of characters accepted."""
         return self._process.write(value)
@@ -155,20 +165,13 @@ class ConptySpawn:
         """Consume through an exact string or raise a bounded diagnostic."""
         return self._expect(pattern, exact=True, timeout=timeout)
 
-    def expect(
-        self,
-        pattern: str | type[pexpect.EOF],
-        timeout: float | None = None,
-    ) -> int:
-        """Consume through a regular expression or the terminal EOF marker."""
-        match pattern:
-            case str() as expression:
-                return self._expect(expression, exact=False, timeout=timeout)
-            case eof if eof is pexpect.EOF:
-                self._wait_for_eof(timeout)
-                return 0
-            case unreachable:
-                assert_never(unreachable)
+    def expect(self, pattern: str, timeout: float | None = None) -> int:
+        """Consume through a regular expression."""
+        return self._expect(pattern, exact=False, timeout=timeout)
+
+    def expect_eof(self, timeout: float | None = None) -> None:
+        """Drain every queued reader chunk before accepting EOF."""
+        self._wait_for_eof(timeout)
 
     def close(self, force: bool = False) -> None:
         """Close the exact ConPTY process and await reader termination."""
@@ -187,7 +190,6 @@ class ConptySpawn:
         from winpty import WinptyError
 
         _ = self._process.wait()
-        self._events.put(_End(None))
         if self._reader.is_alive():
             try:
                 _ = self._process.pty.cancel_io()
@@ -195,12 +197,10 @@ class ConptySpawn:
                 return
 
     def _read_chunks(self) -> None:
-        decoder = codecs.getincrementaldecoder(self._encoding)(errors="strict")
         control_tail = ""
         try:
             while True:
-                raw = self._process.read(4096).encode(self._encoding)
-                text = decoder.decode(raw)
+                text = self._process.read(4096)
                 controls = control_tail + text
                 if "\x1b[c" in controls:
                     _ = self._process.write("\x1b[?1;2c")
@@ -208,16 +208,11 @@ class ConptySpawn:
                 if text:
                     self._events.put(_Chunk(text))
         except EOFError:
-            final = decoder.decode(b"", final=True)
-            if final:
-                self._events.put(_Chunk(final))
             self._events.put(_End(None))
         except OSError as exc:
             clean_end = self._closing.is_set() or not self._process.isalive()
             error = None if clean_end else f"{type(exc).__name__}: {exc}"
             self._events.put(_End(error))
-        except UnicodeError as exc:
-            self._events.put(_End(f"{type(exc).__name__}: {exc}"))
 
     def _next_event(self, deadline: float) -> None:
         remaining = deadline - time.monotonic()
@@ -233,8 +228,6 @@ class ConptySpawn:
                 self._ended = True
                 if error is not None:
                     raise pexpect.EOF(f"ConPTY reader failed: {error}")
-            case unreachable:
-                assert_never(unreachable)
 
     def _expect(
         self,

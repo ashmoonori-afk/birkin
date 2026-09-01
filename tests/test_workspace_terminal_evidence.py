@@ -1,33 +1,78 @@
 from __future__ import annotations
 
 import hashlib
-import json
+from dataclasses import fields
 from pathlib import Path
 
+import pytest
+
 from script.qa.workspace_terminal_evidence import (
+    ArtifactKind,
     EvidenceError,
     EvidenceInputs,
+    EvidenceManifest,
     emit_terminal_evidence,
+    register_browser_screenshot,
     verify_evidence,
 )
 from script.qa.workspace_terminal_pty import (
     ChildExit,
     TerminalCapture,
+    TerminalObservations,
     TerminalScenario,
 )
 
 
 def _scenario(widths: tuple[int, ...] = (60, 80, 100, 120, 160)) -> TerminalScenario:
     return TerminalScenario(
-        transcript="approval\n한글-🧵\nInterrupted safely\nreconnect",
+        transcript="opaque terminal output",
         captures=tuple(
             TerminalCapture(width=width, raw=f"capture-{width}")
             for width in widths
         ),
         children=(ChildExit(pid=101, exit_code=0), ChildExit(pid=202, exit_code=0)),
+        observations=TerminalObservations(
+            approval=True,
+            unicode_paste=True,
+            interrupt=True,
+            reconnect=True,
+        ),
         first_port=7001,
         reconnect_port=7002,
     )
+
+
+def _emit(tmp_path: Path) -> Path:
+    evidence = tmp_path / "evidence"
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    result = emit_terminal_evidence(
+        EvidenceInputs(evidence=evidence, profile=profile, scenario=_scenario())
+    )
+    assert result.ok
+    return evidence
+
+
+def _manifest(evidence: Path) -> EvidenceManifest:
+    return EvidenceManifest.model_validate_json(
+        (evidence / "manifest.json").read_text(encoding="utf-8")
+    )
+
+
+def _rewrite_manifest(evidence: Path, manifest: EvidenceManifest) -> None:
+    _ = (evidence / "manifest.json").write_text(
+        manifest.model_dump_json(),
+        encoding="utf-8",
+    )
+
+
+def test_terminal_scenario_carries_typed_observed_facts() -> None:
+    # Given: the typed scenario contract.
+    field_names = {field.name for field in fields(TerminalScenario)}
+
+    # When: its evidence-bearing fields are inspected.
+    # Then: observed facts are carried independently of transcript prose.
+    assert "observations" in field_names
 
 
 def test_evidence_manifest_records_typed_kinds_digests_and_cleanup(
@@ -45,8 +90,8 @@ def test_evidence_manifest_records_typed_kinds_digests_and_cleanup(
     verify_evidence(evidence)
 
     # Then: five semantic captures and exact child/profile cleanup are proven.
-    manifest = json.loads((evidence / "manifest.json").read_text(encoding="utf-8"))
-    artifacts = {item["path"]: item for item in manifest["artifacts"]}
+    manifest = _manifest(evidence)
+    artifacts = {item.path: item for item in manifest.artifacts}
     assert result.ok
     assert result.exit_code == 0
     assert set(artifacts) == {
@@ -58,12 +103,17 @@ def test_evidence_manifest_records_typed_kinds_digests_and_cleanup(
         "terminal-120.svg",
         "terminal-160.svg",
     }
-    assert artifacts["terminal-pty.raw.txt"]["kind"] == "real_pty"
-    assert artifacts["terminal-120.svg"]["kind"] == "semantic_svg"
-    assert artifacts["terminal-120.svg"]["sha256"] == hashlib.sha256(
+    assert artifacts["terminal-pty.raw.txt"].kind is ArtifactKind.REAL_PTY
+    assert artifacts["terminal-120.svg"].kind is ArtifactKind.SEMANTIC_SVG
+    assert artifacts["terminal-120.svg"].sha256 == hashlib.sha256(
         (evidence / "terminal-120.svg").read_bytes()
     ).hexdigest()
-    assert manifest["cleanup"] == {
+    metadata_text = (evidence / "terminal-pty.json").read_text(encoding="utf-8")
+    assert '"approval": true' in metadata_text
+    assert '"unicode_paste": true' in metadata_text
+    assert '"interrupt": true' in metadata_text
+    assert '"reconnect": true' in metadata_text
+    assert manifest.cleanup.model_dump(mode="json") == {
         "children": [
             {"pid": 101, "exit_code": 0, "exited": True},
             {"pid": 202, "exit_code": 0, "exited": True},
@@ -112,11 +162,11 @@ def test_cleanup_failure_is_nonzero_and_retains_reasoned_manifest(
     )
 
     # Then: failure is explicit and the manifest retains its cleanup reason.
-    manifest = json.loads((evidence / "manifest.json").read_text(encoding="utf-8"))
+    manifest = _manifest(evidence)
     assert not result.ok
     assert result.reason == "profile cleanup failed: profile locked"
-    assert manifest["cleanup"]["profile_removed"] is False
-    assert manifest["cleanup"]["reason"] == result.reason
+    assert manifest.cleanup.profile_removed is False
+    assert manifest.cleanup.reason == result.reason
 
 
 def test_live_child_injection_fails_nonzero_and_names_child(tmp_path: Path) -> None:
@@ -129,6 +179,7 @@ def test_live_child_injection_fails_nonzero_and_names_child(tmp_path: Path) -> N
         transcript=scenario.transcript,
         captures=scenario.captures,
         children=(scenario.children[0], ChildExit(pid=303, exit_code=None)),
+        observations=scenario.observations,
         first_port=scenario.first_port,
         reconnect_port=scenario.reconnect_port,
     )
@@ -164,3 +215,112 @@ def test_verifier_rejects_partial_artifact_after_emission(tmp_path: Path) -> Non
 
     # Then: the absent artifact is the exact failure.
     assert diagnostic == "missing artifact: terminal-120.svg"
+
+
+def test_verifier_rejects_truncated_pass_manifest(tmp_path: Path) -> None:
+    # Given: a PASS manifest with one required SVG entry removed.
+    evidence = _emit(tmp_path)
+    manifest = _manifest(evidence)
+    truncated = manifest.model_copy(
+        update={
+            "artifacts": tuple(
+                artifact
+                for artifact in manifest.artifacts
+                if artifact.path != "terminal-120.svg"
+            )
+        }
+    )
+    _rewrite_manifest(evidence, truncated)
+
+    # When / Then: exact-set verification rejects the truncated claim.
+    with pytest.raises(EvidenceError, match="missing manifest artifact: terminal-120.svg"):
+        verify_evidence(evidence)
+
+
+def test_verifier_rejects_duplicate_and_wrong_kind_entries(tmp_path: Path) -> None:
+    # Given: required entries plus a duplicate whose kind is also wrong.
+    evidence = _emit(tmp_path)
+    manifest = _manifest(evidence)
+    duplicate = manifest.artifacts[0].model_copy(
+        update={"kind": ArtifactKind.SEMANTIC_SVG}
+    )
+    duplicated = manifest.model_copy(
+        update={"artifacts": (*manifest.artifacts, duplicate)}
+    )
+    _rewrite_manifest(evidence, duplicated)
+
+    # When / Then: duplicate identity is rejected before trusting kind/digest.
+    with pytest.raises(EvidenceError, match="duplicate artifact: terminal-pty.raw.txt"):
+        verify_evidence(evidence)
+
+
+def test_verifier_rejects_wrong_kind_and_wrong_path(tmp_path: Path) -> None:
+    # Given: a core artifact with an invalid kind and then an unexpected path.
+    evidence = _emit(tmp_path)
+    manifest = _manifest(evidence)
+    wrong_kind = manifest.artifacts[0].model_copy(
+        update={"kind": ArtifactKind.SEMANTIC_SVG}
+    )
+    _rewrite_manifest(
+        evidence,
+        manifest.model_copy(
+            update={"artifacts": (wrong_kind, *manifest.artifacts[1:])}
+        ),
+    )
+
+    # When / Then: kind mismatch is rejected.
+    with pytest.raises(EvidenceError, match="kind mismatch: terminal-pty.raw.txt"):
+        verify_evidence(evidence)
+
+    wrong_path = manifest.artifacts[0].model_copy(
+        update={"path": "../terminal-pty.raw.txt"}
+    )
+    _rewrite_manifest(
+        evidence,
+        manifest.model_copy(
+            update={"artifacts": (wrong_path, *manifest.artifacts[1:])}
+        ),
+    )
+    with pytest.raises(EvidenceError, match="unexpected artifact path"):
+        verify_evidence(evidence)
+
+
+def test_verifier_rejects_digest_tamper(tmp_path: Path) -> None:
+    # Given: emitted evidence whose transcript bytes changed after hashing.
+    evidence = _emit(tmp_path)
+    transcript = evidence / "terminal-pty.raw.txt"
+    payload = transcript.read_bytes()
+    _ = transcript.write_bytes(bytes([payload[0] ^ 1]) + payload[1:])
+
+    # When / Then: equal-length tampering fails the digest check.
+    with pytest.raises(EvidenceError, match="digest mismatch: terminal-pty.raw.txt"):
+        verify_evidence(evidence)
+
+
+def test_browser_contract_requires_exactly_one_terminal_png(tmp_path: Path) -> None:
+    # Given: a valid core manifest and one browser PNG.
+    evidence = _emit(tmp_path)
+    screenshot = evidence / "terminal.png"
+    _ = screenshot.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+    register_browser_screenshot(evidence, screenshot)
+    verify_evidence(evidence, require_browser=True)
+    manifest = _manifest(evidence)
+    duplicated = manifest.model_copy(
+        update={"artifacts": (*manifest.artifacts, manifest.artifacts[-1])}
+    )
+    _rewrite_manifest(evidence, duplicated)
+
+    # When / Then: duplicate browser evidence is rejected.
+    with pytest.raises(EvidenceError, match="duplicate artifact: terminal.png"):
+        verify_evidence(evidence, require_browser=True)
+
+
+def test_browser_registration_rejects_wrong_path(tmp_path: Path) -> None:
+    # Given: valid core evidence and a PNG with a non-contract filename.
+    evidence = _emit(tmp_path)
+    screenshot = evidence / "other.png"
+    _ = screenshot.write_bytes(b"\x89PNG\r\n\x1a\nfixture")
+
+    # When / Then: registration cannot expand the artifact namespace.
+    with pytest.raises(EvidenceError, match="unexpected artifact path: other.png"):
+        register_browser_screenshot(evidence, screenshot)
