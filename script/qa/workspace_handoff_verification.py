@@ -58,8 +58,7 @@ class BrowserDiagnostics:
     def assert_clean(self, stage: str) -> None:
         if self.console_errors or self.network_failures:
             raise AssertionError(
-                f"{stage} browser errors: "
-                f"{self.console_errors}, {self.network_failures}"
+                f"{stage} browser errors: {self.console_errors}, {self.network_failures}"
             )
 
 
