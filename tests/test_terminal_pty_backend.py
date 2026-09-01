@@ -53,6 +53,14 @@ class _DelayedFinalProcess:
     def setwinsize(self, rows: int, cols: int) -> None:
         _ = (rows, cols)
 
+    def terminate(self, force: bool = False) -> bool | None:
+        _ = force
+        if not self._alive:
+            return True
+        self._alive = False
+        self.allow_final_read.set()
+        return True
+
     def close(self, force: bool = False) -> None:
         _ = force
         self._alive = False
@@ -186,5 +194,24 @@ def test_conpty_termination_yields_eof_without_reader_leak(tmp_path: Path) -> No
 
     # Then: EOF is observable and no child or reader remains live.
     child.expect_eof()
+    assert not child.isalive()
+    assert not child.reader_alive
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="native ConPTY required")
+def test_conpty_terminate_kills_blocked_child_without_reader_leak(
+    tmp_path: Path,
+) -> None:
+    # Given: a native child blocked waiting for terminal input.
+    child = _spawn(tmp_path)
+    _ = child.expect_exact("TTY:True:True")
+
+    # When: the owner force-terminates the exact child handle.
+    terminated = child.terminate(force=True)
+
+    # Then: termination is reported and EOF is observable without a leak.
+    assert terminated
+    child.expect_eof()
+    child.close()
     assert not child.isalive()
     assert not child.reader_alive

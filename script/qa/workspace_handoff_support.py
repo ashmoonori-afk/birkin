@@ -62,6 +62,9 @@ class _PexpectTerminal:
     def expect_eof(self, timeout: float | None = None) -> None:
         _ = self._process.expect(pexpect.EOF, timeout=timeout)
 
+    def terminate(self, force: bool = False) -> bool:
+        return self._process.terminate(force=force)
+
     def close(self, force: bool = False) -> None:
         self._process.close(force=force)
 

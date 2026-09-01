@@ -36,6 +36,8 @@ class _RawPtyProcess(Protocol):
 
     def setwinsize(self, rows: int, cols: int) -> None: ...
 
+    def terminate(self, force: bool = False) -> bool | None: ...
+
     def close(self, force: bool = False) -> None: ...
 
     def isalive(self) -> bool: ...
@@ -172,6 +174,10 @@ class ConptySpawn:
     def expect_eof(self, timeout: float | None = None) -> None:
         """Drain every queued reader chunk before accepting EOF."""
         self._wait_for_eof(timeout)
+
+    def terminate(self, force: bool = False) -> bool:
+        """Terminate the exact ConPTY child; True when the child exited."""
+        return bool(self._process.terminate(force=force))
 
     def close(self, force: bool = False) -> None:
         """Close the exact ConPTY process and await reader termination."""

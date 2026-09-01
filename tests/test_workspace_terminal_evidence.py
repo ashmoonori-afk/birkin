@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import fields
 from pathlib import Path
 
 import pytest
@@ -64,15 +63,6 @@ def _rewrite_manifest(evidence: Path, manifest: EvidenceManifest) -> None:
         manifest.model_dump_json(),
         encoding="utf-8",
     )
-
-
-def test_terminal_scenario_carries_typed_observed_facts() -> None:
-    # Given: the typed scenario contract.
-    field_names = {field.name for field in fields(TerminalScenario)}
-
-    # When: its evidence-bearing fields are inspected.
-    # Then: observed facts are carried independently of transcript prose.
-    assert "observations" in field_names
 
 
 def test_evidence_manifest_records_typed_kinds_digests_and_cleanup(

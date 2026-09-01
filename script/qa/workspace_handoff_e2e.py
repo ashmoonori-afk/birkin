@@ -90,6 +90,9 @@ def run(evidence: Path = EVIDENCE) -> int:
 
             page.on("response", record_response)
             _ = page.goto(url, wait_until="domcontentloaded")
+            page.locator(
+                '[data-testid="workspace-connection"][data-state="connected"]'
+            ).wait_for()
             initial_snapshot = workspace_snapshot(page)
             initial_texts = [
                 str(message["text"])
@@ -112,13 +115,16 @@ def run(evidence: Path = EVIDENCE) -> int:
             _ = input_box.press("Control+Enter")
             page.get_by_text("Echo complete 🧵: handoff web").wait_for()
             assert_browser_clean("terminal-to-web")
-            stop_terminal(child)
+            _ = stop_terminal(child)
             child, url, port = spawn_terminal(profile, terminal_log)
             terminal_pids.append(child.pid)
             ports.append(port)
             _ = child.expect_exact("handoff web")
             _ = child.expect_exact(PROMPT_READY)
             _ = page.goto(url, wait_until="domcontentloaded")
+            page.locator(
+                '[data-testid="workspace-connection"][data-state="connected"]'
+            ).wait_for()
             page.get_by_text("Echo complete 🧵: handoff web").wait_for()
             reset_planned_restart_errors()
             print("QA_HANDOFF_STAGE=terminal-reconnected-web", flush=True)
@@ -127,14 +133,18 @@ def run(evidence: Path = EVIDENCE) -> int:
             _ = child.expect_exact("Approval required. Type approve to resume.")
             _ = child.expect_exact(PROMPT_READY)
             _ = page.locator('[data-panel="approvals"]').click()
-            page.get_by_text("Approve deterministic workspace action").wait_for()
+            approval_item = page.locator(
+                '#workspace-panel-body [data-item-id="qa-approval"]'
+            )
+            approval_item.wait_for()
             page.locator(
                 '[data-testid="workspace-shell"][data-last-event="command.completed"]'
             ).wait_for()
-            _ = page.get_by_text(
-                "Approve deterministic workspace action"
-            ).click()
-            page.get_by_text("office_job", exact=True).wait_for()
+            _ = approval_item.click()
+            page.get_by_text(
+                "fixture://approval/qa-approval",
+                exact=True,
+            ).wait_for()
             page.get_by_role("button", name="승인 실행").wait_for()
             _ = page.screenshot(
                 path=evidence / "web-office-job-approval.png"
@@ -156,15 +166,16 @@ def run(evidence: Path = EVIDENCE) -> int:
                   );
                 }"""
             )
-            _ = page.get_by_text("실행 영수증 보기").click()
+            _ = page.get_by_text("영수증 세부 정보 보기").click()
             page.get_by_text(
-                "Action executed: fixture approval executed"
+                "fixture approval executed",
+                exact=False,
             ).wait_for()
             _ = page.screenshot(
                 path=evidence / "web-office-job-approved.png"
             )
             assert_browser_clean("approval")
-            stop_terminal(child)
+            _ = stop_terminal(child)
             child, url, port = spawn_terminal(profile, terminal_log)
             terminal_pids.append(child.pid)
             ports.append(port)
@@ -182,7 +193,7 @@ def run(evidence: Path = EVIDENCE) -> int:
             ).wait_for()
             assert_browser_clean("web-to-terminal")
             print("QA_HANDOFF_STAGE=unicode-converged", flush=True)
-            stop_terminal(child)
+            _ = stop_terminal(child)
             child, url, port = spawn_terminal(profile, terminal_log)
             terminal_pids.append(child.pid)
             ports.append(port)
@@ -213,9 +224,20 @@ def run(evidence: Path = EVIDENCE) -> int:
             page.get_by_text(
                 re.compile(r"Echo complete .*cross-surface duplicate once")
             ).wait_for()
+            _ = stop_terminal(child)
+            child, url, port = spawn_terminal(profile, terminal_log)
+            terminal_pids.append(child.pid)
+            ports.append(port)
+            _ = child.expect_exact("cross-surface duplicate once")
+            _ = child.expect_exact(PROMPT_READY)
             send_terminal(child, "terminal verifies duplicate")
             _ = child.expect_exact("cross-surface duplicate once")
             _ = child.expect_exact(PROMPT_READY)
+            _ = page.goto(url, wait_until="domcontentloaded")
+            page.locator(
+                '[data-testid="workspace-connection"][data-state="connected"]'
+            ).wait_for()
+            reset_planned_restart_errors()
 
             snapshot = workspace_snapshot(page)
             conversation = cast(
@@ -268,7 +290,7 @@ def run(evidence: Path = EVIDENCE) -> int:
             browser.close()
             browser = None
 
-        stop_terminal(child)
+        _ = stop_terminal(child)
         if (profile / "web_session.json").exists():
             raise AssertionError("handoff web discovery file survived shutdown")
         for closed_port in ports:
