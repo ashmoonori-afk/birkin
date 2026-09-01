@@ -15,8 +15,9 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import date
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TypedDict
+from typing import Final
 
 import pytest
 
@@ -27,10 +28,10 @@ else:  # Python 3.10
 
 _ROOT = Path(__file__).resolve().parent.parent
 _READMES = ("README.md", "README.ko.md")
-_BACKTICKED = re.compile(r"`([^`]+)`")
-_BOLD = re.compile(r"\*\*([^*]+)\*\*")
-_COUNT = re.compile(r"(\d+)\D+")
-_SNAPSHOT = re.compile(r"Snapshot:\s*(\d{4}-\d{2}-\d{2})")
+_BACKTICKED: Final[re.Pattern[str]] = re.compile(r"`([^`]+)`")
+_BOLD: Final[re.Pattern[str]] = re.compile(r"\*\*([^*]+)\*\*")
+_COUNT: Final[re.Pattern[str]] = re.compile(r"(\d+)\D+")
+_SNAPSHOT: Final[re.Pattern[str]] = re.compile(r"Snapshot:\s*(\d{4}-\d{2}-\d{2})")
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,33 +43,26 @@ class _ClaimTruth:
     skills: int
 
 
-class _WheelConfig(TypedDict):
-    packages: list[str]
+def _mapping(value: object, path: str) -> Mapping[str, object]:
+    if not isinstance(value, Mapping):
+        raise AssertionError(f"invalid TOML mapping at {path}")
+    result: dict[str, object] = {}
+    for key, item in value.items():
+        if not isinstance(key, str):
+            raise AssertionError(f"invalid TOML key at {path}")
+        result[key] = item
+    return result
 
 
-class _Targets(TypedDict):
-    wheel: _WheelConfig
-
-
-class _BuildTargets(TypedDict):
-    targets: _Targets
-
-
-class _HatchConfig(TypedDict):
-    build: _BuildTargets
-
-
-class _ToolConfig(TypedDict):
-    hatch: _HatchConfig
-
-
-class _ProjectConfig(TypedDict):
-    dependencies: list[str]
-
-
-class _Manifest(TypedDict):
-    project: _ProjectConfig
-    tool: _ToolConfig
+def _strings(value: object, path: str) -> list[str]:
+    if not isinstance(value, list):
+        raise AssertionError(f"invalid TOML string list at {path}")
+    result: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            raise AssertionError(f"invalid TOML string list at {path}")
+        result.append(item)
+    return result
 
 
 def _normalize(name: str) -> str:
@@ -76,26 +70,23 @@ def _normalize(name: str) -> str:
     return re.sub(r"[-_.]+", "-", name.strip()).lower()
 
 
-def _pyproject() -> _Manifest:
+def _pyproject() -> tuple[list[str], list[str]]:
     with (_ROOT / "pyproject.toml").open("rb") as handle:
-        manifest = tomllib.load(handle)
-    project = manifest["project"]
-    tool = manifest["tool"]
-    hatch = tool["hatch"]
-    build = hatch["build"]
-    wheel = build["targets"]["wheel"]
-    return {
-        "project": {"dependencies": project["dependencies"]},
-        "tool": {"hatch": {"build": {"targets": {"wheel": wheel}}}},
-    }
+        manifest = _mapping(tomllib.load(handle), "root")
+    project = _mapping(manifest.get("project"), "project")
+    tool = _mapping(manifest.get("tool"), "tool")
+    hatch = _mapping(tool.get("hatch"), "tool.hatch")
+    build = _mapping(hatch.get("build"), "tool.hatch.build")
+    targets = _mapping(build.get("targets"), "tool.hatch.build.targets")
+    wheel = _mapping(targets.get("wheel"), "tool.hatch.build.targets.wheel")
+    return (
+        _strings(project.get("dependencies"), "project.dependencies"),
+        _strings(wheel.get("packages"), "tool.hatch.build.targets.wheel.packages"),
+    )
 
 
 def _live_truth() -> _ClaimTruth:
-    manifest = _pyproject()
-    project = manifest["project"]
-    wheel = manifest["tool"]["hatch"]["build"]["targets"]["wheel"]
-    requirements = project["dependencies"]
-    packages = wheel["packages"]
+    requirements, packages = _pyproject()
     return _ClaimTruth(
         dependencies=frozenset(
             _normalize(re.split(r"[<>=!~;\[ ]", item, maxsplit=1)[0])
