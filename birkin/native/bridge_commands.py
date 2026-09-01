@@ -178,13 +178,12 @@ class NativeCommandCoordinator:
                 message,
                 execution.scope,
             )
-            if suspended:
-                execution.stream.resume()
-                suspended = False
-            self._finish(execution, lane)
             if response is not None:
                 execution.state.send(response)
                 execution.connection.send(response)
+            if suspended:
+                execution.stream.resume()
+                suspended = False
         except (NativeProtocolError, OSError):
             execution.connection.interrupt()
         finally:
