@@ -5,9 +5,13 @@ Subcommands:
   skills [name]   list skills, or print one in full
   web             launch the local WebUI
   setup           configure provider / model / API key
-  nightly         run the 7 AM self-improvement routine now
-  daemon          run the scheduler that triggers nightly + cron jobs
+  morpheus        run the 7 AM self-improvement routine now
+  daemon          run the scheduler that triggers morpheus + cron jobs
   review          review and approve/reject pending proposed actions
+
+`morpheus` is the canonical name. `nightly` is an argv-level compatibility
+alias rewritten to `morpheus` in main(); it is not a registered subcommand and
+is retained through at least v0.6.0.
 """
 
 from __future__ import annotations

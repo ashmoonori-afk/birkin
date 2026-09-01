@@ -875,7 +875,7 @@ snapshot을 복사할 수 있습니다.
 | `birkin skills` | Skill 목록·조회·sync·validate·관리. |
 | `birkin plugins` | 권한 확인, 정확한 signed bundle version 설치, pin resolution. |
 | `birkin daemon` | Morpheus + cron scheduler 실행 또는 설치. |
-| `birkin morpheus [--dry-run]` | 예약 자기개선 routine 즉시 실행. |
+| `birkin morpheus [--dry-run]` | 예약 자기개선 routine 즉시 실행. `morpheus`가 정식 이름이며, `birkin nightly`는 최소 v0.6.0까지 argv 수준 호환 별칭으로 유지됩니다. |
 | `birkin harness` | 개선 ledger 조회·refine·export·rollback. |
 | `birkin moirai` | 결정적 workflow 목록·실행·조회·resume. |
 | `birkin runs` / `birkin trace ID` | Run summary와 상세 audit record 조회. |

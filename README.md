@@ -808,7 +808,7 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin skills` | List, inspect, sync, validate, or manage skills. |
 | `birkin plugins` | Inspect permissions, install exact signed bundle versions, or resolve pins. |
 | `birkin daemon` | Run or install the Morpheus + cron scheduler. |
-| `birkin morpheus [--dry-run]` | Run the scheduled self-improvement routine now. |
+| `birkin morpheus [--dry-run]` | Run the scheduled self-improvement routine now. `morpheus` is the canonical name; `birkin nightly` stays an argv-level compatibility alias through at least v0.6.0. |
 | `birkin harness` | Show, refine, export, or roll back the improvement ledger. |
 | `birkin moirai` | List, run, inspect, or resume deterministic workflows. |
 | `birkin runs` / `birkin trace ID` | Inspect run summaries and detailed audit records. |

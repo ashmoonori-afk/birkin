@@ -109,7 +109,7 @@ birkin = "birkin.cli:main"
 
 [tool.hatch.build.targets.sdist]
 # Ship only project files ??never stray runtime data/binaries from the workspace.
-only-include = ["birkin", "birkin_mnemosyne", "skills", "scripts", "docs", "tests", "README.md", "pyproject.toml", "LICENSE", "NOTICE", "LICENSES"]
+only-include = ["birkin", "birkin_mnemosyne", "skills", "scripts", "docs", "tests", "README.md", "README.ko.md", "pyproject.toml", "LICENSE", "NOTICE", "LICENSES"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["birkin", "birkin_mnemosyne"]
