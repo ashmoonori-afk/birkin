@@ -15,6 +15,7 @@
         PreviewDrop="WindowDropped"
         ResizeMode="CanResize"
         Focusable="True"
+        automation:AutomationProperties.AutomationId="workspace.window"
         Background="{DynamicResource CanvasBrush}"
         Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI"
