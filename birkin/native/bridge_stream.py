@@ -104,6 +104,13 @@ class NativeBridgeStream:
         self._pong.set()
         self._queue.close()
         self._thread.join(timeout=2)
+        if self._thread.is_alive():
+            self._connection.interrupt()
+            self._thread.join(timeout=2)
+            if self._thread.is_alive():
+                self._failure = TimeoutError(
+                    "native writer did not terminate after connection interrupt"
+                )
 
     def _run(self) -> None:
         try:
