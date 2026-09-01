@@ -326,20 +326,25 @@ def run(evidence: Path = EVIDENCE) -> int:
             "console_errors": console_errors,
             "network_failures": network_failures,
             "profile_path": str(profile),
-            "profile_removed": True,
         }
-        _ = (evidence / "cross-surface-terminal.raw.txt").write_text(
-            terminal_log.getvalue(),
-            encoding="utf-8",
-        )
-        _ = (evidence / "cross-surface-handoff.json").write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
     finally:
         if child.isalive():
             _ = child.terminate(force=True)
-        shutil.rmtree(profile, ignore_errors=True)
+        if profile.exists():
+            shutil.rmtree(profile)
+        if profile.exists():
+            raise AssertionError(
+                f"handoff profile survived cleanup: {profile}"
+            )
+    metadata["profile_removed"] = True
+    _ = (evidence / "cross-surface-terminal.raw.txt").write_text(
+        terminal_log.getvalue(),
+        encoding="utf-8",
+    )
+    _ = (evidence / "cross-surface-handoff.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
     print("Cross-surface QA passed: terminal ↔ web convergence")
     return 0
 
