@@ -12,16 +12,18 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
 
-try:
+if sys.version_info >= (3, 11):
     import tomllib
-except ModuleNotFoundError:  # Python 3.10
-    import tomli as tomllib  # type: ignore[no-redef]
+else:  # Python 3.10
+    import tomli as tomllib
 
 _ROOT = Path(__file__).resolve().parent.parent
 _READMES = ("README.md", "README.ko.md")
@@ -40,24 +42,60 @@ class _ClaimTruth:
     skills: int
 
 
+class _WheelConfig(TypedDict):
+    packages: list[str]
+
+
+class _Targets(TypedDict):
+    wheel: _WheelConfig
+
+
+class _BuildTargets(TypedDict):
+    targets: _Targets
+
+
+class _HatchConfig(TypedDict):
+    build: _BuildTargets
+
+
+class _ToolConfig(TypedDict):
+    hatch: _HatchConfig
+
+
+class _ProjectConfig(TypedDict):
+    dependencies: list[str]
+
+
+class _Manifest(TypedDict):
+    project: _ProjectConfig
+    tool: _ToolConfig
+
+
 def _normalize(name: str) -> str:
     """PEP 503 normalized distribution name."""
     return re.sub(r"[-_.]+", "-", name.strip()).lower()
 
 
-def _pyproject() -> dict[str, object]:
+def _pyproject() -> _Manifest:
     with (_ROOT / "pyproject.toml").open("rb") as handle:
-        return tomllib.load(handle)
+        manifest = tomllib.load(handle)
+    project = manifest["project"]
+    tool = manifest["tool"]
+    hatch = tool["hatch"]
+    build = hatch["build"]
+    wheel = build["targets"]["wheel"]
+    return {
+        "project": {"dependencies": project["dependencies"]},
+        "tool": {"hatch": {"build": {"targets": {"wheel": wheel}}}},
+    }
 
 
 def _live_truth() -> _ClaimTruth:
     manifest = _pyproject()
-    project: dict[str, object] = manifest["project"]  # type: ignore[assignment]
-    wheel: dict[str, object] = (
-        manifest["tool"]["hatch"]["build"]["targets"]["wheel"]  # type: ignore[index]
-    )
-    requirements: list[str] = project["dependencies"]  # type: ignore[assignment]
-    packages: list[str] = wheel["packages"]  # type: ignore[assignment]
+    project = manifest["project"]
+    wheel = manifest["tool"]["hatch"]["build"]["targets"]["wheel"]
+    requirements = project["dependencies"]
+    packages = wheel["packages"]
     return _ClaimTruth(
         dependencies=frozenset(
             _normalize(re.split(r"[<>=!~;\[ ]", item, maxsplit=1)[0])
