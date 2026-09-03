@@ -20,10 +20,12 @@ import subprocess
 import sys
 import tempfile
 import time
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, TypedDict
+
+from typing_extensions import Unpack
 
 from birkin.operation_policy import is_powershell_execution_policy_failure
 
@@ -34,6 +36,8 @@ from birkin.operation_policy import is_powershell_execution_policy_failure
 # strings have their own intentional path (``shell_argv``), which this never gates.
 _WIN_SHELL_METACHARS = frozenset("&|<>^")
 _WINDOWS_CREATE_SUSPENDED = 0x00000004
+_WINDOWS_CREATE_BREAKAWAY_FROM_JOB = 0x01000000
+_WINDOWS_ACCESS_DENIED = 5
 _WINDOWS_NATIVE_EXTENSIONS = (".com", ".exe", ".bat", ".cmd")
 _WINDOWS_NATIVE_PATH_METACHARS = frozenset("%!&|<>^()")
 _POSIX_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
@@ -88,6 +92,13 @@ class ManagedProcessTree(Protocol):
 class PopenTreeKwargs(TypedDict, total=False):
     creationflags: int
     start_new_session: bool
+
+
+class PopenDetachedKwargs(TypedDict, total=False):
+    close_fds: bool
+    stdin: int
+    stdout: int
+    stderr: int
 
 
 def cli_argv(parts: list[str]) -> list[str]:
@@ -488,6 +499,34 @@ def popen_tree_kwargs() -> PopenTreeKwargs:
     if os.name == "nt":
         return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
     return {"start_new_session": True}
+
+
+def popen_detached(
+    argv: Sequence[str],
+    **kwargs: Unpack[PopenDetachedKwargs],
+) -> subprocess.Popen[bytes]:
+    """Spawn a process that outlives this one.
+
+    On Windows the child breaks out of the parent's job object so a supervisor
+    (nssm, Task Scheduler, CI) tearing that job down does not take the spawned
+    process with it. A job created without ``JOB_OBJECT_LIMIT_BREAKAWAY_OK``
+    refuses the flag with ``WinError 5``, so retry inside the job rather than
+    failing the spawn outright. POSIX just needs its own session.
+    """
+    if os.name != "nt":
+        return subprocess.Popen(argv, start_new_session=True, **kwargs)
+    group = windows_creation_flags(hide_window=False)
+    breakaway = getattr(
+        subprocess,
+        "CREATE_BREAKAWAY_FROM_JOB",
+        _WINDOWS_CREATE_BREAKAWAY_FROM_JOB,
+    )
+    try:
+        return subprocess.Popen(argv, creationflags=group | breakaway, **kwargs)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) != _WINDOWS_ACCESS_DENIED:
+            raise
+        return subprocess.Popen(argv, creationflags=group, **kwargs)
 
 
 def kill_process_group(pid: int) -> bool:

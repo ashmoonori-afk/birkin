@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import secrets
 import subprocess
 import sys
@@ -10,6 +9,7 @@ import sys
 from . import procreg
 from .approval_execution_helper import helper_argv
 from .approval_execution_journal import ExecutionJournal, JournalCorruptionError
+from .proc import popen_detached
 
 
 def launch_helper(
@@ -26,29 +26,13 @@ def launch_helper(
         frozen=bool(getattr(sys, "frozen", False)),
     )
     stdout = subprocess.PIPE if capture_stdout else subprocess.DEVNULL
-    if os.name == "nt":
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=stdout,
-            stderr=subprocess.DEVNULL,
-            shell=False,
-            close_fds=True,
-            creationflags=(
-                subprocess.CREATE_NEW_PROCESS_GROUP
-                | subprocess.CREATE_BREAKAWAY_FROM_JOB
-            ),
-        )
-    else:
-        process = subprocess.Popen(
-            command,
-            stdin=subprocess.DEVNULL,
-            stdout=stdout,
-            stderr=subprocess.DEVNULL,
-            shell=False,
-            close_fds=True,
-            start_new_session=True,
-        )
+    process = popen_detached(
+        command,
+        stdin=subprocess.DEVNULL,
+        stdout=stdout,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
     try:
         journal.helper_started(
             owner_pid=process.pid,

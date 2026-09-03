@@ -27,22 +27,21 @@ from ..claude_session import ClaudeStreamSession
 from ..codex_session import CodexAppServerSession
 from ..omo import OmoController
 from ..runtime import ConfigError, Session, build_session
-from .telegram_lease import TelegramGatewayLease
+from .telegram_lease import (
+    TelegramGatewayLease,
+    TelegramGatewayLeaseRaceError,
+    TelegramGatewayOwnedError,
+)
 from .turn_types import AskSession, ProgressCallback, TextCallback
 from .turn_support import (
     GATEWAY_COMMANDS as _GATEWAY_COMMANDS,
     LOCAL_TRUSTED_CHANNELS as _LOCAL_TRUSTED_CHANNELS,
     PERSISTENT_PROVIDERS as _PERSISTENT_PROVIDERS,
-    PRIVILEGED_COMMANDS,
-    SHORT_FOLLOWUP_RE,
-    TELEGRAM_EXECUTION_POLICY,
     TURN_ERROR_REPLY as TURN_ERROR_REPLY,
     TURN_INTERRUPTED_REPLY as TURN_INTERRUPTED_REPLY,
     TURN_MOIRAI_RECOVERY_ERROR_REPLY as TURN_MOIRAI_RECOVERY_ERROR_REPLY,
     TURN_PARTIAL_SUFFIX as TURN_PARTIAL_SUFFIX,
     UNTRUSTED_CHANNEL_REPLY as UNTRUSTED_CHANNEL_REPLY,
-    anchor_short_followup,
-    is_short_followup,
     ask_session as ask_session,
     conversation_session_id as conversation_session_id,
     gateway_help_text as gateway_help_text,
@@ -54,12 +53,6 @@ _T = TypeVar("_T")
 GatewayConfig = dict[str, JSONValue]
 WarmSession = ClaudeStreamSession | CodexAppServerSession
 InflightOwner = tuple[object, AskSession, threading.Event]
-
-_anchor_short_followup = anchor_short_followup
-_is_short_followup = is_short_followup
-_PRIVILEGED_COMMANDS = PRIVILEGED_COMMANDS
-_SHORT_FOLLOWUP_RE = SHORT_FOLLOWUP_RE
-_TELEGRAM_EXECUTION_POLICY = TELEGRAM_EXECUTION_POLICY
 
 
 class _TextStream(Protocol):
@@ -219,7 +212,10 @@ class TimestampedStream:
             return False
 
     def __getattr__(self, name: str) -> object:
-        return self._stream.__getattribute__(name)
+        # getattr(), not __getattribute__(): the wrapped stream may expose
+        # .encoding/.buffer/.fileno through its own __getattr__ (colorama's
+        # AnsiToWin32, pytest's capture), which __getattribute__ skips.
+        return getattr(self._stream, name)
 
 
 class _SystemStreams(Protocol):
@@ -708,8 +704,9 @@ class Gateway:
         concurrent channel workers from launching multiple replacements.
         """
         import os
-        import subprocess
         import sys
+
+        from ..proc import popen_detached
 
         with self._hard_restart_lock:
             if self._restart_origin:
@@ -739,14 +736,18 @@ class Gateway:
                 flush=True,
             )
             if os.name == "nt":
-                _ = subprocess.Popen(
-                    argv,
-                    close_fds=True,
-                    creationflags=(
-                        subprocess.CREATE_NEW_PROCESS_GROUP
-                        | subprocess.CREATE_BREAKAWAY_FROM_JOB
-                    ),
-                )
+                try:
+                    _ = popen_detached(argv, close_fds=True)
+                except OSError as exc:
+                    # shutdown() already tore this process down — staying alive
+                    # would leave a gutted gateway, so exit non-zero and let the
+                    # supervisor restart us.
+                    print(
+                        "[gateway] 하드 재시작 실패: 새 게이트웨이 프로세스를 "
+                        f"시작하지 못했습니다 ({exc}). 프로세스를 종료합니다.",
+                        flush=True,
+                    )
+                    os._exit(1)
                 os._exit(0)
             else:
                 os.execv(sys.executable, argv)
@@ -1013,7 +1014,7 @@ class Gateway:
         Only prompt-type jobs delivered to the current (already-trusted) chat
         are created — never shell, never another chat — so this cannot launder
         code execution or exfiltrate to a stranger. Callers gate on a trusted
-        channel first (remind is in _PRIVILEGED_COMMANDS)."""
+        channel first (remind is in PRIVILEGED_COMMANDS)."""
         from .. import cron
 
         _ = channel
@@ -1313,6 +1314,18 @@ def run() -> int:
         gateway = Gateway(cfg)
     except ConfigError as exc:
         print(f"{exc}")
+        return 1
+    except TelegramGatewayOwnedError as exc:
+        print(
+            "[gateway] 다른 birkin 게이트웨이가 같은 텔레그램 봇을 이미 사용 중입니다 "
+            f"(소유 PID {exc.owner_pid}). 잠금 파일: {exc.path}"
+        )
+        return 1
+    except TelegramGatewayLeaseRaceError as exc:
+        print(
+            "[gateway] 텔레그램 소유권을 확보하지 못했습니다. 잠금 파일을 확인한 뒤 "
+            f"다시 시도해 주세요: {exc.path}"
+        )
         return 1
 
     # Just came back from a hard re-exec? Load the one-shot marker so the channel

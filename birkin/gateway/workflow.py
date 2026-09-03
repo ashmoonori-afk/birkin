@@ -44,6 +44,8 @@ DELIVERY_CLOSE = "</telegram-delivery-contract>"
 MARKET_DATA_OPEN = "<verified-market-data-policy>"
 MARKET_DATA_CLOSE = "</verified-market-data-policy>"
 
+_CORRUPT_PROPOSAL = "⚠ 저장된 작업 제안이 손상됐습니다."
+
 DELIVERY_POLICY = (
     f"{DELIVERY_OPEN}\n"
     "Put the complete user-requested deliverable in the final Telegram reply. "
@@ -232,8 +234,11 @@ def queue_proposal(proposal: WorkflowProposal, task: str, chat_id: str) -> str:
 
 
 def is_workflow(aid: str) -> bool:
-    rec = _stored_workflow(store.get_pending(aid))
-    return bool(rec and rec["category"] == "workflow")
+    # Route on the raw record: a corrupt payload must still reach
+    # resolve_proposal, which retires it, instead of falling through to the
+    # generic approval path that cannot resolve a workflow.
+    raw = store.get_pending(aid)
+    return bool(raw and raw.get("category") == "workflow")
 
 
 def is_running(aid: str, chat_id: str) -> bool:
@@ -261,7 +266,22 @@ def resolve_proposal(
     path = config.pending_dir() / f"{aid}.json"
     try:
         with store.file_lock(path):
-            rec = _stored_workflow(store.get_pending(aid))
+            raw = store.get_pending(aid)
+            rec = _stored_workflow(raw)
+            if (
+                rec is None
+                and raw is not None
+                and raw.get("category") == "workflow"
+                and raw.get("status") == "pending"
+            ):
+                # Unreadable shape: retire it, or the buttons stay inert forever.
+                _ = store.resolve_pending(
+                    aid,
+                    "error",
+                    approved_by=actor_id,
+                    approved_via=via,
+                )
+                return WorkflowResolution(_CORRUPT_PROPOSAL)
             if not rec or rec["status"] != "pending":
                 return WorkflowResolution("⚠ 이미 처리됐거나 찾을 수 없는 제안입니다.")
             if rec["category"] != "workflow":
@@ -286,7 +306,7 @@ def resolve_proposal(
                     approved_by=actor_id,
                     approved_via=via,
                 )
-                return WorkflowResolution("⚠ 저장된 작업 제안이 손상됐습니다.")
+                return WorkflowResolution(_CORRUPT_PROPOSAL)
             task, steps = plan
             _ = store.resolve_pending(
                 aid,

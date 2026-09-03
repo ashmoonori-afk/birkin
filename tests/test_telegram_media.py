@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import re
 
-from birkin.gateway import core
 from birkin.gateway.channels import telegram
 from birkin.gateway.channels.telegram import TelegramChannel
+from birkin.gateway.turn_support import TELEGRAM_EXECUTION_POLICY
 
 
 def _ch(monkeypatch, tmp_path, downloaded="ok"):
@@ -149,7 +149,7 @@ def test_send_document_posts_multipart_file(monkeypatch, tmp_path):
 def test_gateway_policy_declares_parseable_attachment_marker():
     match = re.search(
         r'<telegram-attachment path="([^"]+)" />',
-        core._TELEGRAM_EXECUTION_POLICY,
+        TELEGRAM_EXECUTION_POLICY,
     )
     assert match is not None
     assert match.group(1).endswith(".ext")

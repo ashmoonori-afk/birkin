@@ -8,6 +8,7 @@ from birkin import cli
 from birkin.gateway import core
 from birkin.gateway import turn_router
 from birkin.gateway.telegram_lease import format_gateway_diagnostics
+from birkin.gateway.turn_support import PRIVILEGED_COMMANDS
 from birkin.omo import OmoController, parse_omo_command
 from birkin.omo_rpc import command_for_session
 from tests.omo_gateway_support import (
@@ -54,7 +55,7 @@ def test_gateway_registers_authorizes_and_closes_omo(monkeypatch) -> None:
     gateway = core.Gateway({"channels": {"telegram": {"allowed_chat_ids": ["42"]}}})
 
     assert "omo" in {item["command"] for item in core.command_menu()}
-    assert "omo" in core._PRIVILEGED_COMMANDS
+    assert "omo" in PRIVILEGED_COMMANDS
     assert gateway.handle("telegram", "42", "/omo help").startswith(
         "OMO session control"
     )

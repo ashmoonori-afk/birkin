@@ -6,9 +6,10 @@ import json
 import threading
 
 from birkin import store
-from birkin.gateway import core, workflow
+from birkin.gateway import workflow
 from birkin.gateway.channels import telegram
 from birkin.gateway.channels.telegram import TelegramChannel, _Streamer
+from birkin.gateway.turn_support import TELEGRAM_EXECUTION_POLICY
 
 
 def _proposal() -> workflow.WorkflowProposal:
@@ -80,7 +81,7 @@ def test_approved_workflow_is_bound_to_chat_and_builds_resume_prompt(
 
 def test_telegram_execution_policy_has_in_chat_delivery_contract() -> None:
     # Given
-    policy = core._TELEGRAM_EXECUTION_POLICY
+    policy = TELEGRAM_EXECUTION_POLICY
 
     # When
     open_count = policy.count(workflow.DELIVERY_OPEN)

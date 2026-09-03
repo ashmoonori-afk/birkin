@@ -57,20 +57,26 @@ class TelegramGatewayOwnedError(RuntimeError):
 
     owner_pid: int
     fingerprint: str
+    path: Path
 
     @override
     def __str__(self) -> str:
         return (
-            f"Telegram owner PID {self.owner_pid} already owns bot {self.fingerprint}."
+            f"Telegram owner PID {self.owner_pid} already owns bot "
+            f"{self.fingerprint} (lock {self.path})."
         )
 
 
 class TelegramGatewayLeaseRaceError(RuntimeError):
     """The ownership record changed repeatedly during acquisition."""
 
+    def __init__(self, path: Path) -> None:
+        super().__init__()
+        self.path: Path = path
+
     @override
     def __str__(self) -> str:
-        return "Telegram owner changed while acquiring the lease."
+        return f"Telegram owner changed while acquiring the lease (lock {self.path})."
 
 
 def _configured_token(cfg: dict[str, JSONValue]) -> str | None:
@@ -135,13 +141,22 @@ def _read_owner(path: Path) -> _OwnerRecord | None:
 
 
 def _owner_is_alive(owner: _OwnerRecord) -> bool:
+    """True only while the recorded PID is still the process that claimed it.
+
+    A PID alone is not an identity — the OS reuses it. The create_time recorded
+    at acquire settles it whenever it is readable, so a PID inherited by an
+    unrelated process (after a hard kill) reads as dead and the lock is
+    reclaimed. When create_time is unreadable we cannot tell, so the owner
+    stays "alive" and ``TelegramGatewayOwnedError`` names the lock path for the
+    operator.
+    """
     try:
-        process = psutil.Process(owner.pid)
-        return abs(process.create_time() - owner.process_started_at) < 0.01
+        created = psutil.Process(owner.pid).create_time()
     except (psutil.NoSuchProcess, psutil.ZombieProcess):
         return False
     except psutil.AccessDenied:
         return True
+    return abs(created - owner.process_started_at) < 0.01
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,11 +209,12 @@ class TelegramGatewayLease:
                         except FileExistsError:
                             existing = _read_owner(path)
                             if existing is None:
-                                raise TelegramGatewayLeaseRaceError
+                                raise TelegramGatewayLeaseRaceError(path)
                             if _owner_is_alive(existing):
                                 raise TelegramGatewayOwnedError(
                                     existing.pid,
                                     _fingerprint(token),
+                                    path,
                                 )
                             try:
                                 path.unlink()
@@ -206,9 +222,9 @@ class TelegramGatewayLease:
                                 continue
                         else:
                             return cls(path, owner, _fingerprint(token))
-                    raise TelegramGatewayLeaseRaceError
+                    raise TelegramGatewayLeaseRaceError(path)
             except (store.FileLockTimeout, OSError) as exc:
-                raise TelegramGatewayLeaseRaceError from exc
+                raise TelegramGatewayLeaseRaceError(path) from exc
         finally:
             unpublished_path.unlink(missing_ok=True)
 
@@ -239,7 +255,7 @@ class TelegramGatewayLease:
                 except FileNotFoundError:
                     return
         except (store.FileLockTimeout, OSError) as exc:
-            raise TelegramGatewayLeaseRaceError from exc
+            raise TelegramGatewayLeaseRaceError(self.path) from exc
 
 
 def format_gateway_diagnostics(cfg: dict[str, JSONValue]) -> str:
