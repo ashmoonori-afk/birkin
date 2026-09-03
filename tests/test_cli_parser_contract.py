@@ -19,6 +19,9 @@ CONTRACT: Final = Path(__file__).with_name("fixtures") / "cli_parser_contract.js
 ACTION_FIELDS: Final = frozenset(
     {"option_strings", "dest", "nargs", "choices", "default", "required"}
 )
+UNREQUIRABLE_NARGS: Final = frozenset(
+    {argparse.REMAINDER, argparse.ZERO_OR_MORE, argparse.OPTIONAL}
+)
 JsonValue: TypeAlias = (
     None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
 )
@@ -260,18 +263,32 @@ def _parser_at(path: list[str]) -> argparse.ArgumentParser:
     return parser
 
 
+def _required(action: ActionView, option_strings: tuple[str, ...], index: int) -> bool:
+    """Report `required` without characterizing the running interpreter.
+
+    CPython changed the positional `required` inference in
+    `ArgumentParser._get_positional_kwargs`: 3.10 reports a positional with
+    nargs REMAINDER ("...") as required=True, and one with nargs "*" as
+    required=True unless an explicit default was given, while later versions
+    exempt both. The flag carries no contract for these nargs -- argparse never
+    demands a value for them -- so pin it instead of copying argparse.
+    """
+    if not option_strings and action.nargs in UNREQUIRABLE_NARGS:
+        return False
+    return _boolean(action.required, f"actions[{index}].required")
+
+
 def _actions(parser: argparse.ArgumentParser) -> list[ActionContract]:
     result: list[ActionContract] = []
     for index, raw_action in enumerate(_parser_actions(parser)):
         action = _action_view(raw_action)
         parser_choices = _parser_choices(action.choices)
+        option_strings = tuple(
+            _string_list(action.option_strings, f"actions[{index}].option_strings")
+        )
         result.append(
             ActionContract(
-                option_strings=tuple(
-                    _string_list(
-                        action.option_strings, f"actions[{index}].option_strings"
-                    )
-                ),
+                option_strings=option_strings,
                 dest=_string(action.dest, f"actions[{index}].dest"),
                 nargs=_serialized(action.nargs),
                 choices=(
@@ -280,7 +297,7 @@ def _actions(parser: argparse.ArgumentParser) -> list[ActionContract]:
                     else _serialized(action.choices)
                 ),
                 default=_serialized(action.default),
-                required=_boolean(action.required, f"actions[{index}].required"),
+                required=_required(action, option_strings, index),
             )
         )
     return result
