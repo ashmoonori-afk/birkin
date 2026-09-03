@@ -101,6 +101,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # so unlike `moirai_auto` this is on by default. Set false to keep workers
     # reachable only from the CLI.
     "worker_call_auto": True,
+    # A turn's session has no goal of its own: fall back to the no-session
+    # (global) goal note instead of showing none (see promptgate._goal_note).
+    # Set false to keep goal steering strictly per-session.
+    "session_goal_fallback": True,
     "moirai_workers": 4,
     "moirai_max_agents": 100,
     "moirai_roles": {},
@@ -234,6 +238,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Keep one pre-warmed spare claude process so the FIRST message of a new
     # conversation skips the ~28 s CLI cold start.
     "gateway_prewarm": True,
+    # Native-API gateway session pool (SessionPool in gateway/core.py): the
+    # most sessions kept live at once, and how long an idle one may sit
+    # before it is reclaimed. Ignored by CLI providers, which own their own
+    # child process lifecycle.
+    "gateway_max_sessions": 8,
+    "gateway_session_ttl_s": 3600,
+    # Rewrite a gateway reply through a second, no-tools model pass before
+    # delivery (currently wired for the Telegram channel; see gateway/polish.py).
+    # gateway_polish_provider/gateway_polish_model are deliberately absent here:
+    # unset, they fall through to morpheus_provider/morpheus_model rather than
+    # a fixed default, so a real default would misdocument that fallback.
+    # Empty provider disables polishing and the raw reply is sent as-is.
+    "gateway_polish_timeout": 90,
     "voice": {
         "wake_phrase": "Daddy is home",
         "gateway_url": "",

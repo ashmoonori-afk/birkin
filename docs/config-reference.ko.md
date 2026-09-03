@@ -32,6 +32,7 @@ Schema version: 1
 | `repl_typed_line` | `string` | `"steer"` | Birkin 설정 `repl_typed_line`. |
 | `moirai_auto` | `boolean` | `false` | Birkin 설정 `moirai_auto`. |
 | `worker_call_auto` | `boolean` | `true` | Birkin 설정 `worker_call_auto`. |
+| `session_goal_fallback` | `boolean` | `true` | Session에 자체 goal이 없을 때 no-session(전역) goal note로 대체할지 여부입니다. false이면 session별로만 goal을 표시합니다. |
 | `moirai_workers` | `integer` | `4` | Birkin 설정 `moirai_workers`. |
 | `moirai_max_agents` | `integer` | `100` | Birkin 설정 `moirai_max_agents`. |
 | `moirai_roles` | `object` | `{}` | Birkin 설정 `moirai_roles`. |
@@ -82,6 +83,9 @@ Schema version: 1
 | `gateway_clean_hooks` | `boolean` | `true` | Birkin 설정 `gateway_clean_hooks`. |
 | `gateway_thinking_tokens` | `integer` | `0` | Birkin 설정 `gateway_thinking_tokens`. |
 | `gateway_prewarm` | `boolean` | `true` | Birkin 설정 `gateway_prewarm`. |
+| `gateway_max_sessions` | `integer` | `8` | native-API gateway session pool에 동시에 유지하는 최대 session 수입니다 (SessionPool). CLI provider에는 적용되지 않습니다. |
+| `gateway_session_ttl_s` | `integer` | `3600` | native-API gateway session이 유휴 상태로 유지될 수 있는 최대 시간(초)이며 초과하면 회수됩니다. |
+| `gateway_polish_timeout` | `integer` | `90` | Gateway 응답 polish 단계에 허용하는 최대 시간(초)이며 초과하면 원본 응답을 그대로 사용합니다. |
 | `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2}` | Birkin 설정 `voice`. |
 | `voice.wake_phrase` | `string` | `"Daddy is home"` | Birkin 설정 `voice.wake_phrase`. |
 | `voice.gateway_url` | `string` | `""` | Birkin 설정 `voice.gateway_url`. |
@@ -123,7 +127,7 @@ Schema version: 1
 | `channels.telegram.enabled` | `boolean` | `false` | Birkin 설정 `channels.telegram.enabled`. |
 | `channels.telegram.token` | `string` | `""` | Birkin 설정 `channels.telegram.token`. |
 | `channels.telegram.allowed_chat_ids` | `array` | `[]` | Birkin 설정 `channels.telegram.allowed_chat_ids`. |
-| `channels.telegram.allowed_sender_ids` | `array` | `[]` | Birkin 설정 `channels.telegram.allowed_sender_ids`. |
+| `channels.telegram.allowed_sender_ids` | `array` | `[]` | 비어 있으면 allowed_chat_ids만으로 turn을 허용합니다(발신자 추가 검사 없음). 값이 있으면 allowlist에 포함된 group/supergroup chat에서 turn을 시작할 수 있는 발신자를 제한합니다. |
 | `channels.telegram.stream` | `boolean` | `true` | Birkin 설정 `channels.telegram.stream`. |
 | `channels.telegram.max_public_workers` | `integer` | `4` | Birkin 설정 `channels.telegram.max_public_workers`. |
 | `channels.slack` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin 설정 `channels.slack`. |
@@ -196,5 +200,7 @@ Schema version: 1
 | `sandbox.network_allowlist` | `array` | `[]` | Birkin 설정 `sandbox.network_allowlist`. |
 | `sandbox.write_paths` | `array` | `["."]` | Birkin 설정 `sandbox.write_paths`. |
 | `update_verify_signature` | `boolean` | `false` | Birkin 설정 `update_verify_signature`. |
-| `nightly_hour` | `integer` | `null` |  |
-| `nightly_minute` | `integer` | `null` |  |
+| `gateway_polish_provider` | `string` | `null` | Gateway 응답을 전달 전에 다시 다듬는 두 번째 no-tools 단계의 provider입니다 (현재 Telegram channel에 연결됨). 비어 있으면 polish를 비활성화합니다. |
+| `gateway_polish_model` | `string` | `null` | Gateway 응답 polish에 사용하는 model입니다. 비어 있으면 morpheus_model 또는 provider 기본값을 사용합니다. |
+| `nightly_hour` | `integer` | `null` | 폐기됨: morpheus_hour 사용 |
+| `nightly_minute` | `integer` | `null` | 폐기됨: morpheus_minute 사용 |
