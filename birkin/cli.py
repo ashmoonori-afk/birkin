@@ -1528,6 +1528,21 @@ def _force_utf8_output() -> None:
             continue
 
 
+# Subcommands that own approvals: only these resume durable executions.
+_RECOVERY_SUBCOMMANDS = frozenset(
+    {
+        "chat",
+        "review",
+        "gateway",
+        "web",
+        "native-bridge",
+        "daemon",
+        "morpheus",
+        "omo",
+    }
+)
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8_output()
     command_line = list(argv if argv is not None else sys.argv[1:])
@@ -1535,13 +1550,18 @@ def main(argv: list[str] | None = None) -> int:
         from .approval_execution_helper import run
 
         return run(command_line[1], command_line[2]) if len(command_line) == 3 else 2
-    from .approval_execution_recovery import recover_all
-
-    recover_all()
     parser = build_parser()
     if command_line and command_line[0] == "nightly":
         command_line[0] = "morpheus"
     args = parser.parse_args(command_line)
-    if not getattr(args, "command", None):
+    command = getattr(args, "command", None)
+    # Recovery spawns helper subprocesses and rewrites approval records, so it
+    # runs only for the long-lived surfaces that act on approvals -- never for
+    # `--help` or a parse error, which exit inside parse_args() above.
+    if (command or "chat") in _RECOVERY_SUBCOMMANDS:
+        from .approval_execution_recovery import recover_all
+
+        recover_all()
+    if not command:
         return _cmd_chat(args)
     return args.func(args)

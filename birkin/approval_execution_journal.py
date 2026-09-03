@@ -182,7 +182,9 @@ class ExecutionJournal:
             )
         previous = ""
         events: list[dict[str, JSONValue]] = []
-        for sequence, line in enumerate(raw.splitlines(), start=1):
+        # split("\n"), not splitlines(): payload text may hold U+2028/U+2029/U+0085,
+        # which json.dumps(ensure_ascii=False) writes literally into the record.
+        for sequence, line in enumerate(raw.split("\n")[:-1], start=1):
             try:
                 value = json_mapping(line)
             except JournalCodecError as exc:
@@ -239,7 +241,7 @@ class ExecutionJournal:
                     "approval execution journal has an incomplete line"
                 )
             try:
-                last = json_mapping(snapshot_raw.splitlines()[-1])
+                last = json_mapping(snapshot_raw.split("\n")[-2])
             except JournalCodecError as exc:
                 raise JournalCorruptionError(str(exc)) from exc
             digest = last.get("digest")

@@ -116,7 +116,17 @@ def recover_one(
                     project_terminal(approval_id, record, snapshot)
                 case _:
                     assert_never(snapshot.phase)
-    except (OSError, store.FileLockTimeout, JournalCorruptionError) as exc:
+    except store.FileLockTimeout:
+        # FileLockTimeout subclasses TimeoutError -> OSError, so it must be
+        # caught ahead of the freeze clause: contention (a second approver, a
+        # concurrent recover_all, an antivirus scan) is retryable, not corrupt.
+        return {"ok": False, "error": "approval store is busy", "retryable": True}
+    except Exception as exc:
+        # Every entry point calls recover_all() at startup, so nothing here may
+        # escape: project_terminal() reaches office receipt code that raises
+        # DocumentError (neither OSError nor JournalCorruptionError) whenever the
+        # office job record is gone, which would kill chat, gateway and web with
+        # a traceback. Freeze the one poisoned approval instead.
         _freeze(approval_id, str(exc))
         return {"ok": False, "error": str(exc)}
     if process is not None and wait:

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -34,6 +35,25 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _replace_with_retry(tmp: Path, path: Path) -> None:
+    """``os.replace`` with a short bounded retry on a sharing violation.
+
+    CPython opens files without FILE_SHARE_DELETE, so on Windows a concurrent
+    reader of ``path`` (another birkin process, an antivirus scan) makes the
+    rename fail with PermissionError [WinError 5] until it closes. Ten
+    attempts over ~1.5s outlast that; a genuine permission error still raises.
+    """
+    delay = 0.01
+    for _ in range(9):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+            delay = min(delay * 2, 0.2)
+    os.replace(tmp, path)
+
+
 def _write_json(path: Path, obj: Any) -> None:
     # Unique per write so concurrent writers to the same path don't collide on
     # the temp file (pid + uuid covers both cross-thread and cross-process).
@@ -44,7 +64,7 @@ def _write_json(path: Path, obj: Any) -> None:
             handle.write(json.dumps(obj, indent=2, ensure_ascii=False))
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(tmp, path)
+        _replace_with_retry(tmp, path)
     except OSError:
         try:  # don't leave a partial .tmp behind on a failed write
             tmp.unlink()

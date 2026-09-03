@@ -70,11 +70,17 @@ def execute(
                 queue_overwrite_follow_up,
             )
 
-            follow_up = queue_overwrite_follow_up(
-                approval_id=approval_id,
-                category=category,
-                payload=payload,
-            )
+            try:
+                follow_up = queue_overwrite_follow_up(
+                    approval_id=approval_id,
+                    category=category,
+                    payload=payload,
+                )
+            except Exception as follow_up_exc:
+                # Queueing can fail (a rebound proposal that no longer matches).
+                # Record the failure instead of escaping, or recover_all resumes
+                # this approval on every start.
+                return _persist_failure(approval_id, journal, follow_up_exc)
             try:
                 with store.file_lock(path):
                     _ = store.resolve_pending(

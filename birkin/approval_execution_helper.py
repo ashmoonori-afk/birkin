@@ -81,11 +81,19 @@ def run(approval_id: str, owner_token: str) -> int:
                 ):
                     from .office.overwrite_retry import queue_overwrite_follow_up
 
-                    follow_up = queue_overwrite_follow_up(
-                        approval_id=approval_id,
-                        category=snapshot.category,
-                        payload=snapshot.payload,
-                    )
+                    try:
+                        follow_up = queue_overwrite_follow_up(
+                            approval_id=approval_id,
+                            category=snapshot.category,
+                            payload=snapshot.payload,
+                        )
+                    except Exception as follow_up_exc:
+                        # Queueing can fail (a rebound proposal that no longer
+                        # matches). Record the failure instead of escaping, or
+                        # recover_all resumes this approval on every start.
+                        journal.failed(str(follow_up_exc))
+                        project_terminal(approval_id, record, journal.load())
+                        return 1
                     _ = store.resolve_pending(
                         approval_id,
                         "executing",
