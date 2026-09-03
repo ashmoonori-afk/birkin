@@ -35,8 +35,15 @@ class RequestPayloadError(ValueError):
         return self.detail
 
 
-def parse_object(body: bytes) -> dict[str, JSONValue]:
-    """Parse one JSON request object into recursively typed values."""
+def parse_value(body: bytes) -> JSONValue:
+    """Parse one JSON request body, bounding its nesting on every platform.
+
+    Whether json.loads even reaches the end of an over-nested body depends on
+    the interpreter's C recursion limit, which is per-platform: 5000 nested
+    arrays parse fine on Linux and macOS and raise RecursionError on Windows.
+    So the depth bound is applied to the parsed value too, before the caller
+    ever sees it -- both paths answer with the same _TOO_DEEP detail.
+    """
     try:
         value = _load_json(body)
     except ValueError as exc:
@@ -45,12 +52,18 @@ def parse_object(body: bytes) -> dict[str, JSONValue]:
         raise RequestPayloadError("bad json") from exc
     except RecursionError as exc:
         raise RequestPayloadError(_TOO_DEEP) from exc
-    if not isinstance(value, dict):
-        raise RequestPayloadError("expected JSON object")
     try:
-        return _object(value, 1)
+        return _value(value, 0)
     except RecursionError as exc:
         raise RequestPayloadError(_TOO_DEEP) from exc
+
+
+def parse_object(body: bytes) -> dict[str, JSONValue]:
+    """Parse one JSON request object into recursively typed values."""
+    value = parse_value(body)
+    if not isinstance(value, dict):
+        raise RequestPayloadError("expected JSON object")
+    return value
 
 
 def string_list(value: JSONValue | None) -> list[str] | None:

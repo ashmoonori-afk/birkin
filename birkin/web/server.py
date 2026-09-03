@@ -88,6 +88,7 @@ from .request_payload import (
     JSONValue,
     RequestPayloadError,
     parse_object,
+    parse_value,
     string_list,
 )
 from .routes import GetRoute, PostRoute, RouteMatch, match_get, match_post
@@ -747,25 +748,13 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if not path.startswith("/api/workspace/"):
             return False
-        body, body_status = self._read_body()
-        if body_status != 200:
-            message = {
-                408: "request body timeout",
-                413: "payload too large",
-            }.get(body_status, "bad content length")
-            self._json({"error": message}, code=body_status)
+        # Shared with the other POST routes: one bounded parse, so a malformed
+        # or over-nested body earns the same 400 here as it does there instead
+        # of an answer that depends on the platform's own recursion limit.
+        parsed = self._read_json_object()
+        if parsed is None:
             return True
-        try:
-            raw_payload = cast(object, json.loads(body or b"{}"))
-        # RecursionError is a RuntimeError, not a ValueError: JSON nested past
-        # the scanner's limit would otherwise escape and answer nothing at all.
-        except (ValueError, UnicodeDecodeError, RecursionError):
-            self._json({"error": "bad json"}, code=400)
-            return True
-        if not isinstance(raw_payload, dict):
-            self._json({"error": "expected JSON object"}, code=400)
-            return True
-        payload = cast(dict[str, object], raw_payload)
+        payload = cast(dict[str, object], parsed)
         hub = _get_workspace_hub()
         if path == "/api/workspace/sessions":
             if set(payload) != {"session_id"}:
@@ -1315,9 +1304,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "bad request body"}, code=body_status)
             return
         try:
-            payload = json.loads(body or b"{}")
-        # See _workspace_post: deep nesting raises RecursionError, not ValueError.
-        except (ValueError, UnicodeDecodeError, RecursionError):
+            payload = parse_value(body or b"{}")
+        # Bounded parse: a body that is malformed, or nested past what the typed
+        # walk admits, is a parse error on every platform -- json.loads alone
+        # would accept 5000 nested arrays here on Linux and macOS.
+        except RequestPayloadError:
             self._json(
                 {
                     "jsonrpc": "2.0",
