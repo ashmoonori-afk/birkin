@@ -16,6 +16,18 @@ import pexpect
 from typing_extensions import override
 
 
+def _cancel_io_errors() -> tuple[type[BaseException], ...]:
+    """Bind the native cancel_io failure, or nothing where pywinpty is absent."""
+    try:
+        from winpty import WinptyError
+    except ImportError:  # pywinpty is installed on Windows only.
+        return ()
+    return (WinptyError,)
+
+
+_CANCEL_IO_ERRORS = _cancel_io_errors()
+
+
 class _CancelableIo(Protocol):
     def cancel_io(self) -> bool: ...
 
@@ -193,13 +205,11 @@ class ConptySpawn:
         return self._process.isalive()
 
     def _wait_for_process(self) -> None:
-        from winpty import WinptyError
-
         _ = self._process.wait()
         if self._reader.is_alive():
             try:
                 _ = self._process.pty.cancel_io()
-            except WinptyError:
+            except _CANCEL_IO_ERRORS:
                 return
 
     def _read_chunks(self) -> None:
