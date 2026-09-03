@@ -38,6 +38,9 @@ def _creation_payload(payload: Mapping[str, object]) -> dict[str, object]:
         raise creation_error("creation paragraphs are unavailable")
     paragraphs = parse_paragraphs(cast("Sequence[object]", raw_paragraphs))
     destination = Path(required_text(payload.get("destination"), "destination"))
+    # The destination reaches the router only through artifact_names: a filename
+    # embedded in the request text re-routes names like "notes.xlsx.docx" to a
+    # format conflict that the original approval never had.
     return OfficeCreationCoordinator(
         OfficeCreationCaller(
             allowlist_root=Path(
@@ -47,7 +50,7 @@ def _creation_payload(payload: Mapping[str, object]) -> dict[str, object]:
         )
     ).request(
         OfficeCreationRequest(
-            request_text=f"Create a new DOCX document at {destination.name}",
+            request_text="Create a new DOCX document",
             paragraphs=paragraphs,
             outcome=required_text(payload.get("outcome"), "outcome"),
             destination=destination,

@@ -9,7 +9,12 @@ from .export_io import recovery_error
 from .export_journal_record import ExportTransaction
 from .export_types import ExportReceipt, ExportRequest
 from .proposal_integrity import authority_digest
-from .receipt_auth import authenticate_receipt, receipt_window, sign_receipt
+from .receipt_auth import (
+    authenticate_receipt,
+    receipt_window,
+    sign_receipt,
+    verified_receipt_window,
+)
 
 
 def transaction_receipt(
@@ -48,14 +53,18 @@ def seal_transaction_receipt(
     transaction: ExportTransaction,
     request: ExportRequest,
     office_home: Path,
+    *,
+    enforce_retention: bool = True,
 ) -> ExportTransaction:
     if not transaction.receipt_authenticated:
         return transaction
     if transaction.receipt_hmac is not None:
-        authenticated = authenticate_receipt(
-            transaction_receipt(transaction, request).public(),
-            office_home,
-        )
+        payload = transaction_receipt(transaction, request).public()
+        if not enforce_retention:
+            # An unfinished transaction stays resumable past its receipt window.
+            _ = verified_receipt_window(payload, office_home)
+            return transaction
+        authenticated = authenticate_receipt(payload, office_home)
         if not authenticated:
             raise recovery_error("export receipt authentication is unavailable")
         return transaction

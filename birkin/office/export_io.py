@@ -15,6 +15,8 @@ from .export_journal import ExportTransaction
 
 DirectorySync = Callable[[Path, tuple[int, int]], None]
 
+EMPTY_SHA256 = hashlib.sha256(b"").hexdigest()
+
 
 def hash_file(path: Path) -> str:
     digest = hashlib.sha256()
@@ -46,6 +48,16 @@ def regular_file_identity(path: Path, stage: str = "export") -> tuple[int, int]:
     if not stat.S_ISREG(metadata.st_mode):
         raise recovery_error("export helper must remain a regular file", stage)
     return metadata.st_dev, metadata.st_ino
+
+
+def clear_readonly(path: Path) -> None:
+    """Make one displaced helper writable so descriptor retirement can bind it."""
+    if os.name == "nt":
+        os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
+        return
+    mode = path.stat(follow_symlinks=False).st_mode
+    if not mode & stat.S_IWUSR:
+        os.chmod(path, stat.S_IMODE(mode) | stat.S_IWUSR)
 
 
 def copy_exact(source: Path | SnapshotPath, target: Path) -> None:

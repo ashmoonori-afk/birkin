@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,9 +11,12 @@ from pathlib import Path
 from .artifact_serialization import canonical_integrity_json
 from .errors import DocumentError, DocumentErrorCode
 from .export_types import JSONValue
+from .extract_contract import MAX_TEXT_BYTES
 
 FORMAT = "docx"
 VERSION = 1
+# C0, DEL, and C1: DOCX text extraction drops every one of them.
+CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 CATEGORY = "office_create"
 PAYLOAD_KEYS = frozenset(
     {
@@ -60,6 +64,14 @@ def creation_error(message: str) -> DocumentError:
     )
 
 
+def invalid_creation_input(message: str) -> DocumentError:
+    return DocumentError(
+        DocumentErrorCode.INVALID_INPUT,
+        "office_create",
+        message,
+    )
+
+
 def required_text(value: object, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise creation_error(f"{name} must be a non-empty string")
@@ -74,6 +86,18 @@ def parse_paragraphs(value: object) -> tuple[str, ...]:
     )
     if not paragraphs:
         raise creation_error("content paragraphs must not be empty")
+    if any(CONTROL_CHARACTERS.search(paragraph) for paragraph in paragraphs):
+        raise invalid_creation_input(
+            "문단 하나가 한 줄입니다. 줄바꿈이나 탭 같은 제어 문자는 넣을 수 없습니다."
+        )
+    # Execution compares the extracted text, which is the paragraphs joined by
+    # one newline and truncated at MAX_TEXT_BYTES UTF-8 bytes.
+    text_bytes = sum(len(paragraph.encode("utf-8")) for paragraph in paragraphs)
+    text_bytes += len(paragraphs) - 1
+    if text_bytes > MAX_TEXT_BYTES:
+        raise invalid_creation_input(
+            f"본문이 너무 깁니다. UTF-8 기준 {MAX_TEXT_BYTES:,}바이트까지만 됩니다."
+        )
     return paragraphs
 
 

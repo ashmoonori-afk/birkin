@@ -7,10 +7,8 @@ from typing import final
 
 from typing_extensions import assert_never
 
-from birkin import store
-
 from .errors import DocumentError, DocumentErrorCode
-from .export_destination_lock import destination_lock_path
+from .export_destination_lock import destination_lock_path, held_export_lock
 from .export_io import (
     DirectorySync,
     recovery_error,
@@ -38,8 +36,10 @@ class ExportRollback:
         self._sync = sync_directory
 
     def run(self, receipt: ExportReceipt, destination: Path) -> RollbackReceipt:
-        with store.file_lock(
-            destination_lock_path(self._backup_root, destination)
+        with held_export_lock(
+            destination_lock_path(self._backup_root, destination),
+            "export destination is locked by another transaction",
+            "rollback",
         ):
             transaction = self._journal.find_token(receipt.rollback_token)
             if transaction is None:
@@ -48,8 +48,10 @@ class ExportRollback:
                     "rollback",
                     "durable export transaction is unavailable",
                 )
-            with store.file_lock(
+            with held_export_lock(
                 self._journal.path_for(transaction.transaction_id),
+                "export transaction journal is locked by another transaction",
+                "rollback",
             ):
                 current = self._journal.load(transaction.transaction_id)
                 if (

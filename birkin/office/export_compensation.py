@@ -7,6 +7,7 @@ from pathlib import Path
 from .errors import DocumentError
 from .export_displacement_restore import restore_displaced
 from .export_io import (
+    EMPTY_SHA256,
     DirectorySync,
     current_hash,
     recovery_error,
@@ -22,7 +23,11 @@ def compensate_export(
     sync_directory: DirectorySync,
 ) -> None:
     try:
-        if checkpoint.is_file() and checkpoint.stat().st_size == 0:
+        if (
+            checkpoint.is_file()
+            and checkpoint.stat().st_size == 0
+            and expected_sha256 != EMPTY_SHA256
+        ):
             _sync_parent(transaction, sync_directory)
             return
         if not checkpoint.exists() and not checkpoint.is_symlink():

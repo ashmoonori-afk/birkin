@@ -8,16 +8,22 @@ from typing import final
 
 from .create_contract import creation_error, required_text
 from .journal_record import journal_root, read_record, write_record
+from .path_security import directory_identity, sync_directory
 
 _STAGE = "office_creation_journal"
 _VERSION = 1
+TERMINAL_STATES = frozenset({"exported", "rolled_back"})
+
+
+def _is_job_id(value: str) -> bool:
+    return len(value) == 32 and all(
+        character in "0123456789abcdef" for character in value
+    )
 
 
 def _job_id(value: object) -> str:
     job_id = required_text(value, "job_id")
-    if len(job_id) != 32 or any(
-        character not in "0123456789abcdef" for character in job_id
-    ):
+    if not _is_job_id(job_id):
         raise creation_error("creation job id is invalid")
     return job_id
 
@@ -54,6 +60,22 @@ class CreationJobJournal:
 
     def latest(self, job_id: str) -> dict[str, object]:
         return read_record(self.path_for(job_id), _STAGE) or {}
+
+    def list_all(self) -> tuple[str, ...]:
+        return tuple(
+            sorted(
+                path.stem
+                for path in self._root.glob("*.json")
+                if _is_job_id(path.stem)
+            )
+        )
+
+    def remove(self, job_id: str) -> None:
+        try:
+            self.path_for(job_id).unlink(missing_ok=True)
+            sync_directory(self._root, directory_identity(self._root))
+        except OSError as exc:
+            raise creation_error("creation job cleanup failed") from exc
 
     def require_approval(
         self,

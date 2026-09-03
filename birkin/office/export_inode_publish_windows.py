@@ -11,6 +11,7 @@ from typing import cast, final
 
 from . import windows_native
 from .export_descriptor_copy import copy_descriptor
+from .export_quarantine_retire import retire_windows_descriptor
 
 _DELETE = 0x00010000
 _GENERIC_WRITE = 0x40000000
@@ -52,6 +53,10 @@ def publish_windows_handle(
         if not published:
             os.ftruncate(temporary, 0)
             os.fsync(temporary)
+            try:
+                retire_windows_descriptor(temporary)
+            except OSError:
+                pass
         os.close(temporary)
 
 
