@@ -95,6 +95,14 @@ def build_channels(cfg: Config) -> list[Channel]:
                 if isinstance(raw_allowed_senders, list)
                 else []
             )
+            # Group/supergroup ids are negative; a private chat id is not.
+            if not allowed_senders and any(cid.startswith("-") for cid in allowed):
+                print(
+                    "[gateway] 경고: 그룹 채팅이 허용 목록에 있는데 "
+                    + "allowed_sender_ids가 비어 있습니다. 해당 그룹의 모든 "
+                    + "참여자가 에이전트를 실행하고 승인할 수 있습니다. "
+                    + "제한하려면 channels.telegram.allowed_sender_ids를 설정하세요."
+                )
             if not allowed:
                 print(
                     "[gateway] Telegram is public and capability-stripped: "

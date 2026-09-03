@@ -44,9 +44,22 @@ class ChannelGateway(TurnGateway, Protocol):
 
     def pending_actions(self) -> list[dict[str, object]]: ...
 
-    def resolve_action(self, aid: str, approve: bool) -> str: ...
+    def resolve_action(
+        self,
+        aid: str,
+        approve: bool,
+        *,
+        actor_id: str,
+        via: str,
+    ) -> str: ...
 
-    def claim_action(self, aid: str) -> tuple[str, bool]: ...
+    def claim_action(
+        self,
+        aid: str,
+        *,
+        actor_id: str,
+        via: str,
+    ) -> tuple[str, bool]: ...
 
     def execute_claimed_action(
         self,

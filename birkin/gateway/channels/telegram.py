@@ -65,6 +65,9 @@ _ATTACHMENT_RE = re.compile(
 _MAX_DOCUMENT_BYTES: Final = 50 * 1024 * 1024
 MAX_PUBLIC_WORKERS: Final = 4
 _BUSY_REPLY: Final = "Birkin is busy; try again shortly."
+# How long a worker waits for the poll loop to ack the dispatched batch's
+# offset before it re-execs anyway (see TelegramChannel._poll_acked).
+_RESTART_ACK_TIMEOUT: Final = 5.0
 
 
 class _UrlResponse(Protocol):
@@ -549,17 +552,38 @@ class TelegramChannel(Channel):
         )
         self._worker_lock: threading.Lock = threading.Lock()
         self._progress: dict[str, dict[str, object]] = {}
+        # Set by the poll loop right before every getUpdates whose offset has
+        # advanced past the batch it last dispatched, cleared when it dispatches
+        # a new batch. A worker about to re-exec waits on it so Telegram has
+        # seen the advanced offset and won't redeliver the triggering update.
+        self._poll_acked: threading.Event = threading.Event()
 
     def _sender_authorized(
-        self, chat_id: str, sender_id: str, chat_type: str
+        self,
+        chat_id: str,
+        sender_id: str,
+        chat_type: str,
+        *,
+        privileged: bool = False,
     ) -> bool:
-        """Authorize the Telegram principal before any message side effect."""
+        """Authorize the Telegram principal before any message side effect.
+
+        ``privileged`` drops the empty-``allowed_sender_ids`` leniency below:
+        approving a queued action must always name the tapping user, otherwise
+        any member of an allowlisted group could approve.
+        """
         if not self.allowed_chat_ids:
-            return True
+            return not privileged
         if chat_id not in self.allowed_chat_ids or not sender_id:
             return False
         if chat_type not in {"group", "supergroup"} and sender_id == chat_id:
             return True
+        # An empty allowed_sender_ids means "no extra sender restriction" only
+        # outside group chats. An allowlisted group must still name its members:
+        # otherwise every member of the group would get a capability-enabled
+        # turn in the owner's workspace. build_channels warns about that config.
+        if not self.allowed_sender_ids:
+            return not privileged and chat_type not in {"group", "supergroup"}
         return sender_id in self.allowed_sender_ids
 
     def _start_public_worker(
@@ -1035,8 +1059,13 @@ class TelegramChannel(Channel):
         # in an allowlisted group any member could otherwise approve. The
         # tapping user's id must itself be allowlisted (for a private chat
         # chat_id == user_id, so this is unchanged there).
-        if not self._sender_authorized(chat_id, from_id, chat_type):
-            self._answer_callback(cq_id, "unauthorized")
+        if not self._sender_authorized(chat_id, from_id, chat_type, privileged=True):
+            self._answer_callback(
+                cq_id,
+                "approvals in groups need allowed_sender_ids"
+                if chat_id in self.allowed_chat_ids and not self.allowed_sender_ids
+                else "unauthorized",
+            )
             return
         if ":" not in data:
             self._answer_callback(cq_id, "")
@@ -1525,9 +1554,16 @@ class TelegramChannel(Channel):
             if self._workflow_ids.get(chat_id) == workflow_id:
                 _ = self._workflow_ids.pop(chat_id, None)
         if gateway.pending_hard_restart:
-            # The main poll loop already advances with this batch's offset.
-            # A second getUpdates here races its active long poll and makes
-            # Telegram report a false duplicate-poller 409 against ourselves.
+            # The main poll loop acks this batch's offset with its next
+            # getUpdates; wait for that instead of issuing one here, which
+            # would race its active long poll and make Telegram report a false
+            # duplicate-poller 409 against ourselves. Re-exec'ing before the
+            # ack would have Telegram redeliver the triggering update.
+            if not self._poll_acked.wait(_RESTART_ACK_TIMEOUT):
+                print(
+                    "[telegram] restarting without an offset ack; the "
+                    + "triggering update may be redelivered"
+                )
             gateway.do_hard_restart()  # replaces the process; never returns
 
     def _redeliver_pending(self) -> int:
@@ -1580,6 +1616,9 @@ class TelegramChannel(Channel):
             print(f"[telegram] restart greeting failed: {exc}")
         offset = 0
         while True:
+            # This poll carries every offset advanced by the batch dispatched
+            # last, so a worker waiting to re-exec may now proceed.
+            self._poll_acked.set()
             try:
                 res = self._call(
                     "getUpdates", {"offset": offset, "timeout": 50}, timeout=60
@@ -1610,6 +1649,10 @@ class TelegramChannel(Channel):
                 continue
             raw_updates = res.get("result")
             updates = raw_updates if isinstance(raw_updates, list) else []
+            if updates:
+                # These offsets are not acked until the next getUpdates goes
+                # out with them.
+                self._poll_acked.clear()
             for raw_update in updates:
                 upd = _json_object(raw_update)
                 offset = max(offset, _json_int(upd.get("update_id")) + 1)

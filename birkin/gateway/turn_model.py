@@ -15,6 +15,7 @@ from .turn_model_session import (
     skill_state,
 )
 from .turn_support import (
+    TELEGRAM_EXECUTION_POLICY,
     TURN_ERROR_REPLY,
     TURN_INTERRUPTED_REPLY,
     TURN_PARTIAL_SUFFIX,
@@ -31,17 +32,11 @@ from .turn_types import (
     TurnLease,
     TurnRequest,
 )
-from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
+from .workflow import is_running as workflow_is_running
 
 _ask_model = ask_model
 _ask_shared_session = ask_shared_session
 _skill_state = skill_state
-
-TELEGRAM_EXECUTION_POLICY = (
-    "<gateway-execution-policy>\n"
-    + WORKFLOW_POLICY
-    + 'Keep this foreground turn responsive: inspect only files relevant to the request and run only targeted tests. Do not wait for a repository-wide test suite. If broader verification is warranted, start it as a detached background job, write its output and exit status to a receipt inside the workspace, and tell the user the receipt path.\nWhen the user explicitly asks you to send a generated file back through Telegram, create it inside the current workspace and append one standalone marker per file as the final line: <telegram-attachment path="relative/path.ext" />. Do not wrap the marker in a code fence, and never emit it before the file exists.\n</gateway-execution-policy>\n\n'
-)
 
 
 def run_model_turn(
