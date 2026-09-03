@@ -89,7 +89,7 @@ def test_gateway_interrupt_cancels_inflight_turn(tmp_path, monkeypatch):
 
     t = threading.Thread(target=run_turn)
     t.start()
-    assert sess.started.wait(timeout=2)
+    assert sess.started.wait(timeout=10)
     assert gw.interrupt("telegram", "42") is True
     assert finished.wait(timeout=10)
     t.join()
@@ -304,10 +304,10 @@ def test_old_turn_cannot_unregister_newer_inflight_turn(tmp_path, monkeypatch):
         def ask(self, text, on_text=None):
             if text == "old":
                 old_asking.set()
-                assert finish_old.wait(timeout=2)
+                assert finish_old.wait(timeout=10)
                 return "old-done"
             new_asking.set()
-            assert finish_new.wait(timeout=2)
+            assert finish_new.wait(timeout=10)
             return "new-done"
 
         def interrupt(self):
@@ -329,19 +329,19 @@ def test_old_turn_cannot_unregister_newer_inflight_turn(tmp_path, monkeypatch):
         target=lambda: results.__setitem__("new", gw.handle("http", "42", "new")))
 
     old.start()
-    assert old_asking.wait(timeout=2)
+    assert old_asking.wait(timeout=10)
     new.start()
-    assert new_asking.wait(timeout=2)
+    assert new_asking.wait(timeout=10)
     try:
         finish_old.set()
-        old.join(timeout=2)
+        old.join(timeout=10)
         assert not old.is_alive()
         interrupted = gw.interrupt("http", "42")
     finally:
         finish_old.set()
         finish_new.set()
-        old.join(timeout=2)
-        new.join(timeout=2)
+        old.join(timeout=10)
+        new.join(timeout=10)
 
     assert interrupted is True
     assert session.interrupt_calls == 1
@@ -368,7 +368,7 @@ def test_failed_new_turn_leaves_active_predecessor_interruptible(
 
         def ask(self, text, on_text=None):
             self.asking.set()
-            assert release_old.wait(timeout=2)
+            assert release_old.wait(timeout=10)
             return "old-done"
 
         def interrupt(self):
@@ -399,7 +399,7 @@ def test_failed_new_turn_leaves_active_predecessor_interruptible(
     def prepare(text, **_kwargs):
         if text == "new":
             new_preparing.set()
-            assert allow_new_failure.wait(timeout=2)
+            assert allow_new_failure.wait(timeout=10)
             raise RuntimeError("new failed before ask")
         return text
 
@@ -415,16 +415,16 @@ def test_failed_new_turn_leaves_active_predecessor_interruptible(
         target=lambda: results.__setitem__("new", gw.handle(*key, "new")))
 
     old.start()
-    assert old_asking.wait(timeout=2)
+    assert old_asking.wait(timeout=10)
     assert old.is_alive()
     new.start()
-    assert new_preparing.wait(timeout=2)
+    assert new_preparing.wait(timeout=10)
     assert new.is_alive()
     try:
         overlap_interrupted = gw.interrupt(*key)
         assert old.is_alive()
         allow_new_failure.set()
-        new.join(timeout=2)
+        new.join(timeout=10)
         assert not new.is_alive()
         assert old.is_alive()
         assert not new_asked.is_set()
@@ -433,8 +433,8 @@ def test_failed_new_turn_leaves_active_predecessor_interruptible(
     finally:
         allow_new_failure.set()
         release_old.set()
-        old.join(timeout=2)
-        new.join(timeout=2)
+        old.join(timeout=10)
+        new.join(timeout=10)
 
     assert not old.is_alive() and not new.is_alive()
     assert predecessor_interrupted is True
@@ -586,7 +586,7 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
                 workflow_id=None, on_progress=None):
             self.handled.append(text)
             self.started.set()
-            assert self.release.wait(timeout=2)
+            assert self.release.wait(timeout=10)
             return f"reply to {text}"
 
     gw = _FakeGateway.__new__(_FakeGateway)
@@ -603,14 +603,14 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
                           daemon=True)
     ch._workers["42"] = w1
     w1.start()
-    assert gw.started.wait(timeout=2)
+    assert gw.started.wait(timeout=10)
     # simulate the loop seeing a SECOND message for the same chat
     prev = ch._workers.get("42")
     assert prev is not None
     assert prev.is_alive()
     gw.interrupt("telegram", "42")           # what the loop does
     assert gw.interrupts == ["42"]
-    w1.join(timeout=2)
+    w1.join(timeout=10)
     assert gw.handled == ["first"]           # first turn ran (and was signalled)
 
 

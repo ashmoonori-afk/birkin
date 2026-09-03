@@ -48,6 +48,11 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
         try await withTimeout("terminal approval refusal") {
             try await events.wait(for: "command-error")
         }
+        try await withTimeout("terminal proposal outcome") {
+            try await events.wait(
+                for: "projection-event type=command.failed command_id=\(proposed.commandID)"
+            )
+        }
         let approvalItem = try XCTUnwrap(runtime.store.projection?.panels
             .first(where: { $0.key == "approvals" })?.items.last)
         let approval = try XCTUnwrap(ApprovalCardPresentation(item: approvalItem))
@@ -70,7 +75,7 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
         ))
         let approved = try XCTUnwrap(approvalRequest)
         try await runtime.submitAwaitingTransport(approved)
-        try await withTimeout("approval receipt") {
+        try await withTimeout("approval receipt", events: events) {
             try await events.wait(for: "command-receipt id=\(approved.frameID)")
         }
         try await withTimeout("approval answer event") {

@@ -2,6 +2,7 @@ name: Native Windows client
 
 on:
   push:
+    branches: [main]
     paths:
       - "windows/**"
       - "birkin/native/**"

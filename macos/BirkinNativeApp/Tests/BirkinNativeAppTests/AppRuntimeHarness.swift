@@ -209,12 +209,18 @@ final class LockedBytes: @unchecked Sendable {
 func withTimeout<T: Sendable>(
     _ label: String,
     seconds: Int = 45,
+    events: RuntimeEventRecorder? = nil,
     operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
     try await withThrowingTaskGroup(of: T.self) { group in
         group.addTask { try await operation() }
         group.addTask {
             try await Task.sleep(for: .seconds(seconds))
+            if let events {
+                throw AppRuntimeTestError.timeout(
+                    "\(label); last events: \(events.recorded().suffix(12).joined(separator: " | "))"
+                )
+            }
             throw AppRuntimeTestError.timeout(label)
         }
         let result = try await group.next()!
