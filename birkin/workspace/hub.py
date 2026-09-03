@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
 from queue import Empty, Queue
@@ -94,17 +95,31 @@ class WorkspaceSession:
         until: str | None,
         timeout: float,
     ) -> tuple[WorkspaceEvent, ...]:
-        def ready() -> bool:
-            if self._closed:
-                return True
-            events = self.events(after=after)
-            return bool(events) and (
-                until is None or any(event.type == until for event in events)
-            )
+        seen = after
+        deadline = time.monotonic() + timeout
 
-        with self._condition:
-            _ = self._condition.wait_for(ready, timeout=timeout)
-        return self.events(after=after)
+        def ready() -> bool:
+            # Cheap tail read only: parsing the journal here would hold the
+            # condition and the journal lock that the event writer needs.
+            return self._closed or self.service.cursor() > seen
+
+        while True:
+            with self._condition:
+                _ = self._condition.wait_for(
+                    ready,
+                    timeout=max(0.0, deadline - time.monotonic()),
+                )
+            if self.service.cursor() <= after:
+                # Nothing new: the idle heartbeat must not parse the log either.
+                return ()
+            events = self.events(after=after)
+            if self._closed or until is None or not events:
+                return events
+            if any(event.type == until for event in events):
+                return events
+            if time.monotonic() >= deadline:
+                return events
+            seen = events[-1].cursor
 
     def close(self) -> None:
         with self._condition:
