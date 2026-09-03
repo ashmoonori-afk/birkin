@@ -13,8 +13,10 @@ from birkin.tools import Tool, ToolContext, ToolRegistry, ToolResult
 
 ANTHROPIC = "sk-ant-api03-AbCdEf0123456789ZyXwVu"
 GITHUB = "ghp_AbCdEf0123456789ZyXwVuTsRq"
-JWT = ("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
-       "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk")
+JWT = (
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9."
+    "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dBjftJeZ4CVPmB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+)
 
 
 class TestRedactSensitiveText:
@@ -38,13 +40,16 @@ class TestRedactSensitiveText:
 
     def test_masks_password_in_database_url(self) -> None:
         out = redact.redact_sensitive_text(
-            "postgres://birkin:hunter2secret@db.internal:5432/app")
+            "postgres://birkin:hunter2secret@db.internal:5432/app"
+        )
         assert "hunter2secret" not in out
         assert "db.internal" in out
 
     def test_masks_private_key_block(self) -> None:
-        block = ("-----BEGIN RSA PRIVATE KEY-----\n"
-                 "MIIEowIBAAKCAQEAxLmnop\n-----END RSA PRIVATE KEY-----")
+        block = (
+            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "MIIEowIBAAKCAQEAxLmnop\n-----END RSA PRIVATE KEY-----"
+        )
         out = redact.redact_sensitive_text(block)
         assert "MIIEowIBAAKCAQEAxLmnop" not in out
 
@@ -73,28 +78,68 @@ class TestRegistryChokePoint:
     def _registry(tmp_path, content: str) -> ToolRegistry:
         ctx = ToolContext(cfg={"spill_threshold": 0}, client=None, cwd=tmp_path)
         registry = ToolRegistry(ctx)
-        registry.register(Tool(
-            name="leak", description="returns a secret",
-            input_schema={"type": "object", "properties": {}},
-            fn=lambda _input, _ctx: ToolResult(content)))
+        registry.register(
+            Tool(
+                name="leak",
+                description="returns a secret",
+                input_schema={"type": "object", "properties": {}},
+                fn=lambda _input, _ctx: ToolResult(content),
+            )
+        )
         return registry
 
     def test_tool_result_secret_is_masked(self, tmp_path) -> None:
         result = self._registry(tmp_path, f"export KEY={ANTHROPIC}").execute("leak", {})
         assert ANTHROPIC not in result.content
 
+    def test_post_tool_hook_receives_the_caller_redacted_text(self, tmp_path) -> None:
+        seen: list[str] = []
+
+        class Hooks:
+            def pre_tool(self, _name, _tool_input):
+                return None
+
+            def post_tool(self, _name, _tool_input, content, _is_error):
+                seen.append(content)
+
+        ctx = ToolContext(
+            cfg={"spill_threshold": 0}, client=None, cwd=tmp_path, hooks=Hooks()
+        )
+        registry = ToolRegistry(ctx)
+        registry.register(
+            Tool(
+                name="leak",
+                description="returns a secret",
+                input_schema={"type": "object", "properties": {}},
+                fn=lambda _input, _ctx: ToolResult(f"export KEY={ANTHROPIC}"),
+            )
+        )
+
+        result = registry.execute("leak", {})
+
+        assert seen == [result.content]
+        assert ANTHROPIC not in seen[0]
+        assert "[redacted" in seen[0]
+
     def test_error_results_are_masked_too(self, tmp_path) -> None:
         ctx = ToolContext(cfg={"spill_threshold": 0}, client=None, cwd=tmp_path)
         registry = ToolRegistry(ctx)
-        registry.register(Tool(
-            name="boom", description="fails with a secret",
-            input_schema={"type": "object", "properties": {}},
-            fn=lambda _input, _ctx: ToolResult(f"auth failed for {GITHUB}",
-                                               is_error=True)))
+        registry.register(
+            Tool(
+                name="boom",
+                description="fails with a secret",
+                input_schema={"type": "object", "properties": {}},
+                fn=lambda _input, _ctx: ToolResult(
+                    f"auth failed for {GITHUB}", is_error=True
+                ),
+            )
+        )
         result = registry.execute("boom", {})
         assert result.is_error is True
         assert GITHUB not in result.content
 
     def test_clean_tool_output_is_not_rewritten(self, tmp_path) -> None:
-        result = self._registry(tmp_path, "total 4\ndrwxr-xr-x  2 lg lg").execute("leak", {})
+        result = self._registry(tmp_path, "total 4\ndrwxr-xr-x  2 lg lg").execute(
+            "leak", {}
+        )
         assert result.content == "total 4\ndrwxr-xr-x  2 lg lg"

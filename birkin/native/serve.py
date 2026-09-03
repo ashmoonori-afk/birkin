@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import errno
-import json
 import os
 import signal
 import threading
@@ -18,6 +17,12 @@ from typing import Protocol, final
 from birkin import __version__, config
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.endpoint import NativeBridgeEndpoint
+from birkin.native.serve_announce import (
+    Announce,
+    connection_failure,
+    emit as _emit,
+    write_line as _write_line,
+)
 from birkin.native.serve_surfaces import (
     SelectedSurfaceAuthority as _SelectedSurfaceAuthority,
 )
@@ -25,8 +30,6 @@ from birkin.native.server import NativeBridgeServer
 from birkin.workspace.hub import EventSink, WorkspaceHub
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 from birkin.workspace.service import CommandHandler
-
-Announce = Callable[[str], None]
 
 DEFAULT_SESSION_ID = "native-app"
 _SUPPORTED_TRANSPORTS = ("uds", "loopback")
@@ -65,10 +68,14 @@ class NativeServeOptions:
         transport: str | None = None,
         session_id: str | None = None,
         root: Path | None = None,
+        platform_name: str | None = None,
     ) -> NativeServeOptions:
+        resolved_platform = os.name if platform_name is None else platform_name
         resolved_transport = (
-            "loopback" if os.name == "nt" else "uds"
-        ) if transport is None else transport
+            ("loopback" if resolved_platform == "nt" else "uds")
+            if transport is None
+            else transport
+        )
         if resolved_transport not in _SUPPORTED_TRANSPORTS:
             raise ValueError(f"transport must be one of {_SUPPORTED_TRANSPORTS}")
         resolved_root = root or (config.birkin_home() / "native-bridge")
@@ -77,14 +84,6 @@ class NativeServeOptions:
             session_id=session_id or DEFAULT_SESSION_ID,
             root=resolved_root.expanduser(),
         )
-
-
-def _emit(announce: Announce, record: dict[str, object]) -> None:
-    announce(json.dumps(record, separators=(",", ":")))
-
-
-def _write_line(line: str) -> None:
-    print(line, flush=True)
 
 
 @final
@@ -113,9 +112,7 @@ class BridgeProcess:
             instance_id=self._instance_id,
             server_version=__version__,
             on_disconnect=self._revoke_terminal_leases,
-            surface_authority=_SelectedSurfaceAuthority(
-                self._hub, self._adapters
-            ),
+            surface_authority=_SelectedSurfaceAuthority(self._hub, self._adapters),
         )
 
     def _session_handlers(
@@ -138,9 +135,7 @@ class BridgeProcess:
 
     def _open(self) -> NativeBridgeEndpoint:
         if self._options.transport == "uds":
-            return NativeBridgeEndpoint.uds(
-                self._bridge, socket_path=self._socket_path
-            )
+            return NativeBridgeEndpoint.uds(self._bridge, socket_path=self._socket_path)
         return NativeBridgeEndpoint.loopback(
             self._bridge,
             capabilities=self._capabilities,
@@ -189,11 +184,14 @@ class BridgeProcess:
             restore()
             endpoint.close()
             self.close()
-            _emit(self._announce, {
-                "event": "stopped",
-                "socket_exists": self._socket_path.exists(),
-                "discovery_exists": self._capabilities.endpoint_path.exists(),
-            })
+            _emit(
+                self._announce,
+                {
+                    "event": "stopped",
+                    "socket_exists": self._socket_path.exists(),
+                    "discovery_exists": self._capabilities.endpoint_path.exists(),
+                },
+            )
         return 0
 
     def serve_one(self, endpoint: ServingEndpoint) -> None:
@@ -204,19 +202,26 @@ class BridgeProcess:
         """
         try:
             endpoint.serve_once()
+        except TimeoutError as exc:
+            # A writer that outlives its connection is a teardown failure of
+            # that connection, not of accept. It subclasses OSError, so it has
+            # to be answered first: its message is the whole diagnostic, and
+            # the listener's failure budget must not pay for stuck clients.
+            self._connection_failed(exc)
+            return
         except OSError as exc:
-            if self._stopping.is_set():
-                return
-            self._absorb_socket_error(exc)
+            if not self._stopping.is_set():
+                self._absorb_socket_error(exc)
             return
         except Exception as exc:  # noqa: BLE001 - service boundary
-            if self._stopping.is_set():
-                return
-            _emit(self._announce, {
-                "event": "connection_failed",
-                "error": f"{type(exc).__name__}: {exc}"[:200],
-            })
+            self._connection_failed(exc)
+            return
         self._accept_failures = 0
+
+    def _connection_failed(self, exc: BaseException) -> None:
+        if self._stopping.is_set():
+            return
+        _emit(self._announce, connection_failure(exc))
 
     def _absorb_socket_error(self, exc: OSError) -> None:
         """Keep serving a per-connection socket failure; stop when the
@@ -232,11 +237,14 @@ class BridgeProcess:
         self._accept_failures += 1
         if self._accept_failures > MAX_CONSECUTIVE_ACCEPT_FAILURES:
             raise exc
-        _emit(self._announce, {
-            "event": "accept_failed",
-            "error": f"OSError({exc.errno}): {exc.strerror}"[:200],
-            "consecutive_failures": self._accept_failures,
-        })
+        _emit(
+            self._announce,
+            {
+                "event": "accept_failed",
+                "error": f"OSError({exc.errno}): {exc.strerror}"[:200],
+                "consecutive_failures": self._accept_failures,
+            },
+        )
 
 
 def _install_signal_handlers(stop: Callable[[], None]) -> Callable[[], None]:

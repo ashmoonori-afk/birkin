@@ -1,6 +1,8 @@
 using System.Windows;
 using System.Windows.Threading;
 using Birkin.Native.App.Startup;
+using Birkin.Native.Shell.Lifecycle;
+using Birkin.Native.Shell.Presentation;
 
 namespace Birkin.Native.App;
 
@@ -15,45 +17,43 @@ public partial class App : Application
     protected override async void OnStartup(StartupEventArgs eventArgs)
     {
         base.OnStartup(eventArgs);
+        var context = SynchronizationContext.Current
+            ?? new DispatcherSynchronizationContext(Dispatcher);
+        var composition = CompositionRoot.Create(context);
+        _composition = composition;
+        _approvalToast = WindowsApprovalToast.Create(ShowApprovals);
+        MainWindow = _approvalToast is null
+            ? new MainWindow(
+                composition.PresentationModel,
+                composition.Coordinator,
+                composition.Runner)
+            : new MainWindow(
+                composition.PresentationModel,
+                composition.Coordinator,
+                composition.Runner,
+                _approvalToast);
+        if (_showApprovalsWhenReady)
+        {
+            ShowApprovals();
+        }
+        MainWindow.Show();
         try
         {
-            var arguments = StartupArguments(eventArgs.Args);
-            var options = AppOptions.Parse(arguments);
-            var context = SynchronizationContext.Current
-                ?? new DispatcherSynchronizationContext(Dispatcher);
-            _composition = CompositionRoot.Create(context);
-            _approvalToast = WindowsApprovalToast.Create(ShowApprovals);
-            MainWindow = _approvalToast is null
-                ? new MainWindow(
-                    _composition.PresentationModel,
-                    _composition.Coordinator,
-                    _composition.Runner)
-                : new MainWindow(
-                    _composition.PresentationModel,
-                    _composition.Coordinator,
-                    _composition.Runner,
-                    _approvalToast);
-            if (_showApprovalsWhenReady)
-            {
-                ShowApprovals();
-            }
-            MainWindow.Show();
-            var failure = await _composition.Runner.RunAsync(
+            var options = AppOptions.Parse(StartupArguments(eventArgs.Args));
+            var failure = await composition.Runner.RunAsync(
                 options,
                 _shutdown.Token);
             if (failure is not null)
             {
-                _composition.PresentationModel.PresentStartupFailure(failure);
+                composition.PresentationModel.PresentStartupFailure(failure);
             }
         }
-        catch (ArgumentException error)
+        catch (ArgumentException)
         {
-            MessageBox.Show(
-                error.Message,
-                "Birkin for Windows - Development Preview",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-            Shutdown(2);
+            composition.PresentationModel.PresentStartupFailure(
+                StartupFailurePresentation.Create(
+                    BridgeStartupFailureReason.CliFailed,
+                    canRetry: false));
         }
         catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
         {

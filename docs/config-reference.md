@@ -32,6 +32,7 @@ Schema version: 1
 | `repl_typed_line` | `string` | `"steer"` | Birkin setting `repl_typed_line`. |
 | `moirai_auto` | `boolean` | `false` | Birkin setting `moirai_auto`. |
 | `worker_call_auto` | `boolean` | `true` | Birkin setting `worker_call_auto`. |
+| `session_goal_fallback` | `boolean` | `true` | When a turn's session has no goal of its own, fall back to the no-session (global) goal note instead of showing none. |
 | `moirai_workers` | `integer` | `4` | Birkin setting `moirai_workers`. |
 | `moirai_max_agents` | `integer` | `100` | Birkin setting `moirai_max_agents`. |
 | `moirai_roles` | `object` | `{}` | Birkin setting `moirai_roles`. |
@@ -82,6 +83,9 @@ Schema version: 1
 | `gateway_clean_hooks` | `boolean` | `true` | Birkin setting `gateway_clean_hooks`. |
 | `gateway_thinking_tokens` | `integer` | `0` | Birkin setting `gateway_thinking_tokens`. |
 | `gateway_prewarm` | `boolean` | `true` | Birkin setting `gateway_prewarm`. |
+| `gateway_max_sessions` | `integer` | `8` | Most native-API gateway sessions kept live at once (SessionPool). Ignored by CLI providers. |
+| `gateway_session_ttl_s` | `integer` | `3600` | Seconds an idle native-API gateway session may sit before it is reclaimed. |
+| `gateway_polish_timeout` | `integer` | `90` | Seconds allowed for the gateway reply-polishing pass before the raw reply is kept. |
 | `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2}` | Birkin setting `voice`. |
 | `voice.wake_phrase` | `string` | `"Daddy is home"` | Birkin setting `voice.wake_phrase`. |
 | `voice.gateway_url` | `string` | `""` | Birkin setting `voice.gateway_url`. |
@@ -116,13 +120,14 @@ Schema version: 1
 | `profile.background_review.digest_recent_turns` | `integer` | `6` | Birkin setting `profile.background_review.digest_recent_turns`. |
 | `neurosis_threshold` | `any` | `null` | Birkin setting `neurosis_threshold`. |
 | `neurosis_auto` | `boolean` | `true` | Birkin setting `neurosis_auto`. |
-| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true, "max_public_workers": 4}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin setting `channels`. |
+| `channels` | `object` | `{"http": {"enabled": true}, "telegram": {"enabled": false, "token": "", "allowed_chat_ids": [], "allowed_sender_ids": [], "stream": true, "max_public_workers": 4}, "slack": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}, "discord": {"enabled": false, "webhook_url": "", "allowed_channel_ids": []}}` | Birkin setting `channels`. |
 | `channels.http` | `object` | `{"enabled": true}` | Birkin setting `channels.http`. |
 | `channels.http.enabled` | `boolean` | `true` | Birkin setting `channels.http.enabled`. |
-| `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "stream": true, "max_public_workers": 4}` | Birkin setting `channels.telegram`. |
+| `channels.telegram` | `object` | `{"enabled": false, "token": "", "allowed_chat_ids": [], "allowed_sender_ids": [], "stream": true, "max_public_workers": 4}` | Birkin setting `channels.telegram`. |
 | `channels.telegram.enabled` | `boolean` | `false` | Birkin setting `channels.telegram.enabled`. |
 | `channels.telegram.token` | `string` | `""` | Birkin setting `channels.telegram.token`. |
 | `channels.telegram.allowed_chat_ids` | `array` | `[]` | Birkin setting `channels.telegram.allowed_chat_ids`. |
+| `channels.telegram.allowed_sender_ids` | `array` | `[]` | Empty: allowed_chat_ids alone gates a turn (no extra sender check). Non-empty: restricts which senders may drive an allowlisted group/supergroup chat. |
 | `channels.telegram.stream` | `boolean` | `true` | Birkin setting `channels.telegram.stream`. |
 | `channels.telegram.max_public_workers` | `integer` | `4` | Birkin setting `channels.telegram.max_public_workers`. |
 | `channels.slack` | `object` | `{"enabled": false, "webhook_url": "", "allowed_channel_ids": []}` | Birkin setting `channels.slack`. |
@@ -195,5 +200,7 @@ Schema version: 1
 | `sandbox.network_allowlist` | `array` | `[]` | Birkin setting `sandbox.network_allowlist`. |
 | `sandbox.write_paths` | `array` | `["."]` | Birkin setting `sandbox.write_paths`. |
 | `update_verify_signature` | `boolean` | `false` | Birkin setting `update_verify_signature`. |
-| `nightly_hour` | `integer` | `null` |  |
-| `nightly_minute` | `integer` | `null` |  |
+| `gateway_polish_provider` | `string` | `null` | Provider for a second, no-tools pass that rewrites a gateway reply before delivery (currently wired for the Telegram channel). Empty disables polishing. |
+| `gateway_polish_model` | `string` | `null` | Model for gateway reply polishing. Empty falls back to morpheus_model, or a provider default. |
+| `nightly_hour` | `integer` | `null` | Deprecated: use morpheus_hour |
+| `nightly_minute` | `integer` | `null` | Deprecated: use morpheus_minute |

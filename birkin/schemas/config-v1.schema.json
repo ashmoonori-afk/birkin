@@ -21,6 +21,34 @@
     "web_port": {"type": "integer", "minimum": 1, "maximum": 65535},
     "web_external_url": {"type": "string"},
     "gateway_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "gateway_max_sessions": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Most native-API gateway sessions kept live at once (SessionPool). Ignored by CLI providers.",
+      "x-description-ko": "native-API gateway session pool에 동시에 유지하는 최대 session 수입니다 (SessionPool). CLI provider에는 적용되지 않습니다."
+    },
+    "gateway_session_ttl_s": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Seconds an idle native-API gateway session may sit before it is reclaimed.",
+      "x-description-ko": "native-API gateway session이 유휴 상태로 유지될 수 있는 최대 시간(초)이며 초과하면 회수됩니다."
+    },
+    "gateway_polish_provider": {
+      "type": "string",
+      "description": "Provider for a second, no-tools pass that rewrites a gateway reply before delivery (currently wired for the Telegram channel). Empty disables polishing.",
+      "x-description-ko": "Gateway 응답을 전달 전에 다시 다듬는 두 번째 no-tools 단계의 provider입니다 (현재 Telegram channel에 연결됨). 비어 있으면 polish를 비활성화합니다."
+    },
+    "gateway_polish_model": {
+      "type": "string",
+      "description": "Model for gateway reply polishing. Empty falls back to morpheus_model, or a provider default.",
+      "x-description-ko": "Gateway 응답 polish에 사용하는 model입니다. 비어 있으면 morpheus_model 또는 provider 기본값을 사용합니다."
+    },
+    "gateway_polish_timeout": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Seconds allowed for the gateway reply-polishing pass before the raw reply is kept.",
+      "x-description-ko": "Gateway 응답 polish 단계에 허용하는 최대 시간(초)이며 초과하면 원본 응답을 그대로 사용합니다."
+    },
     "morpheus_hour": {"type": "integer", "minimum": 0, "maximum": 23},
     "morpheus_minute": {"type": "integer", "minimum": 0, "maximum": 59},
     "nightly_hour": {
@@ -87,6 +115,11 @@
       "type": "string",
       "enum": ["steer", "kill"]
     },
+    "session_goal_fallback": {
+      "type": "boolean",
+      "description": "When a turn's session has no goal of its own, fall back to the no-session (global) goal note instead of showing none.",
+      "x-description-ko": "Session에 자체 goal이 없을 때 no-session(전역) goal note로 대체할지 여부입니다. false이면 session별로만 goal을 표시합니다."
+    },
     "voice": {
       "type": "object",
       "additionalProperties": true,
@@ -108,6 +141,12 @@
             "allowed_chat_ids": {
               "type": "array",
               "items": {"type": ["string", "integer"]}
+            },
+            "allowed_sender_ids": {
+              "type": "array",
+              "items": {"type": ["string", "integer"]},
+              "description": "Empty: allowed_chat_ids alone gates a turn (no extra sender check). Non-empty: restricts which senders may drive an allowlisted group/supergroup chat.",
+              "x-description-ko": "비어 있으면 allowed_chat_ids만으로 turn을 허용합니다(발신자 추가 검사 없음). 값이 있으면 allowlist에 포함된 group/supergroup chat에서 turn을 시작할 수 있는 발신자를 제한합니다."
             },
             "stream": {"type": "boolean"}
           }

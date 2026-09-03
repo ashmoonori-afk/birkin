@@ -96,7 +96,11 @@ public sealed class BridgeSessionTests
 
         cancellation.Cancel();
 
-        await Assert.ThrowsExceptionAsync<OperationCanceledException>(() => connecting.WaitAsync(deadline.Token));
+        var error = await CaptureExceptionAsync(connecting.WaitAsync(deadline.Token));
+        Assert.IsInstanceOfType<OperationCanceledException>(error);
+        Assert.IsTrue(connecting.IsCanceled);
+        Assert.IsTrue(((OperationCanceledException)error).CancellationToken.IsCancellationRequested);
+        Assert.IsFalse(deadline.IsCancellationRequested);
         Assert.AreEqual(0, ActiveReceiveCount(session));
     }
 

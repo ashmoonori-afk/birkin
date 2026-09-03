@@ -16,15 +16,11 @@ WORKERS = (
     "boulder",
     "harness",
     "odyssey",
-    "osiris",
     "daedalus",
 )
 NO_MODEL_WORKERS = ("mnemosyne", "daedalus")
-# Declared in the authority contract but not implemented as an importable
-# worker module. A reserved name still validates and still carries its
-# persistence mapping, so the boundary is fixed before any code claims it —
-# but nothing can resume it, and the hierarchy tests pin that on purpose so a
-# reserved name can never be mistaken for a reachable worker.
+# Compatibility metadata for names that are explicitly unavailable. Reserved
+# names are not continuation authorities and must never validate or dispatch.
 RESERVED_WORKERS = ("osiris",)
 PERSISTENCE_OWNER = {"osiris": "boulder"}
 _HANDLERS = ("worker.resume.v1", "moirai.resume.v1")
@@ -64,7 +60,10 @@ def contract() -> dict[str, Any]:
 def validate(value: Any) -> dict[str, Any]:
     """Parse a continuation envelope before it enters or leaves the queue."""
     if not isinstance(value, dict) or set(value) != {
-        "schema", "handler", "worker", "context",
+        "schema",
+        "handler",
+        "worker",
+        "context",
     }:
         raise WorkerHookError("invalid worker continuation envelope")
     if value.get("schema") != 1:
@@ -73,7 +72,7 @@ def validate(value: Any) -> dict[str, Any]:
     if handler not in _HANDLERS:
         raise WorkerHookError("unknown worker continuation handler")
     worker = value.get("worker")
-    if worker not in WORKERS:
+    if worker not in WORKERS or worker in RESERVED_WORKERS:
         raise WorkerHookError(f"unknown worker: {worker}")
     context = value.get("context")
     if not isinstance(context, dict):
@@ -142,9 +141,7 @@ def describe(value: Any) -> str:
             f"resume moirai run {context['run_id']} "
             f"at {context['worker_id']}/{context['step_id']}"
         )
-    checkpoint = str(
-        continuation["context"].get("checkpoint", "saved checkpoint")
-    )
+    checkpoint = str(continuation["context"].get("checkpoint", "saved checkpoint"))
     return f"resume {continuation['worker']} from {checkpoint}"
 
 
@@ -165,7 +162,5 @@ def dispatch(
         "context": continuation["context"],
     }
     on_event(event)
-    checkpoint = str(
-        continuation["context"].get("checkpoint", "saved checkpoint")
-    )
+    checkpoint = str(continuation["context"].get("checkpoint", "saved checkpoint"))
     return f"resumed {continuation['worker']} at {checkpoint}"

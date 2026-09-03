@@ -98,9 +98,6 @@ def test_terminal_response_releases_lane_before_client_retry(
     coordinator = NativeCommandCoordinator(executor, cleanup=None)
     first = _command("chat.send", "outside-first", surface="web")
     retry = _command("chat.send", "outside-retry", surface="web")
-    admitted: list[bool] = []
-    response_observed = threading.Event()
-    send = NativeConnection.send
     state_send = NativeConnectionState.send
 
     def allow_response(
@@ -110,26 +107,18 @@ def test_terminal_response_releases_lane_before_client_retry(
         if state is not execution.state:
             state_send(state, response)
 
-    def observe_send(
-        connection: NativeConnection,
-        response: NativeEnvelope,
-    ) -> None:
-        send(connection, response)
-        if connection is execution.connection and response.in_reply_to == first.id:
-            admitted.append(coordinator.submit(execution, retry))
-            response_observed.set()
+    def run_inline(thread: threading.Thread) -> None:
+        thread.run()
 
     monkeypatch.setattr(NativeConnectionState, "send", allow_response)
-    monkeypatch.setattr(NativeConnection, "send", observe_send)
+    monkeypatch.setattr(threading.Thread, "start", run_inline)
     try:
         assert coordinator.submit(execution, first)
         first_response = receive_frame(peer)
-
         assert first_response.kind == "error"
         assert first_response.body["code"] == "E_CAPABILITY_SCOPE"
-        assert response_observed.wait(timeout=5)
-        assert admitted == [True]
 
+        assert coordinator.submit(execution, retry)
         retry_response = receive_frame(peer)
         assert retry_response.kind == "error"
         assert retry_response.body["code"] == "E_CAPABILITY_SCOPE"
@@ -296,5 +285,55 @@ def test_stream_suspend_failure_releases_normal_lane_without_disturbing_control_
         assert (suspend_calls, resume_calls, cleanup_calls) == (2, 1, 1)
     finally:
         release_control.set()
+        execution.connection.close()
+        peer.close()
+
+
+def test_lane_is_released_before_the_response_the_client_answers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A client answers a response frame with its next command immediately.
+
+    The frame is written while the projection stream is still suspended, so the
+    lane has to be free by then: releasing it afterwards refuses that next
+    command with E_FLOW_VIOLATION and the client waits for a receipt that never
+    comes.
+    """
+    executor, execution, peer = _fixture()
+    coordinator = NativeCommandCoordinator(executor, cleanup=None)
+    answered = threading.Event()
+    attempted: list[bool] = []
+    admitted: list[bool] = []
+    state_send = NativeConnectionState.send
+
+    def allow_response(
+        state: NativeConnectionState,
+        response: NativeEnvelope,
+    ) -> None:
+        if state is not execution.state:
+            state_send(state, response)
+
+    def answer_response(
+        connection: NativeConnection,
+        _response: NativeEnvelope,
+    ) -> None:
+        if connection is not execution.connection or attempted:
+            return
+        attempted.append(True)
+        admitted.append(
+            coordinator.submit(execution, _command("chat.send", "client-answer"))
+        )
+        answered.set()
+
+    monkeypatch.setattr(NativeConnectionState, "send", allow_response)
+    monkeypatch.setattr(NativeConnection, "send", answer_response)
+    try:
+        assert coordinator.submit(
+            execution,
+            _command("chat.send", "refused-first", surface="web"),
+        )
+        assert answered.wait(timeout=2)
+        assert admitted == [True]
+    finally:
         execution.connection.close()
         peer.close()

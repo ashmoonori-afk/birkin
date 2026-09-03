@@ -171,6 +171,7 @@ class CorrelatedFrameReader:
 
     def __init__(self, client: socket.socket, token: str) -> None:
         self._client = client
+        self._client.settimeout(None)
         self._token = token
         self._lock = threading.Lock()
         self._expected: dict[str, threading.Event] = {}
@@ -194,14 +195,18 @@ class CorrelatedFrameReader:
         with self._lock:
             return self._frames.pop(request_id)
 
-    def close(self) -> None:
+    def expect_disconnect(self) -> None:
+        """Subscribe to reader completion before a graceful disconnect."""
+        self._stopping.set()
+
+    def close(self, *, timeout: float = 10) -> None:
         self._stopping.set()
         try:
             self._client.shutdown(socket.SHUT_RDWR)
         except OSError:
             pass
         self._client.close()
-        assert self._stopped.wait(timeout=10)
+        assert self._stopped.wait(timeout=timeout)
         self._thread.join()
         if self._failure is not None:
             raise self._failure
@@ -212,15 +217,19 @@ class CorrelatedFrameReader:
                 try:
                     frame = receive_frame(self._client)
                     if frame.kind == "ping":
-                        self._client.sendall(encode_frame(envelope(
-                            "pong",
-                            frame_id=f"pong-{frame.id}",
-                            in_reply_to=frame.id,
-                            body={
-                                **frame.body,
-                                "session_capability": self._token,
-                            },
-                        )))
+                        self._client.sendall(
+                            encode_frame(
+                                envelope(
+                                    "pong",
+                                    frame_id=f"pong-{frame.id}",
+                                    in_reply_to=frame.id,
+                                    body={
+                                        **frame.body,
+                                        "session_capability": self._token,
+                                    },
+                                )
+                            )
+                        )
                         continue
                 except (NativeProtocolError, OSError) as exc:
                     if not self._stopping.is_set():

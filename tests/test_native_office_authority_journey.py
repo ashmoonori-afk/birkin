@@ -487,7 +487,7 @@ def test_native_output_exists_projects_one_click_overwrite_follow_up(
     service, _ = _service(tmp_path)
     destination = tmp_path / "workspace" / "existing-report.docx"
     existing = b"existing caller file"
-    destination.write_bytes(existing)
+    _ = destination.write_bytes(existing)
     _, proposed = _submit(
         service,
         "request-existing-create",

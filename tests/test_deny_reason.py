@@ -84,5 +84,6 @@ def test_gateway_deny_command_parses_id_and_reason(tmp_path, monkeypatch):
 
 def test_deny_is_a_privileged_gateway_command():
     from birkin.gateway import core
-    assert "deny" in core._PRIVILEGED_COMMANDS
+    from birkin.gateway.turn_support import PRIVILEGED_COMMANDS
+    assert "deny" in PRIVILEGED_COMMANDS
     assert core.match_command("/deny abc why not") == ("deny", "abc why not")

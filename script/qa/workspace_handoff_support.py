@@ -9,27 +9,82 @@ import os
 import re
 import struct
 import sys
-from pathlib import Path
 from collections.abc import Callable
-from typing import cast
+from pathlib import Path
+from typing import TYPE_CHECKING, TextIO, cast, final
 
 import pexpect
 from playwright.sync_api import Page
 
+from script.qa.workspace_conpty import ConptySpawn
+from script.qa.workspace_terminal_protocol import TerminalProcess
+
+if TYPE_CHECKING:
+    from pexpect.pty_spawn import spawn as PexpectSpawn
+
+
+@final
+class _PexpectTerminal:
+    def __init__(self, process: PexpectSpawn[str]) -> None:
+        self._process = process
+
+    @property
+    def pid(self) -> int | None:
+        return self._process.pid
+
+    @property
+    def exitstatus(self) -> int | None:
+        return self._process.exitstatus
+
+    def set_logfile_read(self, logfile: TextIO | None) -> None:
+        self._process.logfile_read = logfile
+
+    def matched_group(self, index: int) -> str:
+        match self._process.match:
+            case re.Match() as matched:
+                return matched.group(index)
+            case _:
+                raise AssertionError("pexpect has no regular-expression match")
+
+    def send(self, value: str) -> int:
+        return self._process.send(value)
+
+    def setwinsize(self, rows: int, columns: int) -> None:
+        resize: Callable[[int, int], None] = self._process.setwinsize
+        resize(rows, columns)
+
+    def expect_exact(self, pattern: str, timeout: float | None = None) -> int:
+        return self._process.expect_exact(pattern, timeout=timeout)
+
+    def expect(self, pattern: str, timeout: float | None = None) -> int:
+        return self._process.expect(pattern, timeout=timeout)
+
+    def expect_eof(self, timeout: float | None = None) -> None:
+        _ = self._process.expect(pexpect.EOF, timeout=timeout)
+
+    def terminate(self, force: bool = False) -> bool:
+        return self._process.terminate(force=force)
+
+    def close(self, force: bool = False) -> None:
+        self._process.close(force=force)
+
+    def isalive(self) -> bool:
+        return self._process.isalive()
+
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def send_terminal(child: pexpect.spawn[str], text: str) -> None:
+def send_terminal(child: TerminalProcess, text: str) -> None:
     _ = child.send(text + "\r")
 
 
 def resize_terminal(
-    child: pexpect.spawn[str],
+    child: TerminalProcess,
     rows: int,
     columns: int,
 ) -> None:
-    resize = cast(Callable[[int, int], None], child.setwinsize)
-    resize(rows, columns)
+    child.setwinsize(rows, columns)
 
 
 def workspace_snapshot(page: Page) -> dict[str, object]:
@@ -129,12 +184,12 @@ def workspace_events(page: Page) -> list[dict[str, object]]:
 def spawn_terminal(
     profile: Path,
     terminal_log: io.StringIO,
-) -> tuple[pexpect.spawn[str], str, int]:
+) -> tuple[TerminalProcess, str, int]:
     env = os.environ.copy()
     env["BIRKIN_HOME"] = str(profile)
-    child = cast(
-        "pexpect.spawn[str]",
-        pexpect.spawn(
+    child: TerminalProcess
+    if sys.platform == "win32":
+        child = ConptySpawn.spawn(
             sys.executable,
             ["-m", "script.qa.workspace_terminal_fixture"],
             cwd=str(ROOT),
@@ -142,25 +197,36 @@ def spawn_terminal(
             encoding="utf-8",
             timeout=30,
             dimensions=(30, 100),
-        ),
-    )
-    child.logfile_read = terminal_log
+        )
+    else:
+        from pexpect.pty_spawn import spawn as PexpectSpawnRuntime
+
+        child = _PexpectTerminal(PexpectSpawnRuntime(
+            sys.executable,
+            ["-m", "script.qa.workspace_terminal_fixture"],
+            cwd=str(ROOT),
+            env=env,
+            encoding="utf-8",
+            timeout=30,
+            dimensions=(30, 100),
+        ))
+    child.set_logfile_read(terminal_log)
     _ = child.expect(r"web workspace: (\S+)")
-    match = cast(re.Match[str], child.match)
-    url = cast(str, match.group(1))
+    url = child.matched_group(1)
     port_match = re.search(r":(\d+)/", url)
     if port_match is None:
         raise AssertionError("handoff URL did not contain a port")
     return child, url, int(port_match.group(1))
 
 
-def stop_terminal(child: pexpect.spawn[str]) -> None:
+def stop_terminal(child: TerminalProcess) -> int:
     send_terminal(child, "/quit")
     _ = child.expect_exact("bye.")
-    _ = child.expect(pexpect.EOF)
+    child.expect_eof()
     _ = child.close()
     if child.exitstatus != 0:
         raise AssertionError(f"terminal fixture exited {child.exitstatus}")
+    return child.exitstatus
 
 
 def png_dimensions(path: Path) -> tuple[int, int]:

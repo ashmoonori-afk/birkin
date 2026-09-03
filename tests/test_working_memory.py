@@ -99,7 +99,7 @@ def test_clear_removes_goal_and_structured_state() -> None:
         "working-memory", "show", "--session", "clear-session", "--json"
     )
     state = json.loads(shown.stdout)
-    assert state["revision"] == 0
+    assert state["revision"] == 2
     assert state["goal"] == ""
     assert state["decisions"] == []
 

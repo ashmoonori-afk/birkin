@@ -7,10 +7,13 @@ from birkin import boulder
 
 def test_create_next_remaining_and_check_flow(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
-    d = boulder.create("build a CRM", [
-        {"title": "schema", "acceptance": "tables exist"},
-        "api endpoints",
-    ])
+    d = boulder.create(
+        "build a CRM",
+        [
+            {"title": "schema", "acceptance": "tables exist"},
+            "api endpoints",
+        ],
+    )
     assert d["total"] == 2 and d["done"] == 0 and d["remaining"] == 2
     assert d["next_index"] == 0 and d["active"] is True
 
@@ -20,7 +23,33 @@ def test_create_next_remaining_and_check_flow(tmp_path, monkeypatch):
 
     d2 = boulder.check(d["slug"], 1, verdict="PASS api")
     assert d2["done"] == 2 and d2["remaining"] == 0 and d2["next_index"] is None
-    assert d2["active"] is False          # goal complete -> inactive
+    assert d2["active"] is False  # goal complete -> inactive
+
+
+def test_create_replaces_an_inactive_odyssey_seed(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import odyssey
+
+    seed = odyssey.seed("ship seeded plan", cfg={"boulder_max_iters": 23})
+    created = boulder.create(
+        "ship seeded plan",
+        [{"title": "implement", "acceptance": "targeted tests pass"}],
+    )
+    record = boulder.load(seed["slug"])
+
+    assert created["resumed"] is False
+    assert created["active"] is True
+    assert record is not None
+    assert "seeded" not in record
+    assert record["max_iters"] == 100
+    assert record["steps"] == [
+        {
+            "title": "implement",
+            "acceptance": "targeted tests pass",
+            "done": False,
+            "verdict": "",
+        }
+    ]
 
 
 def test_create_resumes_not_clobbers(tmp_path, monkeypatch):
@@ -35,8 +64,9 @@ def test_create_resumes_not_clobbers(tmp_path, monkeypatch):
 def test_create_rejects_empty_steps(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     import pytest
+
     with pytest.raises(ValueError):
-        boulder.create("a goal with no steps", [])      # no zombie plan
+        boulder.create("a goal with no steps", [])  # no zombie plan
 
 
 def test_create_ignores_caller_done_flag(tmp_path, monkeypatch):
@@ -50,7 +80,7 @@ def test_active_lists_only_unfinished(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     boulder.create("goal one", ["x"])
     d = boulder.create("goal two", ["y"])
-    boulder.check(d["slug"], 0)           # goal two complete -> inactive
+    boulder.check(d["slug"], 0)  # goal two complete -> inactive
     slugs = {b["slug"] for b in boulder.active()}
     assert any("goal-one" in s for s in slugs)
     assert not any("goal-two" in s for s in slugs)

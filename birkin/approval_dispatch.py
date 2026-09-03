@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from . import cron
+from .approval_execution_codec import JSONValue
+from .approval_execution_types import SealedApprovalId
 from .operation_policy import retry_environment
 from .proc import ShellCommand, run_shell_command, shell_env
 
@@ -18,6 +20,7 @@ class DispatchOptions:
     cfg: dict[str, Any] | None = None
     on_event: Any = None
     shell_runner: Any = run_shell_command
+    office_approval_id: SealedApprovalId | None = None
 
 
 @runtime_checkable
@@ -39,9 +42,12 @@ class _CheckpointExecutor(Protocol):
 
 @runtime_checkable
 class _MoiraiExecutor(Protocol):
-    def run_approved(
-        self, payload: dict[str, Any], on_event: Any = None
-    ) -> str: ...
+    def run_approved(self, payload: dict[str, Any], on_event: Any = None) -> str: ...
+
+
+@runtime_checkable
+class _WorkerExecutor(Protocol):
+    def execute_approved(self, payload: dict[str, JSONValue]) -> str: ...
 
 
 @runtime_checkable
@@ -67,6 +73,7 @@ def execute_action(
     """Carry out an action that already has durable approval authority."""
     configured = options or DispatchOptions()
     if category == "cron":
+
         def clock(value: Any, default: int, maximum: int) -> int:
             try:
                 parsed = int(value)
@@ -165,11 +172,11 @@ def execute_action(
         output = (result.stdout or "") + (result.stderr or "")
         return f"[exit {result.returncode}] {output[:2000]}"
     if category == "office_create":
-        approval_id = None
-        if configured.cfg is not None:
+        approval_id = configured.office_approval_id
+        if approval_id is None and configured.cfg is not None:
             value = configured.cfg.get("_office_approval_id")
             if isinstance(value, str):
-                approval_id = value
+                approval_id = SealedApprovalId(value)
         from .office.create_execution import execute_approved_office_creation
 
         return execute_approved_office_creation(
@@ -177,11 +184,11 @@ def execute_action(
             approval_id=approval_id,
         )
     if category == "office_job":
-        approval_id = None
-        if configured.cfg is not None:
+        approval_id = configured.office_approval_id
+        if approval_id is None and configured.cfg is not None:
             value = configured.cfg.get("_office_approval_id")
             if isinstance(value, str):
-                approval_id = value
+                approval_id = SealedApprovalId(value)
         from .office.coordinator import execute_approved_office_job
         from .office.progress import office_progress_sink
 
@@ -193,11 +200,11 @@ def execute_action(
     if category == "office_rollback":
         from .office.rollback_approval import execute_approved_rollback
 
-        approval_id = None
-        if configured.cfg is not None:
+        approval_id = configured.office_approval_id
+        if approval_id is None and configured.cfg is not None:
             value = configured.cfg.get("_office_approval_id")
             if isinstance(value, str):
-                approval_id = value
+                approval_id = SealedApprovalId(value)
         return execute_approved_rollback(payload, approval_id=approval_id)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
@@ -219,6 +226,11 @@ def execute_action(
         if not isinstance(moirai, _MoiraiExecutor):
             raise RuntimeError("Moirai approval executor is unavailable")
         return moirai.run_approved(payload, on_event=configured.on_event)
+    if category == "worker":
+        worker = importlib.import_module("birkin.worker_executor")
+        if not isinstance(worker, _WorkerExecutor):
+            raise RuntimeError("worker approval executor is unavailable")
+        return worker.execute_approved(payload)
     if category == "skill":
         skill = importlib.import_module("birkin.skills.manager")
         if not isinstance(skill, _SkillExecutor):

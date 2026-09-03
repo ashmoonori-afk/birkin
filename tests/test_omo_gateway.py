@@ -1,95 +1,35 @@
 from __future__ import annotations
 
-import json
-import subprocess
-import sys
-import threading
 from pathlib import Path
-from typing import cast
 
-import birkin.omo_rpc as omo_rpc
+import pytest
+
+from birkin import cli
 from birkin.gateway import core
+from birkin.gateway import turn_router
+from birkin.gateway.telegram_lease import format_gateway_diagnostics
+from birkin.gateway.turn_support import PRIVILEGED_COMMANDS
 from birkin.omo import OmoController, parse_omo_command
-from birkin.omo_rpc import OmoRpcClient, OmoState, command_for_session
+from birkin.omo_rpc import command_for_session
+from tests.omo_gateway_support import (
+    BlockingRpc,
+    FailingRpc,
+    FakeRpc,
+    write_session,
+)
 
 
-class FakeRpc:
-    def __init__(self) -> None:
-        self.selected: Path | None = None
-        self.prompts: list[str] = []
-        self.prompt_called = threading.Event()
-        self.steers: list[str] = []
-        self.aborted = False
-        self.closed = False
-
-    def switch_session(self, path: Path) -> None:
-        self.selected = path
-
-    def prompt(self, message: str) -> str:
-        self.prompts.append(message)
-        self.prompt_called.set()
-        return f"reply: {message}"
-
-    def steer(self, message: str) -> None:
-        self.steers.append(message)
-
-    def abort(self) -> None:
-        self.aborted = True
-
-    def get_state(self) -> OmoState:
-        return OmoState(session_id="abc123", is_streaming=False)
-
-    def get_last_assistant_text(self) -> str | None:
-        return "last reply"
-
-    def close(self) -> None:
-        self.closed = True
-
-
-class BlockingRpc(FakeRpc):
-    def __init__(self) -> None:
-        super().__init__()
-        self.prompt_started = threading.Event()
-        self.release_prompt = threading.Event()
-        self.prompt_finished = threading.Event()
-
-    def prompt(self, message: str) -> str:
-        self.prompts.append(message)
-        self.prompt_called.set()
-        self.prompt_started.set()
-        if not self.release_prompt.wait(timeout=5):
-            raise AssertionError("test did not release the blocked OMO prompt")
-        self.prompt_finished.set()
-        return f"reply: {message}"
-
-
-class FailingRpc(FakeRpc):
-    def __init__(self) -> None:
-        super().__init__()
-        self.prompt_failed = threading.Event()
-
-    def prompt(self, message: str) -> str:
-        self.prompts.append(message)
-        self.prompt_called.set()
-        try:
-            raise OSError("background prompt failed")
-        finally:
-            self.prompt_failed.set()
-
-
-def write_session(root: Path, session_id: str, cwd: str) -> Path:
-    path = root / f"{session_id}.jsonl"
-    path.write_text(json.dumps({"type": "session", "id": session_id, "cwd": cwd}) + "\n", encoding="utf-8")
-    return path
-
-
-def test_controller_controls_selected_session_and_rejects_missing_selection(tmp_path: Path) -> None:
+def test_controller_controls_selected_session_and_rejects_missing_selection(
+    tmp_path: Path,
+) -> None:
     first = write_session(tmp_path, "abc12345-0000", "C:/repo/one")
     rpc = FakeRpc()
     controller = OmoController(rpc=rpc, session_roots=(tmp_path,))
 
     assert "abc12345-0000" in controller.handle("/omo list")
-    assert controller.handle("/omo use abc123") == "Selected abc12345-0000 (C:/repo/one)."
+    assert (
+        controller.handle("/omo use abc123") == "Selected abc12345-0000 (C:/repo/one)."
+    )
     assert rpc.selected == first
     assert controller.handle("/omo send fix the test").startswith(
         "OMO prompt started in the background."
@@ -115,42 +55,169 @@ def test_gateway_registers_authorizes_and_closes_omo(monkeypatch) -> None:
     gateway = core.Gateway({"channels": {"telegram": {"allowed_chat_ids": ["42"]}}})
 
     assert "omo" in {item["command"] for item in core.command_menu()}
-    assert "omo" in core._PRIVILEGED_COMMANDS
-    assert gateway.handle("telegram", "42", "/omo help").startswith("OMO session control")
-    assert gateway.handle("telegram", "99", "/omo help") == "OMO control is restricted to configured Telegram chat IDs."
-    assert gateway.handle("http", "42", "/omo help").startswith("OMO session control")
+    assert "omo" in PRIVILEGED_COMMANDS
+    assert gateway.handle("telegram", "42", "/omo help").startswith(
+        "OMO session control"
+    )
+    assert (
+        gateway.handle("telegram", "99", "/omo help")
+        == "OMO control is restricted to configured Telegram chat IDs."
+    )
+    assert gateway.handle("http", "42", "/omo help") == (
+        "OMO control is restricted to configured Telegram chat IDs."
+    )
     gateway.shutdown()
     assert rpc.closed
 
 
+def test_telegram_gateway_lease_rejects_competing_owner_and_releases_on_shutdown(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(core.config, "birkin_home", lambda: tmp_path)
+    monkeypatch.setattr(core, "build_session", lambda cfg: object())
+    monkeypatch.setattr(
+        core,
+        "OmoController",
+        lambda: OmoController(rpc=FakeRpc(), session_roots=()),
+    )
+    cfg = {
+        "channels": {
+            "telegram": {
+                "enabled": True,
+                "token": "1234567890:abcdefghijklmnopqrstuvwxyz",
+                "allowed_chat_ids": ["42"],
+            }
+        }
+    }
+    first = core.Gateway(cfg)
+    competing = None
+    replacement = None
+
+    try:
+        with pytest.raises(
+            RuntimeError,
+            match=r"Telegram owner PID \d+ already owns bot [0-9a-f]{12}",
+        ):
+            competing = core.Gateway(cfg)
+        first.shutdown()
+        replacement = core.Gateway(cfg)
+    finally:
+        if competing is not None:
+            competing.shutdown()
+        if replacement is not None:
+            replacement.shutdown()
+
+
+def test_omo_gateway_routes_only_authorized_explicit_commands(monkeypatch) -> None:
+    rpc = FakeRpc()
+    controller = OmoController(rpc=rpc, session_roots=())
+    monkeypatch.setattr(core, "OmoController", lambda: controller)
+    monkeypatch.setattr(core, "build_session", lambda cfg: object())
+    monkeypatch.setattr(
+        turn_router,
+        "run_model_turn",
+        lambda *_args, **_kwargs: "ordinary Birkin turn",
+    )
+    gateway = core.Gateway({"channels": {"telegram": {"allowed_chat_ids": ["42"]}}})
+
+    try:
+        assert gateway._omo_command_trusted("telegram", "42") is True
+        assert gateway._omo_command_trusted("telegram", "99") is False
+        assert gateway._omo_command_trusted("local_http", "42") is False
+        assert gateway.handle("telegram", "42", "/omo help").startswith(
+            "OMO session control"
+        )
+        assert gateway.handle("telegram", "99", "/omo help") == (
+            "OMO control is restricted to configured Telegram chat IDs."
+        )
+        assert gateway.handle("local_http", "42", "/omo help") == (
+            "OMO control is restricted to configured Telegram chat IDs."
+        )
+        assert (
+            gateway.handle("telegram", "42", "ordinary message")
+            == "ordinary Birkin turn"
+        )
+        assert rpc.prompts == []
+    finally:
+        gateway.shutdown()
+
+
+def test_gateway_diagnostics_report_owner_channel_and_omo_state(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    token = "1234567890:diagnostic-secret-token"
+    cfg = {
+        "channels": {
+            "telegram": {
+                "enabled": True,
+                "token": token,
+                "allowed_chat_ids": ["42"],
+            }
+        }
+    }
+    monkeypatch.setattr(core.config, "birkin_home", lambda: tmp_path)
+    output = format_gateway_diagnostics(cfg)
+    assert "Telegram owner: unclaimed" in output
+    assert "Telegram channel: enabled" in output
+    assert "OMO control: enabled for 1 configured Telegram chat ID" in output
+    assert "Conflict guidance:" in output
+    assert token not in output
+
+
+def test_cli_omo_diagnose_alias_reports_gateway_state(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    token = "1234567890:diagnostic-secret-token"
+    cfg = {
+        "channels": {
+            "telegram": {
+                "enabled": True,
+                "token": token,
+                "allowed_chat_ids": ["42"],
+            }
+        }
+    }
+    monkeypatch.setattr(core.config, "birkin_home", lambda: tmp_path)
+    monkeypatch.setattr(core.config, "load_config", lambda: cfg)
+
+    assert cli.main(["omo", "diagnose"]) == 0
+
+    output = capsys.readouterr().out
+    assert "Telegram owner: unclaimed" in output
+    assert "Telegram channel: enabled" in output
+    assert "OMO control: enabled for 1 configured Telegram chat ID" in output
+    assert "Conflict guidance:" in output
+    assert token not in output
+
+
 def test_gateway_keeps_omo_controls_available_while_send_runs(
-    monkeypatch, tmp_path: Path,
+    monkeypatch,
+    tmp_path: Path,
 ) -> None:
     write_session(tmp_path, "abc12345-0000", "C:/repo/one")
     rpc = BlockingRpc()
     controller = OmoController(rpc=rpc, session_roots=(tmp_path,))
     monkeypatch.setattr(core, "OmoController", lambda: controller)
     monkeypatch.setattr(core, "build_session", lambda cfg: object())
-    gateway = core.Gateway(
-        {"channels": {"telegram": {"allowed_chat_ids": ["42"]}}}
-    )
+    gateway = core.Gateway({"channels": {"telegram": {"allowed_chat_ids": ["42"]}}})
 
     assert gateway.handle("telegram", "42", "/omo use abc123").startswith("Selected")
 
     try:
-        assert gateway.handle(
-            "telegram", "42", "/omo send fix the test"
-        ) == (
+        assert gateway.handle("telegram", "42", "/omo send fix the test") == (
             "OMO prompt started in the background. "
             "Use /omo status, /omo steer, /omo abort, or /omo last."
         )
         assert rpc.prompt_started.wait(timeout=1)
-        assert gateway.handle(
-            "telegram", "42", "/omo steer check caller"
-        ) == "Steering message queued."
-        assert gateway.handle(
-            "telegram", "42", "/omo abort"
-        ) == "Abort requested."
+        assert (
+            gateway.handle("telegram", "42", "/omo steer check caller")
+            == "Steering message queued."
+        )
+        assert gateway.handle("telegram", "42", "/omo abort") == "Abort requested."
     finally:
         rpc.release_prompt.set()
         assert rpc.prompt_finished.wait(timeout=1)
@@ -209,45 +276,6 @@ def test_controller_reports_background_prompt_failure(tmp_path: Path) -> None:
 def test_parser_and_session_command_preserve_omo_contract() -> None:
     assert parse_omo_command("/omo@BirkinBot send hello") == ("send", "hello")
     assert parse_omo_command("/other") is None
-    assert command_for_session(("omo", "--no-session", "--approve"), Path("C:/sessions/example.jsonl")) == ("omo", "--approve", "--session", "C:\\sessions\\example.jsonl")
-
-
-def test_rpc_client_uses_jsonl_protocol() -> None:
-    program = """import json,sys\nfor line in sys.stdin:\n request=json.loads(line); data={'text':'done'} if request['type']=='get_last_assistant_text' else {}; print(json.dumps({'id':request['id'],'type':'response','success':True,'data':data}),flush=True); print(json.dumps({'type':'agent_settled'}),flush=True)"""
-    client = OmoRpcClient(command=(sys.executable, "-u", "-c", program), timeout=5)
-    try:
-        client.switch_session(Path("C:/sessions/example.jsonl"))
-        assert client.prompt("hello") == "done"
-        client.steer("change direction")
-        client.abort()
-    finally:
-        client.close()
-
-
-def test_rpc_client_kills_process_tree_after_close_timeout(monkeypatch) -> None:
-    class HungProcess:
-        stdin = None
-        waits = 0
-
-        def poll(self) -> None:
-            return None
-
-        def wait(self, timeout: float) -> None:
-            self.waits += 1
-            if self.waits == 1:
-                raise subprocess.TimeoutExpired("omo", timeout)
-
-    process = HungProcess()
-    killed: list[HungProcess] = []
-    client = OmoRpcClient(command=("omo",))
-    client._process = cast(subprocess.Popen[str], cast(object, process))
-    monkeypatch.setattr(
-        omo_rpc,
-        "kill_tree",
-        lambda selected: killed.append(selected),
-        raising=False,
-    )
-
-    client.close()
-
-    assert killed == [process]
+    assert command_for_session(
+        ("omo", "--no-session", "--approve"), Path("C:/sessions/example.jsonl")
+    ) == ("omo", "--approve", "--session", "C:\\sessions\\example.jsonl")

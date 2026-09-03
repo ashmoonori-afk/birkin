@@ -46,7 +46,13 @@ def test_gateway_error_reply_marks_approved_workflow_as_error(
         steps=("실행",),
     )
     aid = workflow.queue_proposal(proposal, "실패해줘", "42")
-    resolution = workflow.resolve_proposal(aid, "42", approve=True)
+    resolution = workflow.resolve_proposal(
+        aid,
+        "42",
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
 
     gateway = _ReplyGateway.with_reply(
         "⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
@@ -66,6 +72,8 @@ def test_gateway_error_reply_marks_approved_workflow_as_error(
     pending = store.get_pending(aid)
     assert pending is not None
     assert pending["status"] == "error"
+    assert pending["approved_by"] == "human:telegram:42"
+    assert pending["approved_via"] == "gateway:telegram"
 
 
 def test_approved_workflow_cannot_queue_another_proposal(
@@ -73,7 +81,13 @@ def test_approved_workflow_cannot_queue_another_proposal(
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     proposal = workflow.WorkflowProposal("work", "run it", ("execute",))
     aid = workflow.queue_proposal(proposal, "original", "42")
-    resolution = workflow.resolve_proposal(aid, "42", approve=True)
+    resolution = workflow.resolve_proposal(
+        aid,
+        "42",
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
     body = '{"title":"again","summary":"loop","steps":["retry"]}'
     reply = f"{workflow.PROPOSAL_OPEN}{body}{workflow.PROPOSAL_CLOSE}"
 

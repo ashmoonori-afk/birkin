@@ -24,7 +24,7 @@ from html import escape
 from pathlib import Path
 from typing import Any
 
-from . import config, store
+from . import config, private_storage, store
 
 KINDS = ("prompt", "memory", "skill_note", "subagent")
 ACTIONS = ("create", "update", "delete")
@@ -46,10 +46,15 @@ WORKING_FIELDS = (
 WORKING_MAX_ITEM = 2000
 WORKING_MAX_RENDER = 20_000
 WORKING_MAX_VALUES = 256
+REFINE_REQUEST_MAX_TEXT = 4000
+REFINE_REQUEST_MAX_BYTES = 40_000
+REFINE_REQUEST_QUERY_LIMIT = 100
 _WORKING_SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+_REFINE_REQUEST_ID = re.compile(r"^rr_[0-9]{8}-[0-9]{6}_[0-9a-f]{16}$")
 
 STATE_FILE = "harness_state.json"
 HISTORY_FILE = "refinements.jsonl"
+REFINE_REQUESTS_DIR = "refine_requests"
 
 _KIND_HEADINGS = {
     "prompt": "행동 노트 (prompt)",
@@ -82,9 +87,7 @@ def harness_dir(scope: str = "global", *, session_id: str | None = None) -> Path
     if raw_session != legacy_key:
         return target
     target.parent.mkdir(parents=True, exist_ok=True)
-    lock_digest = hashlib.sha256(
-        legacy_key.casefold().encode()
-    ).hexdigest()[:24]
+    lock_digest = hashlib.sha256(legacy_key.casefold().encode()).hexdigest()[:24]
     migration_lock = sessions / f".harness-migration-{lock_digest}"
     with store.file_lock(migration_lock):
         try:
@@ -129,12 +132,203 @@ def history_path(scope: str = "global", *, session_id: str | None = None) -> Pat
     return harness_dir(scope, session_id=session_id) / HISTORY_FILE
 
 
+def refine_requests_dir(
+    scope: str = "global", *, session_id: str | None = None
+) -> Path:
+    return harness_dir(scope, session_id=session_id) / REFINE_REQUESTS_DIR
+
+
+def refine_request_path(
+    request_id: str,
+    scope: str = "global",
+    *,
+    session_id: str | None = None,
+) -> Path:
+    if not _REFINE_REQUEST_ID.fullmatch(request_id):
+        raise ValueError("invalid refine request id")
+    return refine_requests_dir(scope, session_id=session_id) / f"{request_id}.json"
+
+
+def _refine_target(target: str) -> str:
+    if not isinstance(target, str):
+        raise ValueError("refine target must be text")
+    normalized = " ".join(target.split()).strip()
+    if not normalized:
+        raise ValueError("refine target must not be empty")
+    if len(normalized) > REFINE_REQUEST_MAX_TEXT:
+        raise ValueError(
+            f"refine target must be at most {REFINE_REQUEST_MAX_TEXT} characters"
+        )
+    return normalized
+
+
+def _refine_scope(scope: str) -> str:
+    if scope not in SCOPES:
+        raise ValueError("refine scope must be local or global")
+    return scope
+
+
+def refine_request_digest(target: str, scope: str) -> str:
+    normalized = _refine_target(target)
+    selected_scope = _refine_scope(scope)
+    canonical = json.dumps(
+        {
+            "worker": "harness",
+            "action": "refine",
+            "target": normalized,
+            "scope": selected_scope,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def record_refine_request(
+    target: str,
+    *,
+    scope: str = "global",
+    session_id: str | None = None,
+) -> tuple[dict[str, object], Path]:
+    """Persist one structured refine request without applying it."""
+    instructions = _refine_target(target)
+    selected_scope = _refine_scope(scope)
+    selected_session: str | None = None
+    if selected_scope == "local":
+        selected_session = validate_working_session_id(session_id or "default")
+    stamp = datetime.now(timezone.utc)
+    # The 16-character tail leads with the zero-padded microsecond (decimal
+    # digits are hex digits, so the id format is unchanged) and ends in
+    # randomness. Two requests recorded inside one second used to tie on the
+    # second-resolution created_at and fall back to a random tiebreak, so
+    # refine_requests() listed them in arbitrary order on hosts fast enough to
+    # write both within a second.
+    request_id = (
+        f"rr_{stamp.strftime('%Y%m%d-%H%M%S')}"
+        f"_{stamp.microsecond:06d}{uuid.uuid4().hex[:10]}"
+    )
+    artifact: dict[str, object] = {
+        "schema": 2,
+        "id": request_id,
+        "target": instructions,
+        "instructions": instructions,
+        "scope": selected_scope,
+        "session_id": selected_session,
+        "created_at": stamp.isoformat(timespec="microseconds"),
+        "status": "recorded",
+        "request_digest": refine_request_digest(instructions, selected_scope),
+    }
+    encoded = (
+        json.dumps(
+            artifact,
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
+    if len(encoded.encode("utf-8")) > REFINE_REQUEST_MAX_BYTES:
+        raise ValueError("refine request artifact exceeds its storage bound")
+    path = refine_request_path(
+        request_id,
+        selected_scope,
+        session_id=selected_session,
+    )
+    private_storage.atomic_write_private_text(path, encoded)
+    return artifact, path
+
+
+def refine_requests(
+    scope: str = "global",
+    *,
+    session_id: str | None = None,
+    limit: int = REFINE_REQUEST_QUERY_LIMIT,
+) -> list[dict[str, object]]:
+    """Query recent valid refine-request artifacts in deterministic order."""
+    selected_scope = _refine_scope(scope)
+    if (
+        not isinstance(limit, int)
+        or isinstance(limit, bool)
+        or not 1 <= limit <= REFINE_REQUEST_QUERY_LIMIT
+    ):
+        raise ValueError(
+            f"refine request limit must be from 1 to {REFINE_REQUEST_QUERY_LIMIT}"
+        )
+    directory = refine_requests_dir(selected_scope, session_id=session_id)
+    if not directory.is_dir():
+        return []
+    records: list[dict[str, object]] = []
+    for path in sorted(directory.glob("rr_*.json"))[-limit:]:
+        if not _REFINE_REQUEST_ID.fullmatch(path.stem):
+            continue
+        try:
+            raw_text = private_storage.read_private_text(path)
+            if len(raw_text.encode("utf-8")) > REFINE_REQUEST_MAX_BYTES:
+                continue
+            raw = json.loads(raw_text)
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(raw, dict):
+            continue
+        request_id = raw.get("id")
+        target_value = raw.get("target")
+        artifact_scope = raw.get("scope")
+        created_at = raw.get("created_at")
+        request_digest = raw.get("request_digest")
+        expected_session = (
+            validate_working_session_id(session_id or "default")
+            if selected_scope == "local"
+            else None
+        )
+        if (
+            set(raw)
+            != {
+                "schema",
+                "id",
+                "target",
+                "instructions",
+                "scope",
+                "session_id",
+                "created_at",
+                "status",
+                "request_digest",
+            }
+            or raw.get("schema") != 2
+            or not isinstance(request_id, str)
+            or request_id != path.stem
+            or not isinstance(target_value, str)
+            or target_value != " ".join(target_value.split()).strip()
+            or not target_value
+            or len(target_value) > REFINE_REQUEST_MAX_TEXT
+            or raw.get("instructions") != target_value
+            or artifact_scope != selected_scope
+            or raw.get("session_id") != expected_session
+            or not isinstance(created_at, str)
+            or not created_at
+            or len(created_at) > 64
+            or raw.get("status") != "recorded"
+            or not isinstance(request_digest, str)
+            or request_digest != refine_request_digest(target_value, selected_scope)
+        ):
+            continue
+        records.append({str(key): value for key, value in raw.items()})
+    records.sort(key=lambda item: (str(item.get("created_at", "")), str(item["id"])))
+    return records[-limit:]
+
+
 def empty_working() -> dict[str, Any]:
     return {
         "revision": 0,
         "updated_at": "",
         **{field: [] for field in WORKING_FIELDS},
     }
+
+
+def _working_is_empty(working: dict[str, Any]) -> bool:
+    """Emptiness is field content, never revision 0: a cleared journal keeps its
+    revision so the optimistic-concurrency token stays monotonic."""
+    return not any(working.get(field) for field in WORKING_FIELDS)
 
 
 def empty_state() -> dict[str, Any]:
@@ -201,8 +395,9 @@ def load(scope: str = "global", *, session_id: str | None = None) -> dict[str, A
     return _decode_state(raw)
 
 
-def save(state: dict[str, Any], scope: str = "global", *,
-         session_id: str | None = None) -> Path:
+def save(
+    state: dict[str, Any], scope: str = "global", *, session_id: str | None = None
+) -> Path:
     path = state_path(scope, session_id=session_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = copy.deepcopy(state)
@@ -214,8 +409,9 @@ def save(state: dict[str, Any], scope: str = "global", *,
     return path
 
 
-def history(scope: str = "global", limit: int | None = None, *,
-            session_id: str | None = None) -> list[dict[str, Any]]:
+def history(
+    scope: str = "global", limit: int | None = None, *, session_id: str | None = None
+) -> list[dict[str, Any]]:
     path = history_path(scope, session_id=session_id)
     if not path.is_file():
         return []
@@ -237,8 +433,9 @@ def history(scope: str = "global", limit: int | None = None, *,
     return events[-limit:] if limit else events
 
 
-def _append_history(event: dict[str, Any], scope: str, *,
-                    session_id: str | None = None) -> None:
+def _append_history(
+    event: dict[str, Any], scope: str, *, session_id: str | None = None
+) -> None:
     path = history_path(scope, session_id=session_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("a", encoding="utf-8") as fh:
@@ -247,8 +444,13 @@ def _append_history(event: dict[str, Any], scope: str, *,
 
 def _policy_markers() -> tuple[str, ...]:
     from . import prompts
-    return (prompts.UI_COMPONENT_POLICY_OPEN, prompts.UI_COMPONENT_POLICY_CLOSE,
-            prompts.RESEARCH_EVIDENCE_OPEN, prompts.RESEARCH_EVIDENCE_CLOSE)
+
+    return (
+        prompts.UI_COMPONENT_POLICY_OPEN,
+        prompts.UI_COMPONENT_POLICY_CLOSE,
+        prompts.RESEARCH_EVIDENCE_OPEN,
+        prompts.RESEARCH_EVIDENCE_CLOSE,
+    )
 
 
 def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
@@ -260,10 +462,7 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return f"unknown action {action!r}"
     kind = str(edit.get("kind", "")).strip().lower()
     if kind == "skill":
-        return (
-            "kind 'skill' is not executable; use 'skill_note' "
-            "for harness metadata"
-        )
+        return "kind 'skill' is not executable; use 'skill_note' for harness metadata"
     if kind not in KINDS:
         return f"unknown kind {kind!r}"
     if action == "delete":
@@ -279,6 +478,7 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return f"content too long ({len(str(content))} > {max_content})"
     if action != "delete" and kind in {"memory", "skill"}:
         from .persistence_safety import unsafe_persistence_reason
+
         unsafe = unsafe_persistence_reason(edit.get("title"), content)
         if unsafe:
             return f"content {unsafe}"
@@ -293,8 +493,15 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
     return None
 
 
-def _merge_entry(before: dict[str, Any] | None, edit: dict[str, Any], *,
-                 eid: str, kind: str, scope: str, source: str) -> dict[str, Any]:
+def _merge_entry(
+    before: dict[str, Any] | None,
+    edit: dict[str, Any],
+    *,
+    eid: str,
+    kind: str,
+    scope: str,
+    source: str,
+) -> dict[str, Any]:
     def pick(field: str, default: Any) -> Any:
         if edit.get(field) is not None:
             return edit[field]
@@ -317,13 +524,20 @@ def _merge_entry(before: dict[str, Any] | None, edit: dict[str, Any], *,
     }
 
 
-def apply(state: dict[str, Any], proposal: dict[str, Any], *,
-          baseline: dict[str, Any] | None = None, scope: str = "global",
-          session_id: str | None = None,
-          rid: str | None = None, source: str = "harness",
-          max_edits: int = MAX_EDITS, max_content: int = MAX_CONTENT,
-          rollback_of: str | None = None,
-          persist: bool = True) -> dict[str, Any]:
+def apply(
+    state: dict[str, Any],
+    proposal: dict[str, Any],
+    *,
+    baseline: dict[str, Any] | None = None,
+    scope: str = "global",
+    session_id: str | None = None,
+    rid: str | None = None,
+    source: str = "harness",
+    max_edits: int = MAX_EDITS,
+    max_content: int = MAX_CONTENT,
+    rollback_of: str | None = None,
+    persist: bool = True,
+) -> dict[str, Any]:
     """Apply a proposal edit-by-edit. Partial failure is the normal path."""
     if persist:
         path = state_path(scope, session_id=session_id)
@@ -331,9 +545,7 @@ def apply(state: dict[str, Any], proposal: dict[str, Any], *,
         with store.file_lock(path):
             raw = store._read_json(path, None)
             current = (
-                _decode_state(raw)
-                if isinstance(raw, dict)
-                else copy.deepcopy(state)
+                _decode_state(raw) if isinstance(raw, dict) else copy.deepcopy(state)
             )
             event = _apply_unpersisted(
                 current,
@@ -349,9 +561,7 @@ def apply(state: dict[str, Any], proposal: dict[str, Any], *,
                 persist=False,
             )
             original = copy.deepcopy(
-                _decode_state(raw)
-                if isinstance(raw, dict)
-                else state
+                _decode_state(raw) if isinstance(raw, dict) else state
             )
             history = history_path(scope, session_id=session_id)
             try:
@@ -411,40 +621,65 @@ def apply(state: dict[str, Any], proposal: dict[str, Any], *,
         if baseline is not None and key not in touched:
             base = baseline.get("entries", {}).get(kind, {}).get(eid)
             if before != base:
-                applied.append({**edit, "id": eid, "before": before,
-                                "applied": False,
-                                "error": "entry changed during planning"})
+                applied.append(
+                    {
+                        **edit,
+                        "id": eid,
+                        "before": before,
+                        "applied": False,
+                        "error": "entry changed during planning",
+                    }
+                )
                 continue
 
         if action == "delete":
             if not before:
-                applied.append({**edit, "id": eid, "applied": False,
-                                "error": "entry not found"})
+                applied.append(
+                    {**edit, "id": eid, "applied": False, "error": "entry not found"}
+                )
                 continue
             del records[eid]
             touched.add(key)
-            applied.append({**edit, "id": eid, "before": before, "after": None,
-                            "applied": True})
+            applied.append(
+                {**edit, "id": eid, "before": before, "after": None, "applied": True}
+            )
             continue
 
         if action == "create" and before:
-            applied.append({**edit, "id": eid, "before": before,
-                            "applied": False, "error": "entry already exists"})
+            applied.append(
+                {
+                    **edit,
+                    "id": eid,
+                    "before": before,
+                    "applied": False,
+                    "error": "entry already exists",
+                }
+            )
             continue
         if action == "update" and not before:
-            applied.append({**edit, "id": eid, "applied": False,
-                            "error": "entry not found"})
+            applied.append(
+                {**edit, "id": eid, "applied": False, "error": "entry not found"}
+            )
             continue
 
-        after = _merge_entry(before, edit, eid=eid, kind=kind, scope=scope,
-                             source=source)
+        after = _merge_entry(
+            before, edit, eid=eid, kind=kind, scope=scope, source=source
+        )
         records[eid] = after
         touched.add(key)
-        applied.append({**edit, "id": eid, "before": before,
-                        "after": copy.deepcopy(after), "applied": True})
+        applied.append(
+            {
+                **edit,
+                "id": eid,
+                "before": before,
+                "after": copy.deepcopy(after),
+                "applied": True,
+            }
+        )
 
-    changes = [f"{e['action']} {e['kind']}:{e['id']}"
-               for e in applied if e.get("applied")]
+    changes = [
+        f"{e['action']} {e['kind']}:{e['id']}" for e in applied if e.get("applied")
+    ]
     event = {
         "id": rid,
         "trigger": str(proposal.get("summary", ""))[:400],
@@ -473,42 +708,65 @@ def _inverse_edits(event: dict[str, Any]) -> list[dict[str, Any]]:
         before, after = entry.get("before"), entry.get("after")
         kind, eid = entry["kind"], entry["id"]
         if before is None:
-            inverse.append({"action": "delete", "kind": kind, "id": eid,
-                            "reason": f"rollback of {event['id']}"})
+            inverse.append(
+                {
+                    "action": "delete",
+                    "kind": kind,
+                    "id": eid,
+                    "reason": f"rollback of {event['id']}",
+                }
+            )
         else:
             action = "update" if after is not None else "create"
-            inverse.append({"action": action, "kind": kind, "id": eid,
-                            "title": before.get("title", eid),
-                            "content": before.get("content", ""),
-                            "path": before.get("path", "general"),
-                            "reference": before.get("reference", {}),
-                            "arguments": before.get("arguments", {}),
-                            "metadata": before.get("metadata", {}),
-                            "reason": f"rollback of {event['id']}"})
+            inverse.append(
+                {
+                    "action": action,
+                    "kind": kind,
+                    "id": eid,
+                    "title": before.get("title", eid),
+                    "content": before.get("content", ""),
+                    "path": before.get("path", "general"),
+                    "reference": before.get("reference", {}),
+                    "arguments": before.get("arguments", {}),
+                    "metadata": before.get("metadata", {}),
+                    "reason": f"rollback of {event['id']}",
+                }
+            )
     return inverse
 
 
-def find_event(rid: str, scope: str = "global", *,
-               session_id: str | None = None) -> dict[str, Any]:
+def find_event(
+    rid: str, scope: str = "global", *, session_id: str | None = None
+) -> dict[str, Any]:
     for event in reversed(history(scope, session_id=session_id)):
         if event.get("id") == rid:
             return event
     raise KeyError(f"no refinement with id {rid!r}")
 
 
-def rollback(rid: str, scope: str = "global", *,
-             session_id: str | None = None) -> dict[str, Any]:
+def rollback(
+    rid: str, scope: str = "global", *, session_id: str | None = None
+) -> dict[str, Any]:
     """Undo a refinement by replaying its applied edits in reverse."""
     target = find_event(rid, scope, session_id=session_id)
     inverse = _inverse_edits(target)
     state = load(scope, session_id=session_id)
-    return apply(state, {"summary": f"rollback of {rid}",
-                         "rationale": target.get("trigger", ""),
-                         "expectedOutcome": "이전 harness 상태 복원",
-                         "edits": inverse},
-                 baseline=None, scope=scope, session_id=session_id, rid=new_id(),
-                 source="rollback", max_edits=max(len(inverse), MAX_EDITS),
-                 rollback_of=rid)
+    return apply(
+        state,
+        {
+            "summary": f"rollback of {rid}",
+            "rationale": target.get("trigger", ""),
+            "expectedOutcome": "이전 harness 상태 복원",
+            "edits": inverse,
+        },
+        baseline=None,
+        scope=scope,
+        session_id=session_id,
+        rid=new_id(),
+        source="rollback",
+        max_edits=max(len(inverse), MAX_EDITS),
+        rollback_of=rid,
+    )
 
 
 def auto_kinds(cfg: dict[str, Any] | None) -> set[str]:
@@ -518,11 +776,16 @@ def auto_kinds(cfg: dict[str, Any] | None) -> set[str]:
     return {str(kind).strip().lower() for kind in raw}
 
 
-def submit(proposal: dict[str, Any], *, cfg: dict[str, Any] | None = None,
-           scope: str = "global", source: str = "harness",
-           session_id: str | None = None,
-           rid: str | None = None,
-           origin: str = "harness") -> dict[str, Any]:
+def submit(
+    proposal: dict[str, Any],
+    *,
+    cfg: dict[str, Any] | None = None,
+    scope: str = "global",
+    source: str = "harness",
+    session_id: str | None = None,
+    rid: str | None = None,
+    origin: str = "harness",
+) -> dict[str, Any]:
     """Route a proposal through the approval gate, then apply what may auto-apply.
 
     Returns ``{"applied": event|None, "queued": [status], "rejected": [edit]}``.
@@ -553,24 +816,39 @@ def submit(proposal: dict[str, Any], *, cfg: dict[str, Any] | None = None,
             auto_edits.append(edit)
             continue
         label = edit.get("title") or edit.get("id") or kind
-        queued.append(approvals.propose(
-            category="harness",
-            title=f"harness {edit['action']} {kind}: {label}",
-            description=str(edit.get("reason")
-                            or proposal.get("rationale") or "")[:400],
-            payload={"edit": edit, "scope": scope,
-                     "session_id": session_id,
-                     "summary": proposal.get("summary", ""),
-                     "rationale": proposal.get("rationale", ""),
-                     "expectedOutcome": proposal.get("expectedOutcome", "")},
-            cfg=cfg, origin=origin))
+        queued.append(
+            approvals.propose(
+                category="harness",
+                title=f"harness {edit['action']} {kind}: {label}",
+                description=str(edit.get("reason") or proposal.get("rationale") or "")[
+                    :400
+                ],
+                payload={
+                    "edit": edit,
+                    "scope": scope,
+                    "session_id": session_id,
+                    "summary": proposal.get("summary", ""),
+                    "rationale": proposal.get("rationale", ""),
+                    "expectedOutcome": proposal.get("expectedOutcome", ""),
+                },
+                cfg=cfg,
+                origin=origin,
+            )
+        )
 
     applied: dict[str, Any] | None = None
     if auto_edits:
         current = load(scope, session_id=session_id)
-        applied = apply(current, {**proposal, "edits": auto_edits},
-                        baseline=current, scope=scope, session_id=session_id, rid=rid,
-                        source=source, max_edits=max_edits)
+        applied = apply(
+            current,
+            {**proposal, "edits": auto_edits},
+            baseline=current,
+            scope=scope,
+            session_id=session_id,
+            rid=rid,
+            source=source,
+            max_edits=max_edits,
+        )
     return {"applied": applied, "queued": queued, "rejected": rejected}
 
 
@@ -587,25 +865,35 @@ def apply_approved_edit(payload: dict[str, Any]) -> str:
     scope = str((payload or {}).get("scope") or "global")
     session_id = payload.get("session_id")
     session_id = str(session_id) if session_id is not None else None
-    summary = str(payload.get("summary")
-                  or f"approved {edit.get('action')} {edit.get('kind')}")
-    event = apply(load(scope, session_id=session_id),
-                  {"summary": summary,
-                   "rationale": payload.get("rationale", ""),
-                   "expectedOutcome": payload.get("expectedOutcome", ""),
-                   "edits": [edit]},
-                   baseline=None, scope=scope, session_id=session_id,
-                   rid=new_id(), source="approval")
+    summary = str(
+        payload.get("summary") or f"approved {edit.get('action')} {edit.get('kind')}"
+    )
+    event = apply(
+        load(scope, session_id=session_id),
+        {
+            "summary": summary,
+            "rationale": payload.get("rationale", ""),
+            "expectedOutcome": payload.get("expectedOutcome", ""),
+            "edits": [edit],
+        },
+        baseline=None,
+        scope=scope,
+        session_id=session_id,
+        rid=new_id(),
+        source="approval",
+    )
     outcome = event["applied"][0]
     if not outcome.get("applied"):
         raise ValueError(f"harness edit rejected: {outcome.get('error')}")
-    return (f"Applied harness {outcome['action']} "
-            f"{outcome['kind']}:{outcome['id']} (refinement {event['id']}).")
+    return (
+        f"Applied harness {outcome['action']} "
+        f"{outcome['kind']}:{outcome['id']} (refinement {event['id']})."
+    )
 
 
 def _clip(text: str, width: int) -> str:
     flat = " ".join(str(text or "").split())
-    return flat if len(flat) <= width else flat[:width - 1] + "…"
+    return flat if len(flat) <= width else flat[: width - 1] + "…"
 
 
 def validate_working_session_id(session_id: str) -> str:
@@ -642,15 +930,13 @@ def _decode_working(raw: object) -> dict[str, Any]:
                 if not isinstance(value, str):
                     continue
                 text = value.strip()
-                if (not text or len(text) > WORKING_MAX_ITEM
-                        or text in seen):
+                if not text or len(text) > WORKING_MAX_ITEM or text in seen:
                     continue
                 seen.add(text)
                 normalized.append(text)
             working[field] = normalized
     worst_case_session = "s" * 128
-    while (len(_render_working_state(worst_case_session, working))
-           > WORKING_MAX_RENDER):
+    while len(_render_working_state(worst_case_session, working)) > WORKING_MAX_RENDER:
         for field in reversed(WORKING_FIELDS):
             if working[field]:
                 working[field].pop()
@@ -831,12 +1117,14 @@ def clear_working(
         with store.file_lock(path):
             state = load("local", session_id=session)
             current = state.get("working") or empty_working()
-            if int(current.get("revision") or 0) == 0:
+            if _working_is_empty(current):
                 if commit is not None:
                     commit()
                 return False
             state["schema"] = 3
-            state["working"] = empty_working()
+            state["working"] = preview_working_clear(
+                int(current.get("revision") or 0)
+            )
             store._write_json(path, state)
             if commit is not None:
                 try:
@@ -870,10 +1158,8 @@ def restore_working(
     return True
 
 
-def _render_working_state(
-    session_id: str, working: dict[str, Any]
-) -> str:
-    if int(working.get("revision") or 0) == 0:
+def _render_working_state(session_id: str, working: dict[str, Any]) -> str:
+    if _working_is_empty(working):
         return ""
     headings = {
         "corrections": "User corrections",
@@ -909,10 +1195,7 @@ def render_working_reset(session_id: str) -> str:
         validate_working_session_id(session_id),
         quote=True,
     )
-    return (
-        f'<working-memory-reset session="{session}" '
-        'revision="0" state="empty"/>'
-    )
+    return f'<working-memory-reset session="{session}" revision="0" state="empty"/>'
 
 
 def merge_states(*states: dict[str, Any]) -> dict[str, Any]:
@@ -920,8 +1203,11 @@ def merge_states(*states: dict[str, Any]) -> dict[str, Any]:
     for state in states:
         for kind in KINDS:
             for eid, entry in (state.get("entries", {}).get(kind) or {}).items():
-                key = eid if eid not in merged["entries"][kind] else \
-                    f"{entry.get('scope', 'local')}:{eid}"
+                key = (
+                    eid
+                    if eid not in merged["entries"][kind]
+                    else f"{entry.get('scope', 'local')}:{eid}"
+                )
                 merged["entries"][kind][key] = entry
         merged["refinements"].extend(state.get("refinements") or [])
         working = state.get("working")
@@ -949,11 +1235,15 @@ def snapshot(session_id: str | None) -> dict[str, Any]:
     }
 
 
-def render_block(state: dict[str, Any], *, per_kind: int = RENDER_PER_KIND,
-                  history_limit: int = RENDER_HISTORY,
-                  width: int = RENDER_WIDTH,
-                  budget: int | None = None,
-                  revision: str | None = None) -> str:
+def render_block(
+    state: dict[str, Any],
+    *,
+    per_kind: int = RENDER_PER_KIND,
+    history_limit: int = RENDER_HISTORY,
+    width: int = RENDER_WIDTH,
+    budget: int | None = None,
+    revision: str | None = None,
+) -> str:
     """Compact the harness into the system-prompt block (empty when unused)."""
     entries = state.get("entries") or {}
     refinements = state.get("refinements") or []
@@ -969,8 +1259,9 @@ def render_block(state: dict[str, Any], *, per_kind: int = RENDER_PER_KIND,
         records = entries.get(kind) or {}
         if not records:
             continue
-        ordered = sorted(records.values(),
-                         key=lambda e: str(e.get("updated_at", "")), reverse=True)
+        ordered = sorted(
+            records.values(), key=lambda e: str(e.get("updated_at", "")), reverse=True
+        )
         lines.append("")
         lines.append(f"### {_KIND_HEADINGS[kind]}")
         for entry in ordered[:per_kind]:
@@ -999,4 +1290,6 @@ def render_block(state: dict[str, Any], *, per_kind: int = RENDER_PER_KIND,
 
 
 def entry_titles(state: dict[str, Any], kind: str) -> Iterable[str]:
-    return (e.get("title", "") for e in (state.get("entries", {}).get(kind) or {}).values())
+    return (
+        e.get("title", "") for e in (state.get("entries", {}).get(kind) or {}).values()
+    )

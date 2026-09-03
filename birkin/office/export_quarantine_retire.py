@@ -19,7 +19,7 @@ def retire_bound_path(
     expected_identity: tuple[int, int],
 ) -> None:
     if os.name == "nt":
-        _retire_windows(descriptor)
+        retire_windows_descriptor(descriptor)
         return
     quarantine = path.parent / ".birkin-retire"
     try:
@@ -84,7 +84,7 @@ def retire_bound_path(
         os.close(directory)
 
 
-def _retire_windows(descriptor: int) -> None:
+def retire_windows_descriptor(descriptor: int) -> None:
     import ctypes
     import msvcrt
 

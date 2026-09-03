@@ -33,9 +33,7 @@ def _workspace() -> tuple[dict[str, object], dict[str, object]]:
             {"id": "m2", "kind": "assistant_message", "text": "latest reply"},
         ],
         "composer": {"draft": "draft 한글", "can_send": True},
-        "panels": [
-            {"key": key, "label": key, "items": []} for key in PANEL_KEYS
-        ],
+        "panels": [{"key": key, "label": key, "items": []} for key in PANEL_KEYS],
         "status": {"connection": "connected"},
     }
     view: dict[str, object] = {
@@ -86,9 +84,10 @@ def test_small_row_budget_keeps_header_and_hint() -> None:
 
     lines = render_terminal(snapshot, view, (60, 8), color=False)
 
-    assert len(lines) <= 8
+    assert lines
     assert lines[0].startswith("Birkin · Approvals")
     assert lines[-1].strip() == "Tab · ↑/↓ · Enter · Esc"
+    assert len(lines) <= 8
     assert all(ui.cell_width(line) == 60 for line in lines)
 
 

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TypeGuard, cast
+from typing import Protocol, TypeGuard, cast
 
 from birkin import store
 
+from .create_journal import TERMINAL_STATES as _CREATION_TERMINAL_STATES
+from .create_journal import CreationJobJournal
 from .errors import DocumentError, DocumentErrorCode
 from .export_journal import ExportJournal
 from .export_journal_record import ExportTransaction
@@ -21,6 +24,16 @@ _TERMINAL_STATES = frozenset({"exported", "rejected", "failed"})
 _STAGE = "office_retention"
 
 
+class _PurgeableJournal(Protocol):
+    """The durable job journals retention is allowed to expire."""
+
+    def path_for(self, job_id: str) -> Path: ...
+
+    def latest(self, job_id: str) -> dict[str, object]: ...
+
+    def remove(self, job_id: str) -> None: ...
+
+
 def purge_expired_office_state(
     office_home: Path,
     *,
@@ -31,16 +44,59 @@ def purge_expired_office_state(
     jobs = office_home / "jobs"
     if jobs.is_symlink():
         raise _error("job journal root is invalid")
-    if not jobs.is_dir():
+    creations = office_home / "creation-jobs"
+    if creations.is_symlink():
+        raise _error("creation job journal root is invalid")
+    if not jobs.is_dir() and not creations.is_dir():
         return counts
-    job_journal = OfficeJobJournal(jobs)
     backup_root = office_home / "artifacts" / "export-backups"
     if backup_root.is_symlink() or (
         backup_root.exists() and not backup_root.is_dir()
     ):
         raise _error("export backup root is invalid")
     journal = ExportJournal(office_home / "artifacts" / "export-journal")
-    for job_id in job_journal.list_all():
+    if jobs.is_dir():
+        job_journal = OfficeJobJournal(jobs)
+        _tally(
+            counts,
+            _purge_journal(
+                office_home,
+                backup_root,
+                journal,
+                job_journal,
+                job_journal.list_all(),
+                _TERMINAL_STATES,
+                current,
+            ),
+        )
+    if creations.is_dir():
+        creation_journal = CreationJobJournal(office_home)
+        _tally(
+            counts,
+            _purge_journal(
+                office_home,
+                backup_root,
+                journal,
+                creation_journal,
+                creation_journal.list_all(),
+                _CREATION_TERMINAL_STATES,
+                current,
+            ),
+        )
+    return counts
+
+
+def _purge_journal(
+    office_home: Path,
+    backup_root: Path,
+    journal: ExportJournal,
+    job_journal: _PurgeableJournal,
+    job_ids: tuple[str, ...],
+    terminal_states: frozenset[str],
+    current: datetime,
+) -> dict[str, int]:
+    counts = {"jobs": 0, "backups": 0, "transactions": 0}
+    for job_id in job_ids:
         path = job_journal.path_for(job_id)
         try:
             with store.file_lock(path, timeout=0):
@@ -50,40 +106,69 @@ def purge_expired_office_state(
                     if exc.details.get("kind") == "incomplete_tail":
                         continue
                     raise
+                if not record:
+                    continue
                 rolled_back = (
                     record.get("state") == "validated"
                     and _is_mapping(record.get("rollback"))
                 )
                 if (
-                    record.get("state") not in _TERMINAL_STATES
+                    record.get("state") not in terminal_states
                     and not rolled_back
                 ):
-                    continue
-                removed = _purge_job(
-                    office_home,
-                    backup_root,
-                    journal,
-                    job_journal,
-                    job_id,
-                    path,
-                    current,
-                )
+                    removed = _purge_abandoned(
+                        office_home,
+                        job_journal,
+                        record,
+                        job_id,
+                        path,
+                        current,
+                    )
+                else:
+                    removed = _purge_job(
+                        office_home,
+                        backup_root,
+                        journal,
+                        job_journal,
+                        job_id,
+                        path,
+                        current,
+                    )
         except store.FileLockTimeout:
             continue
         except DocumentError:
             if not path.exists() and not path.is_symlink():
                 continue
             raise
-        for key, amount in removed.items():
-            counts[key] += amount
+        _tally(counts, removed)
     return counts
+
+
+def _tally(counts: dict[str, int], removed: Mapping[str, int]) -> None:
+    for key, amount in removed.items():
+        counts[key] += amount
+
+
+def _purge_abandoned(
+    office_home: Path,
+    job_journal: _PurgeableJournal,
+    record: Mapping[str, object],
+    job_id: str,
+    path: Path,
+    current: datetime,
+) -> dict[str, int]:
+    """Expire a job that was rejected or abandoned before any export receipt."""
+    removed = {"jobs": 0, "backups": 0, "transactions": 0}
+    if current < _legacy_expiry(path):
+        return removed
+    return _remove_job(office_home, job_journal, record, job_id, removed)
 
 
 def _purge_job(
     office_home: Path,
     backup_root: Path,
     journal: ExportJournal,
-    job_journal: OfficeJobJournal,
+    job_journal: _PurgeableJournal,
     job_id: str,
     path: Path,
     current: datetime,
@@ -121,9 +206,7 @@ def _purge_job(
                     token,
                     export,
                 )
-            job_journal.remove(job_id)
-            removed["jobs"] += 1
-            return removed
+            return _remove_job(office_home, job_journal, record, job_id, removed)
         with store.file_lock(journal.path_for(transaction.transaction_id), timeout=0):
             transaction = journal.load(transaction.transaction_id)
             if transaction is None:
@@ -133,9 +216,13 @@ def _purge_job(
                         token,
                         export,
                     )
-                job_journal.remove(job_id)
-                removed["jobs"] += 1
-                return removed
+                return _remove_job(
+                    office_home,
+                    job_journal,
+                    record,
+                    job_id,
+                    removed,
+                )
             if transaction.rollback_token != token:
                 raise _error(
                     "export transaction changed during purge",
@@ -161,9 +248,61 @@ def _purge_job(
         expires = _legacy_expiry(path)
         if current < expires:
             return removed
+    return _remove_job(office_home, job_journal, record, job_id, removed)
+
+
+def _remove_job(
+    office_home: Path,
+    job_journal: _PurgeableJournal,
+    record: Mapping[str, object],
+    job_id: str,
+    removed: dict[str, int],
+) -> dict[str, int]:
+    _remove_managed_drafts(office_home, record, job_id)
     job_journal.remove(job_id)
     removed["jobs"] += 1
     return removed
+
+
+def _draft_names(record: Mapping[str, object], job_id: str) -> tuple[str, ...]:
+    """Name every managed draft the purged job is still allowed to own."""
+    if record.get("kind") == "office_create":
+        approval = record.get("approval")
+        output_name = approval.get("output_name") if _is_mapping(approval) else None
+        return (output_name,) if isinstance(output_name, str) else ()
+    format_name = record.get("format_name")
+    if not isinstance(format_name, str) or not format_name:
+        return ()
+    return (
+        f"{job_id}.draft.{format_name}",
+        f"{job_id}.validated.{format_name}",
+    )
+
+
+def _remove_managed_drafts(
+    office_home: Path,
+    record: Mapping[str, object],
+    job_id: str,
+) -> None:
+    """Unlink the purged job's drafts and the intents that authorize them."""
+    drafts = office_home / "artifacts" / "drafts"
+    intents = office_home / "artifacts" / "execution-journal"
+    for name in _draft_names(record, job_id):
+        if not name or Path(name).name != name:
+            continue
+        _unlink(drafts / name)
+        key = hashlib.sha256(name.encode("utf-8")).hexdigest()
+        _unlink(intents / f"{key}.json")
+
+
+def _unlink(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise _error(
+            "managed draft cleanup must finish",
+            retryable=True,
+        ) from exc
 
 
 def _cleanup_signed_backup(

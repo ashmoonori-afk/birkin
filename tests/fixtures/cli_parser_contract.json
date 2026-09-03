@@ -1,0 +1,3680 @@
+{
+  "schema": 3,
+  "cases": [
+    {
+      "argv": [],
+      "namespace": {
+        "command": null
+      }
+    },
+    {
+      "argv": [
+        "chat"
+      ],
+      "namespace": {
+        "command": "chat",
+        "dry_run": false,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_chat"
+        },
+        "message": null,
+        "positional_message": null
+      }
+    },
+    {
+      "argv": [
+        "plugins",
+        "inspect",
+        "VALUE"
+      ],
+      "namespace": {
+        "action": "inspect",
+        "command": "plugins",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_plugins"
+        },
+        "json": false,
+        "key": [],
+        "source": "VALUE"
+      }
+    },
+    {
+      "argv": [
+        "plugins",
+        "install",
+        "VALUE",
+        "--version",
+        "VALUE"
+      ],
+      "namespace": {
+        "action": "install",
+        "command": "plugins",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_plugins"
+        },
+        "json": false,
+        "key": [],
+        "scope": "project",
+        "source": "VALUE",
+        "upgrade": false,
+        "version": "VALUE",
+        "yes": false
+      }
+    },
+    {
+      "argv": [
+        "plugins",
+        "resolve",
+        "VALUE"
+      ],
+      "namespace": {
+        "action": "resolve",
+        "command": "plugins",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_plugins"
+        },
+        "json": false,
+        "key": [],
+        "name": "VALUE",
+        "version": null
+      }
+    },
+    {
+      "argv": [
+        "plugins",
+        "effects"
+      ],
+      "namespace": {
+        "action": "effects",
+        "command": "plugins",
+        "effect_args": [],
+        "effect_json": false,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_plugin_effects"
+        }
+      }
+    },
+    {
+      "argv": [
+        "skills"
+      ],
+      "namespace": {
+        "command": "skills",
+        "force": false,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_skills"
+        },
+        "limit": null,
+        "name": null,
+        "source": null,
+        "target": null,
+        "verbose": false
+      }
+    },
+    {
+      "argv": [
+        "web"
+      ],
+      "namespace": {
+        "command": "web",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_web"
+        },
+        "no_browser": false,
+        "port": null
+      }
+    },
+    {
+      "argv": [
+        "native-bridge",
+        "serve"
+      ],
+      "namespace": {
+        "command": "native-bridge",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_native_bridge"
+        },
+        "native_bridge_action": "serve",
+        "root": null,
+        "session_id": null,
+        "transport": null
+      }
+    },
+    {
+      "argv": [
+        "native-bridge",
+        "provider-probe"
+      ],
+      "namespace": {
+        "command": "native-bridge",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_native_provider_probe"
+        },
+        "model": "default",
+        "native_bridge_action": "provider-probe",
+        "output": null,
+        "provider": "codex-cli"
+      }
+    },
+    {
+      "argv": [
+        "setup"
+      ],
+      "namespace": {
+        "command": "setup",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_setup"
+        }
+      }
+    },
+    {
+      "argv": [
+        "onboard"
+      ],
+      "namespace": {
+        "command": "onboard",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_setup"
+        }
+      }
+    },
+    {
+      "argv": [
+        "gateway"
+      ],
+      "namespace": {
+        "command": "gateway",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_gateway"
+        }
+      }
+    },
+    {
+      "argv": [
+        "omo",
+        "diagnose"
+      ],
+      "namespace": {
+        "command": "omo",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_omo"
+        },
+        "omo_action": "diagnose"
+      }
+    },
+    {
+      "argv": [
+        "voice"
+      ],
+      "namespace": {
+        "audio": null,
+        "background": false,
+        "background_timeout": 300.0,
+        "background_workers": null,
+        "command": "voice",
+        "command_audio": "",
+        "command_seconds": 8.0,
+        "daemon_worker": false,
+        "filler_text": null,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_voice"
+        },
+        "gateway_url": null,
+        "no_playback": false,
+        "once": false,
+        "receipt_dir": "",
+        "sample_rate": null,
+        "session_id": null,
+        "stt_model": null,
+        "transcript": null,
+        "tts_instructions": null,
+        "tts_model": null,
+        "tts_output": "",
+        "tts_voice": null,
+        "voice_action": null,
+        "voice_command": null,
+        "wake_phrase": null,
+        "wake_seconds": 3.0
+      }
+    },
+    {
+      "argv": [
+        "tools"
+      ],
+      "namespace": {
+        "command": "tools",
+        "disable": null,
+        "enable": null,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_tools"
+        }
+      }
+    },
+    {
+      "argv": [
+        "computer-use",
+        "doctor"
+      ],
+      "namespace": {
+        "command": "computer-use",
+        "computer_use_action": "doctor",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_computer_use"
+        },
+        "json": false
+      }
+    },
+    {
+      "argv": [
+        "computer-use",
+        "setup"
+      ],
+      "namespace": {
+        "command": "computer-use",
+        "computer_use_action": "setup",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_computer_use"
+        },
+        "json": false
+      }
+    },
+    {
+      "argv": [
+        "model"
+      ],
+      "namespace": {
+        "command": "model",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_model"
+        },
+        "name": null
+      }
+    },
+    {
+      "argv": [
+        "models"
+      ],
+      "namespace": {
+        "command": "models",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_model"
+        },
+        "name": null
+      }
+    },
+    {
+      "argv": [
+        "morpheus"
+      ],
+      "namespace": {
+        "command": "morpheus",
+        "dry_run": false,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_morpheus"
+        }
+      }
+    },
+    {
+      "argv": [
+        "daemon"
+      ],
+      "namespace": {
+        "command": "daemon",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_daemon"
+        },
+        "install": false
+      }
+    },
+    {
+      "argv": [
+        "auth"
+      ],
+      "namespace": {
+        "action": "status",
+        "command": "auth",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_auth"
+        },
+        "provider": "codex"
+      }
+    },
+    {
+      "argv": [
+        "review"
+      ],
+      "namespace": {
+        "command": "review",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_review"
+        }
+      }
+    },
+    {
+      "argv": [
+        "worker-hook-qa",
+        "--decision",
+        "approve"
+      ],
+      "namespace": {
+        "command": "worker-hook-qa",
+        "decision": "approve",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_worker_hook_qa"
+        }
+      }
+    },
+    {
+      "argv": [
+        "lineage",
+        "list"
+      ],
+      "namespace": {
+        "command": "lineage",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_lineage"
+        },
+        "lineage_action": "list"
+      }
+    },
+    {
+      "argv": [
+        "lineage",
+        "recover",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "lineage",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_lineage"
+        },
+        "lineage_action": "recover",
+        "snapshot_id": "VALUE"
+      }
+    },
+    {
+      "argv": [
+        "lineage",
+        "prune",
+        "--keep",
+        "1"
+      ],
+      "namespace": {
+        "command": "lineage",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_lineage"
+        },
+        "keep": 1,
+        "lineage_action": "prune"
+      }
+    },
+    {
+      "argv": [
+        "lineage",
+        "export",
+        "VALUE",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "lineage",
+        "destination": "VALUE",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_lineage"
+        },
+        "lineage_action": "export",
+        "snapshot_id": "VALUE"
+      }
+    },
+    {
+      "argv": [
+        "harness"
+      ],
+      "namespace": {
+        "action": "show",
+        "command": "harness",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_harness"
+        },
+        "global_scope": false,
+        "limit": null,
+        "scope": "global",
+        "session_id": null,
+        "target": []
+      }
+    },
+    {
+      "argv": [
+        "working-memory",
+        "update",
+        "--session",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "working-memory",
+        "constraints": [],
+        "corrections": [],
+        "decisions": [],
+        "evidence": [],
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_working_memory"
+        },
+        "goal": null,
+        "incomplete": [],
+        "next_actions": [],
+        "session": "VALUE",
+        "working_memory_action": "update"
+      }
+    },
+    {
+      "argv": [
+        "working-memory",
+        "show",
+        "--session",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "working-memory",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_working_memory"
+        },
+        "json": false,
+        "session": "VALUE",
+        "working_memory_action": "show"
+      }
+    },
+    {
+      "argv": [
+        "working-memory",
+        "clear",
+        "--session",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "working-memory",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_working_memory"
+        },
+        "session": "VALUE",
+        "working_memory_action": "clear"
+      }
+    },
+    {
+      "argv": [
+        "update"
+      ],
+      "namespace": {
+        "command": "update",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_update"
+        }
+      }
+    },
+    {
+      "argv": [
+        "compare"
+      ],
+      "namespace": {
+        "a": null,
+        "b": null,
+        "command": "compare",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_compare"
+        },
+        "prompt": []
+      }
+    },
+    {
+      "argv": [
+        "permission"
+      ],
+      "namespace": {
+        "access": null,
+        "add": null,
+        "command": "permission",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_permission"
+        },
+        "remove": null
+      }
+    },
+    {
+      "argv": [
+        "cron"
+      ],
+      "namespace": {
+        "command": "cron",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_cron"
+        },
+        "remove": null
+      }
+    },
+    {
+      "argv": [
+        "companion",
+        "status"
+      ],
+      "namespace": {
+        "action": "status",
+        "at": "",
+        "command": "companion",
+        "context": "",
+        "cooldown": null,
+        "daily_cap": null,
+        "do": "",
+        "enable": false,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_companion"
+        },
+        "next_action": "",
+        "offset": null,
+        "outcome": "",
+        "quiet_end": "",
+        "quiet_start": "",
+        "snooze_minutes": 60,
+        "source": "",
+        "target": "",
+        "tz": "UTC"
+      }
+    },
+    {
+      "argv": [
+        "runs"
+      ],
+      "namespace": {
+        "command": "runs",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_runs"
+        },
+        "limit": 20
+      }
+    },
+    {
+      "argv": [
+        "budget"
+      ],
+      "namespace": {
+        "command": "budget",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_budget"
+        }
+      }
+    },
+    {
+      "argv": [
+        "reindex"
+      ],
+      "namespace": {
+        "command": "reindex",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_reindex"
+        }
+      }
+    },
+    {
+      "argv": [
+        "curate"
+      ],
+      "namespace": {
+        "command": "curate",
+        "dry_run": false,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_curate"
+        }
+      }
+    },
+    {
+      "argv": [
+        "curate-memory"
+      ],
+      "namespace": {
+        "command": "curate-memory",
+        "dry_run": false,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_curate_memory"
+        },
+        "model": null,
+        "provider": null
+      }
+    },
+    {
+      "argv": [
+        "trace",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "trace",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_trace"
+        },
+        "run_id": "VALUE"
+      }
+    },
+    {
+      "argv": [
+        "mcp"
+      ],
+      "namespace": {
+        "args": [],
+        "command": "mcp",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_mcp"
+        }
+      }
+    },
+    {
+      "argv": [
+        "mcp-serve"
+      ],
+      "namespace": {
+        "command": "mcp-serve",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_mcp_serve"
+        }
+      }
+    },
+    {
+      "argv": [
+        "moirai"
+      ],
+      "namespace": {
+        "action": "list",
+        "args": "",
+        "bind": [],
+        "bind_save": false,
+        "command": "moirai",
+        "defaults": false,
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_moirai"
+        },
+        "limit": 10,
+        "run_id": "",
+        "script": ""
+      }
+    },
+    {
+      "argv": [
+        "sessions"
+      ],
+      "namespace": {
+        "action": null,
+        "all": false,
+        "command": "sessions",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_sessions"
+        },
+        "legacy_all": false,
+        "legacy_vault": false,
+        "name": [],
+        "vault": false
+      }
+    },
+    {
+      "argv": [
+        "sessions",
+        "export"
+      ],
+      "namespace": {
+        "action": "export",
+        "all": false,
+        "command": "sessions",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_sessions"
+        },
+        "legacy_all": false,
+        "legacy_vault": false,
+        "name": [],
+        "vault": false
+      }
+    },
+    {
+      "argv": [
+        "sessions",
+        "live"
+      ],
+      "namespace": {
+        "action": "live",
+        "all": false,
+        "command": "sessions",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_live_sessions"
+        },
+        "legacy_all": false,
+        "legacy_vault": false,
+        "name": [],
+        "vault": false
+      }
+    },
+    {
+      "argv": [
+        "odyssey"
+      ],
+      "namespace": {
+        "command": "odyssey",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_odyssey"
+        },
+        "goal": []
+      }
+    },
+    {
+      "argv": [
+        "neurosis"
+      ],
+      "namespace": {
+        "command": "neurosis",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_neurosis"
+        },
+        "idea": []
+      }
+    },
+    {
+      "argv": [
+        "daedalus",
+        "create",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "daedalus",
+        "daedalus_action": "create",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_daedalus"
+        },
+        "root": null,
+        "slug": "VALUE"
+      }
+    },
+    {
+      "argv": [
+        "daedalus",
+        "refresh",
+        "VALUE",
+        "--expected-token",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "daedalus",
+        "daedalus_action": "refresh",
+        "expected_token": "VALUE",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_daedalus"
+        },
+        "root": null,
+        "slug": "VALUE"
+      }
+    },
+    {
+      "argv": [
+        "daedalus",
+        "show",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "daedalus",
+        "daedalus_action": "show",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_daedalus"
+        },
+        "slug": "VALUE"
+      }
+    },
+    {
+      "argv": [
+        "daedalus",
+        "note",
+        "VALUE",
+        "--text",
+        "VALUE"
+      ],
+      "namespace": {
+        "command": "daedalus",
+        "daedalus_action": "note",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_daedalus"
+        },
+        "ref": [],
+        "slug": "VALUE",
+        "text": "VALUE"
+      }
+    },
+    {
+      "argv": [
+        "daedalus",
+        "profile"
+      ],
+      "namespace": {
+        "command": "daedalus",
+        "daedalus_action": "profile",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_daedalus"
+        }
+      }
+    }
+  ],
+  "helps": [
+    {
+      "path": [],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--version"
+          ],
+          "dest": "version",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "command",
+          "nargs": "A...",
+          "choices": [
+            "chat",
+            "plugins",
+            "skills",
+            "web",
+            "native-bridge",
+            "setup",
+            "onboard",
+            "gateway",
+            "omo",
+            "voice",
+            "tools",
+            "computer-use",
+            "model",
+            "models",
+            "morpheus",
+            "daemon",
+            "auth",
+            "review",
+            "worker-hook-qa",
+            "lineage",
+            "harness",
+            "working-memory",
+            "update",
+            "compare",
+            "permission",
+            "cron",
+            "companion",
+            "runs",
+            "budget",
+            "reindex",
+            "curate",
+            "curate-memory",
+            "trace",
+            "mcp",
+            "mcp-serve",
+            "moirai",
+            "sessions",
+            "odyssey",
+            "neurosis",
+            "daedalus"
+          ],
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "chat"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--dry-run"
+          ],
+          "dest": "dry_run",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "-m",
+            "--message"
+          ],
+          "dest": "message",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "positional_message",
+          "nargs": "?",
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "plugins"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "action",
+          "nargs": "A...",
+          "choices": [
+            "inspect",
+            "install",
+            "resolve",
+            "effects"
+          ],
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "plugins",
+        "inspect"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "source",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--json"
+          ],
+          "dest": "json",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--key"
+          ],
+          "dest": "key",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "plugins",
+        "install"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "source",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--version"
+          ],
+          "dest": "version",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--scope"
+          ],
+          "dest": "scope",
+          "nargs": null,
+          "choices": {
+            "type": "tuple",
+            "value": [
+              "project",
+              "team"
+            ]
+          },
+          "default": "project",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--yes"
+          ],
+          "dest": "yes",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--upgrade"
+          ],
+          "dest": "upgrade",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--json"
+          ],
+          "dest": "json",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--key"
+          ],
+          "dest": "key",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "plugins",
+        "resolve"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "name",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--version"
+          ],
+          "dest": "version",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--json"
+          ],
+          "dest": "json",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--key"
+          ],
+          "dest": "key",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "plugins",
+        "effects"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--json"
+          ],
+          "dest": "effect_json",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "effect_args",
+          "nargs": "...",
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "skills"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "name",
+          "nargs": "?",
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--from"
+          ],
+          "dest": "source",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--limit"
+          ],
+          "dest": "limit",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--force"
+          ],
+          "dest": "force",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--verbose"
+          ],
+          "dest": "verbose",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "target",
+          "nargs": "?",
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--source"
+          ],
+          "dest": "source",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "web"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--port"
+          ],
+          "dest": "port",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--no-browser"
+          ],
+          "dest": "no_browser",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "native-bridge"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "native_bridge_action",
+          "nargs": "A...",
+          "choices": [
+            "serve",
+            "provider-probe"
+          ],
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "native-bridge",
+        "serve"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--transport"
+          ],
+          "dest": "transport",
+          "nargs": null,
+          "choices": {
+            "type": "tuple",
+            "value": [
+              "uds",
+              "loopback"
+            ]
+          },
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--session-id"
+          ],
+          "dest": "session_id",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--root"
+          ],
+          "dest": "root",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "native-bridge",
+        "provider-probe"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--provider"
+          ],
+          "dest": "provider",
+          "nargs": null,
+          "choices": {
+            "type": "tuple",
+            "value": [
+              "codex-cli"
+            ]
+          },
+          "default": "codex-cli",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--model"
+          ],
+          "dest": "model",
+          "nargs": null,
+          "choices": null,
+          "default": "default",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--output"
+          ],
+          "dest": "output",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "setup"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "onboard"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "gateway"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "omo"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "omo_action",
+          "nargs": "A...",
+          "choices": [
+            "diagnose"
+          ],
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "omo",
+        "diagnose"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "voice"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "voice_action",
+          "nargs": "?",
+          "choices": {
+            "type": "tuple",
+            "value": [
+              "setup",
+              "onboard",
+              "start",
+              "status",
+              "stop"
+            ]
+          },
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--daemon-worker"
+          ],
+          "dest": "daemon_worker",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--once"
+          ],
+          "dest": "once",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--audio"
+          ],
+          "dest": "audio",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--transcript"
+          ],
+          "dest": "transcript",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--command"
+          ],
+          "dest": "voice_command",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--command-audio"
+          ],
+          "dest": "command_audio",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--wake-seconds"
+          ],
+          "dest": "wake_seconds",
+          "nargs": null,
+          "choices": null,
+          "default": 3.0,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--command-seconds"
+          ],
+          "dest": "command_seconds",
+          "nargs": null,
+          "choices": null,
+          "default": 8.0,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--sample-rate"
+          ],
+          "dest": "sample_rate",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--stt-model"
+          ],
+          "dest": "stt_model",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--wake-phrase"
+          ],
+          "dest": "wake_phrase",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--gateway-url"
+          ],
+          "dest": "gateway_url",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--session-id"
+          ],
+          "dest": "session_id",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--tts-output"
+          ],
+          "dest": "tts_output",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--tts-model"
+          ],
+          "dest": "tts_model",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--tts-voice"
+          ],
+          "dest": "tts_voice",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--tts-instructions"
+          ],
+          "dest": "tts_instructions",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--filler-text"
+          ],
+          "dest": "filler_text",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--no-playback"
+          ],
+          "dest": "no_playback",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--background"
+          ],
+          "dest": "background",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--receipt-dir"
+          ],
+          "dest": "receipt_dir",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--background-workers"
+          ],
+          "dest": "background_workers",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--background-timeout"
+          ],
+          "dest": "background_timeout",
+          "nargs": null,
+          "choices": null,
+          "default": 300.0,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "tools"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--enable"
+          ],
+          "dest": "enable",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--disable"
+          ],
+          "dest": "disable",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "computer-use"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "computer_use_action",
+          "nargs": "A...",
+          "choices": [
+            "doctor",
+            "setup"
+          ],
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "computer-use",
+        "doctor"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--json"
+          ],
+          "dest": "json",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "computer-use",
+        "setup"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--json"
+          ],
+          "dest": "json",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "model"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "name",
+          "nargs": "?",
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "models"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "name",
+          "nargs": "?",
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "morpheus"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--dry-run"
+          ],
+          "dest": "dry_run",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "daemon"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--install"
+          ],
+          "dest": "install",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "auth"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "provider",
+          "nargs": "?",
+          "choices": null,
+          "default": "codex",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "action",
+          "nargs": "?",
+          "choices": null,
+          "default": "status",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "review"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "worker-hook-qa"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--decision"
+          ],
+          "dest": "decision",
+          "nargs": null,
+          "choices": [
+            "approve",
+            "reject"
+          ],
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "lineage"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "lineage_action",
+          "nargs": "A...",
+          "choices": [
+            "list",
+            "recover",
+            "prune",
+            "export"
+          ],
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "lineage",
+        "list"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "lineage",
+        "recover"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "snapshot_id",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "lineage",
+        "prune"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--keep"
+          ],
+          "dest": "keep",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "lineage",
+        "export"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "snapshot_id",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [],
+          "dest": "destination",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "harness"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "action",
+          "nargs": "?",
+          "choices": [
+            "show",
+            "history",
+            "rollback",
+            "export",
+            "refine"
+          ],
+          "default": "show",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "target",
+          "nargs": "*",
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--scope"
+          ],
+          "dest": "scope",
+          "nargs": null,
+          "choices": [
+            "local",
+            "global"
+          ],
+          "default": "global",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--session-id"
+          ],
+          "dest": "session_id",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--global"
+          ],
+          "dest": "global_scope",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "-n",
+            "--limit"
+          ],
+          "dest": "limit",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "working-memory"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "working_memory_action",
+          "nargs": "A...",
+          "choices": [
+            "update",
+            "show",
+            "clear"
+          ],
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "working-memory",
+        "update"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--session"
+          ],
+          "dest": "session",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--goal"
+          ],
+          "dest": "goal",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--correction"
+          ],
+          "dest": "corrections",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--constraint"
+          ],
+          "dest": "constraints",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--decision"
+          ],
+          "dest": "decisions",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--incomplete"
+          ],
+          "dest": "incomplete",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--evidence"
+          ],
+          "dest": "evidence",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--next-action"
+          ],
+          "dest": "next_actions",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "working-memory",
+        "show"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--session"
+          ],
+          "dest": "session",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--json"
+          ],
+          "dest": "json",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "working-memory",
+        "clear"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--session"
+          ],
+          "dest": "session",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "update"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "compare"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "prompt",
+          "nargs": "*",
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--a"
+          ],
+          "dest": "a",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--b"
+          ],
+          "dest": "b",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "permission"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--add"
+          ],
+          "dest": "add",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--remove"
+          ],
+          "dest": "remove",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--access"
+          ],
+          "dest": "access",
+          "nargs": null,
+          "choices": [
+            "workspace",
+            "full"
+          ],
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "cron"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--remove"
+          ],
+          "dest": "remove",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "companion"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "action",
+          "nargs": null,
+          "choices": [
+            "status",
+            "list",
+            "bind",
+            "add",
+            "activate",
+            "answer",
+            "policy",
+            "pause",
+            "resume",
+            "delete",
+            "events"
+          ],
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [],
+          "dest": "target",
+          "nargs": "?",
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--outcome"
+          ],
+          "dest": "outcome",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--next"
+          ],
+          "dest": "next_action",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--source"
+          ],
+          "dest": "source",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--context"
+          ],
+          "dest": "context",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--at"
+          ],
+          "dest": "at",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--tz"
+          ],
+          "dest": "tz",
+          "nargs": null,
+          "choices": null,
+          "default": "UTC",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--offset"
+          ],
+          "dest": "offset",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--do"
+          ],
+          "dest": "do",
+          "nargs": null,
+          "choices": [
+            "",
+            "done",
+            "blocked",
+            "snooze",
+            "stop",
+            "wrong"
+          ],
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--snooze-minutes"
+          ],
+          "dest": "snooze_minutes",
+          "nargs": null,
+          "choices": null,
+          "default": 60,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--enable"
+          ],
+          "dest": "enable",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--quiet-start"
+          ],
+          "dest": "quiet_start",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--quiet-end"
+          ],
+          "dest": "quiet_end",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--daily-cap"
+          ],
+          "dest": "daily_cap",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--cooldown"
+          ],
+          "dest": "cooldown",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "runs"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--limit"
+          ],
+          "dest": "limit",
+          "nargs": null,
+          "choices": null,
+          "default": 20,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "budget"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "reindex"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "curate"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--dry-run"
+          ],
+          "dest": "dry_run",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "curate-memory"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--provider"
+          ],
+          "dest": "provider",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--model"
+          ],
+          "dest": "model",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--dry-run"
+          ],
+          "dest": "dry_run",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "trace"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "run_id",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "mcp"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "args",
+          "nargs": "...",
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "mcp-serve"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "moirai"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "action",
+          "nargs": "?",
+          "choices": null,
+          "default": "list",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "script",
+          "nargs": "?",
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--run-id"
+          ],
+          "dest": "run_id",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--bind"
+          ],
+          "dest": "bind",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--args"
+          ],
+          "dest": "args",
+          "nargs": null,
+          "choices": null,
+          "default": "",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--defaults"
+          ],
+          "dest": "defaults",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--bind-save"
+          ],
+          "dest": "bind_save",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--limit"
+          ],
+          "dest": "limit",
+          "nargs": null,
+          "choices": null,
+          "default": 10,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "sessions"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--all"
+          ],
+          "dest": "legacy_all",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--vault"
+          ],
+          "dest": "legacy_vault",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "action",
+          "nargs": "A...",
+          "choices": [
+            "export",
+            "live"
+          ],
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "sessions",
+        "export"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "name",
+          "nargs": "*",
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--all"
+          ],
+          "dest": "all",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--vault"
+          ],
+          "dest": "vault",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "sessions",
+        "live"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "odyssey"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "goal",
+          "nargs": "...",
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "neurosis"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "idea",
+          "nargs": "...",
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "daedalus"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "daedalus_action",
+          "nargs": "A...",
+          "choices": [
+            "create",
+            "refresh",
+            "show",
+            "note",
+            "profile"
+          ],
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "daedalus",
+        "create"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "slug",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--root"
+          ],
+          "dest": "root",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "daedalus",
+        "refresh"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "slug",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--root"
+          ],
+          "dest": "root",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--expected-token"
+          ],
+          "dest": "expected_token",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "daedalus",
+        "show"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "slug",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "daedalus",
+        "note"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "slug",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--text"
+          ],
+          "dest": "text",
+          "nargs": null,
+          "choices": null,
+          "default": null,
+          "required": true
+        },
+        {
+          "option_strings": [
+            "--ref"
+          ],
+          "dest": "ref",
+          "nargs": null,
+          "choices": null,
+          "default": [],
+          "required": false
+        }
+      ]
+    },
+    {
+      "path": [
+        "daedalus",
+        "profile"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        }
+      ]
+    }
+  ]
+}

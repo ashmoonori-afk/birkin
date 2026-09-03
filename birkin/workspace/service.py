@@ -269,6 +269,9 @@ class WorkspaceService:
     def events(self, *, after: int = 0) -> tuple[WorkspaceEvent, ...]:
         return self._journal.events(after=after)
 
+    def cursor(self) -> int:
+        return self._journal.cursor()
+
     def snapshot(self) -> WorkspaceSnapshot:
         snapshot = reduce_snapshot(
             self._journal.session_id,

@@ -6,10 +6,9 @@ import json
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any
 
 from ...httpguard import pinned_opener
-from .registry import ChannelEntry
+from .registry_types import ChannelEntry, Config, open_webhook
 
 MAX_MESSAGE_LEN = 3500
 TRUNCATION_MARKER = "\n[truncated]"
@@ -17,8 +16,12 @@ _REQUEST_TIMEOUT = 15
 _EXPECTED_HOST = "hooks.slack.com"
 
 
-def _settings(cfg: dict[str, Any]) -> dict[str, Any]:
-    return ((cfg.get("channels", {}) or {}).get("slack", {}) or {})
+def _settings(cfg: Config) -> Config:
+    channels = cfg.get("channels")
+    if not isinstance(channels, dict):
+        return {}
+    settings = channels.get("slack")
+    return settings if isinstance(settings, dict) else {}
 
 
 def _configured_url(url: str) -> bool:
@@ -29,7 +32,7 @@ def _configured_url(url: str) -> bool:
     )
 
 
-def validate_cfg(cfg: dict[str, Any]) -> list[str]:
+def validate_cfg(cfg: Config) -> list[str]:
     settings = _settings(cfg)
     if not settings.get("enabled", False):
         return []
@@ -37,9 +40,7 @@ def validate_cfg(cfg: dict[str, Any]) -> list[str]:
     if not url:
         return ["channels.slack.webhook_url is required when enabled"]
     if not _configured_url(url):
-        return [
-            "channels.slack.webhook_url must use https on hooks.slack.com"
-        ]
+        return ["channels.slack.webhook_url must use https on hooks.slack.com"]
     return []
 
 
@@ -47,20 +48,27 @@ def _truncate(text: str) -> str:
     text = str(text)
     if len(text) <= MAX_MESSAGE_LEN:
         return text
-    return text[:MAX_MESSAGE_LEN - len(TRUNCATION_MARKER)] + TRUNCATION_MARKER
+    return text[: MAX_MESSAGE_LEN - len(TRUNCATION_MARKER)] + TRUNCATION_MARKER
 
 
 class SlackWebhookAdapter:
-    name = "slack"
-    max_message_len = MAX_MESSAGE_LEN
+    name: str = "slack"
+    max_message_len: int = MAX_MESSAGE_LEN
+    _cfg: Config
+    enabled: bool
+    webhook_url: str
+    allowed_channel_ids: frozenset[str]
 
-    def __init__(self, cfg: dict[str, Any]):
+    def __init__(self, cfg: Config) -> None:
         self._cfg = cfg
         settings = _settings(cfg)
         self.enabled = bool(settings.get("enabled", False))
         self.webhook_url = str(settings.get("webhook_url") or "").strip()
-        self.allowed_channel_ids = frozenset(
-            str(value) for value in settings.get("allowed_channel_ids", [])
+        raw_allowed = settings.get("allowed_channel_ids")
+        self.allowed_channel_ids = (
+            frozenset(str(value) for value in raw_allowed)
+            if isinstance(raw_allowed, list)
+            else frozenset()
         )
 
     def allowed(self, channel_id: str) -> bool:
@@ -72,14 +80,16 @@ class SlackWebhookAdapter:
 
     def health(self) -> str:
         configured = _configured_url(self.webhook_url)
-        return ("enabled" if self.enabled else "disabled") + "/" + (
-            "configured" if configured else "unconfigured")
+        return (
+            ("enabled" if self.enabled else "disabled")
+            + "/"
+            + ("configured" if configured else "unconfigured")
+        )
 
     def send(self, channel_id: str, text: str) -> bool:
         if not self.allowed(channel_id):
             return False
-        body = json.dumps(
-            {"text": _truncate(text)}, ensure_ascii=False).encode("utf-8")
+        body = json.dumps({"text": _truncate(text)}, ensure_ascii=False).encode("utf-8")
         request = urllib.request.Request(
             self.webhook_url,
             data=body,
@@ -87,11 +97,9 @@ class SlackWebhookAdapter:
             method="POST",
         )
         try:
-            with pinned_opener().open(
-                    request, timeout=_REQUEST_TIMEOUT) as response:
-                status = getattr(response, "status", 200)
-                response.read()
-                return 200 <= int(status) < 300
+            with open_webhook(pinned_opener(), request, _REQUEST_TIMEOUT) as response:
+                _ = response.read()
+                return 200 <= response.status < 300
         except (urllib.error.URLError, OSError, ValueError):
             return False
 

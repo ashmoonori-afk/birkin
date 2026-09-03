@@ -2,46 +2,175 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 import sys
 import threading
 import time
+from collections.abc import Callable, Hashable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from types import ModuleType
+from typing import (
+    Final,
+    Protocol,
+    TypeGuard,
+    TypeVar,
+    TypedDict,
+    runtime_checkable,
+)
+
+from typing_extensions import NotRequired, override
 
 from .. import config, models, pools, promptgate, security, store
+from ..approval_execution_codec import JSONValue
 from ..claude_session import ClaudeStreamSession
-from ..codex_session import CodexAppServerSession, CodexTurnTimeout
+from ..codex_session import CodexAppServerSession
 from ..omo import OmoController
 from ..runtime import ConfigError, Session, build_session
-from .workflow import WORKFLOW_POLICY, is_running as workflow_is_running
+from .telegram_lease import (
+    TelegramGatewayLease,
+    TelegramGatewayLeaseRaceError,
+    TelegramGatewayOwnedError,
+)
+from .turn_types import AskSession, ProgressCallback, TextCallback
+from .turn_support import (
+    GATEWAY_COMMANDS as _GATEWAY_COMMANDS,
+    LOCAL_TRUSTED_CHANNELS as _LOCAL_TRUSTED_CHANNELS,
+    PERSISTENT_PROVIDERS as _PERSISTENT_PROVIDERS,
+    TURN_ERROR_REPLY as TURN_ERROR_REPLY,
+    TURN_INTERRUPTED_REPLY as TURN_INTERRUPTED_REPLY,
+    TURN_MOIRAI_RECOVERY_ERROR_REPLY as TURN_MOIRAI_RECOVERY_ERROR_REPLY,
+    TURN_PARTIAL_SUFFIX as TURN_PARTIAL_SUFFIX,
+    UNTRUSTED_CHANNEL_REPLY as UNTRUSTED_CHANNEL_REPLY,
+    ask_session as ask_session,
+    conversation_session_id as conversation_session_id,
+    gateway_help_text as gateway_help_text,
+    match_command as match_command,
+    TurnContract,
+)
+
+_T = TypeVar("_T")
+GatewayConfig = dict[str, JSONValue]
+WarmSession = ClaudeStreamSession | CodexAppServerSession
+InflightOwner = tuple[object, AskSession, threading.Event]
 
 
-def conversation_session_id(channel: str, chat_id: str) -> str:
-    """Stable, path-safe Working Memory identity for one gateway conversation."""
-    channel_value = str(channel)
-    chat_value = str(chat_id)
-    label = (
-        re.sub(r"[^A-Za-z0-9]+", "-", channel_value).strip("-")
-        or "channel"
+class _TextStream(Protocol):
+    @override
+    def __getattribute__(self, name: str, /) -> object: ...
+
+    def write(self, data: str) -> int: ...
+
+    def flush(self) -> None: ...
+
+    def isatty(self) -> bool: ...
+
+
+@runtime_checkable
+class _StoreInternals(Protocol):
+    def _write_json(self, path: Path, data: dict[str, JSONValue]) -> None: ...
+
+    def _read_json(self, path: Path, default: None) -> JSONValue: ...
+
+    def write_json(self, path: Path, data: dict[str, JSONValue]) -> None:
+        self._write_json(path, data)
+
+    def read_json(self, path: Path) -> JSONValue:
+        return self._read_json(path, None)
+
+
+def _has_store_internals(module: ModuleType) -> TypeGuard[_StoreInternals]:
+    return hasattr(module, "_write_json") and hasattr(module, "_read_json")
+
+
+def _int_setting(value: JSONValue, default: int) -> int:
+    if value is None:
+        return default
+    if isinstance(value, (str, int, float)):
+        return int(value or default)
+    raise TypeError("setting cannot be converted to int")
+
+
+def _float_setting(value: JSONValue, default: float) -> float:
+    if value is None:
+        return default
+    if isinstance(value, (str, int, float)):
+        return float(value or default)
+    raise TypeError("setting cannot be converted to float")
+
+
+def _is_conversation_key(value: Hashable) -> TypeGuard[tuple[str, str]]:
+    match value:
+        case (str(), str()):
+            return True
+        case _:
+            return False
+
+
+@runtime_checkable
+class _InterruptibleSession(Protocol):
+    def interrupt(self) -> bool: ...
+
+
+class _QuietHours(TypedDict, total=False):
+    start: str
+    end: str
+
+
+class _CompanionPolicy(TypedDict, total=False):
+    enabled: bool
+    timezone: str
+    quiet_hours: _QuietHours
+    daily_cap: int
+
+
+class _Commitment(TypedDict):
+    status: str
+    outcome: str
+    next_action: NotRequired[str]
+    check_in_at: NotRequired[str]
+    source_ref: NotRequired[str]
+
+
+class _RiskModule(Protocol):
+    def sort_by_risk(self, records: list[dict[str, _T]]) -> list[dict[str, _T]]: ...
+
+
+def _has_risk_contract(module: ModuleType) -> TypeGuard[_RiskModule]:
+    return hasattr(module, "sort_by_risk")
+
+
+class _DeliveryRegistryModule(Protocol):
+    def resolve_delivery_target(
+        self,
+        name: str,
+        cfg: GatewayConfig,
+        *,
+        fallback: Callable[[str], object] | None = None,
+    ) -> object | None: ...
+
+
+def _has_delivery_registry_contract(
+    module: ModuleType,
+) -> TypeGuard[_DeliveryRegistryModule]:
+    return hasattr(module, "resolve_delivery_target")
+
+
+class _CompanionModule(Protocol):
+    def pause_all(self) -> dict[str, JSONValue]: ...
+
+    def resume(self) -> dict[str, JSONValue]: ...
+
+    def get_policy(self) -> _CompanionPolicy: ...
+
+    def list_commitments(self, *, context_id: str = "") -> list[_Commitment]: ...
+
+
+def _has_companion_contract(module: ModuleType) -> TypeGuard[_CompanionModule]:
+    return all(
+        hasattr(module, name)
+        for name in ("pause_all", "resume", "get_policy", "list_commitments")
     )
-    if "\0" in channel_value or "\0" in chat_value:
-        channel_bytes = channel_value.encode()
-        chat_bytes = chat_value.encode()
-        payload = (
-            b"v2\0"
-            + len(channel_bytes).to_bytes(8, "big")
-            + channel_bytes
-            + len(chat_bytes).to_bytes(8, "big")
-            + chat_bytes
-        )
-    else:
-        # Preserve already-shipped IDs for ordinary channel/chat values.
-        payload = f"{channel_value}\0{chat_value}".encode()
-    digest = hashlib.sha256(payload).hexdigest()[:20]
-    return f"gateway-{label[:24]}-{digest}"
 
 
 def _utc_stamp() -> str:
@@ -59,17 +188,17 @@ class TimestampedStream:
     fragments.
     """
 
-    def __init__(self, stream: Any) -> None:
-        self._stream = stream
-        self._buffer = ""
-        self._lock = threading.Lock()
+    def __init__(self, stream: _TextStream) -> None:
+        self._stream: _TextStream = stream
+        self._buffer: str = ""
+        self._lock: threading.Lock = threading.Lock()
 
     def write(self, data: str) -> int:
         with self._lock:
             self._buffer += data
             while "\n" in self._buffer:
                 line, self._buffer = self._buffer.split("\n", 1)
-                self._stream.write(f"[{_utc_stamp()}] {line}\n")
+                _ = self._stream.write(f"[{_utc_stamp()}] {line}\n")
         return len(data)
 
     def flush(self) -> None:
@@ -82,151 +211,57 @@ class TimestampedStream:
         except (AttributeError, OSError):
             return False
 
-    def __getattr__(self, name: str) -> Any:
+    def __getattr__(self, name: str) -> object:
+        # getattr(), not __getattribute__(): the wrapped stream may expose
+        # .encoding/.buffer/.fileno through its own __getattr__ (colorama's
+        # AnsiToWin32, pytest's capture), which __getattribute__ skips.
         return getattr(self._stream, name)
 
 
+class _SystemStreams(Protocol):
+    stdout: _TextStream | TimestampedStream
+    stderr: _TextStream | TimestampedStream
+
+
+def _has_system_streams(module: ModuleType) -> TypeGuard[_SystemStreams]:
+    return hasattr(module, "stdout") and hasattr(module, "stderr")
+
+
 def install_timestamped_logging() -> None:
-    if not isinstance(sys.stdout, TimestampedStream):
-        sys.stdout = TimestampedStream(sys.stdout)
-    if not isinstance(sys.stderr, TimestampedStream):
-        sys.stderr = TimestampedStream(sys.stderr)
+    system_module: ModuleType = sys
+    if not _has_system_streams(system_module):
+        raise RuntimeError("system text streams are unavailable")
+    if not isinstance(system_module.stdout, TimestampedStream):
+        system_module.stdout = TimestampedStream(system_module.stdout)
+    if not isinstance(system_module.stderr, TimestampedStream):
+        system_module.stderr = TimestampedStream(system_module.stderr)
 
 
-def ask_session(sess: Any, text: str, on_text=None, timeout=None,
-                on_progress=None) -> str:
-    """Call ``sess.ask`` with only the keywords its signature accepts.
-
-    The warm pool holds two session types: CodexAppServerSession.ask takes
-    ``on_progress`` (the activity feed a long turn reports through), and
-    ClaudeStreamSession.ask does not. Passing it blindly would TypeError
-    every claude-backed turn; dropping it silently would lose the feed the
-    codex side now provides. The signature is inspected per call, which is
-    nothing next to a model turn.
-    """
-    import inspect
-
-    kwargs: dict[str, Any] = {"on_text": on_text}
-    if timeout is not None:
-        kwargs["timeout"] = timeout
-    if on_progress is not None:
-        try:
-            accepts = "on_progress" in inspect.signature(sess.ask).parameters
-        except (TypeError, ValueError):
-            accepts = False
-        if accepts:
-            kwargs["on_progress"] = on_progress
-    return sess.ask(text, **kwargs)
-
-
-def _configured_workspace(cfg: dict[str, Any]) -> str | None:
-    for root in cfg.get("workspace_roots") or ():
+def _configured_workspace(cfg: GatewayConfig) -> str | None:
+    roots = cfg.get("workspace_roots")
+    if not isinstance(roots, list):
+        return None
+    for root in roots:
         path = Path(str(root)).expanduser()
         if path.is_dir():
             return str(path)
     return None
 
+
 # Gateway chat commands. Each: (canonical name, description, {accepted triggers}).
 # Triggers include hyphen / underscore / run-together variants because Telegram
 # bot commands only allow [a-z0-9_] (no hyphen), while users still type hyphens.
-_GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
-    ("help", "Show these commands",
-     {"help", "commands", "start", "menu", "?"}),
-    ("new", "Start a fresh conversation (clear history)",
-     {"new", "reset"}),
-    ("restart", "Soft restart — reload config/persona/memory, clear sessions",
-     {"restart", "restart-gateway", "restart_gateway", "restartgateway",
-      "reload"}),
-    ("hard_restart", "Hard restart — re-exec the gateway (picks up code changes)",
-     {"hard-restart", "hard_restart", "hardrestart", "restart-hard",
-      "restart_hard", "restarthard"}),
-    ("neurosis", "Deep interview — clarify a vague idea before acting",
-     {"neurosis", "interview"}),
-    ("models", "List or select the gateway model (auto-restarts to apply)",
-     {"models", "model"}),
-    ("effort", "List or select Codex reasoning effort (auto-restarts to apply)",
-     {"effort", "reasoning"}),
-    ("update", "Remote update — pull new code from the repo, then auto restart",
-     {"update", "upgrade", "pull"}),
-    ("pending", "List pending approvals (approve/reject from chat)",
-     {"pending", "approvals", "review"}),
-    ("deny", "Refuse a pending action with a reason — /deny <id> <why>",
-     {"deny", "refuse"}),
-    ("remind", "Schedule a daily message — /remind 09:00 <what to do>; "
-     "/remind list; /remind del <id>",
-     {"remind", "cron", "schedule"}),
-    ("commitment", "Show the commitment birkin is following up on",
-     {"commitment", "commitments"}),
-    ("checkin", "Check-in settings — /checkin; /checkin pause; /checkin on",
-     {"checkin", "check_in", "checkins"}),
-    ("companion", "Turn proactive follow-through off — /companion off",
-     {"companion"}),
-    ("omo", "Control local OMO sessions", {"omo"}),
-]
 
 # Friendly short model names accepted by `claude --model` (full claude-… IDs also OK).
-_GATEWAY_MODELS = ["opus", "sonnet", "haiku"]            # claude-cli suggestions
+_GATEWAY_MODELS = ["opus", "sonnet", "haiku"]  # claude-cli suggestions
 _CODEX_REASONING_EFFORTS = ["default", "low", "medium", "high", "xhigh"]
 # Commands that pull code / restart the service / rewrite config — gated to
 # trusted channels only (see Gateway._command_trusted).
-_PRIVILEGED_COMMANDS = {"update", "models", "effort", "restart", "hard_restart",
-                        "pending", "deny", "remind", "commitment", "checkin",
-                        "companion", "neurosis", "omo"}
-_LOCAL_TRUSTED_CHANNELS = frozenset({"http", "local", "repl", "voice"})
-UNTRUSTED_CHANNEL_REPLY = "⛔ This channel sender is not authorized."
 # Providers with a warm persistent-session implementation (see
 # claude_session.ClaudeStreamSession / codex_session.CodexAppServerSession).
-_PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
-TURN_ERROR_REPLY = ("⚠️ 문제가 생겨서 이번 메시지를 처리하지 못했어요. "
-                    "잠시 후 다시 시도해 주세요.")
-TURN_MOIRAI_RECOVERY_ERROR_REPLY = (
-    "⚠️ Moirai 자동 복구를 실행하지 못했어요. "
-    "자세한 원인은 Birkin 서버 로그에 기록했습니다.")
-TURN_PARTIAL_SUFFIX = ("\n\n⏱️ 시간 제한에 걸려 여기까지만 받았어요. "
-                       "이어서 하려면 다시 물어봐 주세요.")
-TURN_INTERRUPTED_REPLY = "(interrupted :o)"
-_TELEGRAM_EXECUTION_POLICY = (
-    "<gateway-execution-policy>\n"
-    + WORKFLOW_POLICY
-    + "Keep this foreground turn responsive: inspect only files relevant to the "
-    "request and run only targeted tests. Do not wait for a repository-wide "
-    "test suite. If broader verification is warranted, start it as a detached "
-    "background job, write its output and exit status to a receipt inside the "
-    "workspace, and tell the user the receipt path.\n"
-    "When the user explicitly asks you to send a generated file back through "
-    "Telegram, create it inside the current workspace and append one standalone "
-    "marker per file as the final line: "
-    '<telegram-attachment path="relative/path.ext" />. '
-    "Do not wrap the marker in a code fence, and never emit it before the file "
-    "exists.\n"
-    "</gateway-execution-policy>\n\n"
-)
-_SHORT_FOLLOWUP_RE = re.compile(
-    r"(?:좀\s*)?(?:(?:더|조금)\s*)?"
-    r"(?:(?:쉽게|간단히|자세히)\s*)?"
-    r"(?:설명해|말해|알려줘|풀어줘)(?:\s*줘)?[.!?~]*"
-)
 
 
-def _is_short_followup(text: str) -> bool:
-    normalized = " ".join((text or "").split())
-    return len(normalized) <= 60 and bool(_SHORT_FOLLOWUP_RE.fullmatch(normalized))
-
-
-def _anchor_short_followup(text: str, previous_request: str) -> str:
-    return (
-        "<conversation-followup-context>\n"
-        "The current short message refers to the previous user request below, "
-        "not to system, policy, skill, or tool instructions.\n"
-        "<previous-user-request>\n"
-        f"{previous_request}\n"
-        "</previous-user-request>\n"
-        "</conversation-followup-context>\n\n"
-        f"{text}"
-    )
-
-
-def _gateway_model_choices(provider: str, cfg: dict[str, Any]) -> list[str]:
+def _gateway_model_choices(provider: str, cfg: GatewayConfig) -> list[str]:
     if provider == "codex-cli":
         return models.codex_model_ids(cfg)
     if provider == "claude-cli":
@@ -271,63 +306,20 @@ def _numbered_choice(value: str, choices: list[str]) -> str:
     return choices[index] if 0 <= index < len(choices) else ""
 
 
-def match_command(text: str) -> tuple[str | None, str]:
-    """Map an inbound message to (canonical command, remaining arg).
-
-    Tolerates a leading ``/``, a ``@botname`` suffix, hyphen/underscore variants,
-    and a trailing arg. ``/restart … hard`` (or ``--hard``) maps to hard_restart.
-    Returns ``(None, "")`` when the text is not a recognised command.
-    """
-    t = (text or "").strip()
-    if not t.startswith("/"):
-        return None, ""
-    toks = t[1:].split(maxsplit=1)
-    if not toks:
-        return None, ""
-    name = toks[0].split("@", 1)[0].strip().lower()
-    rest = toks[1].strip() if len(toks) > 1 else ""
-    for canonical, _desc, triggers in _GATEWAY_COMMANDS:
-        if name in triggers:
-            if canonical == "restart" and rest.strip().lower() in ("hard", "--hard"):
-                return "hard_restart", ""  # hard_restart takes no arg
-            return canonical, rest
-    return None, ""
-
-
-def gateway_help_text() -> str:
-    """Welcome + grouped command list. Telegram auto-sends /start on first
-    open, so this doubles as the onboarding message: a one-line intro and an
-    example come first, then chat commands, then admin commands."""
-    chat_cmds = [(c, d) for c, d, _ in _GATEWAY_COMMANDS
-                 if c not in _PRIVILEGED_COMMANDS]
-    admin_cmds = [(c, d) for c, d, _ in _GATEWAY_COMMANDS
-                  if c in _PRIVILEGED_COMMANDS]
-    lines = [
-        "👋 안녕하세요, birkin이에요 — 당신을 기억하는 AI 에이전트입니다.",
-        "그냥 평소처럼 말 걸어 주세요. 예: \"내일 3시 회의 준비 도와줘\"",
-        "대화는 기억으로 남고, 밤사이 스스로 정리해 아침에 알려드려요.",
-        "",
-        "💬 명령:",
-    ]
-    lines += [f"/{c} — {d}" for c, d in chat_cmds]
-    if admin_cmds:
-        lines += ["", "🔧 관리자용 (신뢰 채널 전용):"]
-        lines += [f"/{c} — {d}" for c, d in admin_cmds]
-    return "\n".join(lines)
-
-
 def command_menu() -> list[dict[str, str]]:
     """Payload for Telegram setMyCommands (canonical, [a-z0-9_] names only)."""
     return [{"command": c, "description": d} for c, d, _ in _GATEWAY_COMMANDS]
 
 
 # Shared friendly tail so soft + hard restart greet the same way.
-_BACK_GREETING = "다시 왔습니다 👋 무엇을 도와드릴까요?"
+_BACK_GREETING: Final = "다시 왔습니다 👋 무엇을 도와드릴까요?"
 # Sent by the re-exec'd process after a HARD restart (code + config reloaded).
-_RESTART_GREETING = "✅ 재시작 완료! 코드·설정을 새로 반영했어요. " + _BACK_GREETING
+_RESTART_GREETING: Final = (
+    "✅ 재시작 완료! 코드·설정을 새로 반영했어요. " + _BACK_GREETING
+)
 
 
-def _split_schedule(arg: str) -> tuple[dict[str, Any] | None, str]:
+def _split_schedule(arg: str) -> tuple[dict[str, JSONValue] | None, str]:
     """Split ``"<schedule> <task>"``, trying the longest schedule prefix first.
 
     Longest-first matters: "0 9 * * 1 weekly review" must be read as a 5-field
@@ -336,9 +328,10 @@ def _split_schedule(arg: str) -> tuple[dict[str, Any] | None, str]:
     the expression but the splitter never hands it three tokens.
     """
     from .. import cron
+
     tokens = arg.split()
     for n in (5, 3, 2, 1):
-        if len(tokens) <= n:      # a reminder needs a task after the schedule
+        if len(tokens) <= n:  # a reminder needs a task after the schedule
             continue
         spec = cron.parse_schedule(" ".join(tokens[:n]))
         if spec is not None:
@@ -346,15 +339,33 @@ def _split_schedule(arg: str) -> tuple[dict[str, Any] | None, str]:
     return None, arg
 
 
-def _restart_marker_path():
+def _restart_marker_path() -> Path:
     """One-shot marker dropped before a hard re-exec so the new process can greet
     the chat that asked for the restart."""
     from .. import config
+
     return config.birkin_home() / "restart_notice.json"
 
 
 class Gateway:
-    def __init__(self, cfg: dict[str, Any]):
+    cfg: GatewayConfig
+    session: Session
+    _lock: threading.Lock
+    _persistent: bool
+    _claude_sessions: pools.SessionPool
+    _spare: WarmSession | None
+    _spare_lock: threading.Lock
+    _spare_gen: int
+    _inflight: dict[tuple[str, str], list[InflightOwner]]
+    _inflight_lock: threading.Lock
+    _hard_restart_lock: threading.Lock
+    _hard_restart: bool
+    _restart_origin: tuple[str, str] | None
+    _restart_notice: dict[str, JSONValue] | None
+    _omo_controller: OmoController
+    _telegram_lease: TelegramGatewayLease | None
+
+    def __init__(self, cfg: GatewayConfig) -> None:
         # A reachable conversation must never inherit the operator's legacy
         # global goal. Gateway turns use only their deterministic session goal.
         cfg = {**cfg, "session_goal_fallback": False}
@@ -363,25 +374,32 @@ class Gateway:
         # this service only. A stale override from ANOTHER provider family
         # (e.g. 'sonnet' left over after switching to codex-cli) is ignored —
         # applying it would 400 every turn.
-        gw_model = cfg.get("gateway_model")
-        provider = cfg.get("provider", "")
+        gw_model_value = cfg.get("gateway_model")
+        gw_model = gw_model_value if isinstance(gw_model_value, str) else ""
+        provider_value = cfg.get("provider", "")
+        provider = provider_value if isinstance(provider_value, str) else ""
         known_models = _gateway_model_choices(provider, cfg)
         if gw_model and _gateway_model_accepted(provider, gw_model, known_models):
             cfg = {**cfg, "model": gw_model}
         elif gw_model:
-            print(f"[gateway] ignoring unsupported gateway_model={gw_model!r} "
-                  f"for provider {provider!r}; using "
-                  f"model={cfg.get('model')!r}")
+            print(
+                f"[gateway] ignoring unsupported gateway_model={gw_model!r} "
+                + f"for provider {provider!r}; using "
+                + f"model={cfg.get('model')!r}"
+            )
         # SECURITY: the gateway is reachable over channels, so a chat message must
         # never reach a Claude process running with --dangerously-skip-permissions.
         # Force the safe access level here regardless of the global config.
         if cfg.get("cli_access") == "full":
-            print("[gateway] cli_access 'full' is unsafe for a reachable service "
-                  "— using 'workspace' for the gateway.", flush=True)
+            print(
+                "[gateway] cli_access 'full' is unsafe for a reachable service "
+                + "— using 'workspace' for the gateway.",
+                flush=True,
+            )
             cfg = {**cfg, "cli_access": "workspace"}
         self.cfg = cfg
-        self.session: Session = build_session(cfg)  # may raise ConfigError
-        self._chats: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        self.session = build_session(cfg)  # may raise ConfigError
+        self._chats: dict[tuple[str, str], list[dict[str, object]]] = {}
         self._last_substantive_requests: dict[tuple[str, str], str] = {}
         # Conversation keys whose first turn already carried the transcript
         # tail (or explicitly declined it via /new). Guarded by self._lock.
@@ -394,52 +412,63 @@ class Gateway:
         # Persistent (warm) CLI processes — one per conversation — for the
         # claude-cli (stream-json) and codex-cli (app-server) providers.
         # Pays cold-start once; warm replies are ~model-time.
-        self._persistent = (bool(cfg.get("gateway_persistent", True))
-                            and cfg.get("provider") in _PERSISTENT_PROVIDERS)
+        self._persistent = (
+            bool(cfg.get("gateway_persistent", True))
+            and cfg.get("provider") in _PERSISTENT_PROVIDERS
+        )
         # Pool with idle-TTL + LRU cap: dead chats stop holding a live claude
         # process (daemon resource layer; docs/hermes-comparison.md §4).
         self._claude_sessions = pools.SessionPool(
             self._new_claude_session,
-            max_sessions=int(cfg.get("gateway_max_sessions", 8) or 8),
-            idle_ttl=float(cfg.get("gateway_session_ttl_s", 3600) or 3600))
+            max_sessions=_int_setting(cfg.get("gateway_max_sessions"), 8),
+            idle_ttl=_float_setting(cfg.get("gateway_session_ttl_s"), 3600),
+        )
         # Pre-warmed spare session (fungible; adopted by the next new
         # conversation) — see _new_claude_session / _make_spare. The
         # generation counter invalidates spares still BUILDING when a
         # restart/shutdown changes config: a builder may only publish into
         # the generation it started in.
-        self._spare: ClaudeStreamSession | None = None
+        self._spare = None
         self._spare_lock = threading.Lock()
         self._spare_gen = 0
         # Warm sessions currently running a turn, per (channel, chat_id) — a new
         # message on the same chat interrupts them (mid-input interruption).
-        self._inflight: dict[
-            tuple[str, str], list[tuple[Any, Any, threading.Event]]
-        ] = {}
+        self._inflight = {}
         self._inflight_lock = threading.Lock()
+        self._hard_restart_lock = threading.Lock()
         # Set by a /hard-restart command; the channel re-execs after replying.
         self._hard_restart = False
         # (channel, chat_id) that triggered a hard restart — persisted across the
         # re-exec so the new process can greet that chat that it is back up.
-        self._restart_origin: tuple[str, str] | None = None
+        self._restart_origin = None
         # Loaded by run() from the restart marker after a re-exec (one-shot).
-        self._restart_notice: dict[str, Any] | None = None
+        self._restart_notice = None
         self._omo_controller = OmoController()
+        try:
+            self._telegram_lease = TelegramGatewayLease.acquire_for_config(self.cfg)
+        except (OSError, RuntimeError):
+            self._omo_controller.close()
+            raise
 
     def _system_prompt(self, *, trusted: bool = True) -> str:
         """birkin persona + memory + skill index, snapshot for a warm session.
         Composed through the Prompt-Gate (promptgate) like every other surface."""
         if not trusted:
             return promptgate.compose_public()
-        if trusted:
-            try:
-                idx = self.session.skills.index()
-            except Exception:
-                idx = ""
-        else:
+        try:
+            idx = self.session.skills.index()
+        except Exception:
             idx = ""
-        extra = ("\n\n## birkin skills available\n"
-                 "Read the referenced SKILL.md with your own file tools to "
-                 "follow one when it fits the task.\n" + idx) if idx else ""
+        extra = (
+            (
+                "\n\n## birkin skills available\n"
+                + "Read the referenced SKILL.md with your own file tools to "
+                + "follow one when it fits the task.\n"
+                + idx
+            )
+            if idx
+            else ""
+        )
         return promptgate.compose_cli(
             self.cfg,
             memory_block=self.session.memory.render() if trusted else "",
@@ -450,7 +479,7 @@ class Gateway:
 
     def _new_claude_session(
         self,
-        key: tuple[str, str],
+        key: Hashable,
     ) -> ClaudeStreamSession | CodexAppServerSession:
         """SessionPool factory: one warm session per conversation key.
 
@@ -458,7 +487,10 @@ class Gateway:
         sessions are configured identically, so the spare is fungible and the
         first message of a new conversation skips the ~28 s cold start.
         """
-        trusted = self._command_trusted(key[0])
+        if not _is_conversation_key(key):
+            raise TypeError("gateway session key must be a channel/chat tuple")
+        channel, _chat_id = key
+        trusted = self._command_trusted(channel)
         if trusted:
             with self._spare_lock:
                 spare, self._spare = self._spare, None
@@ -477,28 +509,31 @@ class Gateway:
         model_value = self.cfg.get("model")
         model = model_value if isinstance(model_value, str) else None
         system_prompt = (
-            self._system_prompt()
-            if trusted
-            else self._system_prompt(trusted=False)
+            self._system_prompt() if trusted else self._system_prompt(trusted=False)
         )
         if self.cfg.get("provider") == "codex-cli":
             # cli_access is already forced to "workspace" in __init__ for the
             # gateway, so codex stays cwd-scoped and can never escalate —
             # network is granted independently of host filesystem access.
-            sandbox = ("danger-full-access"
-                       if self.cfg.get("cli_access") == "full"
-                       else "workspace-write")
+            sandbox = (
+                "danger-full-access"
+                if self.cfg.get("cli_access") == "full"
+                else "workspace-write"
+            )
             return CodexAppServerSession(
                 model=model,
                 cwd=_configured_workspace(self.cfg),
                 preamble=system_prompt,
                 reasoning_effort=str(
-                    self.cfg.get("gateway_reasoning_effort", "") or ""),
-                turn_timeout=float(self.cfg.get("cli_timeout", 300)),
-                sandbox_mode=sandbox, approval_policy="never",
+                    self.cfg.get("gateway_reasoning_effort", "") or ""
+                ),
+                turn_timeout=_float_setting(self.cfg.get("cli_timeout"), 300),
+                sandbox_mode=sandbox,
+                approval_policy="never",
                 network_access=(
                     sandbox == "workspace-write"
-                    and self.cfg.get("cli_network_access", False) is True),
+                    and self.cfg.get("cli_network_access", False) is True
+                ),
                 # Without this the gateway has NO birkin tools at all: on a
                 # CLI provider birkin's own registry is unreachable (the child
                 # runs its own tool loop), and nothing attached the MCP server
@@ -506,7 +541,9 @@ class Gateway:
                 # have no local memory path" — birkin's headline feature, and
                 # the gateway could not do it. memory/skills/propose_action
                 # only; propose_action still queues to `birkin review`.
-                birkin_mcp=trusted, birkin_mcp_scope="full")
+                birkin_mcp=trusted,
+                birkin_mcp_scope="full",
+            )
         # Tools the headless gateway may use without a permission prompt
         # (e.g. company MCP servers). Empty -> rely on Claude Code settings.
         allowed_value = self.cfg.get("gateway_allowed_tools", [])
@@ -519,10 +556,16 @@ class Gateway:
         # Headless children run with the user's interactive hook stack
         # DISABLED and a bounded thinking budget — measured at 3-6 s/turn of
         # hooks + 2.8 s TTFT of default thinking (hermes-comparison.md §6).
-        settings = ({"disableAllHooks": True}
-                    if self.cfg.get("gateway_clean_hooks", True) else None)
-        env_extra = {"MAX_THINKING_TOKENS":
-                     str(int(self.cfg.get("gateway_thinking_tokens", 0) or 0))}
+        settings = (
+            {"disableAllHooks": True}
+            if self.cfg.get("gateway_clean_hooks", True)
+            else None
+        )
+        env_extra = {
+            "MAX_THINKING_TOKENS": str(
+                _int_setting(self.cfg.get("gateway_thinking_tokens"), 0)
+            )
+        }
         egress_cfg = self.cfg.get("egress", {})
         egress_enforced = (
             isinstance(egress_cfg, dict)
@@ -532,18 +575,19 @@ class Gateway:
         )
         cli_access_value = self.cfg.get("cli_access", "workspace")
         cli_access = (
-            cli_access_value
-            if isinstance(cli_access_value, str)
-            else "workspace"
+            cli_access_value if isinstance(cli_access_value, str) else "workspace"
         )
         return ClaudeStreamSession(
             model=model,
             cli_access=cli_access,
             append_system_prompt=system_prompt,
-            extra_args=extra, settings=settings, env_extra=env_extra,
+            extra_args=extra,
+            settings=settings,
+            env_extra=env_extra,
             birkin_mcp=trusted,
             egress_enforced=egress_enforced,
-            tool_free=not trusted)
+            tool_free=not trusted,
+        )
 
     def _make_spare(self) -> None:
         """Spawn one warm, unclaimed session so the next new conversation
@@ -551,11 +595,11 @@ class Gateway:
         if not self._persistent or not self.cfg.get("gateway_prewarm", True):
             return
         with self._spare_lock:
-            gen = self._spare_gen             # the generation we build FOR
+            gen = self._spare_gen  # the generation we build FOR
         try:
             s = self._build_claude_session()
             s.start()
-        except Exception as exc:              # warm-up must never take the
+        except Exception as exc:  # warm-up must never take the
             print(f"[gateway] prewarm failed: {exc}", flush=True)  # service down
             return
         with self._spare_lock:
@@ -566,20 +610,24 @@ class Gateway:
             if gen == self._spare_gen and self._spare is None:
                 self._spare = s
                 return
-        s.close()   # stale generation or raced another warm-up — discard
+        s.close()  # stale generation or raced another warm-up — discard
 
     def prewarm(self) -> None:
         """Public entry: warm the first spare in the background at boot."""
         threading.Thread(target=self._make_spare, daemon=True).start()
 
     def shutdown(self) -> None:
-        self._omo_controller.close()
-        self._claude_sessions.clear()   # the pool closes every session
-        with self._spare_lock:
-            self._spare_gen += 1        # in-flight builders must not publish
-            spare, self._spare = self._spare, None
-        if spare is not None:
-            spare.close()
+        try:
+            self._omo_controller.close()
+            self._claude_sessions.clear()  # the pool closes every session
+            with self._spare_lock:
+                self._spare_gen += 1  # in-flight builders must not publish
+                spare, self._spare = self._spare, None
+            if spare is not None:
+                spare.close()
+        finally:
+            if self._telegram_lease is not None:
+                self._telegram_lease.release()
 
     def restart(self) -> str:
         """Soft-restart the gateway in place (channels stay up).
@@ -590,7 +638,7 @@ class Gateway:
         changes still require restarting `birkin gateway`. Callers hold the lock.
         """
         assert self._lock.locked(), "restart() must be called holding self._lock"
-        self._claude_sessions.clear()   # the pool closes every session
+        self._claude_sessions.clear()  # the pool closes every session
         self._chats.clear()
         # The pre-warmed spare carries a PRE-restart persona/config snapshot —
         # discard it AND bump the generation so a spare still BUILDING for
@@ -600,60 +648,109 @@ class Gateway:
             spare, self._spare = self._spare, None
         if spare is not None:
             spare.close()
-        cfg = config.load_config()
-        provider = cfg.get("provider", "")
-        gateway_model = cfg.get("gateway_model")
+        cfg: GatewayConfig = config.load_config()
+        provider_value = cfg.get("provider", "")
+        provider = provider_value if isinstance(provider_value, str) else ""
+        gateway_model_value = cfg.get("gateway_model")
+        gateway_model = (
+            gateway_model_value if isinstance(gateway_model_value, str) else ""
+        )
         known_models = _gateway_model_choices(provider, cfg)
-        if (gateway_model
-                and _gateway_model_accepted(
-                    provider,
-                    gateway_model,
-                    known_models,
-                )):
+        if gateway_model and _gateway_model_accepted(
+            provider,
+            gateway_model,
+            known_models,
+        ):
             cfg = {**cfg, "model": cfg["gateway_model"]}
         if cfg.get("cli_access") == "full":
             cfg = {**cfg, "cli_access": "workspace"}
         cfg = {**cfg, "session_goal_fallback": False}
         self.cfg = cfg
-        self._persistent = (bool(cfg.get("gateway_persistent", True))
-                            and cfg.get("provider") in _PERSISTENT_PROVIDERS)
+        self._persistent = (
+            bool(cfg.get("gateway_persistent", True))
+            and cfg.get("provider") in _PERSISTENT_PROVIDERS
+        )
         try:
             self.session = build_session(cfg)
         except ConfigError as exc:
             return f"[restart] config error: {exc}"
-        self.prewarm()   # rebuild the spare from the RELOADED config
-        return ("♻️ Gateway restarted — reloaded config, persona, memory and "
-                "skills; warm sessions cleared (conversations start fresh).\n\n"
-                + _BACK_GREETING)
+        self.prewarm()  # rebuild the spare from the RELOADED config
+        return (
+            "♻️ Gateway restarted — reloaded config, persona, memory and "
+            + "skills; warm sessions cleared (conversations start fresh).\n\n"
+            + _BACK_GREETING
+        )
+
+    def load_restart_notice(self, notice: dict[str, JSONValue]) -> None:
+        self._restart_notice = notice
+
+    @property
+    def persistent(self) -> bool:
+        return self._persistent
+
+    def sweep_sessions(self) -> int:
+        return self._claude_sessions.sweep()
 
     @property
     def pending_hard_restart(self) -> bool:
         return self._hard_restart
 
     def do_hard_restart(self) -> None:
-        """Re-execute the gateway process (picks up CODE changes too).
+        """Replace the gateway process so code changes take effect.
 
-        Replaces the current process image, so this never returns. Warm Claude
-        subprocesses are terminated first to avoid orphans. Called by a channel
-        AFTER it has delivered the reply (and, for Telegram, acknowledged the
-        update so the /hard-restart message is not redelivered into a loop).
+        POSIX replaces the current image. Windows starts one breakaway
+        replacement and terminates the old process explicitly; its venv
+        redirector cannot provide POSIX exec semantics. The lock prevents
+        concurrent channel workers from launching multiple replacements.
         """
         import os
         import sys
-        if self._restart_origin:   # leave a one-shot note so we can greet on boot
+
+        from ..proc import popen_detached
+
+        with self._hard_restart_lock:
+            if self._restart_origin:
+                try:
+                    from .. import store
+
+                    store_module: ModuleType = store
+                    if not _has_store_internals(store_module):
+                        raise RuntimeError("store JSON contract is unavailable")
+                    _StoreInternals.write_json(
+                        store_module,
+                        _restart_marker_path(),
+                        {
+                            "channel": self._restart_origin[0],
+                            "chat_id": self._restart_origin[1],
+                        },
+                    )
+                except Exception:
+                    pass
             try:
-                from .. import store
-                store._write_json(_restart_marker_path(),
-                                  {"channel": self._restart_origin[0],
-                                   "chat_id": self._restart_origin[1]})
+                self.shutdown()
             except Exception:
                 pass
-        try:
-            self.shutdown()
-        except Exception:
-            pass
-        print("[gateway] hard restart: re-executing `birkin gateway`…", flush=True)
-        os.execv(sys.executable, [sys.executable, "-m", "birkin", "gateway"])
+            argv = [sys.executable, "-m", "birkin", "gateway"]
+            print(
+                "[gateway] hard restart: re-executing `birkin gateway`…",
+                flush=True,
+            )
+            if os.name == "nt":
+                try:
+                    _ = popen_detached(argv, close_fds=True)
+                except OSError as exc:
+                    # shutdown() already tore this process down — staying alive
+                    # would leave a gutted gateway, so exit non-zero and let the
+                    # supervisor restart us.
+                    print(
+                        "[gateway] 하드 재시작 실패: 새 게이트웨이 프로세스를 "
+                        f"시작하지 못했습니다 ({exc}). 프로세스를 종료합니다.",
+                        flush=True,
+                    )
+                    os._exit(1)
+                os._exit(0)
+            else:
+                os.execv(sys.executable, argv)
 
     def take_restart_greeting(self, channel: str) -> str | None:
         """If this process just came back from a hard restart triggered on
@@ -665,7 +762,20 @@ class Gateway:
             return str(n.get("chat_id"))
         return None
 
-    def resolve_delivery_target(self, channel: str, *, fallback=None) -> Any:
+    def command_menu(self) -> list[dict[str, str]]:
+        """Return the live command menu, including local overlay additions."""
+        return command_menu()
+
+    def restart_greeting(self) -> str:
+        """Return the message sent after a successful process replacement."""
+        return _RESTART_GREETING
+
+    def resolve_delivery_target(
+        self,
+        channel: str,
+        *,
+        fallback: Callable[[str], _T] | None = None,
+    ) -> object | None:
         """Resolve a send-only adapter before consulting a legacy target.
 
         Telegram and local HTTP remain owned by their existing channel paths;
@@ -673,8 +783,14 @@ class Gateway:
         registry lookup here gives outbound gateway integrations one stable
         Birkin-native seam without changing either legacy implementation.
         """
-        from .channels.registry import resolve_delivery_target
-        return resolve_delivery_target(channel, self.cfg, fallback=fallback)
+        from .channels import registry
+
+        registry_module: ModuleType = registry
+        if not _has_delivery_registry_contract(registry_module):
+            raise RuntimeError("delivery registry contract is unavailable")
+        return registry_module.resolve_delivery_target(
+            channel, self.cfg, fallback=fallback
+        )
 
     def interrupt(self, channel: str, chat_id: str) -> bool:
         """Cancel the turn currently in flight for this chat, if any. Called by
@@ -691,395 +807,37 @@ class Gateway:
             if session_id in seen_sessions:
                 continue
             seen_sessions.add(session_id)
-            fn = getattr(sess, "interrupt", None)
-            if not callable(fn):
+            if not isinstance(sess, _InterruptibleSession):
                 continue
             try:
-                interrupted = bool(fn()) or interrupted
+                interrupted = sess.interrupt() or interrupted
             except Exception:
                 continue
         return interrupted
 
-    def handle(self, channel: str, chat_id: str, text: str,
-               on_text=None, workflow_id: str | None = None,
-               on_progress=None, sender_id: str | None = None) -> str:
-        """Route one inbound message to the agent and return the reply.
+    def handle(
+        self,
+        channel: str,
+        chat_id: str,
+        text: str,
+        on_text: TextCallback = None,
+        workflow_id: str | None = None,
+        on_progress: ProgressCallback = None,
+        sender_id: str | None = None,
+    ) -> str:
+        """Route one inbound message through the gateway turn stages."""
+        from .turn_router import route_turn
 
-        ``on_text`` (optional) receives append-style reply pieces as they
-        stream from the model, so a channel can show partial output (e.g.
-        Telegram edit-streaming) instead of waiting for the full turn.
-        Commands and the non-persistent path reply in one piece.
-
-        Each (channel, chat_id) keeps its own conversation history; memory and
-        skills are shared, so knowledge carries across channels.
-
-        Local channels are trusted by construction. Public channel adapters
-        must pass ``sender_id`` and configure ``allowed_sender_ids``; otherwise
-        the message is rejected before command, agent, or memory dispatch.
-        """
-        text = (text or "").strip()
-        if not text:
-            return ""
-        if not self._channel_trusted(channel, chat_id, sender_id):
-            print(f"[gateway] denied untrusted {channel}:{chat_id}", flush=True)
-            if text == "/omo" or text.startswith("/omo "):
-                return "OMO control is restricted to configured Telegram chat IDs."
-            return UNTRUSTED_CHANNEL_REPLY
-        key = (channel, str(chat_id))
-        turn_session_id = conversation_session_id(channel, str(chat_id))
-        # The global lock guards only the shared bookkeeping (the _claude_sessions
-        # / _chats dicts and the single shared self.session). The actual LLM turn
-        # runs OUTSIDE it: a persistent ClaudeStreamSession has its own per-session
-        # lock, so independent conversations are not serialized behind each other.
-        cmd, cmd_arg = match_command(text)
-        display_text = text
-        skill_query = display_text
-        if cmd in _PRIVILEGED_COMMANDS and not self._command_trusted(channel):
-            return ("This command is restricted. Set "
-                    "channels.telegram.allowed_chat_ids so only you can run "
-                    "privileged commands.")
-        if cmd == "neurosis":
-            # Seed/resume the interview, then run the kickoff as a normal turn so
-            # it works on both the persistent and non-persistent paths.
-            from .. import neurosis
-            resolution = None
-            kept = []
-            for tok in cmd_arg.split():
-                if tok in ("--quick", "--standard", "--deep"):
-                    resolution = tok[2:]
-                else:
-                    kept.append(tok)
-            idea_arg = " ".join(kept)
-            # The neurosis state file is shared mutable state reached from
-            # multiple channel threads, and seed_or_resume is a read-modify-write
-            # (same idea -> same slug -> same path). Serialize it under the global
-            # lock so two concurrent /neurosis for one idea cannot clobber each
-            # other; the cheap file I/O does not gate the LLM turn below.
-            with self._lock:
-                seed = neurosis.seed_or_resume(idea_arg, cfg=self.cfg,
-                                               resolution=resolution)
-            if seed is None:
-                return ("아이디어를 함께 주세요: /neurosis <모호한 아이디어> "
-                        "(진행 중인 인터뷰가 있으면 /neurosis 만으로 재개).")
-            text = neurosis.start_prompt(seed)               # sent to the agent
-            display_text = idea_arg or "/neurosis (resume)"  # logged / auto-saved
-            skill_query = f"neurosis {display_text}"
-            cmd = None                                       # fall through to a turn
-        with self._lock:
-            if cmd == "help":
-                return gateway_help_text()
-            if cmd == "models":
-                reply = self._models_command(cmd_arg)
-                if self._hard_restart:   # /models scheduled a re-exec
-                    self._restart_origin = (channel, str(chat_id))
-                return reply
-            if cmd == "effort":
-                reply = self._effort_command(cmd_arg)
-                if self._hard_restart:
-                    self._restart_origin = (channel, str(chat_id))
-                return reply
-            if cmd == "hard_restart":
-                # The receiving channel re-execs after it delivers this reply;
-                # remember who asked so the new process can greet them.
-                self._hard_restart = True
-                self._restart_origin = (channel, str(chat_id))
-                print(f"[gateway] HARD restart requested via {channel}:{chat_id}",
-                      flush=True)
-                return ("♻️ Hard restart — re-executing `birkin gateway` to pick up "
-                        "code + config changes. Reconnecting in a moment…")
-            if cmd == "update":
-                # Pull new repo code (main code + bundled skills). User state in
-                # ~/.birkin (config, memory, user skills) lives outside the repo
-                # and is never touched. On a code change, re-exec like hard_restart.
-                from .. import updater
-                result = updater.update()
-                if result.get("updated"):
-                    self._hard_restart = True
-                    self._restart_origin = (channel, str(chat_id))
-                    print(f"[gateway] update pulled new code via "
-                          f"{channel}:{chat_id}; scheduling hard restart", flush=True)
-                    return (f"⬇️ {result['message']}\n"
-                            "♻️ 새 코드를 반영하려고 재시작합니다…")
-                return f"{'✅' if result.get('ok') else '⚠️'} {result['message']}"
-            if cmd == "pending":
-                return self.pending_text()
-            if cmd == "omo":
-                if not self._omo_command_trusted(channel, chat_id):
-                    return "OMO control is restricted to configured Telegram chat IDs."
-                return self._omo_controller.handle(text)
-            if cmd == "deny":
-                return self.deny_command(
-                    cmd_arg,
-                    actor_id=f"human:{channel}:{sender_id or chat_id}",
-                    via=f"gateway:{channel}",
-                )
-            if cmd == "remind":
-                return self.remind_command(cmd_arg, channel, str(chat_id))
-            if cmd in ("commitment", "checkin", "companion"):
-                return self.companion_command(cmd, cmd_arg, channel,
-                                              str(chat_id))
-            if cmd == "restart":
-                print(f"[gateway] restart requested via {channel}:{chat_id}",
-                      flush=True)
-                return self.restart()
-            if cmd == "new":
-                # Pop (not just reset) so a racing in-flight turn keeps its own
-                # object and the NEXT turn builds a clean session.
-                if self._persistent:
-                    old = self._claude_sessions.pop(key)
-                    if old is not None:
-                        old.close()
-                self._chats[key] = []
-                self._last_substantive_requests.pop(key, None)
-                # /new asks for a CLEAN slate — the next session for this key
-                # must not resurrect the old conversation from transcripts.
-                self._history_seeded.add(key)
-                return "Started a new conversation."
-            # Snapshot persistence + session together under the lock: a /restart
-            # could flip self._persistent between here and the ask() below.
-            persistent = self._persistent
-            # First turn for this key since the process started: seed it with
-            # the saved transcript tail so a restart does not forget the
-            # conversation. Check-and-mark under the lock; the file read runs
-            # outside it (below) to keep the lock cheap.
-            needs_seed = key not in self._history_seeded
-            if needs_seed:
-                self._history_seeded.add(key)
-            inflight_token = object()
-            interrupted_event = threading.Event()
-            if persistent:
-                try:
-                    sess = self._claude_sessions.borrow(key)
-                except pools.SessionPoolFullError:
-                    return TURN_ERROR_REPLY
-            else:
-                sess = None
-
-        try:
-            t0 = time.monotonic()
-            if persistent:
-                try:
-                    # Track the in-flight session so a new message on the same
-                    # chat can interrupt() this turn (mid-input interruption).
-                    with self._inflight_lock:
-                        self._inflight.setdefault(key, []).append(
-                            (inflight_token, sess, interrupted_event))
-                except RuntimeError as exc:
-                    dt = time.monotonic() - t0
-                    print(f"[gateway] {channel}:{chat_id} ✗ error after "
-                          f"{dt:.1f}s: {exc}", flush=True)
-                    return TURN_ERROR_REPLY
-
-            trusted_telegram = (channel == "telegram"
-                                and self._command_trusted(channel))
-            if trusted_telegram:
-                short_followup = _is_short_followup(display_text)
-                with self._lock:
-                    previous_request = self._last_substantive_requests.get(key)
-                if short_followup and not previous_request and needs_seed:
-                    from .. import transcripts
-                    previous_request = next((
-                        request for request
-                        in transcripts.read_recent_user_requests(
-                            channel, str(chat_id))
-                        if not _is_short_followup(request)
-                    ), "")
-                    if previous_request:
-                        with self._lock:
-                            self._last_substantive_requests.setdefault(
-                                key, previous_request)
-                if short_followup:
-                    if previous_request:
-                        text = _anchor_short_followup(text, previous_request)
-                else:
-                    with self._lock:
-                        self._last_substantive_requests[key] = display_text
-            approved_work = bool(
-                trusted_telegram
-                and workflow_id
-                and workflow_is_running(workflow_id, str(chat_id))
-            )
-            if needs_seed and self._autosave_trusted(channel):
-                from .. import transcripts
-                tail = transcripts.read_recent(channel, str(chat_id))
-                if tail:
-                    text = ("## 이전 대화 기록 (프로세스 재시작 전, 참고용)\n"
-                            "아래는 이 대화의 저장된 최근 기록이다. 문맥 파악에만 "
-                            "사용하고, 답변은 마지막 사용자 메시지에만 하라.\n\n"
-                            + tail + "\n\n## 현재 메시지\n\n" + text)
-            if trusted_telegram:
-                text = _TELEGRAM_EXECUTION_POLICY + text
-            print(f"[gateway] {channel}:{chat_id} « {display_text[:80]}", flush=True)
-            progress_seen: dict[str, Any] = {}
-
-            def _watch_progress(info: dict) -> None:
-                progress_seen.update(info or {})
-                if on_progress is not None:
-                    on_progress(info)
-
-            try:
-                untrusted_claude = (
-                    not self._command_trusted(channel)
-                    and self.cfg.get("provider") == "claude-cli"
-                )
-                if untrusted_claude and not persistent:
-                    one_shot = self._build_claude_session(trusted=False)
-                    try:
-                        reply = ask_session(
-                            one_shot,
-                            self.session._prepare_cli_turn(
-                                text,
-                                route_query=skill_query,
-                                session_id=turn_session_id,
-                                trusted=False,
-                            ),
-                            on_text=on_text,
-                            on_progress=_watch_progress,
-                        )
-                    finally:
-                        one_shot.close()
-                elif persistent:
-                    # Warm Claude Code process keeps its own conversation context,
-                    # so only the new turn is sent.
-                    skill_state = getattr(sess, "_birkin_skill_state", None)
-                    if skill_state is None:
-                        skill_state = {"revision": -1, "names": set()}
-                        setattr(sess, "_birkin_skill_state", skill_state)
-                    reply = ask_session(
-                        sess,
-                        self.session._prepare_cli_turn(
-                            text, route_query=skill_query,
-                            skill_state=skill_state,
-                            session_id=turn_session_id,
-                            trusted=self._command_trusted(channel)),
-                        on_text=on_text, on_progress=_watch_progress)
-                else:
-                    # The non-persistent path shares the single self.session, so its
-                    # history swap must stay serialized under the global lock.
-                    with self._lock:
-                        self.session.agent.messages = self._chats.get(key, [])
-                        ctx = getattr(self.session, "ctx", None)
-                        old_required = getattr(
-                            ctx, "subagent_approval_required", False)
-                        old_approved = getattr(ctx, "approved_work", False)
-                        if ctx is not None:
-                            ctx.subagent_approval_required = trusted_telegram
-                            ctx.approved_work = approved_work
-                        try:
-                            reply = self.session.ask(
-                                text,
-                                review_skills=self._command_trusted(channel),
-                                route_query=skill_query,
-                                record_turn=self._command_trusted(channel),
-                                session_id=turn_session_id,
-                                trusted=self._command_trusted(channel))
-                        finally:
-                            if ctx is not None:
-                                ctx.subagent_approval_required = old_required
-                                ctx.approved_work = old_approved
-                            self._chats[key] = self.session.agent.messages
-            except CodexTurnTimeout as exc:
-                dt = time.monotonic() - t0
-                print(f"[gateway] {channel}:{chat_id} ✗ error after "
-                      f"{dt:.1f}s: {exc}", flush=True)
-                partial = str(exc.partial or "").strip()
-                from ..moirai import journal as moirai_journal
-                moirai_journal.record_incident(
-                    kind="codex_timeout", channel=channel,
-                    chat_id=str(chat_id), elapsed_seconds=dt,
-                    partial_chars=len(partial),
-                    last_event_kind=str(progress_seen.get("active_kind")
-                                        or progress_seen.get("last_kind") or ""),
-                    event_count=int(progress_seen.get("activity") or 0),
-                    detail=str(exc))
-                from ..moirai import trigger as moirai_trigger
-                _seen = {"n": 0}
-
-                def _on_moirai_event(event: str, payload: dict) -> None:
-                    if event != "moirai.phase" or on_progress is None:
-                        return
-                    _seen["n"] += 1
-                    try:
-                        on_progress({
-                            "phase": str((payload or {}).get("title") or ""),
-                            "activity": _seen["n"],
-                        })
-                    except Exception:
-                        pass
-
-                recovery_task = display_text
-                if partial:
-                    recovery_task += (
-                        "\n\nCodex가 중단되기 전 완료한 내용:\n" + partial
-                        + "\n\n완료된 내용은 반복하지 말고 남은 작업만 수행하라.")
-                try:
-                    recovered = moirai_trigger.run_approved(
-                        {"script": "hard-task", "task": recovery_task},
-                        on_event=(_on_moirai_event
-                                  if on_progress is not None else None))
-                except Exception as recovery_exc:
-                    print(f"[gateway] {channel}:{chat_id} ✗ Moirai recovery "
-                          f"failed: {recovery_exc}", flush=True)
-                    self._record_failed_turn(
-                        display_text, TURN_MOIRAI_RECOVERY_ERROR_REPLY,
-                        channel, str(chat_id))
-                    return TURN_MOIRAI_RECOVERY_ERROR_REPLY
-                reply = ((partial + "\n\n") if partial else "") + recovered
-                # A turn that died is exactly the turn worth learning from,
-                # and returning here skipped the self-improvement hook that
-                # the success path below runs.
-                self._record_failed_turn(
-                    display_text, reply, channel, str(chat_id))
-                return reply
-            except Exception as exc:
-                dt = time.monotonic() - t0
-                # Full detail to the server log; a friendly line to the chat —
-                # the raw exception can leak paths/internals to a Telegram user.
-                print(f"[gateway] {channel}:{chat_id} ✗ error after "
-                      f"{dt:.1f}s: {exc}", flush=True)
-                partial = str(getattr(exc, "partial", "") or "").strip()
-                if partial:
-                    # A turn that spent its whole budget still did work.
-                    # Returning a generic error threw it away, so a 15-minute
-                    # wait produced nothing; hand it back, labelled.
-                    return partial + TURN_PARTIAL_SUFFIX
-                return TURN_ERROR_REPLY
-            if interrupted_event.is_set() and not reply:
-                reply = TURN_INTERRUPTED_REPLY
-            dt = time.monotonic() - t0
-            print(f"[gateway] {channel}:{chat_id} » {len(reply or '')} chars in "
-                  f"{dt:.1f}s", flush=True)
-            if self._autosave_trusted(channel):
-                store.append_activity(
-                    f"gateway[{channel}:{chat_id}]: {display_text[:100]}")
-            if persistent and self._command_trusted(channel):
-                self.session._record_turn(
-                    display_text, reply or "",
-                    review_skills=self._command_trusted(channel),
-                    session_id=turn_session_id)
-            # Auto-save the turn so the nightly Morpheus routine can extract
-            # memory — but ONLY for trusted conversations (an open Telegram bot's
-            # strangers must not be persisted into long-term memory). Runs OUTSIDE
-            # the global lock; transcripts.append_turn is per-conversation locked.
-            if self._autosave_trusted(channel):
-                from .. import transcripts
-                transcripts.append_turn(
-                    channel, str(chat_id), display_text, reply or "", cfg=self.cfg)
-            return reply or "(no reply)"
-        finally:
-            if persistent:
-                try:
-                    with self._inflight_lock:
-                        owners = self._inflight.get(key)
-                        if owners is not None:
-                            for index, owner in enumerate(owners):
-                                if owner[0] is inflight_token:
-                                    owners.pop(index)
-                                    break
-                        if not owners:
-                            self._inflight.pop(key, None)
-                finally:
-                    self._claude_sessions.release(key, sess)
+        return route_turn(
+            self,
+            channel,
+            chat_id,
+            text,
+            on_text,
+            workflow_id,
+            on_progress,
+            sender_id,
+        )
 
     def _models_command(self, arg: str) -> str:
         """List the gateway model, or select one and schedule a hard restart so the
@@ -1087,83 +845,105 @@ class Gateway:
         Called under the lock."""
         parts = (arg or "").strip().split()
         provider_value = self.cfg.get("provider", "")
-        provider = (
-            provider_value if isinstance(provider_value, str) else ""
-        )
+        provider = provider_value if isinstance(provider_value, str) else ""
         known = _gateway_model_choices(provider, self.cfg)
         listing = "\n".join(f"{i}. {model}" for i, model in enumerate(known, 1))
         if not parts:
             kind = "CLI" if provider.endswith("-cli") else "API"
             auth = "계정 로그인" if kind == "CLI" else "API key"
-            lines = [f"현재 게이트웨이 모델: {self.cfg.get('model')} [{provider}]",
-                     f"연결 방식: {kind} ({auth})",
-                     f"사용 가능 - {kind} 모델 ({provider}):", listing,
-                     "모델 선택: /models <번호>  예: /models 1"]
+            lines = [
+                f"현재 게이트웨이 모델: {self.cfg.get('model')} [{provider}]",
+                f"연결 방식: {kind} ({auth})",
+                f"사용 가능 - {kind} 모델 ({provider}):",
+                listing,
+                "모델 선택: /models <번호>  예: /models 1",
+            ]
             return "\n".join(lines)
         name = _numbered_choice(parts[0], known)
         if not _gateway_model_accepted(provider, name, known):
-            return (f"'{parts[0]}'은(는) 모르는 모델이에요. "
-                    "사용 가능한 번호는 /models에서 확인하세요.")
-        cfg = config.load_config()
+            return (
+                f"'{parts[0]}'은(는) 모르는 모델이에요. "
+                "사용 가능한 번호는 /models에서 확인하세요."
+            )
+        cfg: GatewayConfig = config.load_config()
         cfg["gateway_model"] = name
-        config.save_config(cfg)
+        _ = config.save_config(cfg)
         # Keep in-memory state consistent even if the scheduled re-exec never
         # happens (os.execv raises) — otherwise self.cfg would report the old
         # model. The live model only actually changes on the next process start.
         self.cfg = {**self.cfg, "gateway_model": name, "model": name}
         self._hard_restart = True  # the channel re-execs after sending this reply
         print(f"[gateway] model → {name}; scheduling hard restart", flush=True)
-        return (f"✅ 게이트웨이 모델을 '{name}'로 바꿨어요. 적용하려고 지금 재시작합니다 "
-                f"— 잠시 후 다시 말 걸어주세요.")
+        return (
+            f"✅ 게이트웨이 모델을 '{name}'로 바꿨어요. 적용하려고 지금 재시작합니다 "
+            f"— 잠시 후 다시 말 걸어주세요."
+        )
 
     def _effort_command(self, arg: str) -> str:
         if self.cfg.get("provider") != "codex-cli":
             return "Effort 설정은 codex-cli에서만 사용할 수 있어요."
         value = (arg or "").strip().split()[0] if (arg or "").strip() else ""
         listing = "\n".join(
-            f"{i}. {level}"
-            for i, level in enumerate(_CODEX_REASONING_EFFORTS, 1))
+            f"{i}. {level}" for i, level in enumerate(_CODEX_REASONING_EFFORTS, 1)
+        )
         if not value:
             current = self.cfg.get("gateway_reasoning_effort") or "default"
-            return (f"현재 effort: {current}\n{listing}\n"
-                    "변경: /effort <번호>  예: /effort 2")
+            return (
+                f"현재 effort: {current}\n{listing}\n"
+                "변경: /effort <번호>  예: /effort 2"
+            )
         effort = _numbered_choice(value, _CODEX_REASONING_EFFORTS)
         if effort not in _CODEX_REASONING_EFFORTS:
             return "모르는 effort예요. /effort에서 번호를 확인하세요."
         stored_effort = "" if effort == "default" else effort
-        cfg = config.load_config()
+        cfg: GatewayConfig = config.load_config()
         cfg["gateway_reasoning_effort"] = stored_effort
-        config.save_config(cfg)
+        _ = config.save_config(cfg)
         self.cfg = {**self.cfg, "gateway_reasoning_effort": stored_effort}
         self._hard_restart = True
         print(f"[gateway] effort → {effort}; scheduling hard restart", flush=True)
-        return (f"✅ Gateway effort를 '{effort}'로 바꿨어요. "
-                "적용하려고 지금 재시작합니다 — 잠시 후 다시 말 걸어주세요.")
+        return (
+            f"✅ Gateway effort를 '{effort}'로 바꿨어요. "
+            "적용하려고 지금 재시작합니다 — 잠시 후 다시 말 걸어주세요."
+        )
 
     # -- remote approvals (P0-2: the propose->approve loop, from chat) -------
 
-    def pending_actions(self) -> list[dict[str, Any]]:
+    def pending_actions(self) -> list[dict[str, object]]:
         """Pending proposals, highest-risk first (same order as the CLI)."""
         from .. import risk
-        return risk.sort_by_risk(store.list_pending())
+
+        risk_module: ModuleType = risk
+        if not _has_risk_contract(risk_module):
+            raise RuntimeError("risk sorting contract is unavailable")
+        pending: list[dict[str, object]] = store.list_pending()
+        records = risk_module.sort_by_risk(pending)
+        return records
 
     def pending_text(self) -> str:
         """Plain-text pending list — the fallback for channels without
         buttons (HTTP) and the body the Telegram channel decorates."""
         from .. import approvals, risk
-        items = risk.sort_by_risk(approvals.reviewable_pending())
+
+        risk_module: ModuleType = risk
+        if not _has_risk_contract(risk_module):
+            raise RuntimeError("risk sorting contract is unavailable")
+        reviewable: list[dict[str, JSONValue]] = approvals.reviewable_pending()
+        items = risk_module.sort_by_risk(reviewable)
         if not items:
             return "📭 No pending approvals."
         lines = [f"📋 {len(items)} pending approval(s):"]
         for rec in items[:10]:
-            lines.append(f"- [{rec.get('category')}] {rec.get('title')} "
-                         f"(id {rec.get('id')})")
-        lines.append("Approve/reject in the CLI with `birkin review` — or "
-                     "tap the buttons if your channel shows them.")
+            lines.append(
+                f"- [{rec.get('category')}] {rec.get('title')} (id {rec.get('id')})"
+            )
+        lines.append(
+            "Approve/reject in the CLI with `birkin review` — or "
+            + "tap the buttons if your channel shows them."
+        )
         return "\n".join(lines)
 
-    def companion_command(self, cmd: str, arg: str, channel: str,
-                          chat_id: str) -> str:
+    def companion_command(self, cmd: str, arg: str, channel: str, chat_id: str) -> str:
         """``/commitment``, ``/checkin`` and ``/companion off`` from chat.
 
         Inspection plus the two controls that must be reachable in one step:
@@ -1172,6 +952,7 @@ class Gateway:
         takes.
         """
         from .. import companion
+
         if channel != "telegram":
             return "후속 확인은 Telegram 채널에서만 설정할 수 있어요."
         context_id = f"telegram:{chat_id}"
@@ -1180,35 +961,48 @@ class Gateway:
         if cmd == "companion":
             if arg != "off":
                 return "/companion off — 후속 확인을 완전히 끕니다."
-            companion.pause_all()
+            _ = companion.pause_all()
             return "🛑 후속 확인을 껐어요. 다시 켜려면 /checkin on 을 보내 주세요."
 
         if cmd == "checkin":
             if arg in ("pause", "off"):
-                companion.pause_all()
+                _ = companion.pause_all()
                 return "⏸ 체크인을 멈췄어요. 다시 켜려면 /checkin on."
             if arg == "on":
-                companion.resume()
+                _ = companion.resume()
                 return "▶️ 체크인을 다시 켰어요."
             if arg and arg not in ("help", "?", "status"):
                 return "/checkin · /checkin pause · /checkin on"
-            policy = companion.get_policy()
-            quiet = policy.get("quiet_hours") or {}
-            return (f"체크인: {'켜짐' if policy.get('enabled') else '꺼짐'}\n"
-                    f"시간대: {policy.get('timezone')}\n"
-                    f"방해 금지: {quiet.get('start')}–{quiet.get('end')}\n"
-                    f"하루 최대: {policy.get('daily_cap')}회")
+            companion_module: ModuleType = companion
+            if not _has_companion_contract(companion_module):
+                raise RuntimeError("companion contract is unavailable")
+            policy = companion_module.get_policy()
+            quiet = policy.get("quiet_hours", {})
+            return (
+                f"체크인: {'켜짐' if policy.get('enabled') else '꺼짐'}\n"
+                f"시간대: {policy.get('timezone')}\n"
+                f"방해 금지: {quiet.get('start')}–{quiet.get('end')}\n"
+                f"하루 최대: {policy.get('daily_cap')}회"
+            )
 
-        records = [r for r in companion.list_commitments(context_id=context_id)
-                   if r["status"] in ("active", "blocked", "snoozed")]
+        companion_module = companion
+        if not _has_companion_contract(companion_module):
+            raise RuntimeError("companion contract is unavailable")
+        records = [
+            r
+            for r in companion_module.list_commitments(context_id=context_id)
+            if r["status"] in ("active", "blocked", "snoozed")
+        ]
         if not records:
-            return ("지금 따라가고 있는 약속이 없어요. "
-                    "`birkin companion add` 로 등록할 수 있어요.")
-        lines = []
+            return (
+                "지금 따라가고 있는 약속이 없어요. "
+                "`birkin companion add` 로 등록할 수 있어요."
+            )
+        lines: list[str] = []
         for record in records:
             lines.append(f"[{record['status']}] {record['outcome']}")
             if record.get("next_action"):
-                lines.append(f"  다음 할 일: {record['next_action']}")
+                lines.append(f"  다음 할 일: {record.get('next_action')}")
             lines.append(f"  예정: {record.get('check_in_at') or '-'}")
             lines.append(f"  출처: {record.get('source_ref') or '-'}")
         return "\n".join(lines)
@@ -1220,19 +1014,23 @@ class Gateway:
         Only prompt-type jobs delivered to the current (already-trusted) chat
         are created — never shell, never another chat — so this cannot launder
         code execution or exfiltrate to a stranger. Callers gate on a trusted
-        channel first (remind is in _PRIVILEGED_COMMANDS)."""
+        channel first (remind is in PRIVILEGED_COMMANDS)."""
         from .. import cron
+
+        _ = channel
         arg = (arg or "").strip()
         if not arg or arg.lower() in ("list", "ls"):
-            jobs = [j for j in cron.load_jobs()
-                    if str(j.get("deliver_chat_id")) == chat_id]
+            jobs = [
+                j for j in cron.load_jobs() if str(j.get("deliver_chat_id")) == chat_id
+            ]
             if not jobs:
-                return ("등록된 리마인더가 없어요. 예: /remind 09:00 "
-                        "오늘 할 일 정리해줘")
+                return "등록된 리마인더가 없어요. 예: /remind 09:00 오늘 할 일 정리해줘"
             lines = ["⏰ 리마인더:"]
             for j in jobs:
-                lines.append(f"- {cron.schedule_display(j)} "
-                             f"{j.get('value', '')[:60]} (id {j['id']})")
+                lines.append(
+                    f"- {cron.schedule_display(j)} "
+                    + f"{j.get('value', '')[:60]} (id {j['id']})"
+                )
             lines.append("삭제: /remind del <id>")
             return "\n".join(lines)
         parts = arg.split(maxsplit=1)
@@ -1242,10 +1040,9 @@ class Gateway:
             if not job or str(job.get("deliver_chat_id")) != chat_id:
                 return "그 id의 리마인더를 찾지 못했어요 (본인 것만 삭제 가능)."
             try:
-                cron.remove_job(aid)
+                _ = cron.remove_job(aid)
             except store.FileLockTimeout:
-                return ("⚠ 리마인더 저장소가 사용 중입니다. "
-                        "잠시 후 다시 시도해 주세요.")
+                return "⚠ 리마인더 저장소가 사용 중입니다. 잠시 후 다시 시도해 주세요."
             return f"🗑️ 리마인더 삭제됨 (id {aid})."
         # Richer schedules first ("every 30m ...", "2h ...", "0 9 * * 1 ..."),
         # then the original HH:MM / HH시MM form.
@@ -1253,31 +1050,44 @@ class Gateway:
         if spec is None:
             m = re.match(r"(\d{1,2})[:시](\d{2})?\s+(.+)", arg, re.S)
             if not m:
-                return ("형식: /remind <시각|주기> <할 일>. 예: /remind 09:00 "
-                        "오늘 할 일 정리 · /remind 30분마다 메일 확인 · "
-                        "/remind 1시간 후 스트레칭 · /remind 매주 월요일 09:00 "
-                        "주간 리뷰 (every 30m · 2h · 0 9 * * 1 도 됩니다)")
+                return (
+                    "형식: /remind <시각|주기> <할 일>. 예: /remind 09:00 "
+                    "오늘 할 일 정리 · /remind 30분마다 메일 확인 · "
+                    "/remind 1시간 후 스트레칭 · /remind 매주 월요일 09:00 "
+                    "주간 리뷰 (every 30m · 2h · 0 9 * * 1 도 됩니다)"
+                )
             hour = int(m.group(1))
             minute = int(m.group(2) or 0)
             if hour > 23 or minute > 59:
                 # reject rather than silently clamp — 25:99 shouldn't become 23:59
                 return f"시간이 올바르지 않아요 ({hour:02d}:{minute:02d}). 00:00–23:59 범위로 다시 보내 주세요."
-            spec, prompt = {"kind": "daily", "hour": hour, "minute": minute,
-                            "display": f"{hour:02d}:{minute:02d} daily"}, \
-                m.group(3).strip()
+            spec, prompt = (
+                {
+                    "kind": "daily",
+                    "hour": hour,
+                    "minute": minute,
+                    "display": f"{hour:02d}:{minute:02d} daily",
+                },
+                m.group(3).strip(),
+            )
         if not prompt:
             return "할 일을 함께 적어 주세요. 예: /remind 30분마다 메일 확인"
         try:
-            job = cron.add_job(name="remind", action_type="prompt",
-                               value=prompt, deliver_chat_id=chat_id,
-                               schedule=spec)
+            job = cron.add_job(
+                name="remind",
+                action_type="prompt",
+                value=prompt,
+                deliver_chat_id=chat_id,
+                schedule=spec,
+            )
         except store.FileLockTimeout:
-            return ("⚠ 리마인더 저장소가 사용 중입니다. "
-                    "잠시 후 다시 시도해 주세요.")
+            return "⚠ 리마인더 저장소가 사용 중입니다. 잠시 후 다시 시도해 주세요."
         except ValueError as exc:
             return f"스케줄을 이해하지 못했어요: {exc}"
-        return (f"⏰ {cron.schedule_display(job)}에 알려드릴게요: "
-                f"\"{prompt[:60]}\" (id {job['id']}, 취소는 /remind del {job['id']})")
+        return (
+            f"⏰ {cron.schedule_display(job)}에 알려드릴게요: "
+            f'"{prompt[:60]}" (id {job["id"]}, 취소는 /remind del {job["id"]})'
+        )
 
     def resolve_action(
         self,
@@ -1290,6 +1100,7 @@ class Gateway:
         """Approve/reject one pending action (the button-tap handler).
         Callers must gate on a trusted channel first."""
         from .. import approvals
+
         if approve:
             out = approvals.approve(
                 aid,
@@ -1313,6 +1124,7 @@ class Gateway:
     def deny_command(self, arg: str, *, actor_id: str, via: str) -> str:
         """/deny <id> <reason> — refuse, and tell the agent why."""
         from .. import approvals
+
         parts = (arg or "").strip().split(None, 1)
         if not parts:
             return "형식: /deny <id> <이유>  (대기 목록은 /pending)"
@@ -1327,9 +1139,13 @@ class Gateway:
             return "⚠ not found or already resolved"
         store.append_activity(
             f"approval[{aid}]: rejected via gateway"
-            + (f" — {reason[:120]}" if reason else ""))
-        return ("❌ 거부했습니다." if not reason
-                else f"❌ 거부했습니다 — 사유를 에이전트에게 전달합니다: {reason[:200]}")
+            + (f" — {reason[:120]}" if reason else "")
+        )
+        return (
+            "❌ 거부했습니다."
+            if not reason
+            else f"❌ 거부했습니다 — 사유를 에이전트에게 전달합니다: {reason[:200]}"
+        )
 
     def claim_action(
         self,
@@ -1348,25 +1164,33 @@ class Gateway:
             return f"⚠ {out.get('error', 'approve failed')}", False
         return "✅ approved — 실행 중", True
 
-    def execute_claimed_action(self, aid: str, on_progress=None) -> str:
+    def execute_claimed_action(
+        self, aid: str, on_progress: ProgressCallback = None
+    ) -> str:
         from .. import approvals
+
         # moirai.phase carries what an approved hard task is doing right
         # now ("할 일 3/7: ..."); mapping it into the progress holder is
         # what turns a synchronous approval into a live heartbeat.
         _seen = {"n": 0}
 
-        def _on_event(event: str, payload: dict) -> None:
+        def _on_event(event: str, payload: dict[str, object]) -> None:
             if event != "moirai.phase" or on_progress is None:
                 return
             _seen["n"] += 1
             try:
-                on_progress({"phase": str((payload or {}).get("title") or ""),
-                             "activity": _seen["n"]})
+                on_progress(
+                    {
+                        "phase": str((payload or {}).get("title") or ""),
+                        "activity": _seen["n"],
+                    }
+                )
             except Exception:
-                pass          # an observer bug must not kill the action
+                pass  # an observer bug must not kill the action
 
         out = approvals.execute_claimed(
-            aid, on_event=_on_event if on_progress is not None else None)
+            aid, on_event=_on_event if on_progress is not None else None
+        )
         if not out.get("ok"):
             return f"⚠ {out.get('error', 'approve failed')}"
         store.append_activity(f"approval[{aid}]: approved via gateway")
@@ -1374,7 +1198,8 @@ class Gateway:
 
     def restore_action_claim(self, aid: str) -> None:
         from .. import approvals
-        approvals.restore_claim(aid)
+
+        _ = approvals.restore_claim(aid)
 
     def _record_failed_turn(
         self,
@@ -1385,10 +1210,13 @@ class Gateway:
     ) -> None:
         if not self._command_trusted(channel):
             return
-        self.session._record_turn(
-            display_text, reply or "",
+        TurnContract.record_turn(
+            self.session,
+            display_text,
+            reply or "",
             review_skills=self._command_trusted(channel),
-            session_id=conversation_session_id(channel, chat_id))
+            session_id=conversation_session_id(channel, chat_id),
+        )
 
     def _autosave_trusted(self, channel: str) -> bool:
         """Whether turns from ``channel`` may be auto-saved + memorized.
@@ -1405,8 +1233,8 @@ class Gateway:
         return bool(settings.get("allowed_sender_ids"))
 
     def _channel_trusted(
-            self, channel: str, chat_id: str,
-            sender_id: str | None = None) -> bool:
+        self, channel: str, chat_id: str, sender_id: str | None = None
+    ) -> bool:
         """Authorize one inbound channel principal before any dispatch."""
         normalized = str(channel or "").strip().lower()
         if normalized in _LOCAL_TRUSTED_CHANNELS:
@@ -1416,18 +1244,14 @@ class Gateway:
         sender_values = settings.get("allowed_sender_ids")
         allowed_senders = {
             str(value).strip()
-            for value in (
-                sender_values if isinstance(sender_values, list) else []
-            )
+            for value in (sender_values if isinstance(sender_values, list) else [])
             if str(value).strip()
         }
         if normalized == "telegram":
             chat_values = settings.get("allowed_chat_ids")
             allowed_chats = {
                 str(value).strip()
-                for value in (
-                    chat_values if isinstance(chat_values, list) else []
-                )
+                for value in (chat_values if isinstance(chat_values, list) else [])
                 if str(value).strip()
             }
             if not allowed_chats:
@@ -1445,7 +1269,7 @@ class Gateway:
         """Whether a channel has an explicit trusted-principal policy."""
         return self._autosave_trusted(channel)
 
-    def _channel_settings(self, channel: str) -> dict[str, object]:
+    def _channel_settings(self, channel: str) -> dict[str, JSONValue]:
         channels = self.cfg.get("channels")
         if not isinstance(channels, dict):
             return {}
@@ -1457,27 +1281,32 @@ class Gateway:
     def _omo_command_trusted(self, channel: str, chat_id: str) -> bool:
         """Require an explicit Telegram allow-list for local OMO control."""
         if channel != "telegram":
-            return True
+            return False
         telegram = self._channel_settings("telegram")
         allowed = telegram.get("allowed_chat_ids")
-        return isinstance(allowed, list) and str(chat_id) in {str(value) for value in allowed}
-
+        return isinstance(allowed, list) and str(chat_id) in {
+            str(value) for value in allowed
+        }
 
 
 def run() -> int:
     install_timestamped_logging()
+    from ..approval_execution_recovery import recover_all
+
+    _ = recover_all()
     # Anything still `running` when this process boots belongs to a process
     # that is gone — leaving it makes a crashed run indistinguishable from a
     # live one.
     from ..moirai import continuation as moirai_continuation
     from ..moirai import journal as moirai_journal
+
     stale = moirai_journal.reclaim_stale_runs(
         exclude=moirai_continuation.protected_run_ids()
     )
     if stale:
         print(f"[gateway] moirai: {stale} stale run(s) reclaimed", flush=True)
-    moirai_continuation.recover()
-    cfg = config.load_config()
+    _ = moirai_continuation.recover()
+    cfg: GatewayConfig = config.load_config()
     # Advisory (never blocking): make native-loop tool exposure visible
     # before the gateway becomes reachable over a channel.
     security.print_gateway_warnings(cfg)
@@ -1486,15 +1315,31 @@ def run() -> int:
     except ConfigError as exc:
         print(f"{exc}")
         return 1
+    except TelegramGatewayOwnedError as exc:
+        print(
+            "[gateway] 다른 birkin 게이트웨이가 같은 텔레그램 봇을 이미 사용 중입니다 "
+            f"(소유 PID {exc.owner_pid}). 잠금 파일: {exc.path}"
+        )
+        return 1
+    except TelegramGatewayLeaseRaceError as exc:
+        print(
+            "[gateway] 텔레그램 소유권을 확보하지 못했습니다. 잠금 파일을 확인한 뒤 "
+            f"다시 시도해 주세요: {exc.path}"
+        )
+        return 1
 
     # Just came back from a hard re-exec? Load the one-shot marker so the channel
     # that triggered it greets that chat "I'm back". Delete it immediately.
     try:
         from .. import store
+
         marker = _restart_marker_path()
-        notice = store._read_json(marker, None)
+        store_module: ModuleType = store
+        if not _has_store_internals(store_module):
+            raise RuntimeError("store JSON contract is unavailable")
+        notice = _StoreInternals.read_json(store_module, marker)
         if isinstance(notice, dict):
-            gateway._restart_notice = notice
+            gateway.load_restart_notice(notice)
             try:
                 marker.unlink()
             except OSError:
@@ -1503,19 +1348,26 @@ def run() -> int:
         pass
 
     from .channels import build_channels
+
     channels = build_channels(cfg)
     if not channels:
-        print("No channels enabled. Enable one in config.channels "
-              "(http is on by default) and retry.")
+        print(
+            "No channels enabled. Enable one in config.channels "
+            + "(http is on by default) and retry."
+        )
         return 1
 
-    mode = "warm/persistent" if gateway._persistent else "per-message"
-    gateway.prewarm()   # first message of a new conversation skips cold start
-    print(f"birkin gateway up · model {gateway.cfg.get('model')} · {mode} · "
-          f"channels: {', '.join(c.name for c in channels)}")
-    print("  chat commands: /help · /new · /restart (soft) · /hard_restart "
-          "— hyphens, /restart-gateway, and @bot suffix all accepted")
-    threads = []
+    mode = "warm/persistent" if gateway.persistent else "per-message"
+    gateway.prewarm()  # first message of a new conversation skips cold start
+    print(
+        f"birkin gateway up · model {gateway.cfg.get('model')} · {mode} · "
+        + f"channels: {', '.join(c.name for c in channels)}"
+    )
+    print(
+        "  chat commands: /help · /new · /restart (soft) · /hard_restart "
+        + "— hyphens, /restart-gateway, and @bot suffix all accepted"
+    )
+    threads: list[threading.Thread] = []
     for ch in channels:
         t = threading.Thread(target=ch.start, args=(gateway,), daemon=True)
         t.start()
@@ -1525,8 +1377,8 @@ def run() -> int:
         while any(t.is_alive() for t in threads):
             for t in threads:
                 t.join(timeout=0.5)
-            if time.monotonic() - last_sweep >= 60:   # evict idle warm sessions
-                gateway._claude_sessions.sweep()
+            if time.monotonic() - last_sweep >= 60:  # evict idle warm sessions
+                _ = gateway.sweep_sessions()
                 last_sweep = time.monotonic()
     except KeyboardInterrupt:
         print("\ngateway stopping…")

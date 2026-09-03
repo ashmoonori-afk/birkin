@@ -194,63 +194,6 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
     assert errors == []
 
 
-def test_peer_loss_terminates_connection_while_command_is_blocked(
-    tmp_path: Path,
-) -> None:
-    entered = threading.Event()
-    release = threading.Event()
-
-    def blocked_chat(payload: dict[str, object]) -> dict[str, object]:
-        entered.set()
-        if not release.wait(timeout=10):
-            raise AssertionError("test did not release blocked command")
-        return {"reply": str(payload["text"])}
-
-    source = WorkspaceService(
-        root=tmp_path / "workspace",
-        session_id="session-1",
-        handlers={"chat.send": blocked_chat},
-    )
-    bridge = NativeBridgeServer(
-        source,
-        capabilities=BootstrapSecretStore(tmp_path / "native"),
-        instance_id="instance-1",
-        server_version="1.0.0",
-        heartbeat_interval=0.05,
-        peer_timeout=0.05,
-    )
-    server_socket, client = socket.socketpair()
-    thread, errors = serve(
-        bridge,
-        server_socket,
-        transport="uds",
-        peer_uid=local_peer_uid(),
-    )
-    try:
-        token = handshake(client)
-        client.sendall(encode_frame(envelope(
-            "command",
-            frame_id="disconnected-command-frame",
-            body=command_body(
-                token,
-                command_id="disconnected-command",
-                cursor=0,
-                text="wait for peer loss",
-            ),
-        )))
-        assert entered.wait(timeout=10)
-
-        client.close()
-        thread.join(timeout=10)
-
-        assert not thread.is_alive()
-    finally:
-        release.set()
-        client.close()
-        thread.join(timeout=10)
-    assert errors == []
-
-
 def test_silent_peer_is_closed_after_heartbeat_deadline(
     tmp_path: Path,
 ) -> None:

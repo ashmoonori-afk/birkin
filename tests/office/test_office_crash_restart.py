@@ -23,7 +23,7 @@ _CRASH_DRIVER = r"""
 import os
 import sys
 from pathlib import Path
-from birkin import approvals
+from birkin import approval_execution, approvals
 from birkin.office import export_atomic_publish
 from birkin.office.job_runner import DocumentServiceRunner
 
@@ -49,8 +49,9 @@ elif mode == "after_destination_publish":
     export_atomic_publish.publication_from_descriptor = stop_after_publish
 else:
     os._exit(99)
-approvals.approve(
+approval_execution.approve(
     approval_id,
+    approvals.execute_action,
     approved_by="human:test",
     approved_via="test",
 )

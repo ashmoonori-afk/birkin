@@ -69,6 +69,10 @@ def test_same_name_tool_checkpoints_do_not_cross_contaminate(
         assert complete_release[local.round_index][local.worker_index].wait(timeout=10)
         return ToolResult("ok")
 
+    # The fabricated before/after hashes can never resolve, so the git diff in
+    # complete_tool only adds process-spawn latency — seconds per call on
+    # Windows, enough to blow the round barriers before any worker misbehaves.
+    monkeypatch.setattr(checkpoints, "_run", lambda *_args, **_kwargs: (1, ""))
     monkeypatch.setattr(manager, "ensure_checkpoint", ensure_checkpoint)
     monkeypatch.setattr(manager, "_head", head)
     monkeypatch.setattr(manager, "_take", take)

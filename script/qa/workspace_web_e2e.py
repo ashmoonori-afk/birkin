@@ -97,20 +97,24 @@ def main() -> int:
     if base_value is not None and not isinstance(base_value, str):
         raise TypeError("base URL must be a string")
     if base_value:
-        nonce: object = args.bootstrap_nonce
+        bootstrap_nonce = vars(args).get("bootstrap_nonce")
+        nonce: str | None = (
+            bootstrap_nonce if isinstance(bootstrap_nonce, str) else None
+        )
         if nonce is None:
             raw_record = cast(
                 object,
                 json.loads(
-                    (
-                        config.birkin_home() / "web_session.json"
-                    ).read_text(encoding="utf-8")
+                    (config.birkin_home() / "web_session.json").read_text(
+                        encoding="utf-8"
+                    )
                 ),
             )
             if not isinstance(raw_record, dict):
                 raise RuntimeError("web discovery record is invalid")
             record = cast(dict[str, object], raw_record)
-            nonce = record.get("bootstrap_nonce")
+            value = record.get("bootstrap_nonce")
+            nonce = value if isinstance(value, str) else None
         if not isinstance(nonce, str):
             raise RuntimeError("web listener bootstrap nonce is unavailable")
         base_url = base_value.rstrip("/")
@@ -119,9 +123,7 @@ def main() -> int:
         for name, expected in SCREENSHOTS.items():
             actual = _png_dimensions(evidence / name)
             if actual != expected:
-                raise AssertionError(
-                    f"{name}: expected {expected}, got {actual}"
-                )
+                raise AssertionError(f"{name}: expected {expected}, got {actual}")
         print(
             "Playwright workspace QA passed: "
             + "desktop/tablet/mobile/question/evidence/checkpoint/reload/interrupt"

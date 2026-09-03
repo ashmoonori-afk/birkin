@@ -6,6 +6,7 @@ import uuid
 from typing import final
 
 from .coordinator_data import canonical_office_home
+from .create_content import validate_plan
 from .create_contract import (
     FORMAT,
     VERSION,
@@ -47,6 +48,10 @@ class OfficeCreationCoordinator:
             )
         paragraphs = parse_paragraphs(request.paragraphs)
         content = creation_content(paragraphs)
+        # Apply the exact limits execution applies, so nobody approves a
+        # document that the creation stage would then reject.
+        DocumentWorkspace.enforce_content_limit(content)
+        _ = validate_plan(FORMAT, content)
         approved_content_sha256 = content_sha256(content)
         job_id = uuid.uuid4().hex
         operations = creation_operations(approved_content_sha256, job_id)

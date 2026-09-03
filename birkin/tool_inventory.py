@@ -7,6 +7,7 @@ from collections import Counter
 from collections.abc import Iterable, Set
 from pathlib import Path
 
+from .native_tool_metadata import NATIVE_TOOL_NAMES as _METADATA_NATIVE_TOOL_NAMES
 from .tool_effects import (
     EffectSnapshot,
     InventoryRow,
@@ -16,24 +17,11 @@ from .tool_effects import (
 )
 from .tools._types import Tool
 
-# Canonical Birkin-authored names that participate in native-vs-plugin
-# collision handling. Optional groups are included so enabling one cannot make
-# an attested plugin silently replace it.
-NATIVE_TOOL_NAMES = frozenset({
-    "read_file", "edit_file", "write_file", "list_files", "run_shell",
-    "web_fetch", "web_search", "market_quote", "verify_citations",
-    "session_search", "session_get", "vision_analyze", "browser_navigate",
-    "browser_click", "browser_fill", "browser_press", "browser_execute",
-    "browser_screenshot", "browser_evidence", "browser_close",
-    "submit_payload", "list_document_adapters", "inspect_document",
-    "extract_document", "compare_documents", "render_artifact",
-    "validate_artifact", "office_job_request", "office_rollback_request",
-    "worker_invoke",
-    "spawn_subagent", "desktop_windows", "window_screenshot", "computer_use",
-    "companion_propose", "load_skill", "create_skill", "improve_skill",
-    "remember", "memory_write_note", "memory_search", "memory_get_note",
-    "memory_link", "memory_related", "memory_rezone",
-})
+# Include native names recovered outside the canonical metadata table so an
+# attested plugin cannot replace either generation of Birkin-owned tools.
+NATIVE_TOOL_NAMES = _METADATA_NATIVE_TOOL_NAMES | frozenset(
+    {"office_rollback_request"}
+)
 
 
 def reconcile_inventory(
@@ -53,7 +41,8 @@ def reconcile_inventory(
     for tool in candidates:
         origin = tool.origin
         identity = PluginToolId(
-            origin.plugin, origin.version, origin.bundle_digest, tool.name)
+            origin.plugin, origin.version, origin.bundle_digest, tool.name
+        )
         if identity in installed:
             continue
         installed.add(identity)
@@ -77,16 +66,23 @@ def reconcile_inventory(
         if grant.identity not in installed:
             identity = grant.identity
             origin = ToolOrigin(
-                "plugin", identity.plugin, identity.version,
-                identity.bundle_digest)
+                "plugin", identity.plugin, identity.version, identity.bundle_digest
+            )
             decision = lookup.decision_for(origin, identity.tool)
-            rows.append(InventoryRow(
-                identity, decision, "stale", grant.reason))
+            rows.append(InventoryRow(identity, decision, "stale", grant.reason))
 
-    return tuple(sorted(rows, key=lambda row: (
-        row.identity.plugin, row.identity.tool, row.identity.version,
-        row.identity.bundle_digest, row.state,
-    )))
+    return tuple(
+        sorted(
+            rows,
+            key=lambda row: (
+                row.identity.plugin,
+                row.identity.tool,
+                row.identity.version,
+                row.identity.bundle_digest,
+                row.state,
+            ),
+        )
+    )
 
 
 def load_inventory(

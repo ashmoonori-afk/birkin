@@ -54,7 +54,8 @@ class ToolRegistry:
     def __init__(self, ctx: ToolContext):
         self.ctx = ctx
         self._effects: EffectLookup = SnapshotEffectLookup(
-            EffectSnapshot("missing", ()))
+            EffectSnapshot("missing", ())
+        )
         self._tools: dict[str, _RegisteredTool] = {}
         self._blocked: dict[str, str] = {}
         self._plugin_collisions: set[str] = set()
@@ -67,15 +68,15 @@ class ToolRegistry:
         if registered is not None:
             if registered.origin.kind == "native":
                 if origin.kind == "native":
-                    raise ValueError(
-                        f"native tool already registered: {tool.name}")
+                    raise ValueError(f"native tool already registered: {tool.name}")
                 return
             if origin.kind == "plugin":
                 del self._tools[tool.name]
                 self._plugin_collisions.add(tool.name)
                 return
         self._tools[tool.name] = _RegisteredTool(
-            tool, origin, self._effects.decision_for(origin, tool.name))
+            tool, origin, self._effects.decision_for(origin, tool.name)
+        )
 
     def refresh_effects(self) -> EffectSnapshot:
         snapshot = ToolAttestationStore().load()
@@ -137,6 +138,7 @@ class ToolRegistry:
         checkpoint_token: str | None = None
         if self.ctx.checkpoints is not None:
             from .. import checkpoints
+
             try:
                 checkpoint_token = checkpoints.preflight(
                     self.ctx,
@@ -147,8 +149,8 @@ class ToolRegistry:
                 )
             except Exception as exc:
                 return ToolResult(
-                    f"Checkpoint failed before {name!r}: {exc}",
-                    is_error=True)
+                    f"Checkpoint failed before {name!r}: {exc}", is_error=True
+                )
         try:
             result = tool.fn(tool_input or {}, self.ctx)
         except ApprovalRequiredError as block:
@@ -164,6 +166,7 @@ class ToolRegistry:
             result = ToolResult(f"Tool {name!r} failed: {exc}", is_error=True)
         if self.ctx.checkpoints is not None:
             from .. import checkpoints
+
             try:
                 checkpoints.postflight(
                     self.ctx,
@@ -172,7 +175,8 @@ class ToolRegistry:
                 )
             except Exception as exc:
                 return ToolResult(
-                    f"Checkpoint failed after {name!r}: {exc}", is_error=True)
+                    f"Checkpoint failed after {name!r}: {exc}", is_error=True
+                )
         if result.is_error:
             block = diagnostic_block(
                 content_text(result.content),
@@ -181,38 +185,57 @@ class ToolRegistry:
             )
             if block is not None:
                 return queue_operation(name, tool_input, self.ctx, block)
-        if self.ctx.hooks is not None:
-            try:
-                self.ctx.hooks.post_tool(
-                    name, tool_input or {}, content_text(result.content),
-                    result.is_error)
-            except Exception:
-                pass          # observers must not break the loop
         # The single choke point every native tool call passes through, so
         # oversized output is handled once rather than in each tool.
         from ..redact import redact_tool_output
         from .spill import maybe_spill
-        # Mask BEFORE spilling: a secret must be absent from the file written
-        # to disk too, not merely from the text the model is shown.
+
+        # Mask BEFORE crossing hook or spill boundaries: neither observers nor
+        # files on disk may receive content more privileged than the caller.
         if isinstance(result.content, str):
-            content: ToolContent = redact_tool_output(
-                result.content, self.ctx.cfg)
+            content: ToolContent = redact_tool_output(result.content, self.ctx.cfg)
             content = maybe_spill(content, name, self.ctx.cfg)
         else:
             content = [
                 {**block, "text": redact_tool_output(block["text"], self.ctx.cfg)}
-                if block["type"] == "text" else block
+                if block["type"] == "text"
+                else block
                 for block in result.content
             ]
-        return result if content is result.content \
+        visible_result = (
+            result
+            if content is result.content
             else ToolResult(content, result.is_error)
+        )
+        if self.ctx.hooks is not None:
+            try:
+                self.ctx.hooks.post_tool(
+                    name,
+                    tool_input or {},
+                    content_text(visible_result.content),
+                    visible_result.is_error,
+                )
+            except Exception:
+                pass  # observers must not break the loop
+        return visible_result
 
 
 def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
     """Build the canonical ordered tool-group inventory."""
     from .. import browser
-    from . import (citations, computer_use, desktop, documents, egress, files, market,
-                   sessions, shell, vision, web)  # local: avoid cycles
+    from . import (
+        citations,
+        computer_use,
+        desktop,
+        documents,
+        egress,
+        files,
+        market,
+        sessions,
+        shell,
+        vision,
+        web,
+    )  # local: avoid cycles
     from .subagent_tool import subagent_tools
 
     groups: dict[str, list[Tool]] = {
@@ -227,6 +250,7 @@ def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
     }
     from ..plugin_install import plugin_trust_policy
     from ..plugin_runtime import load_agent_tools, registry_roots
+
     plugin_project, plugin_team = registry_roots(ctx.cwd)
     plugin_keys, allow_unsigned = plugin_trust_policy(ctx.cfg)
     groups["plugins"] = load_agent_tools(
@@ -251,13 +275,16 @@ def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
     # user has bound a context (path checked directly — companion_dir() would
     # mkdir as a side effect).
     from .. import config as _config
+
     if (_config.birkin_home() / "companion" / "state.json").is_file():
         from . import companion_tool
+
         groups["companion"] = companion_tool.tools()
     # Natural-language door to the workers. Proposal-only: the tool queues an
     # approval, it never starts a worker.
     if ctx.cfg.get("worker_call_auto", True):
         from . import worker_tool
+
         groups["worker"] = worker_tool.tools()
     # Subagents may spawn further subagents only until max_depth.
     if ctx.depth < ctx.max_depth:
@@ -275,20 +302,18 @@ def build_registry(
     groups = build_tool_groups(ctx)
 
     disabled = (
-        set()
-        if approval_replay
-        else set(ctx.cfg.get("disabled_tools", []) or [])
+        set() if approval_replay else set(ctx.cfg.get("disabled_tools", []) or [])
     )
     egress_cfg = ctx.cfg.get("egress")
     if not approval_replay and isinstance(egress_cfg, dict):
         if egress_cfg.get("enabled") is False:
             disabled.add("egress")
-        elif (egress_cfg.get("enabled") is True
-                and egress_cfg.get("enforced") is True):
+        elif egress_cfg.get("enabled") is True and egress_cfg.get("enforced") is True:
             disabled.update({"shell", "subagent"})
     # Per-model engine preset (senpi-style): fast/local models drop whole
     # groups (e.g. web, subagent). Entries match a group OR a tool name.
     from .. import presets
+
     if not approval_replay:
         disabled |= presets.deny_tools(ctx.cfg.get("model"), ctx.cfg)
     registry = ToolRegistry(ctx)

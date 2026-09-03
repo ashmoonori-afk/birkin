@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, cast, final
@@ -21,6 +22,18 @@ if TYPE_CHECKING:
 MAX_URL_LENGTH = 2_048
 
 
+def control_addresses_from_env() -> tuple[str, ...]:
+    """Read the control-plane addresses published by the web server."""
+    return tuple(
+        address.strip()
+        for address in os.environ.get(
+            "BIRKIN_BROWSER_CONTROL_ADDRESSES",
+            "",
+        ).split(",")
+        if address.strip()
+    )
+
+
 @final
 class BrowserEgressPolicy:
     def __init__(
@@ -36,7 +49,10 @@ class BrowserEgressPolicy:
             policy or SandboxPolicy(),
             private_network=tuple(private_network),
             resolver=resolver,
-            control_addresses=tuple(control_addresses),
+            control_addresses=(
+                *control_addresses,
+                *control_addresses_from_env(),
+            ),
             allow_private_network=allow_private_network,
         )
 

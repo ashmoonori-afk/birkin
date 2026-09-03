@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from birkin import approvals, cron, store
+from birkin import approval_execution, approvals, cron, store
 
 
 def test_is_auto():
@@ -17,8 +17,9 @@ def test_is_auto():
 
 def test_propose_auto_category_applies_immediately():
     cfg = {"auto_approve": ["memory", "skills"]}
-    res = approvals.propose(category="memory", title="t", description="",
-                            payload={}, cfg=cfg)
+    res = approvals.propose(
+        category="memory", title="t", description="", payload={}, cfg=cfg
+    )
     assert res["auto"] is True
     assert store.list_pending() == []
     assert store.get_pending(res["id"])["status"] == "approved"
@@ -26,9 +27,19 @@ def test_propose_auto_category_applies_immediately():
 
 def test_propose_consequential_is_queued():
     cfg = {"auto_approve": ["memory", "skills"]}
-    res = approvals.propose(category="cron", title="Digest", description="d",
-                            payload={"name": "digest", "hour": 9, "minute": 0,
-                                     "type": "prompt", "value": "go"}, cfg=cfg)
+    res = approvals.propose(
+        category="cron",
+        title="Digest",
+        description="d",
+        payload={
+            "name": "digest",
+            "hour": 9,
+            "minute": 0,
+            "type": "prompt",
+            "value": "go",
+        },
+        cfg=cfg,
+    )
     assert res["auto"] is False
     pending = store.list_pending()
     assert len(pending) == 1
@@ -40,6 +51,9 @@ def test_public_resolution_api_requires_explicit_identity() -> None:
         approvals.approve: ("approved_by", "approved_via"),
         approvals.reject: ("rejected_by", "rejected_via"),
         approvals.claim: ("approved_by", "approved_via"),
+        approval_execution.approve: ("approved_by", "approved_via"),
+        approval_execution.reject: ("rejected_by", "rejected_via"),
+        approval_execution.claim: ("approved_by", "approved_via"),
     }
     for resolver, parameters in required.items():
         resolver_signature = signature(resolver)
@@ -49,21 +63,93 @@ def test_public_resolution_api_requires_explicit_identity() -> None:
         )
 
 
+def test_low_level_claim_rejects_empty_identity() -> None:
+    with pytest.raises(ValueError, match="identity must be non-empty"):
+        _ = approval_execution.claim(
+            "0123456789ab",
+            approved_by="",
+            approved_via="test",
+        )
+
+
+def test_low_level_approve_rejects_empty_identity() -> None:
+    with pytest.raises(ValueError, match="identity must be non-empty"):
+        _ = approval_execution.approve(
+            "0123456789ab",
+            approved_by="human:test",
+            approved_via=" ",
+        )
+
+
+def test_low_level_reject_rejects_empty_identity() -> None:
+    with pytest.raises(ValueError, match="identity must be non-empty"):
+        _ = approval_execution.reject(
+            "0123456789ab",
+            rejected_by=" ",
+            rejected_via="test",
+        )
+
+
+def test_facade_approval_uses_helper_unless_shell_runner_is_injected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executors = []
+
+    def resolve(_approval_id, executor=None, **_kwargs):
+        executors.append(executor)
+        return {"ok": True}
+
+    monkeypatch.setattr(approval_execution, "approve", resolve)
+
+    assert approvals.approve(
+        "0123456789ab",
+        approved_by="human:test",
+        approved_via="test",
+    ) == {"ok": True}
+    assert approvals.approve(
+        "0123456789ab",
+        on_event=lambda _event: None,
+        approved_by="human:test",
+        approved_via="test",
+    ) == {"ok": True}
+    monkeypatch.setattr(approvals, "run_shell_command", lambda _request: None)
+    assert approvals.approve(
+        "0123456789ab",
+        approved_by="human:test",
+        approved_via="test",
+    ) == {"ok": True}
+
+    assert executors == [None, None, approvals.execute_action]
+
+
 def test_failed_auto_skill_proposal_is_audited_as_error():
     cfg = {"auto_approve": ["skill"]}
     res = approvals.propose(
-        category="skill", title="stale", description="",
-        payload={"action": "improve", "target": "missing-skill",
-                 "addition": "note"}, cfg=cfg)
+        category="skill",
+        title="stale",
+        description="",
+        payload={"action": "improve", "target": "missing-skill", "addition": "note"},
+        cfg=cfg,
+    )
     assert res["auto"] is True and res["ok"] is False
     assert store.get_pending(res["id"])["status"] == "error"
 
 
 def test_approve_executes_and_clears():
     cfg = {"auto_approve": ["memory", "skills"]}
-    approvals.propose(category="cron", title="Digest", description="d",
-                      payload={"name": "digest", "hour": 9, "minute": 0,
-                               "type": "prompt", "value": "go"}, cfg=cfg)
+    approvals.propose(
+        category="cron",
+        title="Digest",
+        description="d",
+        payload={
+            "name": "digest",
+            "hour": 9,
+            "minute": 0,
+            "type": "prompt",
+            "value": "go",
+        },
+        cfg=cfg,
+    )
     pid = store.list_pending()[0]["id"]
     res = approvals.approve(pid, approved_by="human:test", approved_via="test")
     assert res["ok"] is True
@@ -74,8 +160,13 @@ def test_approve_executes_and_clears():
 
 def test_reject_clears_without_executing():
     cfg = {"auto_approve": []}
-    approvals.propose(category="cron", title="X", description="",
-                      payload={"name": "x", "hour": 1, "minute": 0}, cfg=cfg)
+    approvals.propose(
+        category="cron",
+        title="X",
+        description="",
+        payload={"name": "x", "hour": 1, "minute": 0},
+        cfg=cfg,
+    )
     pid = store.list_pending()[0]["id"]
     assert approvals.reject(pid, rejected_by="human:test", rejected_via="test")["ok"] is True
     assert store.list_pending() == []
@@ -142,34 +233,38 @@ def test_first_valid_answer_wins():
     action = approvals.request_answers(
         title="Pick target",
         description="",
-        questions=[{
-            "id": "target",
-            "text": "Where?",
-            "options": [
-                {"value": "staging", "label": "Staging"},
-                {"value": "production", "label": "Production"},
-            ],
-        }],
+        questions=[
+            {
+                "id": "target",
+                "text": "Where?",
+                "options": [
+                    {"value": "staging", "label": "Staging"},
+                    {"value": "production", "label": "Production"},
+                ],
+            }
+        ],
         origin="test",
     )
 
     def respond(source: str, target: str):
-        return approvals.answer(
-            action["id"], answers={"target": target}, source=source)
+        return approvals.answer(action["id"], answers={"target": target}, source=source)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(
-            lambda item: respond(*item),
-            [("web:first", "staging"), ("telegram:second", "production")],
-        ))
+        results = list(
+            pool.map(
+                lambda item: respond(*item),
+                [("web:first", "staging"), ("telegram:second", "production")],
+            )
+        )
 
     assert sorted(result["event"] for result in results) == [
-        "action_resolved", "reply_rejected"]
+        "action_resolved",
+        "reply_rejected",
+    ]
     record = store.get_pending(action["id"])
     assert record is not None
     assert record["resolved_by"] in {"web:first", "telegram:second"}
-    winning_target = (
-        "staging" if record["resolved_by"] == "web:first" else "production")
+    winning_target = "staging" if record["resolved_by"] == "web:first" else "production"
     assert record["answers"] == {"target": winning_target}
 
 
@@ -196,6 +291,9 @@ def test_concurrent_shell_approval_executes_exactly_once(
         payload={"command": "printf approved", "cwd": str(tmp_path)},
         cfg={"auto_approve": []},
     )
+
+    def approve_once(_index: int) -> dict[str, object]:
+        return approval_execution.approve(proposal["id"], approvals.execute_action, approved_by="human:test", approved_via="test")
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(
@@ -296,30 +394,34 @@ def test_rejects_invalid_or_expired_answer():
     action = approvals.request_answers(
         title="Pick target",
         description="",
-        questions=[{
-            "id": "target",
-            "text": "Where?",
-            "options": [{"value": "staging", "label": "Staging"}],
-        }],
+        questions=[
+            {
+                "id": "target",
+                "text": "Where?",
+                "options": [{"value": "staging", "label": "Staging"}],
+            }
+        ],
         origin="test",
     )
     invalid = approvals.answer(
-        action["id"], answers={"target": "production"}, source="web:user")
+        action["id"], answers={"target": "production"}, source="web:user"
+    )
     assert invalid["event"] == "reply_rejected"
     pending = store.get_pending(action["id"])
     assert pending is not None
     assert pending["action_state"] == "action_needed"
 
-    expired_at = (
-        datetime.now(timezone.utc) - timedelta(seconds=1)
-    ).isoformat(timespec="seconds")
+    expired_at = (datetime.now(timezone.utc) - timedelta(seconds=1)).isoformat(
+        timespec="seconds"
+    )
     store.resolve_pending(
         action["id"],
         "pending",
         details={"expires_at": expired_at, "action_state": "action_needed"},
     )
     expired = approvals.answer(
-        action["id"], answers={"target": "staging"}, source="web:user")
+        action["id"], answers={"target": "staging"}, source="web:user"
+    )
     assert expired == {
         "ok": False,
         "event": "reply_rejected",
@@ -336,11 +438,13 @@ def test_structured_action_rejects_legacy_approval_bypass():
     action = approvals.request_answers(
         title="Pick target",
         description="",
-        questions=[{
-            "id": "target",
-            "text": "Where?",
-            "options": [{"value": "staging", "label": "Staging"}],
-        }],
+        questions=[
+            {
+                "id": "target",
+                "text": "Where?",
+                "options": [{"value": "staging", "label": "Staging"}],
+            }
+        ],
         origin="test",
     )
 
@@ -360,17 +464,20 @@ def test_rejected_structured_action_cannot_be_answered():
     action = approvals.request_answers(
         title="Pick target",
         description="",
-        questions=[{
-            "id": "target",
-            "text": "Where?",
-            "options": [{"value": "staging", "label": "Staging"}],
-        }],
+        questions=[
+            {
+                "id": "target",
+                "text": "Where?",
+                "options": [{"value": "staging", "label": "Staging"}],
+            }
+        ],
         origin="test",
     )
     assert approvals.reject(action["id"], rejected_by="human:test", rejected_via="test")["ok"] is True
 
     result = approvals.answer(
-        action["id"], answers={"target": "staging"}, source="web:user")
+        action["id"], answers={"target": "staging"}, source="web:user"
+    )
 
     assert result["event"] == "reply_rejected"
     record = store.get_pending(action["id"])
@@ -382,11 +489,13 @@ def test_naive_expiry_and_non_string_answers_fail_closed():
     action = approvals.request_answers(
         title="Pick target",
         description="",
-        questions=[{
-            "id": "target",
-            "text": "Where?",
-            "options": [{"value": "1", "label": "One"}],
-        }],
+        questions=[
+            {
+                "id": "target",
+                "text": "Where?",
+                "options": [{"value": "1", "label": "One"}],
+            }
+        ],
         origin="test",
     )
     store.resolve_pending(
@@ -395,8 +504,7 @@ def test_naive_expiry_and_non_string_answers_fail_closed():
         details={"expires_at": "2099-01-01T00:00:00"},
     )
 
-    result = approvals.answer(
-        action["id"], answers={"target": 1}, source="web:user")
+    result = approvals.answer(action["id"], answers={"target": 1}, source="web:user")
 
     assert result == {
         "ok": False,
@@ -415,8 +523,7 @@ def test_resolve_pending_does_not_overwrite_core_fields():
     )
 
     with pytest.raises(ValueError, match="pending details overwrite status"):
-        store.resolve_pending(
-            record["id"], "answered", details={"status": "pending"})
+        store.resolve_pending(record["id"], "answered", details={"status": "pending"})
 
 
 def test_execute_cron_clamps_and_defaults_clock(monkeypatch):
@@ -424,10 +531,19 @@ def test_execute_cron_clamps_and_defaults_clock(monkeypatch):
     # execute_action must default on garbage and clamp, never raise or store a
     # time that can't fire.
     captured = []
-    monkeypatch.setattr(cron, "add_job",
-                        lambda **kw: (captured.append(kw) or {
-                            "id": "1", "name": kw["name"],
-                            "hour": kw["hour"], "minute": kw["minute"]}))
+    monkeypatch.setattr(
+        cron,
+        "add_job",
+        lambda **kw: (
+            captured.append(kw)
+            or {
+                "id": "1",
+                "name": kw["name"],
+                "hour": kw["hour"],
+                "minute": kw["minute"],
+            }
+        ),
+    )
     approvals.execute_action("cron", {"name": "j", "hour": "9; rm", "minute": 999})
     assert captured[-1]["hour"] == 9 and captured[-1]["minute"] == 59
     approvals.execute_action("cron", {"name": "j", "hour": 25, "minute": -5})

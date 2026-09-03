@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
+import sys
 import threading
 from collections.abc import Callable, Iterator
 from http.server import ThreadingHTTPServer
@@ -13,6 +14,7 @@ from typing import cast
 
 import pytest
 
+from birkin import config
 from birkin.web import server as web_server
 from birkin.workspace import WorkspaceHub
 from birkin.workspace import approval_authority
@@ -57,9 +59,7 @@ def _request(
         encoded = json.dumps(body).encode("utf-8")
         headers["Content-Type"] = "application/json"
         headers["Content-Length"] = str(len(encoded))
-    conn = http.client.HTTPConnection(
-        "127.0.0.1", port, timeout=local_http_timeout()
-    )
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=local_http_timeout())
     conn.request(method, path, body=encoded, headers=headers)
     response = conn.getresponse()
     payload = response.read()
@@ -210,18 +210,24 @@ def test_workspace_routes_require_capability_before_lookup(
 ) -> None:
     port, token, _ = workspace_server
     assert _request(port, "GET", "/api/workspace/sessions")[0] == 403
-    assert _request(
-        port,
-        "GET",
-        "/api/workspace/sessions/not-found/snapshot",
-    )[0] == 403
-    assert _request(
-        port,
-        "GET",
-        "/api/workspace/sessions",
-        token=token,
-        host="evil.example",
-    )[0] == 403
+    assert (
+        _request(
+            port,
+            "GET",
+            "/api/workspace/sessions/not-found/snapshot",
+        )[0]
+        == 403
+    )
+    assert (
+        _request(
+            port,
+            "GET",
+            "/api/workspace/sessions",
+            token=token,
+            host="evil.example",
+        )[0]
+        == 403
+    )
 
 
 def test_create_session_snapshot_and_panel_parity(
@@ -371,13 +377,16 @@ def test_interrupt_resume_and_actor_spoof_rejection(
         payload={},
     )
     forged["actor_id"] = "forged:admin"
-    assert _request(
-        port,
-        "POST",
-        f"/api/workspace/sessions/{session_id}/commands",
-        token=token,
-        body=forged,
-    )[0] == 400
+    assert (
+        _request(
+            port,
+            "POST",
+            f"/api/workspace/sessions/{session_id}/commands",
+            token=token,
+            body=forged,
+        )[0]
+        == 400
+    )
 
     interrupt = _command(
         "browser-1:command-2",
@@ -385,13 +394,16 @@ def test_interrupt_resume_and_actor_spoof_rejection(
         command_type="chat.interrupt",
         payload={},
     )
-    assert _request(
-        port,
-        "POST",
-        f"/api/workspace/sessions/{session_id}/commands",
-        token=token,
-        body=interrupt,
-    )[0] == 202
+    assert (
+        _request(
+            port,
+            "POST",
+            f"/api/workspace/sessions/{session_id}/commands",
+            token=token,
+            body=interrupt,
+        )[0]
+        == 202
+    )
     code, _, body = _request(
         port,
         "GET",
@@ -411,13 +423,16 @@ def test_interrupt_resume_and_actor_spoof_rejection(
         command_type="chat.resume",
         payload={},
     )
-    assert _request(
-        port,
-        "POST",
-        f"/api/workspace/sessions/{session_id}/commands",
-        token=token,
-        body=resume,
-    )[0] == 202
+    assert (
+        _request(
+            port,
+            "POST",
+            f"/api/workspace/sessions/{session_id}/commands",
+            token=token,
+            body=resume,
+        )[0]
+        == 202
+    )
 
 
 def test_web_interrupt_signals_runtime_before_serial_submission(
@@ -498,9 +513,7 @@ def test_cookie_authenticated_post_requires_same_origin_json(
                 "Cookie": cookie,
                 "Origin": origin,
                 "Sec-Fetch-Site": (
-                    "same-origin"
-                    if origin.endswith(str(port))
-                    else "same-site"
+                    "same-origin" if origin.endswith(str(port)) else "same-site"
                 ),
                 "Content-Type": content_type,
                 "Content-Length": str(len(payload)),
@@ -535,37 +548,46 @@ def test_workspace_stream_limit_rejects_excess_subscriber(
 
 
 def test_attached_workspace_qa_uses_listener_nonce(
-        monkeypatch: pytest.MonkeyPatch,
-        tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     session = tmp_path / "web_session.json"
-    session.write_text(
-        json.dumps({
-            "port": 43210,
-            "token": "process-capability",
-            "bootstrap_nonce": "listener-nonce",
-        }),
+    _ = session.write_text(
+        json.dumps(
+            {
+                "port": 43210,
+                "token": "process-capability",
+                "bootstrap_nonce": "listener-nonce",
+            }
+        ),
         encoding="utf-8",
     )
     observed_urls: list[str] = []
+
+    def record_url(url: str, _evidence: Path) -> None:
+        observed_urls.append(url)
+
+    def screenshot_dimensions(path: Path) -> tuple[int, int]:
+        return workspace_web_e2e.SCREENSHOTS[path.name]
+
     monkeypatch.delenv("BIRKIN_HTTP_TOKEN", raising=False)
     monkeypatch.setattr(
-        workspace_web_e2e.config,
+        config,
         "birkin_home",
         lambda: tmp_path,
     )
     monkeypatch.setattr(
         workspace_web_e2e,
         "_run_driver",
-        lambda url, _evidence: observed_urls.append(url),
+        record_url,
     )
     monkeypatch.setattr(
         workspace_web_e2e,
         "_png_dimensions",
-        lambda path: workspace_web_e2e.SCREENSHOTS[path.name],
+        screenshot_dimensions,
     )
     monkeypatch.setattr(
-        workspace_web_e2e.sys,
+        sys,
         "argv",
         [
             "workspace_web_e2e.py",
@@ -577,6 +599,4 @@ def test_attached_workspace_qa_uses_listener_nonce(
     )
 
     assert workspace_web_e2e.main() == 0
-    assert observed_urls == [
-        "http://127.0.0.1:43210/_bootstrap/listener-nonce"
-    ]
+    assert observed_urls == ["http://127.0.0.1:43210/_bootstrap/listener-nonce"]

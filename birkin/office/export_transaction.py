@@ -75,6 +75,7 @@ class ExportTransactionRunner:
             transaction,
             request,
             self._backup_root.parents[1],
+            enforce_retention=transaction.phase is ExportPhase.committed,
         )
         if sealed != transaction:
             self._journal.write(sealed)

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
+import uuid
 from pathlib import Path
 
 import pytest
 
 from birkin.tools import Tool, ToolContext, ToolRegistry, ToolResult, spill
+from tests.test_native_private_storage import assert_owner_only
 
 
 @pytest.fixture(autouse=True)
@@ -23,6 +27,7 @@ def _cfg(**kw):
 
 # -- the decision ----------------------------------------------------------
 
+
 def test_small_output_passes_through_unchanged():
     text = "short"
     assert spill.maybe_spill(text, "run_shell", _cfg()) is text
@@ -38,6 +43,58 @@ def test_large_output_is_written_and_referenced():
     assert path.is_file()
     assert path.read_text(encoding="utf-8") == body, "full output preserved"
     assert len(out) < len(body)
+
+
+def test_spill_directory_and_file_are_owner_only():
+    body = "private\n" * 10_000
+
+    out = spill.maybe_spill(body, "run_shell", _cfg())
+
+    path = Path(out.split("saved at:\n")[1].splitlines()[0])
+    assert_owner_only(path.parent, posix_mode=0o700)
+    assert_owner_only(path, posix_mode=0o600)
+
+
+def test_spill_rejects_reparse_directory_without_changing_outside_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    expected = outside / "19700101-000000_run_shell_00000000.txt"
+    expected.write_text("outside remains private", encoding="utf-8")
+    configured = tmp_path / "spill-link"
+    if os.name == "nt":
+        result = subprocess.run(
+            [
+                os.environ["ComSpec"],
+                "/d",
+                "/c",
+                "mklink",
+                "/J",
+                str(configured),
+                str(outside),
+            ],
+            check=False,
+            capture_output=True,
+        )
+        assert result.returncode == 0, (result.stdout + result.stderr).decode(
+            errors="replace"
+        )
+    else:
+        configured.symlink_to(outside, target_is_directory=True)
+    monkeypatch.setattr(spill.time, "strftime", lambda _format: "19700101-000000")
+    monkeypatch.setattr(spill.uuid, "uuid4", lambda: uuid.UUID(int=0))
+
+    out = spill.maybe_spill(
+        "confidential" * 1_000,
+        "run_shell",
+        _cfg(spill_dir=str(configured)),
+    )
+
+    assert spill.MARKER not in out
+    assert out.endswith("[output truncated]")
+    assert expected.read_text(encoding="utf-8") == "outside remains private"
 
 
 def test_preview_shows_the_start_of_the_output():
@@ -57,8 +114,11 @@ def test_threshold_zero_disables_spilling():
 
 
 def test_write_failure_falls_back_to_inline_truncation(monkeypatch):
-    monkeypatch.setattr(Path, "write_text",
-                        lambda *a, **k: (_ for _ in ()).throw(OSError("full")))
+    monkeypatch.setattr(
+        spill.private_storage,
+        "atomic_write_private_text",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("full")),
+    )
     body = "z" * 50_000
     out = spill.maybe_spill(body, "run_shell", _cfg())
     assert out.endswith("[output truncated]")
@@ -67,10 +127,12 @@ def test_write_failure_falls_back_to_inline_truncation(monkeypatch):
 
 def test_retention_sweep_removes_old_spills(tmp_path, monkeypatch):
     import time
+
     directory = spill.spill_dir(_cfg())
     stale = directory / "old_run_shell_deadbeef.txt"
     stale.write_text("old", encoding="utf-8")
     import os
+
     old = time.time() - 30 * 86400
     os.utime(stale, (old, old))
 
@@ -80,11 +142,18 @@ def test_retention_sweep_removes_old_spills(tmp_path, monkeypatch):
 
 # -- registry integration --------------------------------------------------
 
+
 def _registry(content: str, cfg=None) -> ToolRegistry:
     ctx = ToolContext(cfg=cfg or _cfg(), client=None, cwd=Path("."))
     reg = ToolRegistry(ctx)
-    reg.register(Tool(name="big", description="d", input_schema={},
-                      fn=lambda inp, c: ToolResult(content)))
+    reg.register(
+        Tool(
+            name="big",
+            description="d",
+            input_schema={},
+            fn=lambda inp, c: ToolResult(content),
+        )
+    )
     return reg
 
 
@@ -95,11 +164,28 @@ def test_registry_spills_every_tool_result():
     assert not res.is_error
 
 
+def test_registry_redacts_before_writing_spill_file():
+    secret = "ghp_AbCdEf0123456789ZyXwVuTsRq"
+
+    result = _registry(f"token={secret}\n" + "w" * 50_000).execute("big", {})
+
+    path = Path(result.content.split("saved at:\n")[1].splitlines()[0])
+    persisted = path.read_text(encoding="utf-8")
+    assert secret not in persisted
+    assert "[redacted]" in persisted
+
+
 def test_registry_preserves_the_error_flag():
     ctx = ToolContext(cfg=_cfg(), client=None, cwd=Path("."))
     reg = ToolRegistry(ctx)
-    reg.register(Tool(name="boom", description="d", input_schema={},
-                      fn=lambda inp, c: ToolResult("e" * 50_000, is_error=True)))
+    reg.register(
+        Tool(
+            name="boom",
+            description="d",
+            input_schema={},
+            fn=lambda inp, c: ToolResult("e" * 50_000, is_error=True),
+        )
+    )
     res = reg.execute("boom", {})
     assert spill.MARKER in res.content and res.is_error is True
 
@@ -111,19 +197,23 @@ def test_registry_leaves_small_results_alone():
 
 # -- the recovery path -----------------------------------------------------
 
+
 def _read(path, **kw):
     from birkin.tools import files
+
     ctx = ToolContext(cfg={}, client=None, cwd=Path(path).parent)
     return files._read_file({"path": str(path), **kw}, ctx)
 
 
 def test_read_file_offset_pages_through_a_spill_file(tmp_path):
     from birkin.tools import files
+
     big = tmp_path / "big.txt"
     # newline="" so the bytes on disk match what we compare against — offsets
     # are byte offsets, and Windows would otherwise expand \n to \r\n.
-    big.write_text("".join(f"{i:07d}\n" for i in range(60_000)),
-                   encoding="utf-8", newline="")
+    big.write_text(
+        "".join(f"{i:07d}\n" for i in range(60_000)), encoding="utf-8", newline=""
+    )
     raw = big.read_bytes()
 
     first = _read(big)
@@ -134,15 +224,18 @@ def test_read_file_offset_pages_through_a_spill_file(tmp_path):
 
     second = _read(big, offset=offset)
     # The windows join back up: no bytes lost, none repeated.
-    assert raw[offset:offset + 40].decode() in second.content
+    assert raw[offset : offset + 40].decode() in second.content
 
     # Paging to the end reaches the final line the first read could not show.
     seen, cursor = "", 0
     while cursor is not None and cursor < len(raw):
         res = _read(big, offset=cursor)
         seen += res.content.split("\n\n[truncated")[0]
-        cursor = (int(res.content.rsplit("offset=", 1)[1].rstrip("]\n"))
-                  if "continue with offset=" in res.content else None)
+        cursor = (
+            int(res.content.rsplit("offset=", 1)[1].rstrip("]\n"))
+            if "continue with offset=" in res.content
+            else None
+        )
     assert "0059999" in seen
 
 

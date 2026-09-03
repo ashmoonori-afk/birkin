@@ -64,15 +64,24 @@ def _semantic_summaries(
         operation = operations[0]
         node = nodes[0]
         before = _text(node.get("text"), "preview node text")
-        after = _text(str(operation.get("value", "")), "operation value")
-        location_value = (
-            operation.get("cell")
-            or operation.get("field")
-            or operation.get("placeholder_idx")
+        # An empty value and placeholder_idx 0 are both accepted operations,
+        # so identity is decided by presence, never by truthiness.
+        after = str(operation.get("value", ""))
+        location_value = next(
+            (
+                operation[key]
+                for key in ("cell", "field", "placeholder_idx")
+                if operation.get(key) is not None
+            ),
+            None,
         )
-        location = _text(str(location_value or ""), "operation location")
+        if location_value is None:
+            raise _error(
+                DocumentErrorCode.INVALID_INPUT,
+                "operation location must be a cell, field, or placeholder index",
+            )
         return [{
-            "location": location,
+            "location": str(location_value),
             "before": before,
             "after": after,
         }]

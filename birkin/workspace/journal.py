@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -15,12 +16,44 @@ from .contracts import (
     PROTOCOL_VERSION,
     CommandIdConflict,
     JsonValue,
+    ProtocolError,
     StaleCursor,
     WorkspaceCommand,
     valid_identifier,
 )
 from .records import CommandReceipt, WorkspaceEvent
 from .journal_receipts import ReceiptStore
+
+
+_TAIL_WINDOW = 4096
+_PATH_SAFE_SESSION_ID = re.compile(r"[a-z0-9][a-z0-9._-]{0,127}")
+_RESERVED_DEVICE_NAMES = frozenset(
+    {"con", "prn", "aux", "nul"}
+    | {f"com{digit}" for digit in range(1, 10)}
+    | {f"lpt{digit}" for digit in range(1, 10)}
+)
+
+
+def _path_safe_session_id(value: object) -> str:
+    """One session id, one journal directory.
+
+    The id names a directory, and Windows folds case and trailing dots, so
+    ``valid_identifier`` alone would let ``Work`` and ``work`` share one event
+    log and receipt store. Reserved device names and ``:`` are refused here too
+    because they raise OSError instead of a protocol error.
+    """
+    session_id = valid_identifier(value, "session_id")
+    if (
+        _PATH_SAFE_SESSION_ID.fullmatch(session_id) is None
+        or session_id.endswith(".")
+        or session_id.split(".")[0] in _RESERVED_DEVICE_NAMES
+    ):
+        raise ProtocolError(
+            "session_id must match "
+            f"{_PATH_SAFE_SESSION_ID.pattern} without a trailing dot "
+            "or a reserved device name"
+        )
+    return session_id
 
 
 def _now() -> str:
@@ -48,7 +81,7 @@ def _secure_append(path: Path, text: str) -> None:
 @final
 class WorkspaceJournal:
     def __init__(self, root: Path, session_id: str) -> None:
-        self.session_id = valid_identifier(session_id, "session_id")
+        self.session_id = _path_safe_session_id(session_id)
         self.root = root / self.session_id
         self.events_path = self.root / "events.jsonl"
         self.receipts_dir = self.root / "receipts"
@@ -69,6 +102,33 @@ class WorkspaceJournal:
             events.append(WorkspaceEvent.from_json(raw))
         return events
 
+    def _last_cursor(self) -> int:
+        """Cursor of the newest journaled event, read without parsing the log.
+
+        One event is journaled per streamed model chunk, so re-reading the whole
+        file on every append made a single turn cost quadratic time in the
+        session's length. Only the final line is needed. It is read from the
+        file rather than kept in memory because the journal lock is
+        cross-process: a second process appending would leave a cached counter
+        stale and hand out duplicate cursors.
+        """
+        if not self.events_path.is_file():
+            return 0
+        with self.events_path.open("rb") as handle:
+            size = handle.seek(0, os.SEEK_END)
+            window = 0
+            while True:
+                window = min(size, window * 4 or _TAIL_WINDOW)
+                _ = handle.seek(size - window)
+                tail = handle.read(window).rstrip()
+                start = tail.rfind(b"\n") + 1
+                if start > 0 or window >= size:
+                    break
+        if not tail:
+            return 0
+        raw = cast(object, json.loads(tail[start:].decode("utf-8")))
+        return WorkspaceEvent.from_json(raw).cursor
+
     def _append_unlocked(
         self,
         event_type: str,
@@ -77,8 +137,7 @@ class WorkspaceJournal:
         command_id: str,
         payload: dict[str, JsonValue],
     ) -> WorkspaceEvent:
-        events = self._read_events()
-        cursor = events[-1].cursor + 1 if events else 1
+        cursor = self._last_cursor() + 1
         event = WorkspaceEvent(
             protocol_version=PROTOCOL_VERSION,
             session_id=self.session_id,
@@ -235,5 +294,11 @@ class WorkspaceJournal:
             return tuple(event for event in self._read_events() if event.cursor > after)
 
     def cursor(self) -> int:
-        events = self.events()
-        return events[-1].cursor if events else 0
+        """Newest journaled cursor, read from the tail instead of the whole log.
+
+        Stream waiters poll this to decide whether anything new arrived, so it
+        must not parse the log: a full parse under the journal lock starves the
+        event writer that needs the same lock.
+        """
+        with store.file_lock(self.lock_path):
+            return self._last_cursor()

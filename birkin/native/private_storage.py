@@ -17,4 +17,5 @@ __all__ = [
     "harden_private_directory",
     "harden_private_file",
     "open_private_file_for_read",
+    "windows_owner_sid",
 ]

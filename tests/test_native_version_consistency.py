@@ -68,6 +68,21 @@ def test_version_sync_reports_a_current_tree() -> None:
     assert result.returncode == 0, result.stdout + result.stderr
 
 
+def test_version_sync_reports_every_derived_artifact_current() -> None:
+    """Given the shipped sync tool, When it checks every derived artifact, Then
+    the Swift seam, the golden vectors, the lock, the published docs and the
+    helper input checksums all still carry the manifest version."""
+    result = subprocess.run(
+        [sys.executable, "scripts/native/sync_version.py", "--check", "--all"],
+        cwd=REPOSITORY,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_golden_vectors_advertise_the_manifest_version() -> None:
     """Given the generated protocol vectors, When the ready frame is read,
     Then its server_version is the manifest version."""

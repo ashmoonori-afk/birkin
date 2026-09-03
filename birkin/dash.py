@@ -556,8 +556,10 @@ def _loop(session, w, keys, state):
             snap = snapshot(session)
             last = now
         elif key == "\r" and state["section"] == "세션" and rows:
-            _open_session(session, rows[state["cursor"]])
-            return                                 # leave dash into the loaded convo
+            error = _open_session(session, rows[state["cursor"]])
+            if error is None:
+                return                             # leave dash into the loaded convo
+            state["note"] = f"⚠ {error}"
         elif state["section"] == "승인" and rows and key in ("a", "d"):
             out = _resolve_approval(rows[state["cursor"]],
                                     approve=(key == "a"))
@@ -570,13 +572,19 @@ def _loop(session, w, keys, state):
             snap = snapshot(session)
 
 
-def _open_session(session, row):
-    """Load the selected saved conversation (best-effort)."""
+def _open_session(session, row) -> str | None:
+    """Load the selected saved conversation; return a Korean error on failure.
+
+    ``/load`` is not a registered command — the loader lives behind
+    ``/sessions load`` — so the old call only ever printed "Unknown command"
+    onto a screen dash was about to tear down.
+    """
     try:
         from . import slashcommands
-        slashcommands.dispatch(session, f"/load {row['title']}")
-    except Exception:
-        pass
+        _ = slashcommands.dispatch(session, f"/sessions load {row['title']}")
+    except Exception as exc:
+        return f"세션을 불러오지 못했습니다: {str(exc)[:120]}"
+    return None
 
 
 def _resolve_approval(row, *, approve: bool) -> dict[str, Any]:

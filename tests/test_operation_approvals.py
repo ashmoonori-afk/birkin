@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from birkin import approvals, config, store
+from birkin import approval_execution, approvals, config, store
 from birkin.tools import ToolContext, build_registry
 from birkin.tools import files
 from birkin.tools import shell as shell_mod
@@ -22,11 +22,14 @@ def test_fs_jail_block_queues_exact_manual_operation(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     target = tmp_path / "outside.txt"
-    registry = build_registry(ToolContext(
-        cfg={"fs_jail": True, "auto_approve": ["operation"]},
-        client=None,
-        cwd=workspace,
-    ), include={"files"})
+    registry = build_registry(
+        ToolContext(
+            cfg={"fs_jail": True, "auto_approve": ["operation"]},
+            client=None,
+            cwd=workspace,
+        ),
+        include={"files"},
+    )
 
     # When: the native write tool reaches the discretionary policy block.
     result = registry.execute(
@@ -196,8 +199,8 @@ def test_execution_policy_diagnostics_ignore_unrelated_powershell_script(
 
 
 def test_bun_temp_diagnostic_queues_workspace_local_retry(
-        tmp_path: Path,
-        monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     # Given
     class FailedProcess:
@@ -213,11 +216,14 @@ def test_bun_temp_diagnostic_queues_workspace_local_retry(
         "run_shell_command",
         lambda _request: FailedProcess(),
     )
-    registry = build_registry(ToolContext(
-        cfg={},
-        client=None,
-        cwd=tmp_path,
-    ), include={"shell"})
+    registry = build_registry(
+        ToolContext(
+            cfg={},
+            client=None,
+            cwd=tmp_path,
+        ),
+        include={"shell"},
+    )
 
     # When
     result = registry.execute(
@@ -244,11 +250,14 @@ def test_approval_replays_exact_sealed_file_operation(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     target = tmp_path / "approved.txt"
-    registry = build_registry(ToolContext(
-        cfg={"fs_jail": True},
-        client=None,
-        cwd=workspace,
-    ), include={"files"})
+    registry = build_registry(
+        ToolContext(
+            cfg={"fs_jail": True},
+            client=None,
+            cwd=workspace,
+        ),
+        include={"files"},
+    )
     result = registry.execute(
         "write_file",
         {"path": str(target), "content": "sealed content"},
@@ -271,8 +280,8 @@ def test_approval_replays_exact_sealed_file_operation(tmp_path: Path) -> None:
     reason="Windows cmd.exe and TEMP replay contract",
 )
 def test_approved_tokscale_submit_uses_managed_workspace_temp(
-        tmp_path: Path,
-        monkeypatch,
+    tmp_path: Path,
+    monkeypatch,
 ) -> None:
     # Given
     workspace = tmp_path / "workspace"
@@ -383,8 +392,9 @@ def test_approved_tokscale_native_shim_fallback_preserves_authority(
     )
 
     # When: the sealed approval is executed and then replay is attempted.
-    resolution = approvals.approve(
+    resolution = approval_execution.approve(
         status["id"],
+        approvals.execute_action,
         approved_by="human:test",
         approved_via="test",
     )

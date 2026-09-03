@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from . import config
 
@@ -22,8 +23,35 @@ if TYPE_CHECKING:
     from typing_extensions import Self
 
 
+class ActionReceipt(TypedDict):
+    version: int
+    status: str
+    approval_id: str
+    authority_digest: str
+    result: str
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _replace_with_retry(tmp: Path, path: Path) -> None:
+    """``os.replace`` with a short bounded retry on a sharing violation.
+
+    CPython opens files without FILE_SHARE_DELETE, so on Windows a concurrent
+    reader of ``path`` (another birkin process, an antivirus scan) makes the
+    rename fail with PermissionError [WinError 5] until it closes. Ten
+    attempts over ~1.5s outlast that; a genuine permission error still raises.
+    """
+    delay = 0.01
+    for _ in range(9):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+            delay = min(delay * 2, 0.2)
+    os.replace(tmp, path)
 
 
 def _write_json(path: Path, obj: Any) -> None:
@@ -34,15 +62,17 @@ def _write_json(path: Path, obj: Any) -> None:
         fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(json.dumps(obj, indent=2, ensure_ascii=False))
-        os.replace(tmp, path)
+            handle.flush()
+            os.fsync(handle.fileno())
+        _replace_with_retry(tmp, path)
     except OSError:
         try:  # don't leave a partial .tmp behind on a failed write
             tmp.unlink()
         except OSError:
             pass
         raise
-    # State can include cron commands / pending payloads. The owner-only mode is
-    # enforced on POSIX; Windows relies on the directory's inherited ACL.
+    # State can include cron commands / pending payloads — restrict to the owner
+    # (no-op on Windows; enforced on POSIX), matching config.json.
     try:
         os.chmod(path, 0o600)
     except OSError:
@@ -75,8 +105,7 @@ class file_lock:
     cannot overlap a replacement through a stale-lock ABA race.
     """
 
-    def __init__(self, path: Path, *, timeout: float = 5.0,
-                 stale: float = 30.0):
+    def __init__(self, path: Path, *, timeout: float = 5.0, stale: float = 30.0):
         self._lock = Path(str(path) + ".lock")
         self._timeout = timeout
         _ = stale  # retained for call compatibility; OS locks do not go stale
@@ -85,6 +114,7 @@ class file_lock:
 
     def __enter__(self) -> Self:
         import time
+
         deadline = time.monotonic() + self._timeout
         self._lock.parent.mkdir(parents=True, exist_ok=True)
         handle = self._lock.open("a+b")
@@ -124,6 +154,7 @@ class file_lock:
 def _try_native_lock(handle: Any) -> None:
     if os.name == "nt":
         import msvcrt
+
         handle.seek(0)
         try:
             msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
@@ -131,6 +162,7 @@ def _try_native_lock(handle: Any) -> None:
             raise BlockingIOError from exc
         return
     import fcntl
+
     try:
         fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError as exc:
@@ -140,14 +172,17 @@ def _try_native_lock(handle: Any) -> None:
 def _unlock_native(handle: Any) -> None:
     if os.name == "nt":
         import msvcrt
+
         handle.seek(0)
         msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
         return
     import fcntl
+
     fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
 # -- usage estimation ------------------------------------------------------
+
 
 def estimate_usage(*texts: str) -> dict[str, int]:
     """A cheap, dependency-free usage estimate: chars, words, and ~tokens
@@ -159,23 +194,45 @@ def estimate_usage(*texts: str) -> dict[str, int]:
 
 # -- run records + ledger --------------------------------------------------
 
-def save_run(kind: str, summary: str, details: dict[str, Any] | None = None,
-             usage: dict[str, int] | None = None) -> Path:
+
+def save_run(
+    kind: str,
+    summary: str,
+    details: dict[str, Any] | None = None,
+    usage: dict[str, int] | None = None,
+) -> Path:
     ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     rid = f"{ts}-{uuid.uuid4().hex[:4]}"  # unique even within the same second
-    rec = {"id": rid, "kind": kind, "at": _now(), "summary": summary,
-           "usage": usage or {}, "details": details or {}}
+    rec = {
+        "id": rid,
+        "kind": kind,
+        "at": _now(),
+        "summary": summary,
+        "usage": usage or {},
+        "details": details or {},
+    }
     path = config.runs_dir() / f"{rid}-{kind}.json"
     _write_json(path, rec)
-    append_ledger({"id": rid, "at": rec["at"], "kind": kind,
-                   "summary": summary[:160], "usage": usage or {}})
+    append_ledger(
+        {
+            "id": rid,
+            "at": rec["at"],
+            "kind": kind,
+            "summary": summary[:160],
+            "usage": usage or {},
+        }
+    )
     # Mirror into the SQLite event ledger (aggregatable; daemon/dashboard).
     from . import ledger
+
     u = usage or {}
     # estimate_usage() emits "estTokens"; older callers may pass "tokens".
-    ledger.event(f"run:{kind}", summary,
-                 tokens=int(u.get("tokens") or u.get("estTokens") or 0),
-                 data={"id": rid})
+    ledger.event(
+        f"run:{kind}",
+        summary,
+        tokens=int(u.get("tokens") or u.get("estTokens") or 0),
+        data={"id": rid},
+    )
     return path
 
 
@@ -217,17 +274,31 @@ def append_ledger(entry: dict[str, Any]) -> None:
 
 # -- pending approvals -----------------------------------------------------
 
-def add_pending(*, category: str, title: str, description: str,
-                payload: dict[str, Any], origin: str = "morpheus",
-                continuation: dict[str, Any] | None = None,
-                details: dict[str, Any] | None = None,
-                pending_id: str | None = None) -> dict[str, Any]:
+
+def add_pending(
+    *,
+    category: str,
+    title: str,
+    description: str,
+    payload: dict[str, Any],
+    origin: str = "morpheus",
+    continuation: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
+    pending_id: str | None = None,
+) -> dict[str, Any]:
     aid = pending_id or uuid.uuid4().hex[:12]
     if not valid_pending_id(aid):
         raise ValueError("invalid pending id")
-    rec = {"id": aid, "created": _now(), "category": category, "title": title,
-           "description": description, "payload": payload, "origin": origin,
-           "status": "pending"}
+    rec = {
+        "id": aid,
+        "created": _now(),
+        "category": category,
+        "title": title,
+        "description": description,
+        "payload": payload,
+        "origin": origin,
+        "status": "pending",
+    }
     if details:
         reserved = set(rec) & set(details)
         if reserved:
@@ -259,8 +330,11 @@ def list_resolved(status: str) -> list[dict[str, Any]]:
 
 
 def valid_pending_id(aid: str) -> bool:
-    return (isinstance(aid, str) and len(aid) == 12
-            and all(char in "0123456789abcdef" for char in aid))
+    return (
+        isinstance(aid, str)
+        and len(aid) == 12
+        and all(char in "0123456789abcdef" for char in aid)
+    )
 
 
 def get_pending(aid: str) -> dict[str, Any] | None:
@@ -269,15 +343,60 @@ def get_pending(aid: str) -> dict[str, Any] | None:
     return _read_json(config.pending_dir() / f"{aid}.json", None)
 
 
-def resolve_pending(aid: str, status: str,
-                    reason: str = "",
-                    updates: dict[str, Any] | None = None,
-                    details: dict[str, Any] | None = None,
-                    *,
-                    approved_by: str | None = None,
-                    approved_via: str | None = None,
-                    rejected_by: str | None = None,
-                    rejected_via: str | None = None) -> dict[str, Any] | None:
+def write_action_receipt(aid: str, receipt: ActionReceipt) -> None:
+    """Durably record a completed action independently of its state file."""
+    if not valid_pending_id(aid):
+        raise ValueError("invalid pending id")
+    _write_json(config.pending_dir() / f"{aid}.receipt.json", receipt)
+
+
+def get_action_receipt(aid: str) -> ActionReceipt | None:
+    if not valid_pending_id(aid):
+        return None
+    receipt = _read_json(config.pending_dir() / f"{aid}.receipt.json", None)
+    if not isinstance(receipt, dict):
+        return None
+    version = receipt.get("version")
+    status = receipt.get("status")
+    approval_id = receipt.get("approval_id")
+    authority_digest = receipt.get("authority_digest")
+    result = receipt.get("result")
+    if (
+        not isinstance(version, int)
+        or isinstance(version, bool)
+        or not isinstance(status, str)
+        or not isinstance(approval_id, str)
+        or not isinstance(authority_digest, str)
+        or not isinstance(result, str)
+    ):
+        return None
+    return {
+        "version": version,
+        "status": status,
+        "approval_id": approval_id,
+        "authority_digest": authority_digest,
+        "result": result,
+    }
+
+
+def remove_action_receipt(aid: str) -> None:
+    if not valid_pending_id(aid):
+        raise ValueError("invalid pending id")
+    (config.pending_dir() / f"{aid}.receipt.json").unlink(missing_ok=True)
+
+
+def resolve_pending(
+    aid: str,
+    status: str,
+    reason: str = "",
+    updates: dict[str, Any] | None = None,
+    details: dict[str, Any] | None = None,
+    *,
+    approved_by: str | None = None,
+    approved_via: str | None = None,
+    rejected_by: str | None = None,
+    rejected_via: str | None = None,
+) -> dict[str, Any] | None:
     approval_identity = (approved_by, approved_via)
     rejection_identity = (rejected_by, rejected_via)
     if (approved_by is None) != (approved_via is None):
@@ -323,20 +442,31 @@ def resolve_pending(aid: str, status: str,
         rec["deny_reason"] = reason[:300]
     merged_updates = {**(updates or {}), **(details or {})}
     if merged_updates:
-        reserved = {"id", "created", "category", "title", "description",
-                    "payload", "origin", "status", "resolved_at",
-                    "approved_by", "approved_via", "rejected_by",
-                    "rejected_via"}
+        reserved = {
+            "id",
+            "created",
+            "category",
+            "title",
+            "description",
+            "payload",
+            "origin",
+            "status",
+            "resolved_at",
+            "approved_by",
+            "approved_via",
+            "rejected_by",
+            "rejected_via",
+        }
         overwritten = reserved & set(merged_updates)
         if overwritten:
-            raise ValueError(
-                f"pending details overwrite {min(overwritten)}")
+            raise ValueError(f"pending details overwrite {min(overwritten)}")
         rec.update(merged_updates)
     _write_json(path, rec)
     return rec
 
 
 # -- daemon status ---------------------------------------------------------
+
 
 def write_status(status: dict[str, Any]) -> None:
     status = dict(status)
@@ -369,6 +499,7 @@ def clear_status() -> None:
 
 
 # -- activity log ----------------------------------------------------------
+
 
 def append_activity(line: str) -> None:
     try:

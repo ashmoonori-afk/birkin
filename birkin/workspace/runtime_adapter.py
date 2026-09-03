@@ -133,12 +133,8 @@ class RuntimeWorkspaceAdapter:
             browser=BrowserSurfaceAuthority(
                 BrowserAsideService(session_id), BrowserControlAuthority(time.monotonic)
             ),
-            computer_use=ComputerUseSurfaceAuthority(
-                probe=default_backend().probe()
-            ),
-            office=OfficeSurfaceAuthority(
-                DocumentService(canonical_office_home())
-            ),
+            computer_use=ComputerUseSurfaceAuthority(probe=default_backend().probe()),
+            office=OfficeSurfaceAuthority(DocumentService(canonical_office_home())),
         )
         self._failed_intent_payload: dict[str, object] | None = None
         self._pending_approval_context: str | None = None
@@ -232,12 +228,12 @@ class RuntimeWorkspaceAdapter:
             cfg["session_id"] = self._session_id
             self._session = build_session(
                 cfg,
-                on_event=self._runtime_event,
-                on_status=self._runtime_status,
+                on_event=self.runtime_event,
+                on_status=self.runtime_status,
             )
         return self._session
 
-    def _runtime_status(self, status: LLMStatus) -> None:
+    def runtime_status(self, status: LLMStatus) -> None:
         payload: dict[str, object] = {
             "summary": llm_status_summary(status),
             "status": status.kind,
@@ -265,7 +261,7 @@ class RuntimeWorkspaceAdapter:
         })
         _ = self._emit("progress.updated", payload)
 
-    def _runtime_event(
+    def runtime_event(
         self,
         event: str,
         payload: dict[str, object],
@@ -451,7 +447,9 @@ class RuntimeWorkspaceAdapter:
                 f"- {attachment.display_name}: imports/{attachment.jail_name}"
                 for attachment, _path in validated
             ]
-            runtime_text += "\n\nAttached workspace imports (validated):\n" + "\n".join(lines)
+            runtime_text += (
+                "\n\nAttached workspace imports (validated):\n" + "\n".join(lines)
+            )
         if self._pending_approval_context is not None:
             runtime_text = (
                 f"{self._pending_approval_context}\n\n{runtime_text}"
@@ -603,7 +601,9 @@ class RuntimeWorkspaceAdapter:
         required = {"request", "source", "outcome", "operations", "destination"}
         optional = {"overwrite_approved", "diff_id"}
         if not required <= set(payload) or set(payload) - required - optional:
-            raise ValueError("office.job_request payload does not match the canonical contract")
+            raise ValueError(
+                "office.job_request payload does not match the canonical contract"
+            )
         request = payload["request"]
         source = payload["source"]
         outcome = payload["outcome"]
@@ -648,7 +648,7 @@ class RuntimeWorkspaceAdapter:
                 allowlist_root=self._workspace_root,
                 actor=f"native:{self._session_id}",
             ),
-            on_transition=office_progress_sink(self._runtime_event),
+            on_transition=office_progress_sink(self.runtime_event),
         ).request(
             OfficeMutationRequest(
                 request_text=request,
@@ -751,13 +751,13 @@ class RuntimeWorkspaceAdapter:
                 "Office creation job request currently supports DOCX only",
             )
         raw_content = payload["content"]
-        if not isinstance(raw_content, Mapping) or set(raw_content) != {"paragraphs"}:
+        if not isinstance(raw_content, dict) or raw_content.keys() != {"paragraphs"}:
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "DOCX creation content fields changed",
             )
-        raw_paragraphs = raw_content.get("paragraphs")
+        raw_paragraphs = cast(object, raw_content["paragraphs"])
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
             raw_paragraphs,
             (str, bytes),
@@ -855,19 +855,19 @@ class RuntimeWorkspaceAdapter:
                 "native Office creation currently supports DOCX only",
             )
         raw_content = payload.get("content")
-        if not isinstance(raw_content, Mapping):
+        if not isinstance(raw_content, dict):
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "Office creation content must be an object",
             )
-        if set(raw_content) != {"paragraphs"}:
+        if raw_content.keys() != {"paragraphs"}:
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "DOCX creation content fields changed",
             )
-        raw_paragraphs = raw_content.get("paragraphs")
+        raw_paragraphs = cast(object, raw_content["paragraphs"])
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
             raw_paragraphs,
             (str, bytes),
@@ -970,7 +970,7 @@ class RuntimeWorkspaceAdapter:
             approval_id,
             decision=str(decision),
             reason=str(payload.get("reason") or ""),
-            on_event=self._runtime_event,
+            on_event=self.runtime_event,
         )
         event_payload: dict[str, object] = {
             "approval_id": approval_id,

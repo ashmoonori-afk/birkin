@@ -67,9 +67,16 @@ def render_reference(schema: Mapping[str, Any], locale: str) -> str:
         headers,
     ]
     for path, item in _rows(schema):
-        description = item.get(
-            "x-description-ko" if korean else "description", ""
-        )
+        if item.get("deprecated"):
+            replacement = item.get("x-replaced-by", "")
+            description = (
+                f"폐기됨: {replacement} 사용" if korean
+                else f"Deprecated: use {replacement}"
+            ) if replacement else ("폐기됨" if korean else "Deprecated")
+        else:
+            description = item.get(
+                "x-description-ko" if korean else "description", ""
+            )
         escaped_description = str(description).replace("|", "\\|")
         default = json.dumps(item.get("default"), ensure_ascii=False)
         lines.append(

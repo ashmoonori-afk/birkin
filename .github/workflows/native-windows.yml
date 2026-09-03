@@ -2,6 +2,7 @@ name: Native Windows client
 
 on:
   push:
+    branches: [main]
     paths:
       - "windows/**"
       - "birkin/native/**"
@@ -45,7 +46,7 @@ permissions:
 jobs:
   python-windows:
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       BIRKIN_BROWSER_INTEGRATION: "1"
       PYTHONUTF8: "1"

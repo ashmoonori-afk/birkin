@@ -24,6 +24,7 @@ import json
 import pytest
 
 from birkin import config
+from tests.test_native_private_storage import assert_owner_only
 
 
 @pytest.fixture
@@ -171,13 +172,14 @@ def test_round_trip_preserves_the_effective_config(cfg_path):
         assert again[key] == cfg[key], f"{key} changed across a save/load"
 
 
-def test_the_file_is_still_owner_only_and_atomic(cfg_path):
-    """The security properties of the original write must survive."""
-    import inspect
-    src = inspect.getsource(config.save_config)
-    assert "os.replace" in src, "lost the atomic swap"
-    assert "0o600" in src, "lost the owner-only mode"
-    assert ".tmp" in src
+def test_saved_overrides_remain_owner_only(cfg_path):
+    # Given: one non-default override.
+    # When: the override is persisted.
+    path = config.save_config({**config.DEFAULT_CONFIG, "model": "owner-only"})
+
+    # Then: the final file remains owner-only on the active platform.
+    assert path == cfg_path
+    assert_owner_only(path, posix_mode=0o600)
 
 
 # -- load_config must never hand out the global defaults -------------------

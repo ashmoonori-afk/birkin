@@ -76,7 +76,7 @@ def _approval_answer_decided(outcome: object) -> bool:
     }
 
 
-def _panel_item(event: WorkspaceEvent) -> dict[str, object]:
+def panel_item(event: WorkspaceEvent) -> dict[str, object]:
     summary = event.payload.get("summary")
     kind = {
         "task.updated": "task",
@@ -278,9 +278,7 @@ def reduce_snapshot(
             attachments = event.payload.get("attachments")
             if _object_list(attachments):
                 user_message["attachments"] = [
-                    dict(item)
-                    for item in attachments
-                    if _object_mapping(item)
+                    dict(item) for item in attachments if _object_mapping(item)
                 ]
             conversation.append(user_message)
         elif event.type == "message.assistant.delta" and isinstance(text, str):
@@ -329,13 +327,15 @@ def reduce_snapshot(
                 },
             )
             if event.type == "terminal.opened":
-                terminal.update({
-                    "cwd": str(event.payload.get("cwd") or ""),
-                    "state": "running",
-                    "exit_status": None,
-                    "lease": _live_lease(event.payload.get("lease")),
-                    "read_only": _live_lease(event.payload.get("lease")) is None,
-                })
+                terminal.update(
+                    {
+                        "cwd": str(event.payload.get("cwd") or ""),
+                        "state": "running",
+                        "exit_status": None,
+                        "lease": _live_lease(event.payload.get("lease")),
+                        "read_only": _live_lease(event.payload.get("lease")) is None,
+                    }
+                )
             elif event.type == "terminal.output":
                 data = event.payload.get("data")
                 sequence = event.payload.get("sequence")
@@ -359,7 +359,7 @@ def reduce_snapshot(
 
         panel_key = _PANEL_BY_EVENT.get(event.type)
         if panel_key is not None:
-            item = _panel_item(event)
+            item = panel_item(event)
             if event.type == "approval.answered":
                 _reconcile_answered_approval(panel_items[panel_key], item)
             else:

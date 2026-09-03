@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.326"
+version = "0.4.354"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -14,6 +14,7 @@ authors = [{ name = "birkin" }]
 keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 
 dependencies = [
+    "pydantic>=2,<3",
     "psutil>=6",
     "typing-extensions>=4.12",
 ]
@@ -89,6 +90,10 @@ dev = [
     "pywinauto>=0.6.9; sys_platform == 'win32'",
     "pywin32>=308; sys_platform == 'win32'",
     "openpyxl>=3.1.5,<4",
+    # Terminal QA drivers: the pty tests import these at collection time, so a
+    # `pip install -e ".[dev]"` environment (CI included) must carry them.
+    "pexpect>=4.9,<5",
+    "pywinpty>=2.0.14; sys_platform == 'win32'",
 ]
 
 [dependency-groups]
@@ -101,6 +106,7 @@ dev = [
     "build>=1.2",
     "ruff>=0.12",
     "pexpect>=4.9,<5",
+    "pywinpty>=2.0.14; sys_platform == 'win32'",
 ]
 
 [project.scripts]
@@ -108,7 +114,7 @@ birkin = "birkin.cli:main"
 
 [tool.hatch.build.targets.sdist]
 # Ship only project files ??never stray runtime data/binaries from the workspace.
-only-include = ["birkin", "birkin_mnemosyne", "skills", "scripts", "docs", "tests", "README.md", "pyproject.toml", "LICENSE", "NOTICE", "LICENSES"]
+only-include = ["birkin", "birkin_mnemosyne", "skills", "scripts", "docs", "tests", "README.md", "README.ko.md", "pyproject.toml", "LICENSE", "NOTICE", "LICENSES"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["birkin", "birkin_mnemosyne"]
@@ -130,6 +136,7 @@ markers = [
 ]
 
 [tool.basedpyright]
+stubPath = "typings"
 extraPaths = ["scripts/native"]
 include = [
     "birkin/native",

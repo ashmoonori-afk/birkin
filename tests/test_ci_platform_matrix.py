@@ -5,11 +5,11 @@ from pathlib import Path
 WORKFLOW = Path(__file__).parents[1] / ".github" / "workflows" / "tests.yml"
 
 
-def test_tests_workflow_runs_for_feature_branch_pushes() -> None:
+def test_tests_workflow_runs_once_per_change() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "branches: [main]" not in workflow
-    assert "\n  push:\n" in workflow
+    assert "\n  push:\n    branches: [main]\n" in workflow
+    assert "\n  pull_request:\n" in workflow
 
 
 def test_tests_workflow_covers_supported_operating_systems() -> None:

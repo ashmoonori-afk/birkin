@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
+from typing import cast
 
+import pytest
+
+from birkin.gateway.channels import telegram as telegram_module
+from birkin.gateway.channels.base import ChannelGateway
 from birkin.gateway.channels.telegram import TelegramChannel
 
 
@@ -79,3 +85,94 @@ def test_telegram_worker_limit_is_configurable() -> None:
         release.set()
         assert first is not None
         first.join(timeout=2.0)
+
+
+def test_poll_worker_binds_authorized_update_before_later_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    channel = TelegramChannel(
+        "synthetic-test-token",
+        allowed_chat_ids=["42"],
+    )
+    queued: list[Callable[[], None]] = []
+    turns: list[tuple[object, str, str, int, str | None, str | None]] = []
+    updates = {
+        "result": [
+            {
+                "update_id": 10,
+                "message": {
+                    "chat": {"id": 42, "type": "private"},
+                    "from": {"id": 42},
+                    "text": "authorized text",
+                },
+            },
+            {
+                "update_id": 11,
+                "message": {
+                    "chat": {"id": 99, "type": "private"},
+                    "from": {"id": 99},
+                    "text": "unauthorized text",
+                },
+            },
+        ]
+    }
+
+    class Gateway:
+        def command_menu(self) -> list[dict[str, str]]:
+            return []
+
+        def take_restart_greeting(self, _channel: str) -> None:
+            return None
+
+        def interrupt(self, _channel: str, _chat_id: str) -> bool:
+            return False
+
+    gateway = Gateway()
+
+    def fake_call(
+        method: str,
+        _params: dict[str, object],
+        timeout: int = 30,
+    ) -> dict[str, object]:
+        del timeout
+        if method == "getUpdates":
+            if updates:
+                response = updates.copy()
+                updates.clear()
+                return response
+            raise KeyboardInterrupt
+        return {}
+
+    def queue_worker(
+        _registry: dict[str, threading.Thread],
+        _key: str,
+        target: Callable[[], None],
+        _args: tuple[object, ...] = (),
+    ) -> object:
+        queued.append(target)
+        return object()
+
+    def capture_turn(
+        received_gateway: object,
+        chat_id: str,
+        text: str,
+        offset: int,
+        workflow_id: str | None = None,
+        sender_id: str | None = None,
+    ) -> None:
+        turns.append(
+            (received_gateway, chat_id, text, offset, workflow_id, sender_id)
+        )
+
+    monkeypatch.setattr(channel, "_redeliver_pending", lambda: 0)
+    monkeypatch.setattr(telegram_module, "restore_stranded_claims", lambda: 0)
+    monkeypatch.setattr(channel, "_call", fake_call)
+    monkeypatch.setattr(channel, "_start_public_worker", queue_worker)
+    monkeypatch.setattr(channel, "_run_turn", capture_turn)
+
+    with pytest.raises(KeyboardInterrupt):
+        channel.start(cast(ChannelGateway, gateway))
+
+    assert len(queued) == 1
+    queued[0]()
+    assert turns == [(gateway, "42", "authorized text", 11, None, "42")]

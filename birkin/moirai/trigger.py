@@ -18,6 +18,7 @@ Off by default (``moirai_auto``). Turning it on is the user reversing their own
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -44,7 +45,7 @@ class Proposal:
 
     def render(self) -> str:
         lines = [f"🧵 {self.title}", f"   {self.why}",
-                 f"   워크플로우: {self.script}"]
+                 f"   워크플로우: {self.script}{_provenance(self.script)}"]
         if self.roles:
             lines.append(f"   역할: {', '.join(self.roles)}")
         lines += [f"   {i}. {s}" for i, s in enumerate(self.steps, 1)]
@@ -55,11 +56,35 @@ class Proposal:
                 "steps": list(self.steps), "task": task[:4000]}
 
 
+def _provenance(script: str) -> str:
+    """Which file an approval of ``script`` would actually exec(), and its hash.
+
+    A name is not what runs; ``engine.load_script`` runs a path. The approver
+    sees the name in the inbox, so the path and digest go next to it — the same
+    sha256 the journal records for the run, truncated to a glanceable prefix.
+    """
+    try:
+        from .cli import resolve_script_path
+        path = resolve_script_path(script)
+        source = path.read_text(encoding="utf-8")
+    except Exception:
+        return "  (해석할 수 없는 워크플로우)"
+    digest = hashlib.sha256(source.encode("utf-8")).hexdigest()[:12]
+    return f"  {path} (sha256 {digest})"
+
+
 def auto_trigger_note(cfg: Optional[dict] = None) -> str:
     """The prompt block that lets the model propose a workflow.
 
     Empty unless the user opted in — a note that is always present is the
     always-on heuristic this project already removed once.
+
+    It asks for prose, not the envelope: nothing on the reply path calls
+    ``parse``/``queue`` yet, so a note demanding ``PROPOSAL_OPEN`` would make
+    an opted-in turn come back as raw markup with the question unanswered.
+    The recommendation reaches the one consumer that does exist — the user,
+    who runs the command. Switch this back to the envelope in the same commit
+    that wires a reply-side parser.
     """
     cfg = cfg or {}
     if not cfg.get("moirai_auto", False):
@@ -70,19 +95,15 @@ def auto_trigger_note(cfg: Optional[dict] = None) -> str:
         "If this request would genuinely be better as SEVERAL independent "
         "agents than as one answer — several things to investigate in "
         "parallel, a claim worth having a different model attack, or the same "
-        "question worth asking of two model families — do not start the work. "
-        "Reply with exactly one envelope and nothing else:\n"
-        f"{PROPOSAL_OPEN}"
-        '{"title":"short title","why":"why parallel agents beat one answer",'
-        '"script":"<one of the workflows below>",'
-        '"roles":["role names the script declares"],'
-        '"steps":["what each wave does"]}'
-        f"{PROPOSAL_CLOSE}\n"
+        "question worth asking of two model families — answer the turn as "
+        "usual, then close with a short recommendation (한국어로) naming the "
+        "workflow and the exact command the user can run:\n"
+        "  birkin moirai run <workflow> --args '{\"task\": \"<the request>\"}'\n"
         f"Available workflows: {available}.\n"
-        "Use 1-8 steps. Propose only when the parallelism is the point — a "
-        "question, a lookup, a single edit, or anything you can simply answer "
-        "is a normal turn, so answer it. The user approves before anything "
-        "runs; never claim to have run a workflow yourself.\n")
+        "Recommend only when the parallelism is the point — a question, a "
+        "lookup, a single edit, or anything you can simply answer is a normal "
+        "turn, so just answer it. You cannot start a workflow yourself; the "
+        "user runs it. Never claim to have run one.\n")
 
 
 def _available_scripts() -> list[str]:

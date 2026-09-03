@@ -118,6 +118,7 @@ class NativeCommandCoordinator:
         self._cleanup = cleanup
         self._lock = threading.Lock()
         self._active: dict[str, NativeCommandExecution] = {}
+        self._running: set[object] = set()
         self._cleanup_pending = False
 
     def submit(
@@ -126,14 +127,16 @@ class NativeCommandCoordinator:
         message: NativeEnvelope,
     ) -> bool:
         lane = self._lane(message)
+        ticket = object()
         with self._lock:
             if self._cleanup_pending or lane in self._active:
                 return False
             self._active[lane] = execution
+            self._running.add(ticket)
         try:
             threading.Thread(
                 target=self._run,
-                args=(execution, message, lane),
+                args=(execution, message, lane, ticket),
                 name=(
                     "birkin-native-command"
                     if lane == _NORMAL_LANE
@@ -142,13 +145,14 @@ class NativeCommandCoordinator:
                 daemon=True,
             ).start()
         except BaseException:
-            self._finish(execution, lane)
+            self._release(execution, lane)
+            self._finish(ticket)
             raise
         return True
 
     def disconnect(self) -> None:
         with self._lock:
-            if self._active:
+            if self._running:
                 self._cleanup_pending = True
             elif self._cleanup is not None:
                 self._cleanup()
@@ -166,6 +170,7 @@ class NativeCommandCoordinator:
         execution: NativeCommandExecution,
         message: NativeEnvelope,
         lane: str,
+        ticket: object,
     ) -> None:
         suspended = False
         try:
@@ -178,13 +183,18 @@ class NativeCommandCoordinator:
                 message,
                 execution.scope,
             )
-            if suspended:
-                execution.stream.resume()
-                suspended = False
-            self._finish(execution, lane)
+            # The client answers this response -- and the queued events the
+            # resume below lets out behind it -- with its next command, so the
+            # lane has to be free before either reaches the wire or that command
+            # is refused with E_FLOW_VIOLATION. Deferred disconnect cleanup is
+            # gated on the in-flight set instead, so it still runs afterwards.
+            self._release(execution, lane)
             if response is not None:
                 execution.state.send(response)
                 execution.connection.send(response)
+            if suspended:
+                execution.stream.resume()
+                suspended = False
         except (NativeProtocolError, OSError):
             execution.connection.interrupt()
         finally:
@@ -192,17 +202,25 @@ class NativeCommandCoordinator:
                 if suspended:
                     execution.stream.resume()
             finally:
-                self._finish(execution, lane)
+                self._release(execution, lane)
+                self._finish(ticket)
 
-    def _finish(
+    def _release(
         self,
         execution: NativeCommandExecution,
         lane: str,
     ) -> None:
+        """Readmit the lane. Idempotent, so the failure paths can repeat it."""
         with self._lock:
             if self._active.get(lane) is execution:
                 del self._active[lane]
-            if self._cleanup_pending and not self._active:
-                self._cleanup_pending = False
-                if self._cleanup is not None:
-                    self._cleanup()
+
+    def _finish(self, ticket: object) -> None:
+        """Retire one command and run the cleanup a disconnect deferred."""
+        with self._lock:
+            self._running.discard(ticket)
+            if not self._cleanup_pending or self._running:
+                return
+            self._cleanup_pending = False
+            if self._cleanup is not None:
+                self._cleanup()

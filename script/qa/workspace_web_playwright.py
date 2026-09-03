@@ -190,8 +190,12 @@ def run(url: str, evidence: Path) -> int:
             raise AssertionError(
                 f"restore approval request returned {restore_response.status}"
             )
-        restore_payload = restore_response.json()
-        restore_approval_id = str(restore_payload["approval_id"])
+        restore_payload = cast(object, restore_response.json())
+        if not isinstance(restore_payload, dict):
+            raise TypeError("restore approval response must be an object")
+        restore_approval_id = str(
+            cast(dict[str, object], restore_payload)["approval_id"]
+        )
         _ = page.locator('[data-panel="approvals"]').click()
         restore_item = page.locator(
             f'#workspace-panel-body [data-item-id="{restore_approval_id}"]'

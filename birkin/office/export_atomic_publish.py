@@ -10,7 +10,9 @@ from .export_compensation import compensate_export
 from .export_displacement_restore import restore_displaced
 from .export_helper_retire import retire_authenticated_file
 from .export_io import (
+    EMPTY_SHA256,
     DirectorySync,
+    clear_readonly,
     current_hash,
     hash_file as _hash_file,
     recovery_error,
@@ -51,6 +53,7 @@ def publish_staged(
     try:
         if checkpoint.exists() or checkpoint.is_symlink():
             _require_checkpoint(checkpoint, expected)
+            clear_readonly(checkpoint)
         else:
             try:
                 move_no_replace(transaction.destination, checkpoint)
@@ -62,6 +65,7 @@ def publish_staged(
                 raise recovery_error(
                     "export displacement checkpoint changed"
                 )
+            clear_readonly(checkpoint)
             displaced_sha256 = publication_file_hash(checkpoint)
             if displaced_sha256 != expected:
                 restore_displaced(
@@ -142,15 +146,21 @@ def finish_published_checkpoint(
     checkpoint = _checkpoint(transaction)
     if not checkpoint.exists() and not checkpoint.is_symlink():
         return
-    if checkpoint.is_file() and checkpoint.stat().st_size == 0:
+    expected = _expected_prior(transaction)
+    if (
+        checkpoint.is_file()
+        and checkpoint.stat().st_size == 0
+        and expected != EMPTY_SHA256
+    ):
         return
-    _require_checkpoint(checkpoint, _expected_prior(transaction))
+    _require_checkpoint(checkpoint, expected)
     if current_hash(transaction.destination) != transaction.output_sha256:
         raise _changed("published destination changed before checkpoint cleanup")
     try:
+        clear_readonly(checkpoint)
         _ = retire_authenticated_file(
             checkpoint,
-            _expected_prior(transaction),
+            expected,
             protected_identity=regular_file_identity(
                 transaction.destination
             ),

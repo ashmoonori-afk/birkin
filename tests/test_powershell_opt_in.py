@@ -7,7 +7,7 @@ from typing import final
 
 import pytest
 
-from birkin import approvals, config, store
+from birkin import approval_execution, approvals, config, store
 from birkin.proc import ShellCommand
 from birkin.tools import ToolContext, build_registry
 from birkin.tools import shell as shell_mod
@@ -133,7 +133,12 @@ def test_manual_approval_runs_exact_powershell_command_once(
     approval_id = record["id"]
     assert isinstance(approval_id, str)
 
-    resolution = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
+    resolution = approval_execution.approve(
+        approval_id,
+        approvals.execute_action,
+        approved_by="human:test",
+        approved_via="test",
+    )
 
     assert blocked.is_error
     assert resolution["ok"] is True, resolution

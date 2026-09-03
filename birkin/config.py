@@ -15,7 +15,6 @@ import copy
 import json
 import os
 import stat
-import uuid
 import warnings
 from dataclasses import dataclass
 from functools import lru_cache
@@ -102,6 +101,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # so unlike `moirai_auto` this is on by default. Set false to keep workers
     # reachable only from the CLI.
     "worker_call_auto": True,
+    # A turn's session has no goal of its own: fall back to the no-session
+    # (global) goal note instead of showing none (see promptgate._goal_note).
+    # Set false to keep goal steering strictly per-session.
+    "session_goal_fallback": True,
     "moirai_workers": 4,
     "moirai_max_agents": 100,
     "moirai_roles": {},
@@ -235,6 +238,19 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # Keep one pre-warmed spare claude process so the FIRST message of a new
     # conversation skips the ~28 s CLI cold start.
     "gateway_prewarm": True,
+    # Native-API gateway session pool (SessionPool in gateway/core.py): the
+    # most sessions kept live at once, and how long an idle one may sit
+    # before it is reclaimed. Ignored by CLI providers, which own their own
+    # child process lifecycle.
+    "gateway_max_sessions": 8,
+    "gateway_session_ttl_s": 3600,
+    # Rewrite a gateway reply through a second, no-tools model pass before
+    # delivery (currently wired for the Telegram channel; see gateway/polish.py).
+    # gateway_polish_provider/gateway_polish_model are deliberately absent here:
+    # unset, they fall through to morpheus_provider/morpheus_model rather than
+    # a fixed default, so a real default would misdocument that fallback.
+    # Empty provider disables polishing and the raw reply is sent as-is.
+    "gateway_polish_timeout": 90,
     "voice": {
         "wake_phrase": "Daddy is home",
         "gateway_url": "",
@@ -284,12 +300,13 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "channels": {
         "http": {"enabled": True},
         # Prefer the TELEGRAM_BOT_TOKEN env var over the plaintext "token" here.
-        # "allowed_chat_ids" gates who may drive the bot. Telegram is refused
-        # at startup when this list is empty.
+        # "allowed_chat_ids" gates which chats may drive trusted turns.
+        # "allowed_sender_ids" is additionally required for group members.
         # "stream": edit-stream partial replies into the chat as they arrive
         # (hermes-style perceived latency) instead of one final message.
         "telegram": {"enabled": False, "token": "", "allowed_chat_ids": [],
-                     "stream": True, "max_public_workers": 4},
+                     "allowed_sender_ids": [], "stream": True,
+                     "max_public_workers": 4},
         # Send-only incoming-webhook targets. They do not start listeners and
         # remain inert unless explicitly enabled with an HTTPS URL.
         "slack": {
@@ -526,6 +543,10 @@ def harden_birkin_home(home: Path) -> tuple[int, int]:
     from .private_storage import harden_private_directory, harden_private_tree
 
     _require_owner_controlled_parent(home)
+    if home.is_symlink():
+        # Hardening below follows the link and would report the confusing
+        # "changed after hardening" identity mismatch instead.
+        raise OSError("BIRKIN_HOME must be a real directory, not a symlink")
     harden_private_directory(home)
     harden_private_tree(home)
     metadata = home.stat(follow_symlinks=False)
@@ -852,7 +873,8 @@ def _prune(cfg: dict[str, Any], defaults: dict[str, Any]) -> dict[str, Any]:
 
     A top-level-only diff still pinned the sub-keys of the one nested section
     that carries defaults: enabling Telegram wrote channels.http.enabled,
-    channels.telegram.allowed_chat_ids and channels.telegram.stream, none of
+    channels.telegram.allowed_chat_ids, channels.telegram.allowed_sender_ids,
+    and channels.telegram.stream, none of
     which the user chose. Same bug as the outer one, one level down.
     """
     out: dict[str, Any] = {}
@@ -913,32 +935,14 @@ def set_config(key: str, value: Any) -> ConfigSetResult:
 
 
 def save_config(cfg: dict[str, Any]) -> Path:
-    # config.json may hold an API key, so write atomically (mirrors
-    # store._write_json): write a temp sibling, restrict it before it is
-    # briefly visible, then os.replace() for an atomic swap. A crash mid-write
-    # then cannot truncate the live config.
-    cfg = _overrides_only(cfg)
+    """Persist user overrides through the owner-only storage authority."""
+    from . import private_storage
+
     path = config_path()
-    tmp = path.with_suffix(
-        path.suffix + f".{os.getpid()}.{uuid.uuid4().hex[:8]}.tmp"
+    private_storage.atomic_write_private_text(
+        path,
+        json.dumps(_overrides_only(cfg), indent=2, ensure_ascii=False),
     )
-    try:
-        fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(json.dumps(cfg, indent=2, ensure_ascii=False))
-        os.replace(tmp, path)
-    except OSError:
-        try:  # don't leave a partial .tmp behind on a failed write
-            tmp.unlink()
-        except OSError:
-            pass
-        raise
-    # config.json may hold an API key. The owner-only mode is enforced on POSIX;
-    # Windows relies on the directory's inherited ACL.
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
     return path
 
 

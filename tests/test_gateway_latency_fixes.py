@@ -361,7 +361,13 @@ def test_native_subagent_gate_is_bound_to_running_workflow_id(
     from birkin.gateway import workflow
     proposal = workflow.WorkflowProposal("work", "approved", ("delegate",))
     aid = workflow.queue_proposal(proposal, "task", "c1")
-    workflow.resolve_proposal(aid, "c1", approve=True)
+    workflow.resolve_proposal(
+        aid,
+        "c1",
+        approve=True,
+        actor_id="human:telegram:c1",
+        via="gateway:telegram",
+    )
     workflow.mark_running(aid, "c1")
     fake = _NativeSession()
     gw._persistent = False

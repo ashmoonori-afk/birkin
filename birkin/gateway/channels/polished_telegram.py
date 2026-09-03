@@ -4,16 +4,25 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable
+from typing import final
+from typing_extensions import override
 
-from ..core import Gateway
 from ..polish import PolishConfig, polish_telegram_reply
+from .base import TurnGateway
 from .telegram import TelegramChannel
 
 
-class _PolishingGateway(Gateway):
+ProgressCallback = Callable[[dict[str, object]], None] | None
+
+
+@final
+class _PolishingGateway:
+    _gateway: TurnGateway
+    _polish_cfg: PolishConfig
+
     def __init__(
         self,
-        gateway: Gateway,
+        gateway: TurnGateway,
         cfg: PolishConfig,
     ) -> None:
         self._gateway = gateway
@@ -33,7 +42,8 @@ class _PolishingGateway(Gateway):
         text: str,
         on_text: Callable[[str], None] | None = None,
         workflow_id: str | None = None,
-        on_progress: Callable[[dict], None] | None = None,
+        on_progress: ProgressCallback = None,
+        sender_id: str | None = None,
     ) -> str:
         # on_progress MUST be declared here: telegram._run_turn inspects
         # handle()'s signature and silently drops the callback when the
@@ -42,51 +52,94 @@ class _PolishingGateway(Gateway):
         # appeared only in the server log. Forwarding is capability-aware
         # (same guard as ask_session): older gateways / test doubles with the
         # narrower handle() must not TypeError.
-        kwargs: dict[str, object] = {
-            "on_text": on_text,
-            "workflow_id": workflow_id,
-        }
-        if on_progress is not None:
-            try:
-                params = inspect.signature(self._gateway.handle).parameters
-                accepts = ("on_progress" in params
-                           or any(p.kind is inspect.Parameter.VAR_KEYWORD
-                                  for p in params.values()))
-            except (TypeError, ValueError):
-                accepts = False
-            if accepts:
-                kwargs["on_progress"] = on_progress
-        reply = self._gateway.handle(channel, chat_id, text, **kwargs)
+        try:
+            params = inspect.signature(self._gateway.handle).parameters
+            accepts_kwargs = any(
+                param.kind is inspect.Parameter.VAR_KEYWORD for param in params.values()
+            )
+            accepts_progress = "on_progress" in params or accepts_kwargs
+            accepts_sender = "sender_id" in params or accepts_kwargs
+        except (TypeError, ValueError):
+            accepts_progress = False
+            accepts_sender = False
+        if accepts_progress and accepts_sender:
+            reply = self._gateway.handle(
+                channel,
+                chat_id,
+                text,
+                on_text,
+                workflow_id,
+                on_progress,
+                sender_id,
+            )
+        elif accepts_progress:
+            reply = self._gateway.handle(
+                channel,
+                chat_id,
+                text,
+                on_text,
+                workflow_id,
+                on_progress,
+            )
+        elif accepts_sender:
+            reply = self._gateway.handle(
+                channel,
+                chat_id,
+                text,
+                on_text,
+                workflow_id,
+                sender_id=sender_id,
+            )
+        else:
+            reply = self._gateway.handle(
+                channel,
+                chat_id,
+                text,
+                on_text,
+                workflow_id,
+            )
         return polish_telegram_reply(reply, self._polish_cfg)
 
 
 class PolishedTelegramChannel(TelegramChannel):
+    _polish_cfg: PolishConfig
+
     def __init__(
         self,
         token: str,
         cfg: PolishConfig,
         allowed_chat_ids: list[str] | None = None,
+        allowed_sender_ids: list[str] | None = None,
         stream: bool = True,
         max_public_workers: int = 4,
     ) -> None:
         super().__init__(
             token,
             allowed_chat_ids=allowed_chat_ids,
+            allowed_sender_ids=allowed_sender_ids,
             stream=stream,
             max_public_workers=max_public_workers,
         )
         self._polish_cfg = cfg
 
+    @override
     def _run_turn(
         self,
-        gateway: Gateway,
+        gateway: TurnGateway,
         chat_id: str,
         text: str,
         offset: int,
         workflow_id: str | None = None,
+        sender_id: str | None = None,
     ) -> None:
         if workflow_id is None:
-            super()._run_turn(gateway, chat_id, text, offset)
+            super()._run_turn(
+                gateway,
+                chat_id,
+                text,
+                offset,
+                sender_id=sender_id,
+            )
             return
         super()._run_turn(
             _PolishingGateway(gateway, self._polish_cfg),
@@ -94,4 +147,5 @@ class PolishedTelegramChannel(TelegramChannel):
             text,
             offset,
             workflow_id,
+            sender_id,
         )

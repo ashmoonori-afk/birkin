@@ -38,6 +38,9 @@ def _creation_payload(payload: Mapping[str, object]) -> dict[str, object]:
         raise creation_error("creation paragraphs are unavailable")
     paragraphs = parse_paragraphs(cast("Sequence[object]", raw_paragraphs))
     destination = Path(required_text(payload.get("destination"), "destination"))
+    # The destination reaches the router only through artifact_names: a filename
+    # embedded in the request text re-routes names like "notes.xlsx.docx" to a
+    # format conflict that the original approval never had.
     return OfficeCreationCoordinator(
         OfficeCreationCaller(
             allowlist_root=Path(
@@ -47,7 +50,7 @@ def _creation_payload(payload: Mapping[str, object]) -> dict[str, object]:
         )
     ).request(
         OfficeCreationRequest(
-            request_text=f"Create a new DOCX document at {destination.name}",
+            request_text="Create a new DOCX document",
             paragraphs=paragraphs,
             outcome=required_text(payload.get("outcome"), "outcome"),
             destination=destination,
@@ -112,6 +115,21 @@ def queue_overwrite_follow_up(
                 DocumentErrorCode.POLICY_DENIED,
                 "Office category does not support overwrite follow-up",
             )
+    origin = f"overwrite-retry:{approval_id}"
+    existing = next(
+        (
+            record
+            for record in store.list_pending()
+            if record.get("origin") == origin and record.get("category") == category
+        ),
+        None,
+    )
+    if existing is not None:
+        return {
+            "auto": False,
+            "id": str(existing["id"]),
+            "title": OVERWRITE_QUESTION,
+        }
     queued = store.add_pending(
         category=category,
         title=OVERWRITE_QUESTION,
@@ -120,7 +138,7 @@ def queue_overwrite_follow_up(
             "기존 파일이 있습니다. 승인하면 정확히 같은 작업으로 교체합니다."
         ),
         payload=rebound,
-        origin=f"overwrite-retry:{approval_id}",
+        origin=origin,
         details={
             "retry_of_approval_id": approval_id,
             "overwrite_retry": True,

@@ -1,33 +1,27 @@
-"""Atomic approval claiming, execution, continuation, and recovery."""
+"""Crash-safe approval claiming, one-shot execution, and continuation."""
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Protocol
 
 from . import config, store, worker_hooks
-
-_OFFICE_CATEGORIES = frozenset(
-    {
-        "office_create",
-        "office_job",
-        "office_rollback",
-    }
+from .approval_execution_codec import JSONValue, JournalCodecError, parse_mapping
+from .approval_execution_journal import (
+    ExecutionJournal,
+    JournalCorruptionError,
+    authority_digest,
 )
+from .approval_execution_state import JournalPhase
+from .approval_execution_types import ActionExecutor, EventSink
 
-
-class ActionExecutor(Protocol):
-    def __call__(
-        self,
-        category: str,
-        payload: dict[str, Any],
-        cfg: dict[str, Any] | None = None,
-        on_event: Any = None,
-    ) -> str: ...
+_OFFICE_CATEGORIES = frozenset({"office_create", "office_job", "office_rollback"})
 
 
 def _pending_path(approval_id: str) -> Path:
     return config.pending_dir() / f"{approval_id}.json"
+
+
+_authority_digest = authority_digest
 
 
 def claim(
@@ -35,27 +29,16 @@ def claim(
     *,
     approved_by: str,
     approved_via: str,
-) -> dict[str, Any]:
-    """Atomically claim pending authority or re-enter an Office recovery."""
+) -> dict[str, JSONValue]:
+    """Atomically claim pending approval authority."""
+    if not approved_by.strip() or not approved_via.strip():
+        raise ValueError("approval resolver identity must be non-empty")
     if not store.valid_pending_id(approval_id):
         return {"ok": False, "error": "invalid approval id"}
     try:
         with store.file_lock(_pending_path(approval_id)):
-            record = store.get_pending(approval_id)
-            if not record:
-                return {"ok": False, "error": "not found or already resolved"}
-            resuming_office = (
-                record.get("status") == "executing"
-                and record.get("category") in _OFFICE_CATEGORIES
-            )
-            if resuming_office:
-                if not record.get("approved_by") or not record.get("approved_via"):
-                    return {
-                        "ok": False,
-                        "error": "Office approval authority is incomplete",
-                    }
-                return {"ok": True}
-            if record.get("status") != "pending":
+            record: dict[str, JSONValue] | None = store.get_pending(approval_id)
+            if record is None or record.get("status") != "pending":
                 return {"ok": False, "error": "not found or already resolved"}
             if record.get("action_state") == "action_needed":
                 return {"ok": False, "error": "structured action requires answers"}
@@ -64,7 +47,7 @@ def claim(
                     "ok": False,
                     "error": "Telegram workflow requires its origin chat",
                 }
-            store.resolve_pending(
+            _ = store.resolve_pending(
                 approval_id,
                 "approving",
                 approved_by=approved_by,
@@ -72,162 +55,125 @@ def claim(
             )
     except store.FileLockTimeout:
         return {"ok": False, "error": "approval store is busy"}
+    except OSError as exc:
+        return {"ok": False, "error": f"approval store is unavailable: {exc}"}
     return {"ok": True}
 
 
 def execute_claimed(
     approval_id: str,
-    executor: ActionExecutor,
-    on_event: Any = None,
-) -> dict[str, Any]:
-    """Execute one claimed action and preserve recoverable Office authority."""
+    executor: ActionExecutor | None = None,
+    on_event: EventSink | None = None,
+) -> dict[str, JSONValue]:
+    """Seal one claimed action, then invoke it through the helper boundary."""
     if not store.valid_pending_id(approval_id):
         return {"ok": False, "error": "invalid approval id"}
     try:
         with store.file_lock(_pending_path(approval_id)):
-            record = store.get_pending(approval_id)
-            if not record:
-                return {"ok": False, "error": "approval is not claimed"}
-            resuming_office = (
-                record.get("status") == "executing"
-                and record.get("category") in _OFFICE_CATEGORIES
-            )
-            if record.get("status") != "approving" and not resuming_office:
+            record: dict[str, JSONValue] | None = store.get_pending(approval_id)
+            if record is None or record.get("status") != "approving":
                 return {"ok": False, "error": "approval is not claimed"}
             continuation = record.get("continuation")
-            if resuming_office and continuation is not None:
-                return {
-                    "ok": False,
-                    "error": "Office approval cannot resume a continuation",
-                }
-            if not resuming_office:
-                if continuation is not None:
-                    try:
-                        worker_hooks.validate(continuation)
-                    except worker_hooks.WorkerHookError as exc:
-                        store.resolve_pending(
-                            approval_id,
-                            "error",
-                            updates={"failure_stage": "validation"},
-                        )
-                        return {"ok": False, "error": str(exc)}
-                store.resolve_pending(approval_id, "executing")
-    except store.FileLockTimeout:
-        return {"ok": False, "error": "approval store is busy"}
-    try:
-        if record["category"] in _OFFICE_CATEGORIES:
-            result = executor(
-                record["category"],
-                record.get("payload", {}),
-                {"_office_approval_id": approval_id},
-                on_event=on_event,
-            )
-        elif on_event is not None:
-            result = executor(
-                record["category"], record.get("payload", {}), on_event=on_event
-            )
-        else:
-            result = executor(record["category"], record.get("payload", {}))
-    except store.FileLockTimeout:
-        if record["category"] in _OFFICE_CATEGORIES:
-            return {"ok": False, "error": "Office job is already executing"}
-        try:
-            with store.file_lock(_pending_path(approval_id)):
-                current = store.get_pending(approval_id)
-                if not current or current.get("status") != "executing":
-                    return {"ok": False, "error": "approval store is busy"}
-                store.resolve_pending(approval_id, "pending")
-        except store.FileLockTimeout:
-            return {"ok": False, "error": "approval store is busy"}
-        return {"ok": False, "error": "cron store is busy; retry."}
-    except Exception as exc:
-        if record["category"] in _OFFICE_CATEGORIES:
-            from .office.errors import DocumentError, DocumentErrorCode
-
-            match exc:
-                case DocumentError(code=DocumentErrorCode.OUTPUT_EXISTS):
-                    from .office.overwrite_retry import (
-                        OVERWRITE_QUESTION,
-                        queue_overwrite_follow_up,
-                    )
-
-                    try:
-                        follow_up = queue_overwrite_follow_up(
-                            approval_id=approval_id,
-                            category=record["category"],
-                            payload=record.get("payload", {}),
-                        )
-                    except Exception as follow_up_error:
-                        store.resolve_pending(
-                            approval_id,
-                            "error",
-                            updates={
-                                "failure_stage": "overwrite_follow_up",
-                                "failure_code": DocumentErrorCode.OUTPUT_EXISTS.value,
-                            },
-                        )
-                        return {
-                            "ok": False,
-                            "error": (f"overwrite follow-up failed: {follow_up_error}"),
-                        }
-                    follow_up_id = str(follow_up["id"])
-                    store.resolve_pending(
+            if continuation is not None:
+                try:
+                    _ = worker_hooks.validate(continuation)
+                except worker_hooks.WorkerHookError as exc:
+                    _ = store.resolve_pending(
                         approval_id,
                         "error",
                         updates={
-                            "failure_stage": "action",
-                            "failure_code": DocumentErrorCode.OUTPUT_EXISTS.value,
-                            "follow_up_approval_id": follow_up_id,
+                            "failure_stage": "validation",
+                            "execution_error": str(exc),
                         },
                     )
-                    return {
-                        "ok": False,
-                        "error": OVERWRITE_QUESTION,
-                        "follow_up_approval_id": follow_up_id,
-                    }
-                case DocumentError(retryable=True):
-                    return {
-                        "ok": False,
-                        "error": f"action recovery required: {exc}",
-                    }
-                case _:
-                    pass
-        store.resolve_pending(approval_id, "error", updates={"failure_stage": "action"})
-        return {"ok": False, "error": f"action failed: {exc}"}
-    if continuation is not None:
-        store.resolve_pending(
-            approval_id, "resume_pending", updates={"action_receipt": result}
-        )
-        resumed = execute_continuation(approval_id, on_event=on_event)
-        if resumed.get("ok"):
-            resumed["result"] = result
-        return resumed
-    store.resolve_pending(approval_id, "approved", updates={"action_receipt": result})
-    return {"ok": True, "result": result}
+                    return {"ok": False, "error": str(exc)}
+            try:
+                payload = parse_mapping(record.get("payload"))
+            except (JournalCodecError, TypeError, ValueError):
+                _ = store.resolve_pending(
+                    approval_id,
+                    "execution_frozen",
+                    updates={"failure_stage": "journal_integrity"},
+                )
+                return {"ok": False, "error": "approval payload is malformed"}
+            journal = ExecutionJournal(approval_id)
+            if journal.path.exists():
+                snapshot = journal.load()
+                if (
+                    snapshot.authority_digest != _authority_digest(record)
+                    or snapshot.category != "cron"
+                    or snapshot.phase is not JournalPhase.RETRYABLE_FAILURE
+                ):
+                    raise JournalCorruptionError(
+                        "approval execution journal already spent its authority"
+                    )
+                journal.retry_cron()
+            else:
+                journal.arm(
+                    _authority_digest(record),
+                    str(record.get("category") or ""),
+                    payload,
+                )
+                journal.ready()
+            _ = store.resolve_pending(approval_id, "executing")
+    except store.FileLockTimeout:
+        return {"ok": False, "error": "approval store is busy"}
+    except (OSError, JournalCorruptionError) as exc:
+        return {"ok": False, "error": f"approval execution could not be armed: {exc}"}
+    if executor is not None:
+        from .approval_execution_injected import execute
+
+        result = execute(approval_id, executor, on_event)
+    else:
+        from .approval_execution_recovery import recover_one
+
+        result = recover_one(approval_id, wait=True, on_event=on_event) or {
+            "ok": False,
+            "error": "approval execution state is missing",
+        }
+    current: dict[str, JSONValue] | None = store.get_pending(approval_id)
+    if (
+        result.get("ok")
+        and current is not None
+        and current.get("status") == "resume_pending"
+    ):
+        continued = execute_continuation(approval_id, on_event=on_event)
+        if continued.get("ok"):
+            continued["result"] = result.get("result", "")
+        return continued
+    return result
 
 
-def execute_continuation(approval_id: str, on_event: Any = None) -> dict[str, Any]:
+def execute_continuation(
+    approval_id: str,
+    on_event: EventSink | None = None,
+) -> dict[str, JSONValue]:
     if not store.valid_pending_id(approval_id):
         return {"ok": False, "error": "invalid approval id"}
     try:
         with store.file_lock(_pending_path(approval_id)):
-            record = store.get_pending(approval_id)
-            if not record or record.get("status") != "resume_pending":
+            record: dict[str, JSONValue] | None = store.get_pending(approval_id)
+            if record is None or record.get("status") != "resume_pending":
                 return {"ok": False, "error": "continuation is not pending"}
             continuation = worker_hooks.validate(record.get("continuation"))
-            store.resolve_pending(approval_id, "resuming")
-    except (store.FileLockTimeout, worker_hooks.WorkerHookError) as exc:
+            _ = store.resolve_pending(approval_id, "resuming")
+    except (OSError, store.FileLockTimeout, worker_hooks.WorkerHookError) as exc:
         return {"ok": False, "error": str(exc)}
     try:
         result = worker_hooks.dispatch(continuation, on_event=on_event)
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
-        store.resolve_pending(
-            approval_id, "error", updates={"failure_stage": "continuation"}
+        _ = store.resolve_pending(
+            approval_id,
+            "error",
+            updates={"failure_stage": "continuation", "execution_error": str(exc)},
         )
         return {"ok": False, "error": f"continuation failed: {exc}"}
-    store.resolve_pending(
-        approval_id, "approved", updates={"continuation_result": result}
+    _ = store.resolve_pending(
+        approval_id,
+        "approved",
+        updates={"continuation_result": result},
     )
+    _ = store.remove_action_receipt(approval_id)
     return {"ok": True, "continuation_result": result}
 
 
@@ -236,23 +182,57 @@ def restore_claim(approval_id: str) -> bool:
         return False
     try:
         with store.file_lock(_pending_path(approval_id)):
-            record = store.get_pending(approval_id)
-            if not record or record.get("status") != "approving":
+            record: dict[str, JSONValue] | None = store.get_pending(approval_id)
+            if record is None or record.get("status") != "approving":
                 return False
-            store.resolve_pending(approval_id, "pending")
-    except store.FileLockTimeout:
+            _ = store.resolve_pending(approval_id, "pending")
+    except (OSError, store.FileLockTimeout):
         return False
     return True
 
 
 def approve(
     approval_id: str,
-    executor: ActionExecutor,
-    on_event: Any = None,
+    executor: ActionExecutor | None = None,
+    on_event: EventSink | None = None,
     *,
     approved_by: str,
     approved_via: str,
-) -> dict[str, Any]:
+) -> dict[str, JSONValue]:
+    if not approved_by.strip() or not approved_via.strip():
+        raise ValueError("approval resolver identity must be non-empty")
+    current: dict[str, JSONValue] | None = store.get_pending(approval_id)
+    if current is not None and current.get("status") == "executing":
+        if (
+            current.get("category") in _OFFICE_CATEGORIES
+            and (not current.get("approved_by") or not current.get("approved_via"))
+        ):
+            return {"ok": False, "error": "Office approval authority is incomplete"}
+        terminal_phases = {
+            JournalPhase.SUCCEEDED,
+            JournalPhase.FAILED,
+            JournalPhase.RETRYABLE_FAILURE,
+            JournalPhase.ACTION_OUTCOME_UNKNOWN,
+        }
+        try:
+            phase = ExecutionJournal(approval_id).load().phase
+        except JournalCorruptionError:
+            phase = None
+        recoverable = (
+            current.get("category") in _OFFICE_CATEGORIES
+            or phase is None
+            or phase in terminal_phases
+        )
+        if recoverable:
+            from .approval_execution_recovery import recover_one
+
+            return recover_one(
+                approval_id,
+                wait=current.get("category") in _OFFICE_CATEGORIES,
+            ) or {
+                "ok": False,
+                "error": "approval execution state is missing",
+            }
     claimed = claim(
         approval_id,
         approved_by=approved_by,
@@ -269,21 +249,23 @@ def reject(
     *,
     rejected_by: str,
     rejected_via: str,
-) -> dict[str, Any]:
+) -> dict[str, JSONValue]:
+    if not rejected_by.strip() or not rejected_via.strip():
+        raise ValueError("rejection resolver identity must be non-empty")
     if not store.valid_pending_id(approval_id):
         return {"ok": False}
     try:
         with store.file_lock(_pending_path(approval_id)):
-            record = store.get_pending(approval_id)
-            if not record or record.get("status") != "pending":
+            record: dict[str, JSONValue] | None = store.get_pending(approval_id)
+            if record is None or record.get("status") != "pending":
                 return {"ok": False}
-            store.resolve_pending(
+            _ = store.resolve_pending(
                 approval_id,
                 "rejected",
                 reason=reason,
                 rejected_by=rejected_by,
                 rejected_via=rejected_via,
             )
-    except store.FileLockTimeout:
+    except (OSError, store.FileLockTimeout):
         return {"ok": False}
     return {"ok": True}

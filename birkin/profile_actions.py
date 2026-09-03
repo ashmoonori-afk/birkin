@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import tempfile
 import unicodedata
 import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, Sequence
 
+from .private_storage import atomic_write_private_text, read_private_text
 from .rolefiles import (
     PROFILE_ORDER,
     ProfileBudgetExceeded,
@@ -35,6 +34,7 @@ _SECRET_PATTERNS = (
     re.compile(r"\bAIza[A-Za-z0-9_-]{35}\b"),
     re.compile(r"\b[A-Za-z0-9+/]{32,}={0,2}\b"),
 )
+
 
 @dataclass(frozen=True)
 class ProfileReceipt:
@@ -75,7 +75,7 @@ def validate_profile_text(text: str) -> str:
             raise ProfileValidationError("invisible unicode in profile content")
     if value.startswith(("---", "```")) or "\n---" in value or "\n```" in value:
         raise ProfileValidationError("markdown boundary marker in profile content")
-    if value.startswith(('#', '<!--')) or "</system" in value.lower():
+    if value.startswith(("#", "<!--")) or "</system" in value.lower():
         raise ProfileValidationError("markdown boundary breakage in profile content")
     for pattern in _SECRET_PATTERNS:
         if pattern.search(value):
@@ -112,10 +112,15 @@ class ProfileActions:
         self.store.bootstrap()
         self._path = self.store.root / "pending-v1.json"
 
-    def submit(self, edit: ProfileEdit, *, trusted: bool, source: str) -> ProfileReceipt:
+    def submit(
+        self, edit: ProfileEdit, *, trusted: bool, source: str
+    ) -> ProfileReceipt:
         if not trusted:
             return ProfileReceipt(
-                id="", status="error", edit=edit, source=source,
+                id="",
+                status="error",
+                edit=edit,
+                source=source,
                 error={"type": "untrusted"},
             )
         try:
@@ -123,22 +128,40 @@ class ProfileActions:
             revision = self.store.snapshot().revision
             if self.approval_required:
                 receipt = ProfileReceipt(
-                    id=uuid.uuid4().hex, status="pending", edit=clean,
-                    source=source, revision=revision,
+                    id=uuid.uuid4().hex,
+                    status="pending",
+                    edit=clean,
+                    source=source,
+                    revision=revision,
                 )
                 self._append(receipt)
                 return receipt
             snapshot = self.store.apply(clean, expected_revision=revision)
             return ProfileReceipt(
-                id=uuid.uuid4().hex, status="applied", edit=clean,
-                source=source, revision=snapshot.revision,
+                id=uuid.uuid4().hex,
+                status="applied",
+                edit=clean,
+                source=source,
+                revision=snapshot.revision,
             )
         except ProfileBudgetExceeded as exc:
             return ProfileReceipt("", "error", edit, source, error=_budget_payload(exc))
         except (ProfileValidationError, ValueError) as exc:
-            return ProfileReceipt("", "error", edit, source, error={"type": "invalid", "message": str(exc)})
+            return ProfileReceipt(
+                "",
+                "error",
+                edit,
+                source,
+                error={"type": "invalid", "message": str(exc)},
+            )
         except ProfileRevisionError as exc:
-            return ProfileReceipt("", "error", edit, source, error={"type": "stale_revision", "message": str(exc)})
+            return ProfileReceipt(
+                "",
+                "error",
+                edit,
+                source,
+                error={"type": "stale_revision", "message": str(exc)},
+            )
 
     def pending(self) -> tuple[ProfileReceipt, ...]:
         return tuple(self._load())
@@ -154,16 +177,47 @@ class ProfileActions:
             try:
                 clean = _normalize_edit(receipt.edit)
                 snapshot = self.store.apply(clean, expected_revision=receipt.revision)
-                out.append(ProfileReceipt(receipt.id, "applied", clean, receipt.source, snapshot.revision))
+                out.append(
+                    ProfileReceipt(
+                        receipt.id, "applied", clean, receipt.source, snapshot.revision
+                    )
+                )
             except ProfileBudgetExceeded as exc:
                 kept.append(receipt)
-                out.append(ProfileReceipt(receipt.id, "error", receipt.edit, receipt.source, receipt.revision, _budget_payload(exc)))
+                out.append(
+                    ProfileReceipt(
+                        receipt.id,
+                        "error",
+                        receipt.edit,
+                        receipt.source,
+                        receipt.revision,
+                        _budget_payload(exc),
+                    )
+                )
             except ProfileRevisionError as exc:
                 kept.append(receipt)
-                out.append(ProfileReceipt(receipt.id, "error", receipt.edit, receipt.source, receipt.revision, {"type": "stale_revision", "message": str(exc)}))
+                out.append(
+                    ProfileReceipt(
+                        receipt.id,
+                        "error",
+                        receipt.edit,
+                        receipt.source,
+                        receipt.revision,
+                        {"type": "stale_revision", "message": str(exc)},
+                    )
+                )
             except (ProfileValidationError, ValueError) as exc:
                 kept.append(receipt)
-                out.append(ProfileReceipt(receipt.id, "error", receipt.edit, receipt.source, receipt.revision, {"type": "invalid", "message": str(exc)}))
+                out.append(
+                    ProfileReceipt(
+                        receipt.id,
+                        "error",
+                        receipt.edit,
+                        receipt.source,
+                        receipt.revision,
+                        {"type": "invalid", "message": str(exc)},
+                    )
+                )
         self._save(kept)
         return tuple(out)
 
@@ -173,7 +227,15 @@ class ProfileActions:
         out: list[ProfileReceipt] = []
         for receipt in self._load():
             if receipt.id in want:
-                out.append(ProfileReceipt(receipt.id, "rejected", receipt.edit, receipt.source, receipt.revision))
+                out.append(
+                    ProfileReceipt(
+                        receipt.id,
+                        "rejected",
+                        receipt.edit,
+                        receipt.source,
+                        receipt.revision,
+                    )
+                )
             else:
                 kept.append(receipt)
         self._save(kept)
@@ -185,42 +247,31 @@ class ProfileActions:
         self._save(items)
 
     def _load(self) -> list[ProfileReceipt]:
-        if not self._path.exists():
+        try:
+            text = read_private_text(self._path)
+        except FileNotFoundError:
             return []
-        raw = json.loads(self._path.read_text(encoding="utf-8"))
+        raw = json.loads(text)
         items = raw.get("pending", []) if isinstance(raw, dict) else []
         out: list[ProfileReceipt] = []
         for item in items:
             edit = ProfileEdit(**item["edit"])
-            out.append(ProfileReceipt(
-                id=str(item["id"]), status="pending", edit=edit,
-                source=str(item.get("source", "")),
-                revision=str(item.get("revision", "")),
-            ))
+            out.append(
+                ProfileReceipt(
+                    id=str(item["id"]),
+                    status="pending",
+                    edit=edit,
+                    source=str(item.get("source", "")),
+                    revision=str(item.get("revision", "")),
+                )
+            )
         return out
 
     def _save(self, items: Sequence[ProfileReceipt]) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        if os.name == "posix":
-            os.chmod(self._path.parent, 0o700)
-        # Windows ACLs are not set here; os.chmod only exposes a read-only bit.
         payload = {"version": 1, "pending": [item.payload() for item in items]}
-        fd, tmp = tempfile.mkstemp(prefix=".pending-v1.", dir=str(self._path.parent))
-        if os.name == "posix":
-            os.fchmod(fd, 0o600)
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8", newline="") as handle:
-                json.dump(payload, handle, indent=2, sort_keys=True)
-                handle.write("\n")
-            os.replace(tmp, self._path)
-            if os.name == "posix":
-                os.chmod(self._path, 0o600)
-        except BaseException:
-            try:
-                os.unlink(tmp)
-            except OSError:
-                pass
-            raise
+        text = json.dumps(payload, indent=2, sort_keys=True) + "\n"
+        atomic_write_private_text(self._path, text)
+
 
 def build_profile_tools(actions: ProfileActions) -> list[Any]:
     """Build the foreground profile_write tool."""
@@ -247,16 +298,24 @@ def build_profile_tools(actions: ProfileActions) -> list[Any]:
             content=str(inp.get("content", "")),
         )
         receipt = actions.submit(edit, trusted=True, source="tool")
-        return ToolResult(json.dumps(receipt.payload(), sort_keys=True), receipt.status == "error")
+        return ToolResult(
+            json.dumps(receipt.payload(), sort_keys=True), receipt.status == "error"
+        )
 
-    return [Tool(
-        name="profile_write",
-        description="Write trusted role-profile guidance. Use add, replace, or remove.",
-        input_schema={"type": "object", "properties": {
-            "target": {"type": "string", "enum": list(PROFILE_ORDER)},
-            "action": {"type": "string", "enum": ["add", "replace", "remove"]},
-            "old_text": {"type": "string"},
-            "content": {"type": "string"},
-        }, "required": ["target", "action"]},
-        fn=profile_write,
-    )]
+    return [
+        Tool(
+            name="profile_write",
+            description="Write trusted role-profile guidance. Use add, replace, or remove.",
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "enum": list(PROFILE_ORDER)},
+                    "action": {"type": "string", "enum": ["add", "replace", "remove"]},
+                    "old_text": {"type": "string"},
+                    "content": {"type": "string"},
+                },
+                "required": ["target", "action"],
+            },
+            fn=profile_write,
+        )
+    ]

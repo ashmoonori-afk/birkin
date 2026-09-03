@@ -52,6 +52,7 @@ def test_runtime_dependencies_and_desktop_extra_are_declared():
     data = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
     # Mnemosyne ships in the Birkin wheel rather than as a VCS dependency.
     assert data["project"]["dependencies"] == [
+        "pydantic>=2,<3",
         "psutil>=6",
         "typing-extensions>=4.12",
     ]

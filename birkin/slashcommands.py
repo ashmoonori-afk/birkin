@@ -787,6 +787,19 @@ def _sessions_search(arg: str) -> None:
 
 # -- gateway ---------------------------------------------------------------
 
+def _gateway_token() -> str:
+    """Resolve the capability the local HTTP channel checks: env, then file."""
+    import os
+    from .gateway.channels.capability_file import load_or_create_token
+    env_token = (os.environ.get("BIRKIN_HTTP_TOKEN") or "").strip()
+    if env_token:
+        return env_token
+    try:
+        return load_or_create_token()[0]
+    except (OSError, RuntimeError):
+        return ""
+
+
 def _gateway_post(cfg: dict, text: str) -> str:
     """Send *text* to the local gateway via HTTP and return the reply."""
     import urllib.error
@@ -794,12 +807,25 @@ def _gateway_post(cfg: dict, text: str) -> str:
     port = cfg.get("gateway_port", 8788)
     url = f"http://127.0.0.1:{port}/message"
     body = json.dumps({"text": text, "session": "repl"}).encode()
-    req = urllib.request.Request(url, data=body,
-                                 headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    token = _gateway_token()
+    if token:
+        # The channel authenticates before it reads the body, so without this
+        # header the gateway answers 401 and the URLError arm below would
+        # blame connectivity for what is an authentication failure.
+        headers["X-Birkin-Token"] = token
+    req = urllib.request.Request(url, data=body, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read())
             return data.get("reply", "")
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            return (
+                f"{RED}게이트웨이가 권한 토큰을 거부했습니다 (HTTP {exc.code}). "
+                f"같은 계정으로 `birkin gateway`를 다시 시작하거나 "
+                f"BIRKIN_HTTP_TOKEN을 맞춰 주세요.{RESET}")
+        return f"{RED}게이트웨이 요청이 실패했습니다 (HTTP {exc.code}).{RESET}"
     except urllib.error.URLError as exc:
         return f"{RED}Gateway not reachable ({exc}). Is `birkin gateway` running?{RESET}"
 

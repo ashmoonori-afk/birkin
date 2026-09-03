@@ -33,12 +33,14 @@ from pathlib import Path
 from threading import RLock
 from types import FrameType
 from typing import Any, cast, final
+from typing_extensions import assert_never
 from urllib.parse import parse_qs, urlsplit
 from weakref import WeakKeyDictionary
 
 from .. import __version__, approvals, config, cron, store
 from ..browser_aside_control import browser_workspace_registry
 from ..browser_aside_errors import BrowserAsideError
+from ..private_storage import atomic_write_private_text
 from ..runtime import Session
 from ..skills import build_manager
 from ..workspace import (
@@ -82,6 +84,14 @@ from .external_origin import (
     WebExternalOrigin,
     parse_web_external_url,
 )
+from .request_payload import (
+    JSONValue,
+    RequestPayloadError,
+    parse_object,
+    parse_value,
+    string_list,
+)
+from .routes import GetRoute, PostRoute, RouteMatch, match_get, match_post
 
 _STATIC = Path(__file__).resolve().parent / "static"
 MAX_POST_BODY_BYTES = 65_536
@@ -104,9 +114,7 @@ class BoundedHTTPServer(ThreadingHTTPServer):
         request_handler: type[BaseHTTPRequestHandler],
         bind_and_activate: bool = True,
     ) -> None:
-        self._worker_slots = threading.BoundedSemaphore(
-            MAX_PUBLIC_WORKERS
-        )
+        self._worker_slots = threading.BoundedSemaphore(MAX_PUBLIC_WORKERS)
         super().__init__(
             server_address,
             request_handler,
@@ -159,11 +167,7 @@ class BoundedHTTPServer(ThreadingHTTPServer):
                     return
                 combined = suffix + pending
                 boundary = combined.find(b"\r\n\r\n")
-                consume = (
-                    boundary + 4 - len(suffix)
-                    if boundary >= 0
-                    else len(pending)
-                )
+                consume = boundary + 4 - len(suffix) if boundary >= 0 else len(pending)
                 consumed = 0
                 while consumed < consume:
                     chunk = request.recv(consume - consumed)
@@ -194,9 +198,7 @@ HTTPServer = BoundedHTTPServer
 
 # A per-process capability set as an HttpOnly cookie on the root page and
 # required for sensitive reads and mutations. JavaScript never receives it.
-_CAPABILITY_TOKEN = (
-    os.environ.get("BIRKIN_HTTP_TOKEN") or secrets.token_urlsafe(24)
-)
+_CAPABILITY_TOKEN = os.environ.get("BIRKIN_HTTP_TOKEN") or secrets.token_urlsafe(24)
 # Compatibility name for trusted local header clients. This is the process
 # capability, never a listener bootstrap nonce.
 _TOKEN = _CAPABILITY_TOKEN
@@ -212,9 +214,7 @@ _workspace_hub: WorkspaceHub | None = None
 _workspace_lock = threading.Lock()
 _workspace_adapters: dict[str, RuntimeWorkspaceAdapter] = {}
 _SECURITY_LOCK = RLock()
-_SECURITY_GUARDS: WeakKeyDictionary[object, BrowserRequestGuard] = (
-    WeakKeyDictionary()
-)
+_SECURITY_GUARDS: WeakKeyDictionary[object, BrowserRequestGuard] = WeakKeyDictionary()
 _BOOTSTRAP_NONCES: WeakKeyDictionary[object, str] = WeakKeyDictionary()
 _BROWSER_WORKSPACES: WeakKeyDictionary[
     object,
@@ -233,11 +233,6 @@ def _consume_bootstrap(server: object) -> bool:
             return False
         _BOOTSTRAPPED_SERVERS[server] = True
         return True
-_LEGACY_UI_PATHS = {
-    "/legacy-dashboard",
-    "/dashboard",
-    "/workbench",
-}
 
 
 def capability_token() -> str:
@@ -264,9 +259,7 @@ def _browser_guard(server: object, port: int) -> BrowserRequestGuard:
             _ = _bootstrap_nonce(server)
             guard = _SECURITY_GUARDS.get(server)
         if guard is None:
-            raise RuntimeError(
-                "listener browser security was not initialized"
-            )
+            raise RuntimeError("listener browser security was not initialized")
         return guard
 
 
@@ -338,9 +331,7 @@ def _browser_workspace(server: object) -> BrowserApiWorkspace:
     with _SECURITY_LOCK:
         workspace = _BROWSER_WORKSPACES.get(server)
         if workspace is None:
-            workspace = browser_api_workspace(
-                f"web:{_bootstrap_nonce(server)}"
-            )
+            workspace = browser_api_workspace(f"web:{_bootstrap_nonce(server)}")
             _BROWSER_WORKSPACES[server] = workspace
         return workspace
 
@@ -368,6 +359,7 @@ def _get_workspace_hub() -> WorkspaceHub:
                     handlers=_workspace_handlers,
                 )
             else:
+
                 def factory(
                     session_id: str,
                     emit: EventSink,
@@ -441,9 +433,7 @@ class BackgroundWebServer:
             return
         self._closed = True
         _close_workspace_runtime()
-        _ = close_browser_service(
-            workspace=_browser_workspace(self.httpd)
-        )
+        _ = close_browser_service(workspace=_browser_workspace(self.httpd))
         self.httpd.shutdown()
         self.httpd.server_close()
         self.thread.join(timeout=2)
@@ -471,9 +461,7 @@ def start_background(port: int | None = None) -> BackgroundWebServer:
     os.environ["BIRKIN_BROWSER_CONTROL_ADDRESSES"] = (
         f"127.0.0.1:{actual_port},localhost:{actual_port}"
     )
-    bootstrap_url = (
-        f"http://127.0.0.1:{actual_port}/_bootstrap/{bootstrap_nonce}"
-    )
+    bootstrap_url = f"http://127.0.0.1:{actual_port}/_bootstrap/{bootstrap_nonce}"
     thread = threading.Thread(
         target=httpd.serve_forever,
         name="birkin-workspace-web",
@@ -485,6 +473,7 @@ def start_background(port: int | None = None) -> BackgroundWebServer:
 
 def _checkpoint_manager():
     from ..checkpoints import CheckpointManager
+
     cfg = config.load_config()
     return CheckpointManager(enabled=bool(cfg.get("checkpoints", True)))
 
@@ -498,6 +487,7 @@ def _status_payload() -> dict[str, Any]:
         skills_count = None
         skills_error = "unavailable"
     from .. import budget as budget_mod
+
     st = store.read_status()
     stale = store.is_status_stale(st)
     payload = {
@@ -526,6 +516,7 @@ def _status_payload() -> dict[str, Any]:
 
 
 class Handler(BaseHTTPRequestHandler):
+    server: BoundedHTTPServer
     server_version = f"birkin-dashboard/{__version__}"
     protocol_version: str = "HTTP/1.1"
 
@@ -570,8 +561,11 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _json(self, obj: Any, code: int = 200) -> None:
-        self._send(code, json.dumps(obj, ensure_ascii=False).encode("utf-8"),
-                   "application/json; charset=utf-8")
+        self._send(
+            code,
+            json.dumps(obj, ensure_ascii=False).encode("utf-8"),
+            "application/json; charset=utf-8",
+        )
 
     def _browser_response(
         self,
@@ -665,9 +659,7 @@ class Handler(BaseHTTPRequestHandler):
                     body = b": heartbeat\n\n"
                 _ = self.wfile.write(body)
                 self.wfile.flush()
-                if until is not None and any(
-                    event.type == until for event in events
-                ):
+                if until is not None and any(event.type == until for event in events):
                     return
         except (BrokenPipeError, ConnectionResetError, OSError):
             return
@@ -717,9 +709,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "after must be a non-negative integer"}, code=400)
                 return True
             until = (query.get("until") or [None])[0]
-            if until is not None and (
-                re.fullmatch(r"[a-z.]{1,64}", until) is None
-            ):
+            if until is not None and (re.fullmatch(r"[a-z.]{1,64}", until) is None):
                 self._json({"error": "invalid until event type"}, code=400)
                 return True
             once = (query.get("once") or ["0"])[0] == "1"
@@ -758,23 +748,13 @@ class Handler(BaseHTTPRequestHandler):
         path = urlsplit(self.path).path
         if not path.startswith("/api/workspace/"):
             return False
-        body, body_status = self._read_body()
-        if body_status != 200:
-            message = {
-                408: "request body timeout",
-                413: "payload too large",
-            }.get(body_status, "bad content length")
-            self._json({"error": message}, code=body_status)
+        # Shared with the other POST routes: one bounded parse, so a malformed
+        # or over-nested body earns the same 400 here as it does there instead
+        # of an answer that depends on the platform's own recursion limit.
+        parsed = self._read_json_object()
+        if parsed is None:
             return True
-        try:
-            raw_payload = cast(object, json.loads(body or b"{}"))
-        except (ValueError, UnicodeDecodeError):
-            self._json({"error": "bad json"}, code=400)
-            return True
-        if not isinstance(raw_payload, dict):
-            self._json({"error": "expected JSON object"}, code=400)
-            return True
-        payload = cast(dict[str, object], raw_payload)
+        payload = cast(dict[str, object], parsed)
         hub = _get_workspace_hub()
         if path == "/api/workspace/sessions":
             if set(payload) != {"session_id"}:
@@ -810,9 +790,7 @@ class Handler(BaseHTTPRequestHandler):
                     _ = signal_workspace_interrupt(session.session_id)
 
                 on_accepted = (
-                    signal_interrupt
-                    if command.type == "chat.interrupt"
-                    else None
+                    signal_interrupt if command.type == "chat.interrupt" else None
                 )
                 try:
                     receipt = session.submit(
@@ -832,9 +810,7 @@ class Handler(BaseHTTPRequestHandler):
                         on_accepted=on_accepted,
                     )
             except ProtocolError as exc:
-                code = 409 if isinstance(
-                    exc, (CommandIdConflict, StaleCursor)
-                ) else 400
+                code = 409 if isinstance(exc, (CommandIdConflict, StaleCursor)) else 400
                 self._json({"error": str(exc)}, code=code)
                 return True
             self._json(
@@ -898,22 +874,15 @@ class Handler(BaseHTTPRequestHandler):
         except CookieError:
             return False
         capability = cookies.get(_CAPABILITY_COOKIE)
-        return bool(
-            capability
-            and secrets.compare_digest(capability.value, _TOKEN)
-        )
+        return bool(capability and secrets.compare_digest(capability.value, _TOKEN))
 
     def _browser_denial(
         self,
         method: str,
     ) -> BrowserRequestDenied | None:
         client_id = self.headers.get("X-Birkin-Browser-Client", "")
-        if (
-            not 8 <= len(client_id) <= 80
-            or not all(
-                character.isalnum() or character in {"-", "_"}
-                for character in client_id
-            )
+        if not 8 <= len(client_id) <= 80 or not all(
+            character.isalnum() or character in {"-", "_"} for character in client_id
         ):
             return BrowserRequestDenied(
                 "client_identity_denied",
@@ -945,10 +914,7 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def _browser_actor_id(self) -> str:
-        return (
-            "human:web:"
-            + self.headers["X-Birkin-Browser-Client"]
-        )
+        return "human:web:" + self.headers["X-Birkin-Browser-Client"]
 
     def _approval_actor_id(self) -> str:
         return "principal:web:authenticated-capability"
@@ -1032,217 +998,291 @@ class Handler(BaseHTTPRequestHandler):
         if not self._host_ok():
             self._send(403, b"forbidden host", "text/plain")
             return
+        route = match_get(self.path)
+        get_route = route.route
+        match get_route:
+            case GetRoute():
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
         if not self._cookie_origin_ok(write=False):
             self._json({"error": "cross-origin capability request"}, code=403)
             return
-        if is_browser_path(self.path):
-            denial = self._browser_denial("GET")
-            if denial is not None:
-                self._send_browser_denial(denial)
-                return
-            self._browser_response(get_browser(
+        match get_route:
+            case GetRoute.BROWSER:
+                self._handle_browser_get()
+            case GetRoute.FAVICON:
+                self._send(204, b"", "image/x-icon")
+            case GetRoute.LEGACY_UI:
+                self._send(
+                    308,
+                    b"",
+                    "text/plain; charset=utf-8",
+                    {
+                        "Location": "/",
+                        "Deprecation": "true",
+                        "Link": '</>; rel="successor-version"',
+                    },
+                )
+            case GetRoute.WORKSPACE:
+                _ = self._workspace_get()
+            case GetRoute.BOOTSTRAP:
+                self._handle_bootstrap_get()
+            case (
+                GetRoute.APPROVAL_DIFF
+                | GetRoute.CONFIG
+                | GetRoute.AGENT_RUNS
+                | GetRoute.AGENT_RUN
+                | GetRoute.ACTION_RECEIPT
+                | GetRoute.CHECKPOINTS
+                | GetRoute.EVENTS
+                | GetRoute.APPROVALS
+            ):
+                self._handle_protected_get(route, get_route)
+            case (
+                GetRoute.ROOT
+                | GetRoute.STATUS
+                | GetRoute.CONTRACT
+                | GetRoute.JOBS
+                | GetRoute.RUNS
+                | GetRoute.SKILLS
+                | GetRoute.AGENT_CARD
+                | GetRoute.NOT_FOUND
+            ):
+                self._handle_public_get(get_route)
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def _handle_browser_get(self) -> None:
+        denial = self._browser_denial("GET")
+        if denial is not None:
+            self._send_browser_denial(denial)
+            return
+        self._browser_response(
+            get_browser(
                 self.path,
                 actor_id=self._browser_actor_id(),
                 workspace=_browser_workspace(self.server),
-            ))
+            )
+        )
+
+    def _handle_bootstrap_get(self) -> None:
+        nonce = self.path.removeprefix("/_bootstrap/")
+        try:
+            capability = _browser_guard(
+                self.server,
+                self.server.server_port,
+            ).consume_bootstrap(
+                nonce,
+                host=self.headers.get("Host", ""),
+            )
+        except BrowserRequestDenied as exc:
+            self._send_browser_denial(exc)
             return
-        if urlsplit(self.path).path == "/favicon.ico":
-            self._send(204, b"", "image/x-icon")
-            return
-        if urlsplit(self.path).path in _LEGACY_UI_PATHS:
+        if not _consume_bootstrap(self.server):
             self._send(
-                308,
-                b"",
+                410,
+                b"bootstrap capability already consumed",
                 "text/plain; charset=utf-8",
-                {
-                    "Location": "/",
-                    "Deprecation": "true",
-                    "Link": '</>; rel="successor-version"',
-                },
             )
             return
-        if self._workspace_get():
+        self._send(
+            303,
+            b"",
+            "text/plain",
+            headers={
+                "Location": "/",
+                "Set-Cookie": (
+                    f"{_CAPABILITY_COOKIE}={capability}; HttpOnly; "
+                    "SameSite=Strict; Path=/"
+                    + (
+                        "; Secure"
+                        if (external := _listener_external_origin(self.server))
+                        is not None
+                        and external.secure
+                        else ""
+                    )
+                ),
+            },
+        )
+
+    def _handle_protected_get(
+        self,
+        route: RouteMatch[GetRoute],
+        get_route: GetRoute,
+    ) -> None:
+        if not self._capability_ok():
+            self._json({"error": "missing or invalid capability"}, code=403)
             return
-        if self.path.startswith("/_bootstrap/"):
-            nonce = self.path.removeprefix("/_bootstrap/")
-            try:
-                capability = _browser_guard(
-                    self.server,
-                    cast(HTTPServer, self.server).server_port,
-                ).consume_bootstrap(
-                    nonce,
-                    host=self.headers.get("Host", ""),
-                )
-            except BrowserRequestDenied as exc:
-                self._send_browser_denial(exc)
-                return
-            if not _consume_bootstrap(self.server):
-                self._send(
-                    410,
-                    b"bootstrap capability already consumed",
-                    "text/plain; charset=utf-8",
-                )
-                return
-            self._send(
-                303,
-                b"",
-                "text/plain",
-                headers={
-                    "Location": "/",
-                    "Set-Cookie": (
-                        f"{_CAPABILITY_COOKIE}={capability}; HttpOnly; "
-                        "SameSite=Strict; Path=/"
-                        + (
-                            "; Secure"
-                            if (
-                                (
-                                    external
-                                    := _listener_external_origin(self.server)
-                                )
-                                is not None
-                                and external.secure
-                            )
-                            else ""
-                        )
-                    ),
-                },
-            )
-        elif self.path in ("/", "/index.html"):
-            html = (_STATIC / "index.html").read_text(encoding="utf-8")
-            self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
-        elif self.path == "/api/status":
-            self._json(_status_payload())
-        elif self.path.startswith("/api/approvals/") and self.path.endswith("/diff"):
-            if not self._capability_ok():
-                self._json({"error": "missing or invalid capability"}, code=403)
-                return
-            from .. import ide
-            approval_id = self.path.split("/")[3]
-            code, text = ide.approval_diff(approval_id)
-            if code != 200:
-                self._json({"error": "diff unavailable"}, code=code)
-                return
-            self._send(200, text.encode("utf-8"), "text/x-diff; charset=utf-8")
-        elif self.path == "/api/config":
-            if not self._capability_ok():
-                self._json({"error": "missing or invalid capability"}, code=403)
-                return
-            from .. import ide
-            self._json(ide.safe_config())
-        elif self.path == "/api/agent-runs":
-            if not self._capability_ok():
-                self._json({"error": "missing or invalid capability"}, code=403)
-                return
-            from . import approval_console
-            self._json(approval_console.list_runs())
-        elif re.fullmatch(r"/api/agent-runs/[0-9a-f]{12}", self.path):
-            if not self._capability_ok():
-                self._json({"error": "missing or invalid capability"}, code=403)
-                return
-            from . import approval_console
-            code, payload = approval_console.run_detail(self.path.rsplit("/", 1)[-1])
-            self._json(payload, code=code)
-        elif re.fullmatch(r"/api/actions/[0-9a-f]{12}/receipt", self.path):
-            if not self._capability_ok():
-                self._json({"error": "missing or invalid capability"}, code=403)
-                return
-            from . import approval_console
-            action_id = self.path.split("/")[3]
-            code, payload = approval_console.action_receipt(action_id)
-            self._json(payload, code=code)
-        elif self.path.startswith("/api/checkpoints"):
-            if not self._capability_ok():
-                self._json({"error": "missing or invalid capability"}, code=403)
-                return
-            from .. import ide
-            workspace = ide.workspace_from_path(self.path)
-            route = urlsplit(self.path).path
-            manager = _checkpoint_manager()
-            diff_match = re.fullmatch(
-                r"/api/checkpoints/([0-9a-fA-F]{4,40})/diff", route)
-            if route == "/api/checkpoints":
-                self._json(manager.list_checkpoints(workspace))
-            elif route == "/api/checkpoints/timeline":
-                self._json(manager.timeline(workspace))
-            elif route == "/api/checkpoints/lineage":
-                self._json(manager.lineage(workspace))
-            elif diff_match:
-                self._json(manager.diff_preview(workspace, diff_match.group(1)))
-            else:
-                self._json({"error": "checkpoint route not found"}, code=404)
-        elif self.path == "/api/events":
-            if not self._capability_ok():
-                self._json({"error": "missing or invalid capability"}, code=403)
-                return
-            from .. import ide
-            body = ("event: snapshot\n" + "data: "
+        match get_route:
+            case GetRoute.APPROVAL_DIFF:
+                from .. import ide
+
+                code, text = ide.approval_diff(route.identifier)
+                if code != 200:
+                    self._json({"error": "diff unavailable"}, code=code)
+                    return
+                self._send(200, text.encode("utf-8"), "text/x-diff; charset=utf-8")
+            case GetRoute.CONFIG:
+                from .. import ide
+
+                self._json(ide.safe_config())
+            case GetRoute.AGENT_RUNS:
+                from . import approval_console
+
+                self._json(approval_console.list_runs())
+            case GetRoute.AGENT_RUN:
+                from . import approval_console
+
+                code, payload = approval_console.run_detail(route.identifier)
+                self._json(payload, code=code)
+            case GetRoute.ACTION_RECEIPT:
+                from . import approval_console
+
+                code, payload = approval_console.action_receipt(route.identifier)
+                self._json(payload, code=code)
+            case GetRoute.CHECKPOINTS:
+                self._handle_checkpoint_get()
+            case GetRoute.EVENTS:
+                from .. import ide
+
+                body = (
+                    "event: snapshot\n"
+                    + "data: "
                     + json.dumps(ide.event_snapshot(), ensure_ascii=False)
-                    + "\n\n").encode("utf-8")
-            self._send(200, body, "text/event-stream")
-        elif self.path == "/api/contract":
-            # Python-owned UI contract: state schema + design tokens. The
-            # page generates its state table from this; it never copies it.
-            # A broken export is a 500, never a dead server: presentation
-            # failures must not take the daemon down.
-            try:
-                payload = workspace_contract()
-            except (OSError, RuntimeError, TypeError, ValueError):
-                self._json({"error": "contract unavailable"}, code=500)
-                return
-            self._json(payload)
-        elif self.path == "/api/jobs":
-            from .. import uistate
-            jobs = cron.load_jobs()
-            for job in jobs:
-                job["ui_state"] = uistate.from_cron(
-                    enabled=bool(job.get("enabled", True)),
-                ).state
-            self._json({"status": store.read_status(), "jobs": jobs})
-        elif self.path == "/api/runs":
-            from .. import uistate
-            runs = store.list_runs(limit=20)
-            for run in runs:
-                run["ui_state"] = uistate.from_recent_run(run).state
-            self._json(runs)
-        elif self.path == "/api/approvals":
-            if not self._capability_ok():
-                self._json({"error": "missing or invalid capability"}, code=403)
-                return
-            from .. import risk as risk_mod
-            from .. import uistate
-            items = risk_mod.sort_by_risk(approvals.reviewable_pending())
-            for it in items:
-                it["risk"] = risk_mod.risk_for(it.get("category", ""))
-                it["ui_state"] = uistate.from_approval(it).state
-            self._json(items)
-        elif self.path == "/api/skills":
-            cfg = config.load_config()
-            try:
-                mgr = build_manager(cfg)
-                self._json([{"name": s.name, "description": s.description,
-                             "source": s.source}
-                            for s in sorted(mgr.skills.values(), key=lambda x: x.name)])
-            except (OSError, RuntimeError, TypeError, ValueError):
-                self._json({"error": "skills unavailable"}, code=500)
-        elif self.path == "/.well-known/agent-card.json":
-            # Discovery only: the card names what birkin can do and where
-            # to ask. It needs no token -- a peer must be able to read it
-            # before it has been given one -- and it carries no secrets.
-            from .. import a2a
-            cfg = config.load_config()
-            if not a2a.enabled(cfg):
-                self._send(404, b"not found", "text/plain")
-                return
-            external = _listener_external_origin(self.server)
-            host = self.headers.get("Host") or "127.0.0.1"
-            base_url = (
-                external.origin
-                if external is not None
-                else f"http://{host}"
-            )
-            self._json(a2a.agent_card(base_url, cfg))
+                    + "\n\n"
+                ).encode("utf-8")
+                self._send(200, body, "text/event-stream")
+            case GetRoute.APPROVALS:
+                self._handle_approvals_get()
+            case (
+                GetRoute.BROWSER
+                | GetRoute.FAVICON
+                | GetRoute.LEGACY_UI
+                | GetRoute.WORKSPACE
+                | GetRoute.BOOTSTRAP
+                | GetRoute.ROOT
+                | GetRoute.STATUS
+                | GetRoute.CONTRACT
+                | GetRoute.JOBS
+                | GetRoute.RUNS
+                | GetRoute.SKILLS
+                | GetRoute.AGENT_CARD
+                | GetRoute.NOT_FOUND
+            ):
+                raise AssertionError("non-protected GET route dispatched as protected")
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def _handle_checkpoint_get(self) -> None:
+        from .. import ide
+
+        workspace = ide.workspace_from_path(self.path)
+        route = urlsplit(self.path).path
+        manager = _checkpoint_manager()
+        diff_match = re.fullmatch(r"/api/checkpoints/([0-9a-fA-F]{4,40})/diff", route)
+        if route == "/api/checkpoints":
+            self._json(manager.list_checkpoints(workspace))
+        elif route == "/api/checkpoints/timeline":
+            self._json(manager.timeline(workspace))
+        elif route == "/api/checkpoints/lineage":
+            self._json(manager.lineage(workspace))
+        elif diff_match:
+            self._json(manager.diff_preview(workspace, diff_match.group(1)))
         else:
-            self._send(404, b"not found", "text/plain")
+            self._json({"error": "checkpoint route not found"}, code=404)
+
+    def _handle_approvals_get(self) -> None:
+        from .. import risk as risk_mod
+        from .. import uistate
+
+        items = risk_mod.sort_by_risk(approvals.reviewable_pending())
+        for item in items:
+            item["risk"] = risk_mod.risk_for(item.get("category", ""))
+            item["ui_state"] = uistate.from_approval(item).state
+        self._json(items)
+
+    def _handle_public_get(self, get_route: GetRoute) -> None:
+        match get_route:
+            case GetRoute.ROOT:
+                html = (_STATIC / "index.html").read_text(encoding="utf-8")
+                self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
+            case GetRoute.STATUS:
+                self._json(_status_payload())
+            case GetRoute.CONTRACT:
+                try:
+                    payload = workspace_contract()
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    self._json({"error": "contract unavailable"}, code=500)
+                    return
+                self._json(payload)
+            case GetRoute.JOBS:
+                from .. import uistate
+
+                jobs = cron.load_jobs()
+                for job in jobs:
+                    job["ui_state"] = uistate.from_cron(
+                        enabled=bool(job.get("enabled", True)),
+                    ).state
+                self._json({"status": store.read_status(), "jobs": jobs})
+            case GetRoute.RUNS:
+                from .. import uistate
+
+                runs = store.list_runs(limit=20)
+                for run in runs:
+                    run["ui_state"] = uistate.from_recent_run(run).state
+                self._json(runs)
+            case GetRoute.SKILLS:
+                cfg = config.load_config()
+                try:
+                    manager = build_manager(cfg)
+                    self._json(
+                        [
+                            {
+                                "name": skill.name,
+                                "description": skill.description,
+                                "source": skill.source,
+                            }
+                            for skill in sorted(
+                                manager.skills.values(), key=lambda value: value.name
+                            )
+                        ]
+                    )
+                except (OSError, RuntimeError, TypeError, ValueError):
+                    self._json({"error": "skills unavailable"}, code=500)
+            case GetRoute.AGENT_CARD:
+                from .. import a2a
+
+                cfg = config.load_config()
+                if not a2a.enabled(cfg):
+                    self._send(404, b"not found", "text/plain")
+                    return
+                external = _listener_external_origin(self.server)
+                host = self.headers.get("Host") or "127.0.0.1"
+                base_url = (
+                    external.origin if external is not None else f"http://{host}"
+                )
+                self._json(a2a.agent_card(base_url, cfg))
+            case GetRoute.NOT_FOUND:
+                self._send(404, b"not found", "text/plain")
+            case (
+                GetRoute.BROWSER
+                | GetRoute.FAVICON
+                | GetRoute.LEGACY_UI
+                | GetRoute.WORKSPACE
+                | GetRoute.BOOTSTRAP
+                | GetRoute.APPROVAL_DIFF
+                | GetRoute.CONFIG
+                | GetRoute.AGENT_RUNS
+                | GetRoute.AGENT_RUN
+                | GetRoute.ACTION_RECEIPT
+                | GetRoute.CHECKPOINTS
+                | GetRoute.EVENTS
+                | GetRoute.APPROVALS
+            ):
+                raise AssertionError("non-public GET route dispatched as public")
+            case _ as unreachable:
+                assert_never(unreachable)
 
     def _handle_a2a(self) -> None:
         """One A2A JSON-RPC call.
@@ -1253,6 +1293,7 @@ class Handler(BaseHTTPRequestHandler):
         scan cannot tell birkin from a birkin without A2A.
         """
         from .. import a2a
+
         cfg = config.load_config()
         if not a2a.enabled(cfg):
             self._drain_body()
@@ -1263,11 +1304,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "bad request body"}, code=body_status)
             return
         try:
-            payload = json.loads(body or b"{}")
-        except (ValueError, UnicodeDecodeError):
-            self._json({"jsonrpc": "2.0", "id": None,
-                        "error": {"code": -32700, "message": "parse error"}},
-                       code=400)
+            payload = parse_value(body or b"{}")
+        # Bounded parse: a body that is malformed, or nested past what the typed
+        # walk admits, is a parse error on every platform -- json.loads alone
+        # would accept 5000 nested arrays here on Linux and macOS.
+        except RequestPayloadError:
+            self._json(
+                {
+                    "jsonrpc": "2.0",
+                    "id": None,
+                    "error": {"code": -32700, "message": "parse error"},
+                },
+                code=400,
+            )
             return
         self._json(a2a.handle(payload, run=_a2a_run))
 
@@ -1310,49 +1359,91 @@ class Handler(BaseHTTPRequestHandler):
                     connection.settimeout(previous)
         except (OSError, ValueError):
             pass
+
     def do_POST(self) -> None:
-        if is_browser_path(self.path):
-            if not self._host_ok():
-                self._send(403, b"forbidden host", "text/plain")
+        route = match_post(self.path)
+        post_route = route.route
+        match post_route:
+            case PostRoute.BROWSER:
+                self._handle_browser_post()
                 return
-            if not self._capability_ok():
-                self._json(
-                    {"error": "missing or invalid token"},
-                    code=403,
-                )
-                return
-            denial = self._browser_denial("POST")
-            if denial is not None:
-                self._send_browser_denial(denial)
-                return
-            body, body_status = self._read_body()
-            if body is None:
-                self._json(
-                    {"error": {"code": "invalid_request"}},
-                    code=body_status,
-                )
-                return
-            self._browser_response(
-                post_browser(
-                    self.path,
-                    body,
-                    actor_id=self._browser_actor_id(),
-                    workspace=_browser_workspace(self.server),
-                )
-            )
+            case (
+                PostRoute.WORKSPACE
+                | PostRoute.A2A
+                | PostRoute.CONTEXT
+                | PostRoute.RUN_CONTROL
+                | PostRoute.CHECKPOINT
+                | PostRoute.INVALID_CHECKPOINT
+                | PostRoute.APPROVALS
+                | PostRoute.NOT_FOUND
+            ):
+                pass
+            case _ as unreachable:
+                assert_never(unreachable)
+        if not self._admit_post():
             return
+        match post_route:
+            case PostRoute.WORKSPACE:
+                _ = self._workspace_post()
+            case PostRoute.A2A:
+                self._handle_a2a()
+            case PostRoute.INVALID_CHECKPOINT:
+                self._drain_body()
+                self._json({"error": "invalid checkpoint id"}, code=400)
+            case PostRoute.NOT_FOUND:
+                self._drain_body()
+                self._send(404, b"not found", "text/plain")
+            case (
+                PostRoute.CONTEXT
+                | PostRoute.RUN_CONTROL
+                | PostRoute.CHECKPOINT
+                | PostRoute.APPROVALS
+            ):
+                payload = self._read_json_object()
+                if payload is not None:
+                    self._dispatch_post(route, post_route, payload)
+            case PostRoute.BROWSER:
+                raise AssertionError("browser POST reached shared admission")
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def _handle_browser_post(self) -> None:
         if not self._host_ok():
-            self._drain_body()
             self._send(403, b"forbidden host", "text/plain")
             return
         if not self._capability_ok():
-            self._drain_body()
             self._json({"error": "missing or invalid token"}, code=403)
             return
+        denial = self._browser_denial("POST")
+        if denial is not None:
+            self._send_browser_denial(denial)
+            return
+        body, body_status = self._read_body()
+        if body is None:
+            self._json({"error": {"code": "invalid_request"}}, code=body_status)
+            return
+        self._browser_response(
+            post_browser(
+                self.path,
+                body,
+                actor_id=self._browser_actor_id(),
+                workspace=_browser_workspace(self.server),
+            )
+        )
+
+    def _admit_post(self) -> bool:
+        if not self._host_ok():
+            self._drain_body()
+            self._send(403, b"forbidden host", "text/plain")
+            return False
+        if not self._capability_ok():
+            self._drain_body()
+            self._json({"error": "missing or invalid token"}, code=403)
+            return False
         if not self._cookie_origin_ok(write=True):
             self._drain_body()
             self._json({"error": "cross-origin capability request"}, code=403)
-            return
+            return False
         if (
             self._cookie_capability_ok()
             and not self._header_capability_ok()
@@ -1360,163 +1451,205 @@ class Handler(BaseHTTPRequestHandler):
         ):
             self._drain_body()
             self._json({"error": "application/json required"}, code=415)
-            return
-        if self._workspace_post():
-            return
-        if self.path == "/a2a":
-            self._handle_a2a()
-            return
-        is_context = self.path == "/api/context"
-        control_match = re.fullmatch(
-            r"/api/agent-runs/([0-9a-f]{12})/control", self.path)
-        checkpoint_match = re.fullmatch(
-            r"/api/checkpoints/([0-9a-fA-F]{4,40})/(restore|fork)", self.path)
-        if (self.path.startswith("/api/checkpoints/")
-                and self.path.rsplit("/", 1)[-1] in {"restore", "fork"}
-                and not checkpoint_match):
-            self._drain_body()
-            self._json({"error": "invalid checkpoint id"}, code=400)
-            return
-        if (self.path != "/api/approvals" and not is_context
-                and not control_match and not checkpoint_match):
-            self._drain_body()
-            self._send(404, b"not found", "text/plain")
-            return
+            return False
+        return True
+
+    def _read_json_object(self) -> dict[str, JSONValue] | None:
         body, body_status = self._read_body()
         if body_status != 200:
-            message = {408: "request body timeout", 413: "payload too large"}.get(
-                body_status, "bad content length"
-            )
+            message = {
+                408: "request body timeout",
+                413: "payload too large",
+            }.get(body_status, "bad content length")
             self._json({"error": message}, code=body_status)
-            return
+            return None
         try:
-            payload = json.loads(body or b"{}")
-        except (ValueError, UnicodeDecodeError):
-            self._json({"error": "bad json"}, code=400)
-            return
-        if not isinstance(payload, dict):
-            self._json({"error": "expected JSON object"}, code=400)
-            return
-        if is_context:
-            from .. import ide
-            if not ide.save_context(payload):
-                self._json({"error": "invalid editor context"}, code=400)
-                return
-            self._json({"ok": True})
-            return
-        if control_match:
-            from . import approval_console
-            code, result = approval_console.control_run(
-                control_match.group(1), payload.get("action"), payload.get("text"))
-            self._json(result, code=code)
-            return
-        if checkpoint_match:
-            workspace = Path(str(payload.get("workspace") or Path.cwd())).expanduser().resolve()
-            checkpoint = checkpoint_match.group(1)
-            action = checkpoint_match.group(2)
-            if action == "restore":
-                from ..checkpoints import RestoreMode
-                try:
-                    mode = RestoreMode(str(payload.get("mode") or ""))
-                except ValueError:
-                    self._json({"error": "mode must be files, task, or both"}, code=400)
+            return parse_object(body or b"{}")
+        except RequestPayloadError as exc:
+            self._json({"error": str(exc)}, code=400)
+            return None
+
+    def _dispatch_post(
+        self,
+        route: RouteMatch[PostRoute],
+        post_route: PostRoute,
+        payload: dict[str, JSONValue],
+    ) -> None:
+        match post_route:
+            case PostRoute.CONTEXT:
+                from .. import ide
+
+                if not ide.save_context(payload):
+                    self._json({"error": "invalid editor context"}, code=400)
                     return
-                session_id = str(payload.get("session_id") or "")
-                if mode is not RestoreMode.FILES and not session_id:
-                    self._json({"error": "session_id is required"}, code=400)
-                    return
-                mode_label = {
-                    RestoreMode.FILES: "파일",
-                    RestoreMode.TASK: "작업 상태",
-                    RestoreMode.BOTH: "파일과 작업 상태",
-                }[mode]
-                restore_payload = {
-                    "workspace": str(workspace),
-                    "checkpoint": checkpoint,
-                    "mode": mode.value,
-                }
-                if session_id:
-                    restore_payload["session_id"] = session_id
-                proposal = approvals.propose(
-                    category="checkpoint_restore",
-                    title=f"체크포인트 복원: {checkpoint[:7]}",
-                    description=(
-                        f"{mode_label} 범위를 복원합니다. "
-                        "실행 전에 되돌리기용 체크포인트를 만들며 승인해야만 적용됩니다."
-                    ),
-                    payload=restore_payload,
-                    cfg=config.load_config(), origin="web:checkpoints",
+                self._json({"ok": True})
+            case PostRoute.RUN_CONTROL:
+                from . import approval_console
+
+                code, result = approval_console.control_run(
+                    route.identifier,
+                    payload.get("action"),
+                    payload.get("text"),
                 )
-                self._json({"ok": True, "approval_required": True,
-                            "approval_id": proposal["id"], "mode": mode.value}, code=202)
-                return
-            command = payload.get("command")
-            if (not isinstance(command, list) or not command
-                    or not all(isinstance(item, str) and item for item in command)):
-                self._json({"error": "command must be a non-empty string array"}, code=400)
-                return
-            from ..sandbox import load_repo_sandbox
-            spec = load_repo_sandbox(workspace)
-            try:
-                result = _checkpoint_manager().fork(
-                    workspace, checkpoint, command, policy=spec.policy)
-            except (OSError, RuntimeError, TypeError, ValueError):
-                self._json({"error": "checkpoint fork failed"}, code=409)
-                return
-            self._json({"ok": True, "returncode": result.returncode,
-                        "stdout": result.stdout, "stderr": result.stderr},
-                       code=200 if result.returncode == 0 else 409)
+                self._json(result, code=code)
+            case PostRoute.CHECKPOINT:
+                self._handle_checkpoint_post(route, payload)
+            case PostRoute.APPROVALS:
+                self._handle_approval_post(payload)
+            case (
+                PostRoute.BROWSER
+                | PostRoute.WORKSPACE
+                | PostRoute.A2A
+                | PostRoute.INVALID_CHECKPOINT
+                | PostRoute.NOT_FOUND
+            ):
+                raise AssertionError("bodyless POST route dispatched with payload")
+            case _ as unreachable:
+                assert_never(unreachable)
+
+    def _handle_checkpoint_post(
+        self,
+        route: RouteMatch[PostRoute],
+        payload: dict[str, JSONValue],
+    ) -> None:
+        workspace = (
+            Path(str(payload.get("workspace") or Path.cwd())).expanduser().resolve()
+        )
+        if route.action == "restore":
+            self._handle_checkpoint_restore(route.identifier, workspace, payload)
             return
-        aid = payload.get("id")
-        action = payload.get("action")
-        if not aid or action not in ("answer", "approve", "reject"):
-            self._json(
-                {"error": "need id and action answer|approve|reject"},
-                code=400,
+        command = string_list(payload.get("command"))
+        if not command or not all(command):
+            self._json({"error": "command must be a non-empty string array"}, code=400)
+            return
+        from ..sandbox import load_repo_sandbox
+
+        spec = load_repo_sandbox(workspace)
+        try:
+            result = _checkpoint_manager().fork(
+                workspace, route.identifier, command, policy=spec.policy
             )
+        except (OSError, RuntimeError, TypeError, ValueError):
+            self._json({"error": "checkpoint fork failed"}, code=409)
             return
-        if not isinstance(aid, str) or _APPROVAL_ID_RE.fullmatch(aid) is None:
+        self._json(
+            {
+                "ok": True,
+                "returncode": result.returncode,
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            },
+            code=200 if result.returncode == 0 else 409,
+        )
+
+    def _handle_checkpoint_restore(
+        self,
+        checkpoint: str,
+        workspace: Path,
+        payload: dict[str, JSONValue],
+    ) -> None:
+        from ..checkpoints import RestoreMode
+
+        try:
+            mode = RestoreMode(str(payload.get("mode") or ""))
+        except ValueError:
+            self._json({"error": "mode must be files, task, or both"}, code=400)
+            return
+        session_id = str(payload.get("session_id") or "")
+        if mode is not RestoreMode.FILES and not session_id:
+            self._json({"error": "session_id is required"}, code=400)
+            return
+        restore_payload = {
+            "workspace": str(workspace),
+            "checkpoint": checkpoint,
+            "mode": mode.value,
+        }
+        if session_id:
+            restore_payload["session_id"] = session_id
+        scope = {
+            RestoreMode.FILES: "파일 범위",
+            RestoreMode.TASK: "작업 상태",
+            RestoreMode.BOTH: "파일과 작업 상태",
+        }[mode]
+        proposal = approvals.propose(
+            category="checkpoint_restore",
+            title=f"체크포인트 복원: {checkpoint[:7]}",
+            description=(
+                f"{scope}를 복원합니다. 실행 전에 되돌리기용 체크포인트를 만들며 "
+                "승인해야만 적용됩니다."
+            ),
+            payload=restore_payload,
+            cfg=config.load_config(),
+            origin="web:checkpoints",
+        )
+        self._json(
+            {
+                "ok": True,
+                "approval_required": True,
+                "approval_id": proposal["id"],
+                "mode": mode.value,
+            },
+            code=202,
+        )
+
+    def _handle_approval_post(self, payload: dict[str, JSONValue]) -> None:
+        approval_id = payload.get("id")
+        action = payload.get("action")
+        if not approval_id or action not in ("answer", "approve", "reject"):
+            self._json({"error": "need id and action answer|approve|reject"}, code=400)
+            return
+        if (
+            not isinstance(approval_id, str)
+            or _APPROVAL_ID_RE.fullmatch(approval_id) is None
+        ):
             self._json({"error": "invalid approval id"}, code=400)
             return
         if action == "answer":
-            answers = payload.get("answers")
-            if not isinstance(answers, dict):
-                self._json({"error": "answers must be an object"}, code=400)
-                return
-            result = approvals.answer(
-                aid,
-                answers=answers,
-                source="web:dashboard",
-                clarification=str(payload.get("clarification") or ""),
-                navigation=payload.get("navigation")
-                if isinstance(payload.get("navigation"), list) else None,
-                capability="dashboard.approvals.answer.v1",
-                resume_token=str(payload.get("resume_token") or ""),
-                question_digest=str(payload.get("question_digest") or ""),
-                input_schema_version=payload.get("input_schema_version")
-                if isinstance(payload.get("input_schema_version"), int)
-                and not isinstance(payload.get("input_schema_version"), bool)
-                else None,
-                previous_state_digest=str(
-                    payload.get("previous_state_digest") or ""
-                ),
-            )
-            self._json(result, code=200 if result.get("ok") else 409)
+            self._handle_approval_answer(approval_id, payload)
             return
         result = (
             approvals.approve(
-                aid,
+                approval_id,
                 approved_by=self._approval_actor_id(),
                 approved_via="web:dashboard",
             )
             if action == "approve"
             else approvals.reject(
-                aid,
+                approval_id,
                 rejected_by=self._approval_actor_id(),
                 rejected_via="web:dashboard",
             )
         )
         self._json(result)
+
+    def _handle_approval_answer(
+        self,
+        approval_id: str,
+        payload: dict[str, JSONValue],
+    ) -> None:
+        answers = payload.get("answers")
+        if not isinstance(answers, dict):
+            self._json({"error": "answers must be an object"}, code=400)
+            return
+        input_schema_version = payload.get("input_schema_version")
+        result = approvals.answer(
+            approval_id,
+            answers=answers,
+            source="web:dashboard",
+            clarification=str(payload.get("clarification") or ""),
+            navigation=string_list(payload.get("navigation")),
+            capability="dashboard.approvals.answer.v1",
+            resume_token=str(payload.get("resume_token") or ""),
+            question_digest=str(payload.get("question_digest") or ""),
+            input_schema_version=(
+                input_schema_version
+                if isinstance(input_schema_version, int)
+                and not isinstance(input_schema_version, bool)
+                else None
+            ),
+            previous_state_digest=str(payload.get("previous_state_digest") or ""),
+        )
+        self._json(result, code=200 if result.get("ok") else 409)
 
     def do_DELETE(self) -> None:
         if not self._host_ok():
@@ -1529,11 +1662,13 @@ class Handler(BaseHTTPRequestHandler):
         if denial is not None:
             self._send_browser_denial(denial)
             return
-        self._browser_response(delete_browser(
-            self.path,
-            actor_id=self._browser_actor_id(),
-            workspace=_browser_workspace(self.server),
-        ))
+        self._browser_response(
+            delete_browser(
+                self.path,
+                actor_id=self._browser_actor_id(),
+                workspace=_browser_workspace(self.server),
+            )
+        )
 
     def do_OPTIONS(self) -> None:
         if not is_browser_path(self.path):
@@ -1554,12 +1689,32 @@ def _a2a_run(text: str) -> str:
     progress.
     """
     from ..runtime import build_session
+
     return build_session().ask(text)
 
 
+def _write_session_discovery(
+    path: Path,
+    payload: Mapping[str, JSONValue],
+) -> None:
+    """Publish dashboard discovery as an owner-only file.
+
+    It carries the dashboard capability token and the bootstrap nonce, so it
+    needs the same private-storage guarantee as the gateway capability file;
+    ``store._write_json`` only chmods, which is a no-op on Windows.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_private_text(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False),
+    )
+
+
 def run(port: int | None = None, *, open_browser: bool = True) -> int:
+    from ..approval_execution_recovery import recover_all
     from ..moirai import continuation
 
+    recover_all()
     continuation.recover()
     cfg = config.load_config()
     port = port or int(cfg.get("web_port", 8787))
@@ -1585,7 +1740,8 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
             file=sys.stderr,
         )
         return 2
-    bind_host = "0.0.0.0" if remote else "127.0.0.1"
+    url_host = socket.getfqdn() if remote else "127.0.0.1"
+    bind_host = "" if remote else url_host
     httpd = HTTPServer((bind_host, port), Handler)
     _set_listener_external_origin(httpd, external)
     _set_listener_remote_access(httpd, remote)
@@ -1595,8 +1751,7 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
         f"127.0.0.1:{actual_port},localhost:{actual_port}"
     )
     session_path = config.birkin_home() / "web_session.json"
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    store._write_json(
+    _write_session_discovery(
         session_path,
         {
             "port": actual_port,
@@ -1638,9 +1793,7 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
         signal.signal(signal.SIGTERM, previous_sigterm)
         _close_workspace_runtime()
         try:
-            _ = close_browser_service(
-                workspace=_browser_workspace(httpd)
-            )
+            _ = close_browser_service(workspace=_browser_workspace(httpd))
         finally:
             try:
                 browser_workspace_registry().close_all()

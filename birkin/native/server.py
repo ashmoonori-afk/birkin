@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import final
@@ -175,15 +176,25 @@ class NativeBridgeServer:
                 if exc.code != "E_FRAME_INCOMPLETE":
                     connection.send(self._messages.error(exc))
             finally:
-                if stream is not None:
-                    self._projection.detach(stream)
-                    stream.stop()
-                for token in issued_tokens:
-                    self._capabilities.revoke_session(token)
-                if command_execution is not None:
-                    self._commands.disconnect()
-                elif self._on_disconnect is not None:
-                    self._on_disconnect()
+                stream_failure: BaseException | None = None
+                try:
+                    if stream is not None:
+                        self._projection.detach(stream)
+                        stream.stop()
+                        if isinstance(stream.failure, TimeoutError):
+                            stream_failure = stream.failure
+                    for token in issued_tokens:
+                        self._capabilities.revoke_session(token)
+                    if command_execution is not None:
+                        self._commands.disconnect()
+                    elif self._on_disconnect is not None:
+                        self._on_disconnect()
+                finally:
+                    if stream_failure is not None:
+                        active_error = sys.exc_info()[1]
+                        if active_error is None:
+                            raise stream_failure
+                        active_error.__cause__ = stream_failure
 
     def _serve_messages(
         self,

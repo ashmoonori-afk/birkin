@@ -242,7 +242,9 @@ def test_double_workflow_tap_starts_only_one_worker(tmp_path, monkeypatch) -> No
         _text,
         _offset,
         workflow_id=None,
+        sender_id=None,
     ) -> None:
+        assert sender_id == "42"
         resumed.append(str(workflow_id))
         started.set()
         assert release.wait(timeout=2)
@@ -317,8 +319,20 @@ def test_claim_recovery_never_replays_running_work(tmp_path, monkeypatch) -> Non
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     claimed = workflow.queue_proposal(_proposal(), "first", "42")
     running = workflow.queue_proposal(_proposal(), "second", "42")
-    workflow.resolve_proposal(claimed, "42", approve=True)
-    workflow.resolve_proposal(running, "42", approve=True)
+    workflow.resolve_proposal(
+        claimed,
+        "42",
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
+    workflow.resolve_proposal(
+        running,
+        "42",
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
     assert workflow.mark_running(running, "42") is True
 
     # When
@@ -335,7 +349,13 @@ def test_interrupted_workflow_is_not_overwritten_as_completed(
     # Given
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     aid = workflow.queue_proposal(_proposal(), "work", "42")
-    workflow.resolve_proposal(aid, "42", approve=True)
+    workflow.resolve_proposal(
+        aid,
+        "42",
+        approve=True,
+        actor_id="human:telegram:42",
+        via="gateway:telegram",
+    )
     assert workflow.mark_running(aid, "42") is True
 
     # When
@@ -371,7 +391,12 @@ def test_workflow_transitions_preserve_busy_contract_on_lock_timeout(
     monkeypatch.setattr(store, "file_lock", lambda _path: _TimeoutLock())
     actions = {
         "resolve_proposal": lambda: workflow.resolve_proposal(
-            aid, "42", approve=True),
+            aid,
+            "42",
+            approve=True,
+            actor_id="human:telegram:42",
+            via="gateway:telegram",
+        ),
         "mark_running": lambda: workflow.mark_running(aid, "42"),
         "mark_interrupted": lambda: workflow.mark_interrupted(aid),
         "finish": lambda: workflow.finish(aid, "completed"),

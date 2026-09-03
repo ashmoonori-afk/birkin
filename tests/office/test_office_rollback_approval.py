@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from birkin import approvals, store
+from birkin import approval_execution, approvals, store
 from birkin.office import retention_backup_cleanup
 from birkin.office.errors import DocumentError
 from birkin.office.rollback_approval import execute_approved_rollback
@@ -208,8 +208,9 @@ def test_rollback_cleanup_failure_remains_recoverable(
         "move_no_replace",
         fail_backup_cleanup,
     )
-    interrupted = approvals.approve(
+    interrupted = approval_execution.approve(
         approval_id,
+        approvals.execute_action,
         approved_by="human:rollback-reviewer",
         approved_via="test:office-rollback",
     )
