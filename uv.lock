@@ -128,7 +128,7 @@ wheels = [
 
 [[package]]
 name = "birkin"
-version = "0.4.345"
+version = "0.4.346"
 source = { editable = "." }
 dependencies = [
     { name = "psutil" },
@@ -152,6 +152,7 @@ desktop = [
 dev = [
     { name = "openai", extra = ["realtime", "voice-helpers"] },
     { name = "openpyxl" },
+    { name = "pexpect" },
     { name = "pillow" },
     { name = "pyobjc-framework-applicationservices", marker = "sys_platform == 'darwin'" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin'" },
@@ -161,6 +162,7 @@ dev = [
     { name = "pywin32", marker = "sys_platform == 'win32'" },
     { name = "pywinauto", marker = "sys_platform == 'win32'" },
     { name = "pywinctl", marker = "sys_platform == 'linux'" },
+    { name = "pywinpty", marker = "sys_platform == 'win32'" },
     { name = "tomli" },
 ]
 full = [
@@ -247,6 +249,7 @@ requires-dist = [
     { name = "openpyxl", marker = "extra == 'dev'", specifier = ">=3.1.5,<4" },
     { name = "openpyxl", marker = "extra == 'full'", specifier = ">=3.1.5,<4" },
     { name = "openpyxl", marker = "extra == 'office'", specifier = ">=3.1.5,<4" },
+    { name = "pexpect", marker = "extra == 'dev'", specifier = ">=4.9,<5" },
     { name = "pillow", marker = "extra == 'desktop'", specifier = ">=11,<13" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=11,<13" },
     { name = "pillow", marker = "extra == 'full'", specifier = ">=11,<13" },
@@ -285,6 +288,7 @@ requires-dist = [
     { name = "pywinctl", marker = "sys_platform == 'linux' and extra == 'desktop'", specifier = ">=0.4.1" },
     { name = "pywinctl", marker = "sys_platform == 'linux' and extra == 'dev'", specifier = ">=0.4.1" },
     { name = "pywinctl", marker = "sys_platform == 'linux' and extra == 'full'", specifier = ">=0.4.1" },
+    { name = "pywinpty", marker = "sys_platform == 'win32' and extra == 'dev'", specifier = ">=2.0.14" },
     { name = "rfc8785", marker = "extra == 'full'", specifier = ">=0.1.4,<1" },
     { name = "rfc8785", marker = "extra == 'office'", specifier = ">=0.1.4,<1" },
     { name = "rfc8785", marker = "extra == 'research'", specifier = ">=0.1.4,<1" },

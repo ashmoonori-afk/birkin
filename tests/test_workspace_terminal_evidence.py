@@ -5,7 +5,11 @@ from pathlib import Path
 
 import pytest
 
-from script.qa.workspace_terminal_evidence import (
+# The QA terminal drivers import pexpect at module scope; skip rather than break
+# collection where the dev extra is absent.
+_ = pytest.importorskip("pexpect")
+
+from script.qa.workspace_terminal_evidence import (  # noqa: E402
     ArtifactKind,
     EvidenceError,
     EvidenceInputs,
@@ -14,7 +18,7 @@ from script.qa.workspace_terminal_evidence import (
     register_browser_screenshot,
     verify_evidence,
 )
-from script.qa.workspace_terminal_pty import (
+from script.qa.workspace_terminal_pty import (  # noqa: E402
     ChildExit,
     TerminalCapture,
     TerminalObservations,

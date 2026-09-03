@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.345"
+version = "0.4.346"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -90,6 +90,10 @@ dev = [
     "pywinauto>=0.6.9; sys_platform == 'win32'",
     "pywin32>=308; sys_platform == 'win32'",
     "openpyxl>=3.1.5,<4",
+    # Terminal QA drivers: the pty tests import these at collection time, so a
+    # `pip install -e ".[dev]"` environment (CI included) must carry them.
+    "pexpect>=4.9,<5",
+    "pywinpty>=2.0.14; sys_platform == 'win32'",
 ]
 
 [dependency-groups]
