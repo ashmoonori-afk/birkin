@@ -388,7 +388,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.331`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.333`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
@@ -821,8 +821,98 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin working-memory` | Inspect, update, or clear structured current-task state. |
 | `birkin mcp-serve` | Serve Birkin memory, skills, and proposals over MCP stdio. |
 | `birkin voice` | Configure or control the optional voice daemon. |
+| `birkin auth` | Sign in to a subscription backend (codex). |
+| `birkin budget` | Show token budget usage vs caps. |
+| `birkin compare` | Blind A/B: run one prompt through two models. |
+| `birkin curate` | Skill lifecycle pass: report stale, archive unused user skills. |
+| `birkin daedalus` | Evidence-linked project document maps: create / refresh / show / note / profile. |
+| `birkin mcp` | Manage external Claude MCP servers (not inherited when egress enforcement is enabled). |
+| `birkin neurosis` | Seed a deep-interview (Socratic clarity-gating before acting); then run `/neurosis` in chat (REPL or gateway) to drive it. |
+| `birkin odyssey` | Seed a goal-completion cycle (plan -> critique -> execute -> verify); then run `/odyssey` in chat to drive it. |
+| `birkin onboard` | Alias for `birkin setup` (first-run wizard). |
+| `birkin reindex` | Rebuild the memory-palace index (zones, terms, dynamics). |
+| `birkin update` | Pull new code from the repo (fast-forward only). |
 
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
+
+## Slash commands
+
+Slash commands run inside `birkin chat` (interactive REPL) and the gateway.
+`/help` prints this same list live, grouped exactly as `_HELP_GROUPS` in
+`birkin/slashcommands.py`; a command not in any group there falls back into
+`/help`'s catch-all so nothing is hidden.
+
+**세션·대화**
+- `/new` (`/reset`) — Start a fresh conversation (clears history).
+- `/retry` — Re-run your last message.
+- `/undo` — Remove the last exchange (your message + the reply).
+- `/rollback` — Undo file changes from an earlier checkpoint.
+- `/compact` (`/compress`) — Summarize the conversation to shrink context.
+- `/clear` — Clear the screen.
+- `/sessions` — List/search conversations; `/sessions save|load <name>`.
+- `/status` — Show the live status line (model · daemon · budget · pending).
+- `/agents` — List durable parent/child agent runs.
+- `/attach` — Attach to a durable agent run and follow it live.
+- `/send` — Queue a message for a running agent.
+
+**모델**
+- `/model` (`/models`) — Pick a model (↑/↓, Enter), or set one: `/model <number|name>`.
+- `/provider` — Show or switch provider (anthropic|openai).
+- `/temp` — Show or set sampling temperature.
+
+**기억**
+- `/memory` (`/recall`) — Search memory; `/memory save <text>`; `/memory where`.
+- `/learn` — Reflect on this session and save skills/memory.
+
+**스킬·도구**
+- `/skills` — List skills, show one (`/skills <name>`), or `/skills reload`.
+- `/tools` — List the tools available to the agent.
+- `/system` — Print the current system prompt.
+- `/mcp` — List MCP servers (company tools). The gateway inherits these.
+- `/details` — Toggle verbose tool traces (full input + result snippet).
+
+**운영·승인**
+- `/work` (`/workbench`) — Focus the unified tasks/runs workbench.
+- `/goal` — Persist a session goal with an optional verifier.
+- `/review` — Review pending approvals inline.
+- `/cron` — List scheduled cron jobs.
+- `/permission` (`/permissions`) — Approvals & CLI-agent access level.
+- `/config` — Show the current config (key redacted).
+- `/morpheus` (`/nightly`) — Run the Morpheus self-improvement routine now.
+- `/update` (`/upgrade`) — Update birkin to the latest version (fast-forward; shows version).
+
+**페르소나·인터뷰**
+- `/persona` (`/soul`) — Show birkin's persona, switch preset, or promote mask guidance.
+- `/profile` — Review, approve, migrate, or roll back role-profile writes.
+- `/neurosis` (`/interview`) — Deep interview: Socratic clarity-gating before acting.
+- `/odyssey` (`/ultrawork`, `/ulw`) — Goal-completion cycle: plan, critique, execute, verify.
+
+**게이트웨이**
+- `/restart` — Restart the gateway; `--hard` also picks up code changes.
+
+**종료·도움**
+- `/help` — List commands, or show detailed help for one.
+- `/quit` (`/exit`, `/q`) — Leave birkin.
+
+## Environment variables
+
+These runtime switches are read straight from `os.environ`; none has a
+`config.json` equivalent.
+
+| Variable | Effect |
+|---|---|
+| `BIRKIN_PLAIN` | Force reduced-motion / screen-reader mode: no spinner or animation, even when color stays on (`ui.py`). |
+| `BIRKIN_ASCII` | Force ASCII-only glyphs (no box-drawing/unicode) in the `birkin work` workbench TUI when set to `1`/`true`/`yes`/`on` (`workbench.py`). |
+| `BIRKIN_COLOR_MODE` | Force the workspace terminal's color mode to `none`, `ansi256`, or `truecolor`, overriding `TERM`/`NO_COLOR` detection (`workspace_terminal.py`). |
+| `BIRKIN_WORKSPACE_THEME` | Select the workspace terminal color palette by name; falls back to the default palette if unrecognized (`workspace_terminal.py`). |
+| `BIRKIN_GIT_TIMEOUT` | Seconds one checkpoint git call may take before it is treated as hung; clamped to 5-900, default 120 (`checkpoints.py`). |
+| `BIRKIN_MCP_MODEL` | Override the model `birkin mcp-serve` uses; falls back to config `model` (`mcp_server.py`). |
+| `BIRKIN_MCP_SCOPE` | Set to `memory` to expose only memory tools over MCP stdio; any other value (default `full`) also exposes read-only market-quote tools (`mcp_server.py`). |
+| `BIRKIN_NETWORK_ALLOWLIST` | Set automatically inside a Docker sandbox job when the network policy is `allowlist` — the comma-separated hosts that job's process may reach. Not meant to be set by hand (`sandbox_docker.py`). |
+| `BIRKIN_CODEX_BASE_URL` | Override the Codex OAuth API base URL (`codex_oauth.py`). |
+| `BIRKIN_ACCEPT_HOOKS` | Set to `1` to auto-accept hook-execution consent prompts, same effect as config `hooks_auto_accept` (`hooks.py`). |
+| `BIRKIN_OMO_LIVE_DIR` | Override the directory scanned for live OMO agent session registries (`omo_bridge.py`). |
+| `BIRKIN_BROWSER_CONTROL_ADDRESSES` | Comma-separated `host:port` addresses allowed to drive the browser-aside control API; set automatically by `birkin web`'s bootstrap listener (`browser_aside_service.py`, `web/server.py`). |
 
 ## Live sessions and executable resolution
 
@@ -1136,6 +1226,7 @@ This native design does **not** propose:
   "repl_typed_line": "steer",
   "moirai_auto": false,
   "worker_call_auto": true,
+  "session_goal_fallback": true,
   "moirai_workers": 4,
   "moirai_max_agents": 100,
   "moirai_roles": {},
@@ -1198,6 +1289,9 @@ This native design does **not** propose:
   "gateway_clean_hooks": true,
   "gateway_thinking_tokens": 0,
   "gateway_prewarm": true,
+  "gateway_max_sessions": 8,
+  "gateway_session_ttl_s": 3600,
+  "gateway_polish_timeout": 90,
   "voice": {
     "wake_phrase": "Daddy is home",
     "gateway_url": "",
@@ -1346,9 +1440,12 @@ This native design does **not** propose:
 Environment variables remain the right place for provider secrets. `api_keys` names environment-variable pools; it is not a place to paste raw keys. `a2a_enabled` is opt-in. Enforced egress disables uninspected native network paths and allows only configured destinations through Birkin's inspected tools. A sandboxed gateway child can submit a shell request through `propose_action`; Birkin queues it for approval instead of running it inside the child sandbox. An empty Telegram `allowed_chat_ids` list permits public text-only turns for Claude/native providers, but strips semantic memory, harness state/review, transcript persistence, Birkin/company MCP, and native tools. Codex CLI cannot provide an equivalent tool-free child, so its Telegram gateway requires an explicit chat allowlist. Public replies cannot trigger attachment delivery or workflow persistence, and shared-state commands such as `/neurosis` require an allowlisted chat.
 
 Trusted private Telegram chats require the sender ID to match the chat ID.
-Allowlisted group and supergroup chats additionally require each member's ID
-in `allowed_sender_ids`; missing or unauthorized sender identity is rejected
-before attachments, commands, or model turns are processed.
+For an allowlisted group or supergroup chat, `allowed_sender_ids` is the
+sender-level control: an empty list adds no restriction beyond
+`allowed_chat_ids` (every member of that chat may drive the agent — the
+gateway warns about this at startup); a non-empty list restricts which
+members' sender IDs may pass, and everything else is rejected before
+attachments, commands, or model turns are processed.
 
 Slack and Discord are send-only HTTPS webhook targets: they never start an
 inbound listener. Scheduler jobs select them with `deliver_channel` and must

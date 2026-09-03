@@ -448,7 +448,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.331`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.333`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -888,8 +888,97 @@ snapshot을 복사할 수 있습니다.
 | `birkin working-memory` | 구조화된 현재 작업 상태 조회·갱신·삭제. |
 | `birkin mcp-serve` | Birkin memory, skill, proposal을 MCP stdio로 제공. |
 | `birkin voice` | 선택적 voice daemon 설정·제어. |
+| `birkin auth` | Subscription backend(codex) 로그인. |
+| `birkin budget` | Cap 대비 token budget 사용량 표시. |
+| `birkin compare` | Blind A/B: 하나의 prompt를 두 model에 실행해 비교. |
+| `birkin curate` | Skill lifecycle pass: 오래된 skill 보고, 사용하지 않는 user skill archive. |
+| `birkin daedalus` | Evidence-linked project document map: create / refresh / show / note / profile. |
+| `birkin mcp` | 외부 Claude MCP server 관리 (egress enforcement가 켜져 있으면 상속되지 않음). |
+| `birkin neurosis` | Deep interview 시작 (행동 전 Socratic clarity-gating); 이후 chat(REPL 또는 gateway)에서 `/neurosis`로 진행. |
+| `birkin odyssey` | Goal-completion cycle 시작 (plan -> critique -> execute -> verify); 이후 chat에서 `/odyssey`로 진행. |
+| `birkin onboard` | `birkin setup`의 별칭 (최초 실행 wizard). |
+| `birkin reindex` | Memory-palace index(zone, term, dynamics) 재구성. |
+| `birkin update` | Repo에서 새 코드 pull (fast-forward만). |
 
 전체 interface는 `birkin --help` 또는 `birkin <command> --help`로 확인하십시오.
+
+## Slash command
+
+Slash command는 `birkin chat`(interactive REPL)과 gateway 안에서 실행됩니다.
+`/help`가 동일한 목록을 실시간으로 출력하며, `birkin/slashcommands.py`의
+`_HELP_GROUPS`와 정확히 같게 그룹화되어 있습니다. 어떤 group에도 없는
+command는 `/help`의 기타 항목으로 표시되어 숨겨지지 않습니다.
+
+**세션·대화**
+- `/new` (`/reset`) — 새 대화를 시작합니다 (history 초기화).
+- `/retry` — 마지막 메시지를 다시 실행합니다.
+- `/undo` — 마지막 exchange(내 메시지 + 응답)를 제거합니다.
+- `/rollback` — 이전 checkpoint로 파일 변경을 되돌립니다.
+- `/compact` (`/compress`) — 대화를 요약해 context를 줄입니다.
+- `/clear` — 화면을 지웁니다.
+- `/sessions` — 대화를 목록·검색합니다; `/sessions save|load <name>`.
+- `/status` — 실시간 상태 줄을 표시합니다 (model · daemon · budget · 대기).
+- `/agents` — durable parent/child agent run을 목록으로 보여줍니다.
+- `/attach` — durable agent run에 attach해 실시간으로 따라갑니다.
+- `/send` — 실행 중인 agent에 메시지를 큐에 넣습니다.
+
+**모델**
+- `/model` (`/models`) — Model을 선택합니다 (↑/↓, Enter), 또는 지정: `/model <number|name>`.
+- `/provider` — Provider를 표시하거나 전환합니다 (anthropic|openai).
+- `/temp` — Sampling temperature를 표시하거나 설정합니다.
+
+**기억**
+- `/memory` (`/recall`) — Memory를 검색합니다; `/memory save <text>`; `/memory where`.
+- `/learn` — 이번 session을 되짚어 skill/memory를 저장합니다.
+
+**스킬·도구**
+- `/skills` — Skill을 목록으로 보여주거나 하나를 표시(`/skills <name>`), 또는 `/skills reload`.
+- `/tools` — Agent가 사용할 수 있는 tool 목록을 보여줍니다.
+- `/system` — 현재 system prompt를 출력합니다.
+- `/mcp` — MCP server(company tool) 목록을 보여줍니다. Gateway도 이를 상속합니다.
+- `/details` — 상세 tool trace(전체 input + result snippet) 표시를 전환합니다.
+
+**운영·승인**
+- `/work` (`/workbench`) — 통합 tasks/runs workbench에 focus합니다.
+- `/goal` — 선택적 verifier와 함께 session goal을 저장합니다.
+- `/review` — 대기 중인 approval을 inline으로 검토합니다.
+- `/cron` — 예약된 cron job 목록을 보여줍니다.
+- `/permission` (`/permissions`) — Approval과 CLI-agent access level.
+- `/config` — 현재 config를 보여줍니다 (key는 redact됨).
+- `/morpheus` (`/nightly`) — Morpheus 자기개선 routine을 지금 실행합니다.
+- `/update` (`/upgrade`) — Birkin을 최신 버전으로 update합니다 (fast-forward; 버전 표시).
+
+**페르소나·인터뷰**
+- `/persona` (`/soul`) — Birkin의 persona를 보여주거나, preset을 전환하거나, mask guidance를 promote합니다.
+- `/profile` — Role-profile write를 검토·승인·migrate·rollback합니다.
+- `/neurosis` (`/interview`) — Deep interview: 행동 전 Socratic clarity-gating.
+- `/odyssey` (`/ultrawork`, `/ulw`) — Goal-completion cycle: plan, critique, execute, verify.
+
+**게이트웨이**
+- `/restart` — Gateway를 재시작합니다; `--hard`는 코드 변경도 반영합니다.
+
+**종료·도움**
+- `/help` — 명령 목록을 보여주거나, 하나의 상세 도움말을 표시합니다.
+- `/quit` (`/exit`, `/q`) — Birkin을 종료합니다.
+
+## 환경 변수
+
+이 runtime switch들은 `os.environ`에서 직접 읽으며 `config.json` 대응 값이 없습니다.
+
+| 변수 | 효과 |
+|---|---|
+| `BIRKIN_PLAIN` | Reduced-motion / screen-reader mode를 강제합니다: color가 켜져 있어도 spinner·animation이 없습니다 (`ui.py`). |
+| `BIRKIN_ASCII` | `1`/`true`/`yes`/`on`으로 설정하면 `birkin work` workbench TUI에서 ASCII 문자만 사용합니다 (box-drawing/unicode 없음) (`workbench.py`). |
+| `BIRKIN_COLOR_MODE` | Workspace terminal의 color mode를 `none`, `ansi256`, `truecolor` 중 하나로 강제해 `TERM`/`NO_COLOR` 감지를 무시합니다 (`workspace_terminal.py`). |
+| `BIRKIN_WORKSPACE_THEME` | Workspace terminal color palette를 이름으로 선택합니다; 인식하지 못하면 기본 palette로 대체합니다 (`workspace_terminal.py`). |
+| `BIRKIN_GIT_TIMEOUT` | Checkpoint git 호출 하나가 걸릴 수 있는 최대 시간(초)이며, 초과하면 hang으로 간주합니다. 5-900 범위로 clamp, 기본값 120 (`checkpoints.py`). |
+| `BIRKIN_MCP_MODEL` | `birkin mcp-serve`가 사용하는 model을 override합니다; 없으면 config `model`을 사용합니다 (`mcp_server.py`). |
+| `BIRKIN_MCP_SCOPE` | `memory`로 설정하면 MCP stdio로 memory tool만 노출합니다; 그 외 값(기본 `full`)은 읽기 전용 market-quote tool도 함께 노출합니다 (`mcp_server.py`). |
+| `BIRKIN_NETWORK_ALLOWLIST` | Network policy가 `allowlist`일 때 Docker sandbox job 내부에 birkin이 자동으로 설정합니다 — 해당 job의 process가 접근할 수 있는 comma-separated host 목록입니다. 직접 설정하는 값이 아닙니다 (`sandbox_docker.py`). |
+| `BIRKIN_CODEX_BASE_URL` | Codex OAuth API base URL을 override합니다 (`codex_oauth.py`). |
+| `BIRKIN_ACCEPT_HOOKS` | `1`로 설정하면 hook 실행 동의 prompt를 자동 수락합니다. Config `hooks_auto_accept`와 동일한 효과입니다 (`hooks.py`). |
+| `BIRKIN_OMO_LIVE_DIR` | 살아있는 OMO agent session registry를 탐색할 디렉터리를 override합니다 (`omo_bridge.py`). |
+| `BIRKIN_BROWSER_CONTROL_ADDRESSES` | Browser-aside control API를 조작할 수 있는 `host:port` 목록(comma-separated)입니다; `birkin web`의 bootstrap listener가 자동으로 설정합니다 (`browser_aside_service.py`, `web/server.py`). |
 
 ## 실행 중인 세션과 검증된 실행 파일 탐색
 
@@ -1202,6 +1291,7 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "repl_typed_line": "steer",
   "moirai_auto": false,
   "worker_call_auto": true,
+  "session_goal_fallback": true,
   "moirai_workers": 4,
   "moirai_max_agents": 100,
   "moirai_roles": {},
@@ -1264,6 +1354,9 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
   "gateway_clean_hooks": true,
   "gateway_thinking_tokens": 0,
   "gateway_prewarm": true,
+  "gateway_max_sessions": 8,
+  "gateway_session_ttl_s": 3600,
+  "gateway_polish_timeout": 90,
   "voice": {
     "wake_phrase": "Daddy is home",
     "gateway_url": "",
@@ -1411,9 +1504,11 @@ signing/notarization, platform별 QA가 필요합니다. 따라서 local protoco
 
 Provider secret은 환경 변수에 두는 것이 원칙입니다. `api_keys`는 환경 변수 pool의 이름이며 raw key를 붙여 넣는 곳이 아닙니다. `a2a_enabled`는 opt-in입니다. Enforced egress는 검사되지 않은 네이티브 network 경로를 비활성화하고 설정된 destination만 Birkin의 inspected tool을 통해 허용합니다. Sandbox 안의 gateway child는 `propose_action`으로 shell 요청을 제출할 수 있고, Birkin은 이를 child sandbox에서 실행하지 않고 승인 큐에 넣습니다. Telegram의 `allowed_chat_ids`가 비어 있으면 Claude/native provider에서는 public text-only turn만 허용하고 semantic memory, harness state/review, transcript persistence, Birkin/company MCP, native tool을 모두 제거합니다. 동등한 tool-free child를 제공할 수 없는 Codex CLI의 Telegram gateway는 명시적인 chat allowlist가 필요합니다.
 신뢰된 Telegram private chat은 sender ID와 chat ID가 같아야 합니다.
-Allowlist에 포함된 group/supergroup chat은 각 구성원 ID도
-`allowed_sender_ids`에 있어야 하며, sender identity가 없거나 허용되지 않으면
-attachment, command, model turn 처리 전에 거부됩니다.
+Allowlist에 포함된 group/supergroup chat에서 `allowed_sender_ids`는
+sender 단위 제어입니다: 비어 있으면 `allowed_chat_ids` 이상의 추가 제한이
+없어(해당 chat의 모든 구성원이 agent를 실행할 수 있음 — gateway는 시작 시
+이를 경고합니다) 그대로 허용되고, 값이 있으면 그 목록에 있는 sender ID만
+통과하며 나머지는 attachment, command, model turn 처리 전에 거부됩니다.
 
 Public reply는 attachment 전달이나 workflow persistence를 trigger할 수 없고,
 `/neurosis` 같은 shared-state command는 allowlist에 포함된 chat에서만 허용됩니다.

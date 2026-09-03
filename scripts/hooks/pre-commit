@@ -33,4 +33,53 @@ if [ -f "$pyproj" ]; then
 fi
 
 git add "$init" "$pyproj" 2>/dev/null
+
+# The bumped version is restated in generated artifacts (Swift seam, protocol
+# vectors, lock, published docs, helper input checksums). Re-derive them from
+# the new manifest so a commit can never ship a one-patch-stale artifact.
+derived_files="\
+macos/BirkinNativeApp/Sources/BirkinNativeProtocol/BirkinVersion.swift \
+macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVectors/native-protocol-vectors.json \
+macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVectors/native-protocol-invalid-vectors.json \
+macos/BirkinNativeApp/Tests/BirkinNativeProtocolTests/GoldenVectors/native-projection-vectors.json \
+uv.lock README.md README.ko.md docs/office-support.md \
+scripts/native/bridge_helper_inputs.json"
+
+# Fingerprint the derived files first: only the ones this hook actually
+# rewrites may be staged, so a commit never sweeps in an unrelated working-tree
+# edit to a shared file such as README.md or uv.lock.
+snapshot=$(mktemp 2>/dev/null) || snapshot=""
+if [ -n "$snapshot" ]; then
+  for derived in $derived_files; do
+    if [ -f "$root/$derived" ]; then
+      printf '%s %s\n' "$derived" "$(cksum < "$root/$derived")" >> "$snapshot"
+    fi
+  done
+fi
+
+sync_python=""
+for candidate in "$root/.venv/Scripts/python.exe" "$root/.venv/bin/python"; do
+  if [ -x "$candidate" ]; then sync_python="$candidate"; break; fi
+done
+
+if [ -n "$sync_python" ]; then
+  (cd "$root" && "$sync_python" scripts/native/sync_version.py --all) >/dev/null 2>&1
+elif command -v uv >/dev/null 2>&1; then
+  (cd "$root" && uv run --frozen python scripts/native/sync_version.py --all) \
+    >/dev/null 2>&1
+else
+  echo "birkin: no interpreter found; derived version artifacts were not synced" >&2
+fi
+
+for derived in $derived_files; do
+  [ -f "$root/$derived" ] || continue
+  if [ -n "$snapshot" ]; then
+    before=$(awk -v path="$derived" '$1 == path {print $2, $3; exit}' "$snapshot")
+    after=$(cksum < "$root/$derived")
+    [ "$before" = "$after" ] && continue
+  fi
+  git add "$root/$derived" 2>/dev/null
+done
+[ -n "$snapshot" ] && rm -f "$snapshot"
+
 exit 0
