@@ -7,10 +7,13 @@ import threading
 from pathlib import Path
 from typing import final
 
-import pexpect
 import pytest
 
-from script.qa.workspace_conpty import ConptySpawn
+# pexpect is a dev extra, and script.qa.workspace_conpty imports it at module
+# level; guard both so a machine without it skips instead of failing collection.
+pexpect = pytest.importorskip("pexpect")
+
+from script.qa.workspace_conpty import ConptySpawn  # noqa: E402
 
 
 @final

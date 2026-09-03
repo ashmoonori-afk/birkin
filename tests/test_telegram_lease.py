@@ -9,12 +9,12 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from io import FileIO, TextIOWrapper
-from multiprocessing.connection import PipeConnection, wait
+from multiprocessing.connection import wait
 from multiprocessing.synchronize import Barrier as BarrierType
 from multiprocessing.synchronize import Event as EventType
 from pathlib import Path
 from threading import BrokenBarrierError
-from typing import Protocol
+from typing import Any, Protocol
 from unittest.mock import patch
 
 import pytest
@@ -50,7 +50,8 @@ class _ContenderContext:
     home: str
     barrier: BarrierType
     release_owner: EventType
-    result: PipeConnection
+    # Windows-only pipe endpoint type: naming it would abort ubuntu/macos collection.
+    result: Any
 
 
 def _acquire_at_publication_barrier(context: _ContenderContext) -> None:

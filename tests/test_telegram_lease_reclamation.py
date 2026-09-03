@@ -8,10 +8,10 @@ import multiprocessing
 import os
 from contextlib import ExitStack
 from dataclasses import dataclass
-from multiprocessing.connection import PipeConnection, wait
+from multiprocessing.connection import wait
 from multiprocessing.synchronize import Event as EventType
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from unittest.mock import patch
 
 import pytest
@@ -45,7 +45,8 @@ class _ReclaimContext:
     first_reclaimer_ready: EventType
     continue_first_reclaimer: EventType
     release_owner: EventType
-    result: PipeConnection
+    # Windows-only pipe endpoint type: naming it would abort ubuntu/macos collection.
+    result: Any
 
 
 def _reclaim_stale_owner(context: _ReclaimContext) -> None:

@@ -1,4 +1,4 @@
-"""A URL that arrives markdown-escaped must reach the agent unescaped.
+r"""A URL that arrives markdown-escaped must reach the agent unescaped.
 
 A Telegram client that formats an outgoing link escapes the characters
 markdown treats specially, so a tracking URL arrives as
