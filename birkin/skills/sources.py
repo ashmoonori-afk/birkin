@@ -110,6 +110,8 @@ class LocalSource(SkillSource):
     def fetch(self, identifier: str, dest: Path) -> dict[str, Any]:
         src = Path(identifier).expanduser().resolve()
         skill_md_path = src / "SKILL.md"
+        if skill_md_path.is_symlink():
+            raise hub.HubError(f"SKILL.md is a link: {skill_md_path}")
         if not skill_md_path.is_file():
             raise hub.HubError(f"no SKILL.md in {src}")
         skill_md = skill_md_path.read_text(encoding="utf-8", errors="replace")
@@ -125,9 +127,15 @@ class LocalSource(SkillSource):
             if not origin.is_dir():
                 continue
             for path in sorted(origin.rglob("*")):
+                rel = path.relative_to(src).as_posix()
+                # Refuse the link itself, the way guard.py's escape-symlink
+                # check does: copying its content would turn a file outside
+                # the bundle into an ordinary trusted file in quarantine,
+                # where every later scan sees only the copy.
+                if path.is_symlink() or not path.resolve().is_relative_to(src):
+                    raise hub.HubError(f"support file leaves the bundle: {rel}")
                 if not path.is_file():
                     continue
-                rel = path.relative_to(src).as_posix()
                 if hub.safe_relpath(rel) is None:
                     raise hub.HubError(f"support file escapes the bundle: {rel}")
                 target = dest / rel

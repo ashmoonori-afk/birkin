@@ -104,6 +104,33 @@ def _append_line(
     return True
 
 
+def _is_continuation(line: str) -> bool:
+    """True for a frontmatter line owned by the key above it."""
+    stripped = line.lstrip()
+    return line != stripped or stripped == "-" or stripped.startswith("- ")
+
+
+def _drop_keys(fm: str, keys: dict[str, list[str]]) -> list[str]:
+    """Frontmatter lines minus the top-level *keys* and their block bodies.
+
+    A YAML block list (``aliases:`` followed by ``  - item``) spans several
+    lines, so dropping only the ``key:`` line would orphan the items under the
+    preceding key and swallow every key after it.
+    """
+    lines = fm.splitlines()
+    kept: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if _is_continuation(line) or line.split(":", 1)[0].strip() not in keys:
+            kept.append(line)
+            continue
+        while i < len(lines) and _is_continuation(lines[i]):
+            i += 1
+    return kept
+
+
 def _write_anchors(vault: Path, dex: Mnemosyne, s: str,
                    fields: dict[str, list[str]],
                    read_note: ReadNote | None,
@@ -111,8 +138,9 @@ def _write_anchors(vault: Path, dex: Mnemosyne, s: str,
     """Merge retrieval anchors into a note's frontmatter. Body untouched.
 
     The body is not addressable by this code path at all — we split the
-    frontmatter off, rewrite only whitelisted key lines, and re-attach the
-    body bytes unchanged. That is the safety property `annotate` claims.
+    frontmatter off, rewrite only whitelisted top-level key entries (block
+    lists included), and re-attach the body bytes unchanged. That is the
+    safety property `annotate` claims.
     """
     loaded = _load_note(vault, dex, s, read_note)
     if loaded is None:
@@ -136,8 +164,7 @@ def _write_anchors(vault: Path, dex: Mnemosyne, s: str,
     if not changed:
         return False
 
-    kept = [ln for ln in fm.splitlines()
-            if ln.split(":", 1)[0].strip() not in merged]
+    kept = _drop_keys(fm, merged)
     for key, values in merged.items():
         rendered = ", ".join(json.dumps(v, ensure_ascii=False)
                              for v in values)

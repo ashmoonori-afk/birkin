@@ -19,6 +19,8 @@ of them.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +97,26 @@ class TestRouting:
             assert isinstance(source.source_id(), str)
 
 
+def _link_outside(scripts: Path, outside: Path) -> None:
+    """Plant a link under ``scripts`` that points out of the bundle, or skip.
+
+    Windows refuses symlinks without a privilege the test runner rarely holds;
+    a directory junction needs none and rglob walks into it just the same.
+    """
+    try:
+        (scripts / "setup-notes.md").symlink_to(outside / "id_rsa")
+        return
+    except OSError:
+        pass
+    if os.name != "nt":
+        pytest.skip("this platform refuses link creation")
+    made = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(scripts / "notes"), str(outside)],
+        capture_output=True)
+    if made.returncode != 0:
+        pytest.skip("neither a symlink nor a junction can be created here")
+
+
 class TestLocalSource:
     def test_fetch_copies_the_skill_and_its_support_files(
             self, local_skill, tmp_path) -> None:
@@ -132,6 +154,29 @@ class TestLocalSource:
             "---\nname: ../../escaped\ndescription: no\n---\n", encoding="utf-8")
         with pytest.raises(hub.HubError):
             sources.LocalSource().fetch(str(evil), tmp_path / "q")
+
+    def test_a_support_link_is_refused_before_its_target_is_copied(
+            self, tmp_path) -> None:
+        """A plain copy turns a link into an ordinary file.
+
+        guard.py calls an escaping symlink critical, but it only ever sees the
+        quarantine copy: by then the link is gone and the secret it pointed at
+        reads as a harmless text file. So the refusal has to happen here.
+        """
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        (outside / "id_rsa").write_text("PRIVATE KEY", encoding="utf-8")
+        skill = tmp_path / "helper"
+        (skill / "scripts").mkdir(parents=True)
+        (skill / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+        _link_outside(skill / "scripts", outside)
+
+        dest = tmp_path / "q"
+        with pytest.raises(hub.HubError):
+            sources.LocalSource().fetch(str(skill), dest)
+        copied = [p.read_text(encoding="utf-8", errors="replace")
+                  for p in dest.rglob("*") if p.is_file()]
+        assert not any("PRIVATE KEY" in text for text in copied)
 
 
 class TestUrlSource:

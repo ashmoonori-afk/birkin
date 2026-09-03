@@ -350,6 +350,20 @@ def install_from_quarantine(name: str, quarantine: Path,
         if path.is_symlink():
             raise HubError(f"refusing to install a link: {path}")
 
+    # The name a bundle installs under comes from its own frontmatter, so a
+    # second install can claim the directory of one already there. Publishing
+    # is replace=True, so that would swap out a skill the agent already reads
+    # as instructions. Only the source that installed it may replace it.
+    previous = load_lock().get(name)
+    if isinstance(previous, dict) \
+            and previous.get("identifier") != meta.get("identifier"):
+        raise HubError(
+            f"'{name}' 스킬은 이미 다른 출처"
+            f"({previous.get('identifier', '?')})에서 설치되어 있어 "
+            f"덮어쓰지 않았습니다. 교체하려면 먼저 "
+            f"`birkin skills uninstall {name}`으로 제거한 뒤 다시 설치하세요."
+        )
+
     target_root = config.user_skills_dir().absolute()
     target = target_root / "hub" / name
     _ = publish_bundle(

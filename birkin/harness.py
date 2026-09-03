@@ -316,6 +316,12 @@ def empty_working() -> dict[str, Any]:
     }
 
 
+def _working_is_empty(working: dict[str, Any]) -> bool:
+    """Emptiness is field content, never revision 0: a cleared journal keeps its
+    revision so the optimistic-concurrency token stays monotonic."""
+    return not any(working.get(field) for field in WORKING_FIELDS)
+
+
 def empty_state() -> dict[str, Any]:
     return {
         "schema": 3,
@@ -1102,12 +1108,14 @@ def clear_working(
         with store.file_lock(path):
             state = load("local", session_id=session)
             current = state.get("working") or empty_working()
-            if int(current.get("revision") or 0) == 0:
+            if _working_is_empty(current):
                 if commit is not None:
                     commit()
                 return False
             state["schema"] = 3
-            state["working"] = empty_working()
+            state["working"] = preview_working_clear(
+                int(current.get("revision") or 0)
+            )
             store._write_json(path, state)
             if commit is not None:
                 try:
@@ -1142,7 +1150,7 @@ def restore_working(
 
 
 def _render_working_state(session_id: str, working: dict[str, Any]) -> str:
-    if int(working.get("revision") or 0) == 0:
+    if _working_is_empty(working):
         return ""
     headings = {
         "corrections": "User corrections",
