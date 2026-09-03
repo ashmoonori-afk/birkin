@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+import warnings
 
 import pytest
 
@@ -15,7 +16,8 @@ def test_write_permission_failure_returns_typed_diagnostic(monkeypatch):
 
     monkeypatch.setattr(ledger, "_connect", deny_connection)
 
-    with pytest.warns(ledger.LedgerDiagnosticWarning, match="permission_denied"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         result = ledger.event("run:chat", "must remain observable")
 
     assert result.ok is False
@@ -25,7 +27,8 @@ def test_write_permission_failure_returns_typed_diagnostic(monkeypatch):
 
 
 def test_json_conversion_failure_returns_typed_diagnostic():
-    with pytest.warns(ledger.LedgerDiagnosticWarning, match="encoding"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         result = ledger.event("run:chat", data={"invalid": object()})
 
     assert result.ok is False

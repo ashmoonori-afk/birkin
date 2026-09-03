@@ -16,6 +16,11 @@ from birkin.native.private_storage import (
 )
 from birkin.native.protocol import NativeProtocolError
 
+# Reuses the JSON state writer's Windows sharing-violation retry: the packaged
+# client reads endpoint.json without FILE_SHARE_DELETE, so the rename fails with
+# PermissionError [WinError 5] until that reader closes.
+from birkin.store import _replace_with_retry
+
 
 @final
 @dataclass(frozen=True, slots=True)
@@ -94,7 +99,7 @@ def write_record(
             json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
             handle.flush()
             os.fsync(handle.fileno())
-        os.replace(temp_path, path)
+        _replace_with_retry(temp_path, path)
     finally:
         if temp_path.exists():
             temp_path.unlink()

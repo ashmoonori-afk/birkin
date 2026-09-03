@@ -207,6 +207,21 @@ class BridgeProcess:
         """
         try:
             endpoint.serve_once()
+        except TimeoutError as exc:
+            # A writer that outlives its connection is a teardown failure of
+            # that connection, not of accept. It subclasses OSError, so it has
+            # to be answered first: its message is the whole diagnostic, and
+            # the listener's failure budget must not pay for stuck clients.
+            if self._stopping.is_set():
+                return
+            _emit(
+                self._announce,
+                {
+                    "event": "connection_failed",
+                    "error": f"TimeoutError: {exc}"[:200],
+                },
+            )
+            return
         except OSError as exc:
             if self._stopping.is_set():
                 return

@@ -15,8 +15,8 @@ WAL.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
-import warnings
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -32,6 +32,8 @@ LedgerErrorCode = Literal[
 LedgerBoundaryError = (
     sqlite3.Error | OSError | UnicodeError | TypeError | ValueError | OverflowError
 )
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,10 +58,6 @@ class LedgerWriteResult:
 
     ok: bool
     error: LedgerError | None = None
-
-
-class LedgerDiagnosticWarning(RuntimeWarning):
-    """Observable diagnostic emitted when a best-effort write fails."""
 
 
 _SCHEMA = """
@@ -134,15 +132,16 @@ def event(
 ) -> LedgerWriteResult:
     """Append one event without breaking the run that produced it.
 
-    A failed mirror write returns a typed failure and emits a diagnostic so a
-    caller that intentionally ignores the result still cannot fail silently.
+    A failed mirror write returns a typed failure and logs it. It never raises
+    and never warns: the ledger is a mirror, and ``-W error`` must not turn a
+    locked database into a failed session.
     """
     try:
         token_count = int(tokens or 0)
         encoded_data = json.dumps(data or {}, ensure_ascii=False)[:4000]
     except (TypeError, ValueError, OverflowError, UnicodeError) as exc:
         error = _error("write", exc)
-        warnings.warn(str(error), LedgerDiagnosticWarning, stacklevel=2)
+        _log.debug("%s", error)
         return LedgerWriteResult(ok=False, error=error)
 
     try:
@@ -160,13 +159,17 @@ def event(
             )
     except (sqlite3.Error, OSError, UnicodeError, OverflowError) as exc:
         error = _error("write", exc)
-        warnings.warn(str(error), LedgerDiagnosticWarning, stacklevel=2)
+        _log.debug("%s", error)
         return LedgerWriteResult(ok=False, error=error)
     return LedgerWriteResult(ok=True)
 
 
 def usage(period: str = "day", now: datetime | None = None) -> int:
-    """Total tokens recorded today / this month (UTC). period: day|month."""
+    """Total tokens recorded today / this month (UTC). period: day|month.
+
+    An unreadable ledger raises :class:`LedgerError`: a corrupt audit trail
+    must never be indistinguishable from an empty one.
+    """
     now = now or datetime.now(timezone.utc)
     prefix = now.strftime("%Y-%m-%d" if period == "day" else "%Y-%m")
     try:
@@ -186,6 +189,7 @@ def usage(period: str = "day", now: datetime | None = None) -> int:
 
 
 def recent(limit: int = 50, kind: str | None = None) -> list[dict[str, Any]]:
+    """Most recent events, newest first; an unreadable ledger raises."""
     try:
         with closing(_connect()) as con, con:
             con.row_factory = sqlite3.Row
