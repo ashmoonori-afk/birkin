@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import errno
-import json
 import os
 import signal
 import threading
@@ -18,6 +17,12 @@ from typing import Protocol, final
 from birkin import __version__, config
 from birkin.native.capability import BootstrapSecretStore
 from birkin.native.endpoint import NativeBridgeEndpoint
+from birkin.native.serve_announce import (
+    Announce,
+    connection_failure,
+    emit as _emit,
+    write_line as _write_line,
+)
 from birkin.native.serve_surfaces import (
     SelectedSurfaceAuthority as _SelectedSurfaceAuthority,
 )
@@ -25,8 +30,6 @@ from birkin.native.server import NativeBridgeServer
 from birkin.workspace.hub import EventSink, WorkspaceHub
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 from birkin.workspace.service import CommandHandler
-
-Announce = Callable[[str], None]
 
 DEFAULT_SESSION_ID = "native-app"
 _SUPPORTED_TRANSPORTS = ("uds", "loopback")
@@ -81,14 +84,6 @@ class NativeServeOptions:
             session_id=session_id or DEFAULT_SESSION_ID,
             root=resolved_root.expanduser(),
         )
-
-
-def _emit(announce: Announce, record: dict[str, object]) -> None:
-    announce(json.dumps(record, separators=(",", ":")))
-
-
-def _write_line(line: str) -> None:
-    print(line, flush=True)
 
 
 @final
@@ -212,32 +207,21 @@ class BridgeProcess:
             # that connection, not of accept. It subclasses OSError, so it has
             # to be answered first: its message is the whole diagnostic, and
             # the listener's failure budget must not pay for stuck clients.
-            if self._stopping.is_set():
-                return
-            _emit(
-                self._announce,
-                {
-                    "event": "connection_failed",
-                    "error": f"TimeoutError: {exc}"[:200],
-                },
-            )
+            self._connection_failed(exc)
             return
         except OSError as exc:
-            if self._stopping.is_set():
-                return
-            self._absorb_socket_error(exc)
+            if not self._stopping.is_set():
+                self._absorb_socket_error(exc)
             return
         except Exception as exc:  # noqa: BLE001 - service boundary
-            if self._stopping.is_set():
-                return
-            _emit(
-                self._announce,
-                {
-                    "event": "connection_failed",
-                    "error": f"{type(exc).__name__}: {exc}"[:200],
-                },
-            )
+            self._connection_failed(exc)
+            return
         self._accept_failures = 0
+
+    def _connection_failed(self, exc: BaseException) -> None:
+        if self._stopping.is_set():
+            return
+        _emit(self._announce, connection_failure(exc))
 
     def _absorb_socket_error(self, exc: OSError) -> None:
         """Keep serving a per-connection socket failure; stop when the
