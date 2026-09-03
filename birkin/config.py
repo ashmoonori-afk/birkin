@@ -543,6 +543,10 @@ def harden_birkin_home(home: Path) -> tuple[int, int]:
     from .private_storage import harden_private_directory, harden_private_tree
 
     _require_owner_controlled_parent(home)
+    if home.is_symlink():
+        # Hardening below follows the link and would report the confusing
+        # "changed after hardening" identity mismatch instead.
+        raise OSError("BIRKIN_HOME must be a real directory, not a symlink")
     harden_private_directory(home)
     harden_private_tree(home)
     metadata = home.stat(follow_symlinks=False)
