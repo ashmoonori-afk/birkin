@@ -40,6 +40,7 @@ from weakref import WeakKeyDictionary
 from .. import __version__, approvals, config, cron, store
 from ..browser_aside_control import browser_workspace_registry
 from ..browser_aside_errors import BrowserAsideError
+from ..private_storage import atomic_write_private_text
 from ..runtime import Session
 from ..skills import build_manager
 from ..workspace import (
@@ -756,7 +757,9 @@ class Handler(BaseHTTPRequestHandler):
             return True
         try:
             raw_payload = cast(object, json.loads(body or b"{}"))
-        except (ValueError, UnicodeDecodeError):
+        # RecursionError is a RuntimeError, not a ValueError: JSON nested past
+        # the scanner's limit would otherwise escape and answer nothing at all.
+        except (ValueError, UnicodeDecodeError, RecursionError):
             self._json({"error": "bad json"}, code=400)
             return True
         if not isinstance(raw_payload, dict):
@@ -1313,7 +1316,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             payload = json.loads(body or b"{}")
-        except (ValueError, UnicodeDecodeError):
+        # See _workspace_post: deep nesting raises RecursionError, not ValueError.
+        except (ValueError, UnicodeDecodeError, RecursionError):
             self._json(
                 {
                     "jsonrpc": "2.0",
@@ -1698,6 +1702,23 @@ def _a2a_run(text: str) -> str:
     return build_session().ask(text)
 
 
+def _write_session_discovery(
+    path: Path,
+    payload: Mapping[str, JSONValue],
+) -> None:
+    """Publish dashboard discovery as an owner-only file.
+
+    It carries the dashboard capability token and the bootstrap nonce, so it
+    needs the same private-storage guarantee as the gateway capability file;
+    ``store._write_json`` only chmods, which is a no-op on Windows.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_private_text(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False),
+    )
+
+
 def run(port: int | None = None, *, open_browser: bool = True) -> int:
     from ..approval_execution_recovery import recover_all
     from ..moirai import continuation
@@ -1739,8 +1760,7 @@ def run(port: int | None = None, *, open_browser: bool = True) -> int:
         f"127.0.0.1:{actual_port},localhost:{actual_port}"
     )
     session_path = config.birkin_home() / "web_session.json"
-    session_path.parent.mkdir(parents=True, exist_ok=True)
-    store._write_json(
+    _write_session_discovery(
         session_path,
         {
             "port": actual_port,

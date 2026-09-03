@@ -18,6 +18,13 @@ class _JsonLoader(Protocol):
 
 _load_json: _JsonLoader = json.loads
 
+# json.loads happily accepts nesting far deeper than the typed re-walk below can
+# recurse through, and the resulting RecursionError is not a RequestPayloadError,
+# so the route handler would answer nothing at all. Bound the walk instead: no
+# request this API serves nests anywhere near this deep.
+MAX_NESTING_DEPTH = 32
+_TOO_DEEP = "JSON nesting too deep"
+
 
 @dataclass(frozen=True, slots=True)
 class RequestPayloadError(ValueError):
@@ -32,11 +39,18 @@ def parse_object(body: bytes) -> dict[str, JSONValue]:
     """Parse one JSON request object into recursively typed values."""
     try:
         value = _load_json(body)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except ValueError as exc:
+        # Invalid syntax, undecodable bytes and interpreter integer limits are all
+        # bounded refusals; only JSONDecodeError of these is a decode error.
         raise RequestPayloadError("bad json") from exc
+    except RecursionError as exc:
+        raise RequestPayloadError(_TOO_DEEP) from exc
     if not isinstance(value, dict):
         raise RequestPayloadError("expected JSON object")
-    return _object(value)
+    try:
+        return _object(value, 1)
+    except RecursionError as exc:
+        raise RequestPayloadError(_TOO_DEEP) from exc
 
 
 def string_list(value: JSONValue | None) -> list[str] | None:
@@ -50,17 +64,21 @@ def string_list(value: JSONValue | None) -> list[str] | None:
     return result
 
 
-def _object(value: dict[str, JSONValue]) -> dict[str, JSONValue]:
-    return {key: _value(item) for key, item in value.items()}
+def _object(value: dict[str, JSONValue], depth: int) -> dict[str, JSONValue]:
+    if depth > MAX_NESTING_DEPTH:
+        raise RequestPayloadError(_TOO_DEEP)
+    return {key: _value(item, depth) for key, item in value.items()}
 
 
-def _value(value: JSONValue) -> JSONValue:
+def _value(value: JSONValue, depth: int) -> JSONValue:
     match value:
         case None | str() | bool() | int() | float():
             return value
         case list() as items:
-            return [_value(item) for item in items]
+            if depth > MAX_NESTING_DEPTH:
+                raise RequestPayloadError(_TOO_DEEP)
+            return [_value(item, depth + 1) for item in items]
         case dict() as mapping:
-            return _object(mapping)
+            return _object(mapping, depth + 1)
         case unreachable:
             assert_never(unreachable)

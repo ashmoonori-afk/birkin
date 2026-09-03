@@ -151,11 +151,19 @@ class LocalHTTPChannel(Channel):
                 host = (self.headers.get("Host", "") or "").rsplit(":", 1)[0]
                 return host in _ALLOWED_HOSTS
 
-            def _json(self, payload: JsonValue, code: int = 200) -> None:
+            def _json(
+                self,
+                payload: JsonValue,
+                code: int = 200,
+                *,
+                close: bool = False,
+            ) -> None:
                 body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
                 self.send_response(code)
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(body)))
+                if close:
+                    self.send_header("Connection", "close")
                 self.end_headers()
                 _ = self.wfile.write(body)
 
@@ -191,9 +199,18 @@ class LocalHTTPChannel(Channel):
                 if ctype != "application/json":
                     self._json({"error": "Content-Type must be application/json"}, 415)
                     return
-                token_matches = required_token is None or secrets.compare_digest(
+                # Authenticate before touching the body: an unauthenticated
+                # caller must never be able to pin a handler thread for the
+                # 2s body timeout, nor learn body-shaped 400/408/413s. The 401
+                # is written first, then the declared body is discarded under
+                # the shorter rejected-body budget so Windows delivers the
+                # response instead of resetting the connection.
+                if required_token is not None and not secrets.compare_digest(
                     self.headers.get("X-Birkin-Token", ""), required_token
-                )
+                ):
+                    self._json({"error": "unauthorized"}, 401, close=True)
+                    _drain_rejected_body(self)
+                    return
                 # Tolerate junk: bad Content-Length, non-UTF-8 bytes (port
                 # scanners / wrong-encoding clients), or non-object JSON must
                 # return 400 — never crash the request handler.
@@ -220,9 +237,6 @@ class LocalHTTPChannel(Channel):
                         return
                 except ValueError:
                     self._json({"error": "bad request"}, 400)
-                    return
-                if not token_matches:
-                    self._json({"error": "unauthorized"}, 401)
                     return
                 try:
                     payload = _JSON_LOADER(body or b"{}")
