@@ -198,7 +198,16 @@ def record_refine_request(
     if selected_scope == "local":
         selected_session = validate_working_session_id(session_id or "default")
     stamp = datetime.now(timezone.utc)
-    request_id = f"rr_{stamp.strftime('%Y%m%d-%H%M%S')}_{uuid.uuid4().hex[:16]}"
+    # The 16-character tail leads with the zero-padded microsecond (decimal
+    # digits are hex digits, so the id format is unchanged) and ends in
+    # randomness. Two requests recorded inside one second used to tie on the
+    # second-resolution created_at and fall back to a random tiebreak, so
+    # refine_requests() listed them in arbitrary order on hosts fast enough to
+    # write both within a second.
+    request_id = (
+        f"rr_{stamp.strftime('%Y%m%d-%H%M%S')}"
+        f"_{stamp.microsecond:06d}{uuid.uuid4().hex[:10]}"
+    )
     artifact: dict[str, object] = {
         "schema": 2,
         "id": request_id,
@@ -206,7 +215,7 @@ def record_refine_request(
         "instructions": instructions,
         "scope": selected_scope,
         "session_id": selected_session,
-        "created_at": stamp.isoformat(timespec="seconds"),
+        "created_at": stamp.isoformat(timespec="microseconds"),
         "status": "recorded",
         "request_digest": refine_request_digest(instructions, selected_scope),
     }

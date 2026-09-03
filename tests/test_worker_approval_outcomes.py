@@ -7,6 +7,7 @@ import json
 import os
 import stat
 import subprocess
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -219,3 +220,66 @@ def test_worker_execution_failure_marks_approval_error(
     resolved = store.get_pending(text(record, "id"))
     assert resolved is not None and resolved["status"] == "error"
     assert resolved["failure_stage"] == "action"
+
+
+class _SameSecondClock:
+    """A ``datetime`` stand-in pinning every ``now`` inside one frozen second.
+
+    Each call advances by a microsecond, so the sequence stays strictly
+    increasing while every stamp shares the same second-resolution prefix.
+    """
+
+    def __init__(self, base: datetime) -> None:
+        self._base = base
+        self._calls = 0
+
+    def now(self, tz: timezone | None = None) -> datetime:
+        _ = tz
+        self._calls += 1
+        return self._base + timedelta(microseconds=self._calls)
+
+
+class _FakeUuid:
+    def __init__(self, hex: str) -> None:
+        self.hex = hex
+
+
+class _DescendingUuid:
+    """A ``uuid`` stand-in whose ``uuid4().hex`` decreases on every call."""
+
+    def __init__(self) -> None:
+        self._next = 16
+
+    def uuid4(self) -> _FakeUuid:
+        self._next -= 1
+        return _FakeUuid(f"{self._next:x}" * 32)
+
+
+def test_same_second_refine_requests_keep_creation_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two refine requests recorded inside one second still list in order.
+
+    Approval records the artifact in a subprocess, so the collision is forced
+    at the recording seam instead: the clock is frozen to a single second and
+    ``uuid4`` forced to descending values. The pre-fix identity -- a
+    second-resolution ``created_at`` broken by a random tiebreak -- reverses
+    the listing here on every platform, rather than only on hosts fast enough
+    to write both artifacts inside one second.
+    """
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    monkeypatch.setattr(
+        harness,
+        "datetime",
+        _SameSecondClock(datetime(2026, 1, 1, 12, 0, 0, tzinfo=timezone.utc)),
+    )
+    monkeypatch.setattr(harness, "uuid", _DescendingUuid())
+
+    targets = ("first same-second refinement", "second same-second refinement")
+    for target in targets:
+        _ = harness.record_refine_request(target, scope="global")
+
+    artifacts = harness.refine_requests("global")
+    assert [item["target"] for item in artifacts] == list(targets)
+    assert len({item["id"] for item in artifacts}) == 2
+    assert len({item["created_at"] for item in artifacts}) == 2
