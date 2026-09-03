@@ -35,7 +35,7 @@ def _envelope(**over):
 def test_the_note_is_absent_unless_the_user_opts_in():
     assert T.auto_trigger_note({}) == ""
     assert T.auto_trigger_note({"moirai_auto": False}) == ""
-    assert T.PROPOSAL_OPEN in T.auto_trigger_note({"moirai_auto": True})
+    assert "birkin moirai run" in T.auto_trigger_note({"moirai_auto": True})
 
 
 def test_the_default_config_leaves_it_off():
@@ -45,11 +45,11 @@ def test_the_default_config_leaves_it_off():
 
 def test_promptgate_carries_it_to_both_surfaces():
     on = {"moirai_auto": True}
-    assert T.PROPOSAL_OPEN in promptgate.compose_main(on, skills_index="s",
-                                                      memory_block="")
-    assert T.PROPOSAL_OPEN in promptgate.compose_cli(on, memory_block="")
-    assert T.PROPOSAL_OPEN not in promptgate.compose_main({}, skills_index="s",
+    assert "birkin moirai run" in promptgate.compose_main(on, skills_index="s",
                                                           memory_block="")
+    assert "birkin moirai run" in promptgate.compose_cli(on, memory_block="")
+    assert "Workflows (Moirai)" not in promptgate.compose_main(
+        {}, skills_index="s", memory_block="")
 
 
 def test_the_note_names_workflows_that_actually_exist():
@@ -169,8 +169,48 @@ def test_an_empty_payload_does_not_crash_the_executor():
 # ---------------- the invariant that must survive -------------------------
 
 def test_no_tool_exposes_moirai_to_a_model():
-    """The model may propose; it may never spawn. That is the whole rail."""
+    """The model may propose; it may never spawn. That is the whole rail.
+
+    Checked structurally rather than by grepping for the word: no tool module
+    may name the moirai package in an import or any other identifier. The one
+    place the word is allowed to survive is files.py's write deny-list, which
+    shuts the door (a planted script under ~/.birkin/moirai/ would be exec()d)
+    rather than opening one.
+    """
+    import ast
     import pathlib
+    from birkin.tools import files
     tools = pathlib.Path(__file__).resolve().parent.parent / "birkin" / "tools"
     for f in tools.glob("*.py"):
-        assert "moirai" not in f.read_text(encoding="utf-8"), f.name
+        src = f.read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(src)):
+            ident = (
+                node.id if isinstance(node, ast.Name)
+                else node.attr if isinstance(node, ast.Attribute)
+                else node.name if isinstance(node, ast.alias)
+                else node.module if isinstance(node, ast.ImportFrom)
+                else None
+            )
+            assert ident is None or "moirai" not in ident, f.name
+        if "moirai" in src:
+            assert f.name == "files.py", f.name
+    assert "cannot write" in files._CONTROL_DIRS["moirai"]
+
+
+# ---------------- the note must ask for output something consumes ---------
+
+def test_the_note_never_asks_for_an_envelope_nothing_parses():
+    """R60: `parse`/`queue` have no production caller on any surface.
+
+    A note that demands the envelope makes an opted-in user's turn come back
+    as raw markup with their question unanswered, so the note must ask for
+    the one thing that does reach a human: prose naming the CLI command.
+    """
+    note = T.auto_trigger_note({"moirai_auto": True})
+    assert T.PROPOSAL_OPEN not in note and T.PROPOSAL_CLOSE not in note
+    on = {"moirai_auto": True}
+    for surface in (promptgate.compose_main(on, skills_index="s",
+                                            memory_block=""),
+                    promptgate.compose_cli(on, memory_block="")):
+        assert T.PROPOSAL_OPEN not in surface
+        assert "birkin moirai run" in surface

@@ -83,6 +83,22 @@ DANGEROUS: list[tuple[str, str]] = [
     (r"\bcurl\b[^|]*\|\s*(sudo\s+)?(ba|z|k|)sh\b", "pipes a download into a shell"),
     (r"\bwget\b[^|]*\|\s*(sudo\s+)?(ba|z|k|)sh\b", "pipes a download into a shell"),
     (r"\biwr\b[^|]*\|\s*iex\b", "pipes a download into PowerShell"),
+    # Downloads were gated only where they piped into a shell, so the other
+    # direction — sending a local file out — ran unattended. `(?-i:...)` keeps
+    # the short flags case-sensitive despite the re.I below: curl -d/-F/-T
+    # upload, while -D/-f/-t do not. wget's short flags mean other things, so
+    # only its long upload options are listed.
+    (r"\bcurl\b[^|;]*\s(?:(?-i:-[A-Za-z]*[dFT])\b"
+     r"|--(?:data|form|upload-file))",
+     "uploads local data to a URL"),
+    (r"\bwget\b[^|;]*\s--(?:post|body)-(?:data|file)\b",
+     "uploads local data to a URL"),
+    (r"\b(?:Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^|;]*"
+     r"\s-(?:InFile|Body|Form)\b",
+     "uploads local data to a URL"),
+    (r"\b(?:Invoke-WebRequest|Invoke-RestMethod|iwr|irm)\b[^|;]*"
+     r"\s-Method\s+(?:Post|Put|Patch)\b",
+     "uploads local data to a URL"),
     (r"\b(base64|b64decode)\b[^|]*\|\s*(ba|z|k|)sh\b", "decodes and executes"),
     (r"\beval\s+.*\$\(", "evaluates a command substitution"),
     (r"\bchmod\s+(-[a-z]+\s+)*777\b", "world-writable permissions"),

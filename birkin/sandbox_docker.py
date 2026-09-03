@@ -43,11 +43,12 @@ class DockerRunner:
         argv = ["docker", "run", "--rm", "--workdir=/workspace"]
         argv.append("--network=none" if policy.network is NetworkPolicy.OFF
                     else "--network=bridge")
-        argv += ["--mount", self._mount(self.repo, "/workspace", readonly=True)]
+        writable_root = "." in policy.write_paths
+        argv += ["--mount", self._mount(self.repo, "/workspace", readonly=not writable_root)]
         for raw in policy.write_paths:
-            source = self.repo if raw == "." else self.repo / raw
-            destination = "/workspace" if raw == "." else f"/workspace/{raw}"
-            argv += ["--mount", self._mount(source, destination)]
+            if raw == ".":
+                continue  # already mounted read-write above; a second dst=/workspace is rejected
+            argv += ["--mount", self._mount(self.repo / raw, f"/workspace/{raw}")]
         for name, value in policy.environment(source_env).items():
             argv += ["--env", f"{name}={value}"]
         if policy.network is NetworkPolicy.ALLOWLIST:

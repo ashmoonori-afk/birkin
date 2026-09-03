@@ -35,7 +35,11 @@ class WorktreeRunner:
         )
 
     def _changed_paths(self, worktree: Path) -> tuple[str, ...]:
-        output = self._git("status", "--porcelain=v1", "-z", cwd=worktree).stdout
+        # --ignored=matching: .gitignore'd writes (build/, .venv/, node_modules/) are
+        # still out-of-scope writes and must reach the policy gate as "!! <path>".
+        output = self._git(
+            "status", "--porcelain=v1", "-z", "--ignored=matching", cwd=worktree
+        ).stdout
         entries = output.split("\0")
         paths: list[str] = []
         skip_rename_source = False

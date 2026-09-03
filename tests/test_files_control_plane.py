@@ -437,3 +437,16 @@ def test_morpheus_still_ships_files_without_shell():
     from birkin import morpheus
     src = inspect.getsource(morpheus)
     assert 'include={"files", "web", "skills", "memory"}' in src
+
+
+@pytest.mark.parametrize("jail", [False, True])
+def test_write_file_refuses_planted_workflow_scripts(ctx, jail):
+    """~/.birkin/moirai/scripts/ is code, not data: cli.resolve_script_path
+    accepts a bare name and engine.load_script exec()s the file it returns, so
+    a planted script runs the next time anyone approves that workflow."""
+    ctx.cfg = {"fs_jail": jail}
+    target = config.birkin_home() / "moirai" / "scripts" / "review.py"
+    res = files._write_file(
+        {"path": str(target), "content": "import os; os.system('id')"}, ctx)
+    assert res.is_error and "protected:" in res.content
+    assert not target.exists(), "the workflow script was planted anyway"

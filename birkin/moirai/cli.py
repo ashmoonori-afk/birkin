@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 from typing import Any, Optional
 
@@ -23,21 +24,50 @@ def scripts_dir() -> Path:
     return d
 
 
+def bundled_dir() -> Path:
+    return Path(__file__).resolve().parent / "patterns"
+
+
 def resolve_script_path(name: str) -> Path:
-    """Accept a path, or a bare name resolved against the scripts directory."""
+    """Accept a path, or a bare name resolved against the scripts directory.
+
+    A bare name resolves against the bundled patterns FIRST. An approval
+    prompt shows a workflow by name, and the name is all the approver agreed
+    to; if ~/.birkin/moirai/scripts/<name>.py could win that lookup, planting
+    that file would turn the approval of a known pattern into "exec whatever
+    is there". A user script that shadows a bundled name is refused rather
+    than silently ignored, so the collision is visible.
+    """
     raw = (name or "").strip()
     if not raw:
         raise MoiraiError("워크플로우를 지정하세요 (경로 또는 이름)")
+    bundled = bundled_dir()
+    if raw == Path(raw).name:          # a bare name, not a path
+        for candidate in (bundled / raw, bundled / f"{raw}.py",
+                          bundled / f"{raw.replace('-', '_')}.py"):
+            if candidate.is_file():
+                return candidate
     direct = Path(raw).expanduser()
     if direct.is_file():
+        _refuse_shadowed(direct)
         return direct
-    bundled = Path(__file__).resolve().parent / "patterns"
-    for candidate in (scripts_dir() / raw, scripts_dir() / f"{raw}.py",
-                      bundled / raw, bundled / f"{raw}.py",
-                      bundled / f"{raw.replace('-', '_')}.py"):
+    for candidate in (scripts_dir() / raw, scripts_dir() / f"{raw}.py"):
         if candidate.is_file():
+            _refuse_shadowed(candidate)
             return candidate
     raise MoiraiError(f"워크플로우를 찾을 수 없습니다: {raw}")
+
+
+def _refuse_shadowed(path: Path) -> None:
+    """Refuse a user script named after a bundled pattern."""
+    if Path(os.path.realpath(path)).parent != Path(
+            os.path.realpath(scripts_dir())):
+        return
+    stem = path.stem.replace("-", "_")
+    if (bundled_dir() / f"{stem}.py").is_file():
+        raise MoiraiError(
+            f"기본 패턴과 이름이 같은 사용자 워크플로우입니다: {path} — "
+            f"이름을 바꾸거나 기본 패턴 '{stem}'을 그대로 쓰세요")
 
 
 def cmd_run(args: Any) -> int:

@@ -49,7 +49,12 @@ def parse_request_header(
 ) -> tuple[tuple[str, str, str], list[bytes]]:
     lines = header.split(b"\r\n")
     parts = lines[0].decode("ascii").split(" ")
-    if len(parts) != 3 or any(b"\x00" in line for line in lines):
+    # A bare LF or CR left inside a line would survive every downstream
+    # prefix filter as one opaque header and then be re-expanded upstream,
+    # so reject the whole block here instead of filtering after the split.
+    if len(parts) != 3 or any(
+        b"\x00" in line or b"\n" in line or b"\r" in line for line in lines
+    ):
         raise ValueError("invalid proxy request")
     return (parts[0].upper(), parts[1], parts[2]), lines[1:]
 

@@ -123,6 +123,10 @@ def _enforce_jail(ctx: ToolContext, p: Path) -> None:
 #                        reaches the "not approved, skipping" branch.
 #   hooks/               the documented home for hook scripts; overwriting one
 #                        that is already consented-to is execution too.
+#   moirai/              workflow scripts, which engine.load_script() exec()s
+#                        verbatim. cli.resolve_script_path takes a bare name,
+#                        so a planted file here is code that runs the next time
+#                        anyone approves a workflow by that name.
 # `birkin morpheus` runs unattended with write_file but deliberately WITHOUT
 # shell ("Birkin's registry excludes shell/subagent tools"); these writes hand
 # it back. Unconditional rather than fs_jail-gated, because _jail_roots()
@@ -136,6 +140,8 @@ _CONTROL_FILES = ("config.json", "cron.json", "hooks_allowlist.json")
 _CONTROL_DIRS = {
     "hooks": "files under ~/.birkin/hooks/ are run as approved hooks, so "
              "the file tools cannot write them.",
+    "moirai": "files under ~/.birkin/moirai/ are workflow scripts birkin "
+              "exec()s, so the file tools cannot write them.",
     "companion": "~/.birkin/companion/ is the approval-gated check-in state — "
                  "propose changes with companion_propose instead of editing "
                  "its files.",
