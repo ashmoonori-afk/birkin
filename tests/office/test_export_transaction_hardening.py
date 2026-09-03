@@ -55,8 +55,13 @@ def _fixture(
 
 
 def _helpers(caller: Path) -> list[str]:
+    # POSIX retirement moves bytes into a `.birkin-retire` quarantine instead of
+    # unlinking them (documented in docs/office-support.md), so that directory is
+    # an outcome of a successful retire, not a leftover export helper.
     return sorted(
-        entry.name for entry in caller.iterdir() if entry.name.startswith(".")
+        entry.name
+        for entry in caller.iterdir()
+        if entry.name.startswith(".") and entry.name != ".birkin-retire"
     )
 
 
