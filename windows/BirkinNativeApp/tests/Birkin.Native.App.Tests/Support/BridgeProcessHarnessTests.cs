@@ -1,3 +1,4 @@
+using System.IO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Birkin.Native.App.Tests.Support;
@@ -5,6 +6,48 @@ namespace Birkin.Native.App.Tests.Support;
 [TestClass]
 public sealed class BridgeProcessHarnessTests
 {
+    [TestMethod]
+    public void CreateStartInfo_PreparesExactReceiptParentAndUsesLockedRepositoryPython()
+    {
+        // Given
+        var temporaryRoot = Path.Combine(
+            Path.GetTempPath(),
+            $"birkin-harness-root-test-{Guid.NewGuid():N}");
+        var bridgeRoot = Path.Combine(temporaryRoot, "workspace");
+        Directory.CreateDirectory(bridgeRoot);
+
+        try
+        {
+            // When
+            var start = BridgeProcessHarness.CreateStartInfo(bridgeRoot);
+
+            // Then
+            StringAssert.EndsWith(
+                start.FileName,
+                Path.Combine(".venv", "Scripts", "python.exe"));
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "-m", "birkin.native.serve",
+                    "--transport", "loopback",
+                    "--root", bridgeRoot,
+                },
+                start.ArgumentList.ToArray());
+            Assert.AreEqual(
+                Path.Combine(temporaryRoot, "home"),
+                start.Environment["BIRKIN_HOME"]);
+            Assert.IsTrue(Directory.Exists(Path.Combine(
+                bridgeRoot,
+                "workspace",
+                "native-app",
+                "receipts")));
+        }
+        finally
+        {
+            Directory.Delete(temporaryRoot, recursive: true);
+        }
+    }
+
     [TestMethod]
     public async Task StopOwnedProcessAsync_WhenOwnedProcessExitsBeforeKill_TreatsObservedExitAsSuccess()
     {
