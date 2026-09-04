@@ -38,7 +38,7 @@ def _api_key_environment_command(
     return f'export {env_name}="<API key>"'
 
 
-def _choose_provider(current: str) -> str | None:
+def _choose_provider(current: str, *, first_run: bool) -> str | None:
     providers = ["codex-cli", "claude-cli", "anthropic", "openai"]
     detected = provider_onboarding.detect_engines()
     if detected.codex.usable:
@@ -52,13 +52,15 @@ def _choose_provider(current: str) -> str | None:
         )
         print(missing_message)
         default_provider = current
-    else:
+    elif first_run:
         selected_message = (
             f"  → 기본 엔진으로 {detected.preferred}을(를) 선택했습니다. "
             + "다른 프로바이더를 고르려면 화살표로 이동하세요."
         )
         print(selected_message)
         default_provider = detected.preferred
+    else:
+        default_provider = current
 
     while True:
         selected = menu.select(
@@ -73,6 +75,16 @@ def _choose_provider(current: str) -> str | None:
         if selected is None:
             return None
         provider = providers[selected]
+        if provider == "claude-cli" and not detected.claude.usable:
+            print(
+                "  ! Claude CLI를 찾지 못했습니다. 설치: "
+                + "npm install -g @anthropic-ai/claude-code",
+            )
+            print(
+                "    설치 후 `birkin setup`을 다시 실행하거나, 지금 그대로 "
+                + "저장하고 나중에 PATH를 확인할 수 있습니다.",
+            )
+            return provider
         if provider != "codex-cli":
             return provider
         while True:
@@ -127,7 +139,10 @@ def run() -> int:
         f"{DIM}팁: 기본값인 Codex CLI는 기존 OAuth 로그인을 사용합니다. "
         + f"Claude CLI와 유료 API 프로바이더도 선택할 수 있습니다.{RESET}",
     )
-    provider = _choose_provider(str(cfg.get("provider", "codex-cli")))
+    provider = _choose_provider(
+        str(cfg.get("provider", "codex-cli")),
+        first_run=first,
+    )
     if provider is None:
         print(f"\n{YELLOW}설정을 저장하지 않고 종료했습니다.{RESET}")
         return 1

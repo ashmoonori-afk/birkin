@@ -246,7 +246,9 @@ def test_auto_detect_none_found_keeps_default_and_recovery_reachable(
 
     monkeypatch.setattr(onboarding.menu, "select", select)
 
-    assert onboarding._choose_provider("codex-cli") == "claude-cli"
+    assert (
+        onboarding._choose_provider("codex-cli", first_run=True) == "claude-cli"
+    )
     assert provider_defaults == [0, 0]
     output = capsys.readouterr().out
     assert (
@@ -256,7 +258,7 @@ def test_auto_detect_none_found_keeps_default_and_recovery_reachable(
     assert "Codex CLI가 설치되어 있지 않습니다." in output
 
 
-def test_auto_detect_preselects_engine(
+def test_auto_detect_first_run_preselects_detected(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -292,11 +294,82 @@ def test_auto_detect_preselects_engine(
 
     monkeypatch.setattr(onboarding.menu, "select", select)
 
-    assert onboarding._choose_provider("anthropic") == "codex-cli"
+    assert onboarding._choose_provider("anthropic", first_run=True) == "codex-cli"
     assert defaults == [0]
     output = capsys.readouterr().out
     assert "  ✓ 자동 감지: Codex CLI (/tools/codex)" in output
     assert "  → 기본 엔진으로 codex-cli을(를) 선택했습니다." in output
+
+
+def test_auto_detect_rerun_keeps_saved_provider(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from birkin import onboarding, provider_onboarding
+
+    providers = ["codex-cli", "claude-cli", "anthropic", "openai"]
+    codex = provider_onboarding.CodexProviderStatus(True, "/tools/codex", None)
+    missing = provider_onboarding.CodexProviderStatus(
+        False,
+        None,
+        provider_onboarding.CodexProbeIssue.NOT_FOUND,
+    )
+    defaults: list[int] = []
+
+    monkeypatch.setattr(
+        provider_onboarding,
+        "detect_engines",
+        lambda: provider_onboarding.DetectedEngines(
+            codex,
+            missing,
+            "codex-cli",
+        ),
+    )
+
+    def select(_prompt: str, _options: list[str], default: int = 0) -> int:
+        defaults.append(default)
+        return default
+
+    monkeypatch.setattr(onboarding.menu, "select", select)
+
+    assert onboarding._choose_provider("anthropic", first_run=False) == "anthropic"
+    assert defaults == [providers.index("anthropic")]
+    output = capsys.readouterr().out
+    assert "  ✓ 자동 감지: Codex CLI (/tools/codex)" in output
+    assert "  → 기본 엔진으로" not in output
+
+
+def test_auto_detect_claude_missing_prints_install_hint(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from birkin import onboarding, provider_onboarding
+
+    missing = provider_onboarding.CodexProviderStatus(
+        False,
+        None,
+        provider_onboarding.CodexProbeIssue.NOT_FOUND,
+    )
+    monkeypatch.setattr(
+        provider_onboarding,
+        "detect_engines",
+        lambda: provider_onboarding.DetectedEngines(missing, missing, None),
+    )
+    def select(_prompt: str, _options: list[str], default: int = 0) -> int:
+        return 1
+
+    monkeypatch.setattr(onboarding.menu, "select", select)
+
+    assert onboarding._choose_provider("codex-cli", first_run=True) == "claude-cli"
+    output = capsys.readouterr().out
+    assert (
+        "  ! Claude CLI를 찾지 못했습니다. 설치: "
+        "npm install -g @anthropic-ai/claude-code"
+    ) in output
+    assert (
+        "    설치 후 `birkin setup`을 다시 실행하거나, 지금 그대로 저장하고 "
+        "나중에 PATH를 확인할 수 있습니다."
+    ) in output
 
 
 def test_auto_detect_override(
@@ -329,4 +402,6 @@ def test_auto_detect_override(
         lambda: (_ for _ in ()).throw(AssertionError("must not re-probe")),
     )
 
-    assert onboarding._choose_provider("anthropic") == "claude-cli"
+    assert (
+        onboarding._choose_provider("anthropic", first_run=True) == "claude-cli"
+    )
