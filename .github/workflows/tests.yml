@@ -254,13 +254,24 @@ jobs:
           python-version: "3.13"
           cache: pip
       - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev]"
-      - run: >-
+      - name: Verify macOS Computer Use evidence contract
+        run: >-
+          python -m pytest -p no:cacheprovider -o addopts= -q
+          tests/test_computer_use_macos_dogfood.py
+          tests/test_macos_computer_use_ci_contract.py
+      - name: Build owned macOS Computer Use fixture
+        run: >-
           swiftc scripts/qa/macos/ComputerUseFixture.swift
-          -o /tmp/birkin-computer-use-fixture
-      - run: >-
+          -o "$RUNNER_TEMP/birkin-computer-use-fixture"
+      - name: Record deterministic hosted-runner evidence
+        run: >-
           python scripts/qa/computer_use_macos_dogfood.py
-          --fixture-binary /tmp/birkin-computer-use-fixture
+          --mode hosted
+          --fixture-binary "$RUNNER_TEMP/birkin-computer-use-fixture"
           --evidence-root .omo/evidence/computer-use
+      - name: Remove owned macOS Computer Use fixture
+        if: always()
+        run: rm -f "$RUNNER_TEMP/birkin-computer-use-fixture"
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
