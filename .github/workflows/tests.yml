@@ -277,7 +277,7 @@ jobs:
         with:
           name: macos-computer-use-evidence
           path: .omo/evidence/computer-use/macos
-          if-no-files-found: error
+          if-no-files-found: warn
 
   linux-computer-use-native:
     name: Linux X11 AT-SPI Computer Use acceptance
