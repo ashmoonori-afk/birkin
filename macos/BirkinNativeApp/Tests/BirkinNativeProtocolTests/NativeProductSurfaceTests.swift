@@ -44,6 +44,12 @@ final class NativeProductSurfaceTests: XCTestCase {
                 ]),
                 "backend": .object(["state": .string("available")]),
                 "binding": .object(["state": .string("bound")]),
+                "guidance": .array([.object([
+                    "capability": .string("capture_ax"),
+                    "permission": .string("accessibility"),
+                    "responsible_process": .string("org.example.BirkinQA"),
+                    "settings_path": .string("settings-path://accessibility"),
+                ])]),
             ]),
             "consent": .object([
                 "grant_id": .string("cu_grant_fixture_123456"),
@@ -76,6 +82,11 @@ final class NativeProductSurfaceTests: XCTestCase {
         XCTAssertEqual(consent?.accessibilityStatus, "granted")
         XCTAssertEqual(consent?.screenRecordingStatus, "granted")
         XCTAssertEqual(consent?.backendStatus, "available")
+        XCTAssertEqual(consent?.permissionPrompted, false)
+        XCTAssertEqual(consent?.guidance.map(\.id), ["capture_ax"])
+        XCTAssertEqual(consent?.guidance.first?.permission, "accessibility")
+        XCTAssertEqual(consent?.guidance.first?.responsibleProcess, "org.example.BirkinQA")
+        XCTAssertFalse(consent?.guidance.first?.settingsPath.isEmpty ?? true)
         let office = OfficePresentation(store: store)
         XCTAssertEqual(office?.formats, ["docx"])
         XCTAssertEqual(office?.form.outputName, "notes.docx")
