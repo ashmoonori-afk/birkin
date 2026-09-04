@@ -68,6 +68,8 @@ class NativeBridgeServer:
         hello_timeout: float = 10.0,
         outbound_capacity: int = 512,
         on_disconnect: Callable[[], None] | None = None,
+        on_authenticated: Callable[[], None] | None = None,
+        on_connection_closed: Callable[[], None] | None = None,
         surface_authority: SurfaceProjectionAuthority | None = None,
         voice_input_available: bool = False,
     ) -> None:
@@ -119,6 +121,8 @@ class NativeBridgeServer:
         self._hello_timeout = hello_timeout
         self._outbound_capacity = outbound_capacity
         self._on_disconnect = on_disconnect
+        self._on_authenticated = on_authenticated
+        self._on_connection_closed = on_connection_closed
 
     def serve_connection(
         self,
@@ -143,6 +147,8 @@ class NativeBridgeServer:
                     transport=transport,
                     connection_id=connection_id,
                 )
+                if self._on_authenticated is not None:
+                    self._on_authenticated()
                 ready = self._messages.ready(
                     hello,
                     capability,
@@ -190,6 +196,8 @@ class NativeBridgeServer:
                     elif self._on_disconnect is not None:
                         self._on_disconnect()
                 finally:
+                    if self._on_connection_closed is not None:
+                        self._on_connection_closed()
                     if stream_failure is not None:
                         active_error = sys.exc_info()[1]
                         if active_error is None:
