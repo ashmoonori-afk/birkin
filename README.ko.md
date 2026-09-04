@@ -183,8 +183,12 @@ Birkin은 Python 3.10 이상이 필요합니다. 아래처럼 제공된 Birkin
 디렉터리에서 설치하거나 [Windows PowerShell 설치](#windows-powershell)를
 사용하십시오. Source directory 설치에는 Git이 필요 없고
 `birkin_mnemosyne`은 패키지에 포함되어 있습니다. 기본값은 로컬에서
-인증한 Codex CLI이며, `birkin setup`이 실행 파일을 확인하고 Claude CLI나
-API provider를 선택할 수 있게 합니다.
+인증한 Codex CLI입니다. 처음 실행하는 `birkin setup`은 로컬의 `codex`와
+`claude` 실행 파일을 자동으로 찾아 발견한 엔진을 표시하고, 사용 가능한 첫
+엔진(Codex 우선, 다음 Claude)을 기본 엔진으로 미리 선택합니다. 화살표로
+Claude CLI나 API provider로 바꿀 수 있고, 다시 실행하면 이미 저장된
+provider를 유지합니다. 두 CLI를 모두 찾지 못하면 Codex 설치 안내와 함께
+수동 provider 메뉴로 돌아갑니다.
 
 ```bash
 python -m pip install .
@@ -240,7 +244,8 @@ birkin chat
 Source archive에서 설치하므로 Git은 필요하지 않습니다.
 Python probe를 실행하므로 동작하지 않는
 `Microsoft\WindowsApps\python.exe` Store shim을 설치 완료로 오판하지
-않습니다. `birkin setup`은 `codex --version`을 실행합니다. Codex가 없거나
+않습니다. `birkin setup`은 `codex --version`과 `claude --version`을 실행해
+설치된 엔진을 자동 감지합니다. Codex가 없거나
 동작하지 않는 shim이면 OpenAI의 platform installer를 표시하고 setup
 처음으로 돌아가지 않은 채 다시 확인할 수 있습니다.
 설치 도구의 bin directory는 현재 process와 user `PATH`에 `setx` 없이
@@ -448,7 +453,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.354`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.358`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -1212,6 +1217,17 @@ shell에 상태를 제공하며, policy, execution, approval, Office, receipt, r
 유일한 authority는 계속 Python입니다. Terminal은 Windows에서 사용할 수 없음을
 사실대로 표시하고, Browser는 control이나 authority를 만들지 않고 canonical
 projected state만 표시합니다.
+
+Workspace layout은 고정형이 아닙니다. 두 divider를 드래그해 Navigation과
+Context panel 너비를 조절할 수 있으며, Primary 대화 영역은 항상 표시되고
+남는 너비를 사용합니다. **보기** 메뉴와 window-level shortcut으로 Navigation
+(`Ctrl+B`), Context(`Ctrl+Shift+B`), 두 side panel을 숨기는 대화 집중
+(`Ctrl+Shift+F`), 기본 layout 복원(`Ctrl+Shift+0`)을 실행합니다. 숨긴
+panel은 status bar button이나 edge control로 다시 표시할 수 있습니다. WPF
+client는 panel 너비와 표시 상태를 로컬
+`%LOCALAPPDATA%\Birkin\layout.json`에 저장하며, 파일이 없거나 비어
+있거나 malformed/out-of-range이면 안전한 기본 너비로 돌아갑니다. 이 상태는
+Python의 policy와 execution authority를 바꾸지 않습니다.
 
 Windows Office path는 의도적으로 read-only입니다. Jail 안으로 artifact를 import하고,
 canonical projection을 선택하고, Python 소유 comparison을 요청하고, 그 결과인

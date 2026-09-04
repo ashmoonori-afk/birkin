@@ -11,7 +11,7 @@ namespace Birkin.Native.App.Tests.Journeys;
 
 [TestClass]
 [TestCategory("OfficeWorkflow")]
-public sealed class OfficeWorkflowJourneyTests
+public sealed class OfficeWorkflowJourneyTests : MainWindowTestBase
 {
     [TestMethod]
     public async Task Window_WhenOfficeJourneyRuns_UsesProjectedDiffAndCoordinatorCommands()

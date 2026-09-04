@@ -49,8 +49,14 @@ public sealed class LiveBridgeIntegrationTests
                 failed.TrySetResult(composition.PresentationModel.Connection.ErrorCode ?? "E_CONNECTION");
             }
         };
+        var commandCursor = composition.ProjectionStore.State?.Cursor
+            ?? throw new InvalidOperationException("projection state is unavailable before command submission");
+        var bridgeRoot = Path.Combine(bridge.TemporaryRoot, "workspace");
+        var journalRoot = Path.Combine(bridgeRoot, "workspace", snapshot.SessionId);
+        var receiptRoot = Path.Combine(journalRoot, "receipts");
+        Console.WriteLine($"COMMAND_PATHS=bridge_root={bridgeRoot};journal_root={journalRoot};receipt_root={receiptRoot};bridge_exists={Directory.Exists(bridgeRoot)};journal_exists={Directory.Exists(journalRoot)};receipt_exists={Directory.Exists(receiptRoot)}");
         var request = new NativeCommandRequest(
-            new NativeCommandIdentity("windows-live-session-rename", snapshot.Cursor),
+            new NativeCommandIdentity("windows-live-session-rename", commandCursor),
             new NativeCommandIntent(
                 "session.rename",
                 new NativeJsonObject([
@@ -60,7 +66,25 @@ public sealed class LiveBridgeIntegrationTests
             "window-main");
 
         // When
-        _ = await composition.Session.SendCommandForResultAsync(request, deadline.Token);
+        NativeEnvelope commandResult;
+        try
+        {
+            commandResult = await composition.Session.SendCommandForResultAsync(request, deadline.Token);
+        }
+        catch (NativeCommandRefusal refusal)
+        {
+            Console.WriteLine($"COMMAND_REFUSAL=code={refusal.Code};message={refusal.Message};retryable={refusal.Retryable};expected_cursor={commandCursor};current_cursor={refusal.CurrentCursor};projection_cursor={composition.ProjectionStore.State?.Cursor}");
+            Console.WriteLine($"BRIDGE_STDERR={bridge.StandardError}");
+            Console.WriteLine($"LAUNCHER_DIAGNOSTICS={bridge.LauncherDiagnostics}");
+            throw;
+        }
+        catch (Exception error)
+        {
+            Console.WriteLine($"COMMAND_EXCEPTION=type={error.GetType().FullName};message={error.Message};expected_cursor={commandCursor};projection_cursor={composition.ProjectionStore.State?.Cursor}");
+            Console.WriteLine($"BRIDGE_STDERR={bridge.StandardError}");
+            Console.WriteLine($"LAUNCHER_DIAGNOSTICS={bridge.LauncherDiagnostics}");
+            throw;
+        }
         var completed = await Task.WhenAny(updated.Task, failed.Task).WaitAsync(deadline.Token);
         if (completed == failed.Task)
         {
@@ -86,7 +110,8 @@ public sealed class LiveBridgeIntegrationTests
         Console.WriteLine("ANNOUNCEMENT_HAS_BOOTSTRAP_SECRET=false");
         Console.WriteLine($"READY=protocol_version={snapshot.ProtocolVersion};server_version={announcement.ServerVersion};instance_id={snapshot.InstanceId};capability=[REDACTED]");
         Console.WriteLine($"PYTHON_SNAPSHOT=session_id={snapshot.SessionId};cursor={snapshot.Cursor};instance_id={snapshot.InstanceId};reset_reason={snapshot.ResetReason};transport={snapshot.Transport};panel_count={snapshot.PanelCount}");
-        Console.WriteLine($"POST_SNAPSHOT_UI=initial_cursor={snapshot.Cursor};first_live_cursor={live.Cursor};current_cursor={current.Cursor}");
+        Console.WriteLine($"POST_SNAPSHOT_UI=initial_cursor={snapshot.Cursor};command_cursor={commandCursor};first_live_cursor={live.Cursor};current_cursor={current.Cursor}");
+        Console.WriteLine($"COMMAND_RESULT=kind={commandResult.Kind.WireName};bridge_stderr_bytes={System.Text.Encoding.UTF8.GetByteCount(bridge.StandardError)}");
         Console.WriteLine("BRIDGE_STDERR_EMPTY=true");
         Console.WriteLine($"LAUNCHER_DIAGNOSTICS={bridge.LauncherDiagnostics}");
         Console.WriteLine($"BRIDGE_PID={bridge.ProcessId}");

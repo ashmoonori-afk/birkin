@@ -552,10 +552,9 @@ class TelegramChannel(Channel):
         )
         self._worker_lock: threading.Lock = threading.Lock()
         self._progress: dict[str, dict[str, object]] = {}
-        # Set by the poll loop right before every getUpdates whose offset has
-        # advanced past the batch it last dispatched, cleared when it dispatches
-        # a new batch. A worker about to re-exec waits on it so Telegram has
-        # seen the advanced offset and won't redeliver the triggering update.
+        # Replaced for every nonempty batch, then set immediately before the
+        # next getUpdates carries that batch's advanced offset. Workers receive
+        # the exact Event for their batch so a later batch cannot erase its ack.
         self._poll_acked: threading.Event = threading.Event()
 
     def _sender_authorized(
@@ -1038,7 +1037,12 @@ class TelegramChannel(Channel):
             print(f"[telegram] workflow proposal send error: {exc}")
 
     def _handle_callback(
-        self, gateway: ChannelGateway, cq: JsonObject, offset: int = 0
+        self,
+        gateway: ChannelGateway,
+        cq: JsonObject,
+        offset: int = 0,
+        *,
+        offset_ack: threading.Event | None = None,
     ) -> None:
         """One button tap: resolve the action, ACK the query (mandatory —
         clients show a spinner up to a minute otherwise), and edit the
@@ -1120,6 +1124,7 @@ class TelegramChannel(Channel):
                         offset,
                         aid,
                         from_id,
+                        offset_ack=offset_ack,
                     ),
                 )
                 if worker is None:
@@ -1395,6 +1400,8 @@ class TelegramChannel(Channel):
         _offset: int,
         workflow_id: str | None = None,
         sender_id: str | None = None,
+        *,
+        offset_ack: threading.Event | None = None,
     ) -> None:
         """One turn, run in its own thread so the poll loop stays responsive
         (and a follow-up message can interrupt this via gateway.interrupt)."""
@@ -1559,7 +1566,8 @@ class TelegramChannel(Channel):
             # would race its active long poll and make Telegram report a false
             # duplicate-poller 409 against ourselves. Re-exec'ing before the
             # ack would have Telegram redeliver the triggering update.
-            if not self._poll_acked.wait(_RESTART_ACK_TIMEOUT):
+            batch_ack = offset_ack if offset_ack is not None else self._poll_acked
+            if not batch_ack.wait(_RESTART_ACK_TIMEOUT):
                 print(
                     "[telegram] restarting without an offset ack; the "
                     + "triggering update may be redelivered"
@@ -1650,16 +1658,21 @@ class TelegramChannel(Channel):
             raw_updates = res.get("result")
             updates = raw_updates if isinstance(raw_updates, list) else []
             if updates:
-                # These offsets are not acked until the next getUpdates goes
-                # out with them.
-                self._poll_acked.clear()
+                # Arm this batch before dispatching any worker. The next loop
+                # iteration sets this exact object before issuing getUpdates.
+                self._poll_acked = threading.Event()
             for raw_update in updates:
                 upd = _json_object(raw_update)
                 offset = max(offset, _json_int(upd.get("update_id")) + 1)
                 cq = _json_object(upd.get("callback_query"))
                 if cq:  # approval button tap (P0-2)
                     try:
-                        self._handle_callback(gateway, cq, offset)
+                        self._handle_callback(
+                            gateway,
+                            cq,
+                            offset,
+                            offset_ack=self._poll_acked,
+                        )
                     except Exception as exc:
                         print(f"[telegram] callback error: {exc}")
                     continue
@@ -1716,6 +1729,7 @@ class TelegramChannel(Channel):
                         text,
                         offset,
                         sender_id=sender_id,
+                        offset_ack=self._poll_acked,
                     ),
                 )
                 if worker is None:

@@ -8,7 +8,7 @@ namespace Birkin.Native.App.Tests.Views;
 
 [TestClass]
 [TestCategory("OfficeWorkflow")]
-public sealed class ProviderOfficeProjectionViewTests
+public sealed class ProviderOfficeProjectionViewTests : MainWindowTestBase
 {
     [TestMethod]
     public async Task MainWindow_ProjectsCanonicalDiffApprovalAndArtifactIntoVisibleControls()

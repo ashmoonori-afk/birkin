@@ -22,6 +22,7 @@ internal static class ProviderOfficeScreenshot
         var conversation = OfficeWorkflowViewHarness.Find<ItemsControl>(window, "conversation.items");
         var rendered = (FrameworkElement)window.Content;
         var priorVisibility = conversation.Visibility;
+        var priorRenderSize = rendered.RenderSize;
         conversation.Visibility = Visibility.Hidden;
         try
         {
@@ -41,6 +42,8 @@ internal static class ProviderOfficeScreenshot
         finally
         {
             conversation.Visibility = priorVisibility;
+            rendered.Measure(priorRenderSize);
+            rendered.Arrange(new Rect(new Point(), priorRenderSize));
             window.UpdateLayout();
         }
 

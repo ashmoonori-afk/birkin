@@ -26,11 +26,14 @@ public sealed class ConversationViewTests
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
             var view = new ConversationView(fixture.Model, fixture.Coordinator);
+            var window = new Window { Content = view };
+            window.Show();
             OfficeWorkflowViewHarness.Layout(view);
             var draft = OfficeWorkflowViewHarness.Find<TextBox>(view, "conversation.draft");
             var send = OfficeWorkflowViewHarness.Find<Button>(view, "conversation.send");
             const string exactDraft = "  비교 요청\n둘째 줄  \n";
             draft.Text = exactDraft;
+            Assert.IsTrue(send.Focus());
 
             // When
             send.RaiseEvent(new System.Windows.RoutedEventArgs(Button.ClickEvent));
@@ -41,6 +44,12 @@ public sealed class ConversationViewTests
             Assert.AreEqual(exactDraft, ((NativeJsonString)fixture.Connection.Sent[0].Payload["text"]!).Value);
             Assert.AreEqual("메시지 보내기", AutomationProperties.GetName(send));
             Assert.IsTrue(draft.AcceptsReturn);
+            await fixture.ResolveLastAsync();
+            await view.Dispatcher.InvokeAsync(
+                () => { },
+                System.Windows.Threading.DispatcherPriority.ContextIdle);
+            Assert.AreSame(draft, Keyboard.FocusedElement);
+            window.Close();
         });
     }
 
@@ -100,13 +109,20 @@ public sealed class ConversationViewTests
     }
 
     [TestMethod]
-    public async Task Send_WhenCanonicalTurnCompletes_RestoresDraftKeyboardFocus()
+    public async Task ViewLifetimeCancellation_IsContained_ButUnexpectedFaultReachesDispatcher()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
         await sta.InvokeAsync(async () =>
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            var cancellationObserved = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            fixture.Connection.CommandTaskFactory = token =>
+            {
+                token.Register(() => cancellationObserved.TrySetResult());
+                return new ValueTask(Task.Delay(Timeout.InfiniteTimeSpan, token));
+            };
             var view = new ConversationView(fixture.Model, fixture.Coordinator);
             var window = new Window { Content = view };
             window.Show();
@@ -117,17 +133,44 @@ public sealed class ConversationViewTests
             var send = OfficeWorkflowViewHarness.Find<Button>(
                 view,
                 "conversation.send");
-            draft.Text = "focus after completion";
-            Assert.IsTrue(send.Focus());
+            draft.Text = "cancel on unload";
+            Exception? cancellationEscape = null;
+            view.Dispatcher.UnhandledException += CancellationUnhandled;
 
             send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await fixture.ResolveLastAsync();
-            view.Dispatcher.Invoke(
-                () => { },
-                System.Windows.Threading.DispatcherPriority.ContextIdle);
-
-            Assert.AreSame(draft, Keyboard.FocusedElement);
+            await fixture.Connection.FirstCommandSent.WaitAsync(deadline.Token);
             window.Close();
+            await cancellationObserved.Task.WaitAsync(deadline.Token);
+            await view.Dispatcher.InvokeAsync(
+                () => { },
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            view.Dispatcher.UnhandledException -= CancellationUnhandled;
+            Assert.IsNull(
+                cancellationEscape,
+                $"view lifetime cancellation escaped the dispatcher: {cancellationEscape}");
+
+            await using var faultFixture = await OfficeWorkflowViewHarness.CreateAsync();
+            var sentinel = new InvalidOperationException("unexpected-view-command-fault");
+            faultFixture.Connection.CommandTaskFactory = _ =>
+                ValueTask.FromException(sentinel);
+            var faultView = new ConversationView(
+                faultFixture.Model,
+                faultFixture.Coordinator);
+            faultFixture.Coordinator.SetConversationDraft("unexpected fault");
+            var thrown = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => faultView.HandleDraftKeyAsync(
+                    Key.Enter,
+                    ModifierKeys.Control));
+            Assert.AreSame(sentinel, thrown);
+
+            void CancellationUnhandled(
+                object sender,
+                System.Windows.Threading.DispatcherUnhandledExceptionEventArgs args)
+            {
+                cancellationEscape = args.Exception;
+                args.Handled = true;
+            }
+
         });
     }
 

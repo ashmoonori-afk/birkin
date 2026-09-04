@@ -10,6 +10,7 @@ namespace Birkin.Native.App.Views;
 
 public partial class ConversationView : UserControl
 {
+    private readonly ViewCommandLifetime _commandLifetime = new();
     private ShellPresentationModel? _model;
     private ShellCoordinator? _coordinator;
     private bool _presentingDraft;
@@ -53,7 +54,8 @@ public partial class ConversationView : UserControl
         if (_coordinator is not null)
         {
             _restoreDraftFocus = true;
-            await _coordinator.SendConversationAsync(CancellationToken.None);
+            await _commandLifetime.RunAsync(
+                token => _coordinator.SendConversationAsync(token));
             ScheduleDraftFocusRestore();
         }
     }
@@ -63,8 +65,8 @@ public partial class ConversationView : UserControl
         if (_coordinator is not null)
         {
             _restoreDraftFocus = true;
-            await _coordinator.InterruptConversationAsync(
-                CancellationToken.None);
+            await _commandLifetime.RunAsync(
+                token => _coordinator.InterruptConversationAsync(token));
             ScheduleDraftFocusRestore();
         }
     }
@@ -100,7 +102,8 @@ public partial class ConversationView : UserControl
         if (_coordinator is not null)
         {
             _restoreDraftFocus = true;
-            await _coordinator.SendConversationAsync(CancellationToken.None);
+            await _commandLifetime.RunAsync(
+                token => _coordinator.SendConversationAsync(token));
             ScheduleDraftFocusRestore();
         }
         return true;
@@ -167,6 +170,7 @@ public partial class ConversationView : UserControl
     {
         _hasMarkedText = false;
         _restoreDraftFocus = false;
+        _commandLifetime.Dispose();
         if (_model is not null)
         {
             _model.PropertyChanged -= ModelPropertyChanged;

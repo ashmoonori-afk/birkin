@@ -13,7 +13,7 @@ namespace Birkin.Native.App.Tests.Views;
 
 [TestClass]
 [TestCategory("OfficeWorkflow")]
-public sealed class OfficeViewTests
+public sealed class OfficeViewTests : MainWindowTestBase
 {
     [TestMethod]
     public async Task MainWindow_PreviewDrop_RoutesFileDataToImport()

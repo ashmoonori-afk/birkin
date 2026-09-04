@@ -122,9 +122,13 @@ the security and PATH details. The current default Morpheus run time is
 Birkin requires Python 3.10 or newer. Install from a provided Birkin directory
 as shown below, or use the [Windows PowerShell installer](#windows-powershell).
 Git is not required for a source-directory install, and `birkin_mnemosyne` is
-included in the package. Birkin defaults to a locally authenticated Codex CLI;
-`birkin setup` verifies that executable and can select Claude CLI or an
-API-backed provider instead.
+included in the package. Birkin defaults to a locally authenticated Codex CLI.
+On a first run `birkin setup` probes the local `codex` and `claude`
+executables, prints which ones it found, and pre-selects the first usable one
+(Codex first, then Claude) as the engine; you can still arrow to Claude CLI or
+an API-backed provider. A re-run keeps the provider already saved in config.
+When neither CLI is found, the wizard falls back to the manual provider menu
+with the Codex install guidance.
 
 ```bash
 python -m pip install .
@@ -388,7 +392,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.354`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.358`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
@@ -1145,6 +1149,17 @@ store feeds the shell; Python remains the only policy, execution, approval,
 Office, receipt, and recovery authority. Terminal truthfully reports that it
 is unavailable on Windows, and Browser displays canonical projected state
 without inventing controls or authority.
+
+The workspace layout is adjustable rather than fixed. Drag either divider to
+resize the Navigation or Context panel; the Primary conversation always stays
+visible and absorbs the remaining width. The **View** menu and window-level
+shortcuts toggle Navigation (`Ctrl+B`), Context (`Ctrl+Shift+B`), focus the
+conversation by hiding both side panels (`Ctrl+Shift+F`), or restore defaults
+(`Ctrl+Shift+0`). Hidden panels remain recoverable from status-bar buttons
+and edge controls. The WPF client stores panel widths and visibility locally in
+`%LOCALAPPDATA%\Birkin\layout.json`; missing, empty, malformed, and
+out-of-range state falls back to safe default widths without changing Python
+policy or execution authority.
 
 The Windows Office path is deliberately read-only: it can import a jailed
 artifact, select its canonical projection, request a Python-owned comparison,

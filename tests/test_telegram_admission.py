@@ -159,7 +159,10 @@ def test_poll_worker_binds_authorized_update_before_later_rejection(
         offset: int,
         workflow_id: str | None = None,
         sender_id: str | None = None,
+        *,
+        offset_ack: threading.Event | None = None,
     ) -> None:
+        del offset_ack
         turns.append(
             (received_gateway, chat_id, text, offset, workflow_id, sender_id)
         )

@@ -14,7 +14,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Birkin.Native.App.Tests.Views;
 
 [TestClass]
-public sealed class WorkspaceSnapshotViewTests
+public sealed class WorkspaceSnapshotViewTests : MainWindowTestBase
 {
     [TestMethod]
     public async Task ConnectionIndicator_WhenStateChanges_UsesTruthfulBrush()

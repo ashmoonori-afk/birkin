@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import threading
 from collections.abc import Callable
 from typing import final
 from typing_extensions import override
@@ -131,6 +132,8 @@ class PolishedTelegramChannel(TelegramChannel):
         offset: int,
         workflow_id: str | None = None,
         sender_id: str | None = None,
+        *,
+        offset_ack: threading.Event | None = None,
     ) -> None:
         if workflow_id is None:
             super()._run_turn(
@@ -139,6 +142,7 @@ class PolishedTelegramChannel(TelegramChannel):
                 text,
                 offset,
                 sender_id=sender_id,
+                offset_ack=offset_ack,
             )
             return
         super()._run_turn(
@@ -148,4 +152,5 @@ class PolishedTelegramChannel(TelegramChannel):
             offset,
             workflow_id,
             sender_id,
+            offset_ack=offset_ack,
         )
