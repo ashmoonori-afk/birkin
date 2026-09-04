@@ -224,6 +224,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         public List<NativeCommandRequest> Sent { get; } = [];
         public Task<NativeCommandRequest> FirstCommandSent =>
             _firstCommandSent.Task;
+        public Func<CancellationToken, ValueTask>? CommandTaskFactory { get; set; }
         public ImportedFilePresentation? NextImportReference { get; set; }
         public IReadOnlySet<string> AdvertisedCommands => Commands;
         public bool HasLiveCapability(DateTimeOffset now) => true;
@@ -233,6 +234,10 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         {
             Sent.Add(request);
             _firstCommandSent.TrySetResult(request);
+            if (CommandTaskFactory is not null)
+            {
+                return CommandTaskFactory(cancellationToken);
+            }
             Enqueue(Receipt(request, NextImportReference));
             NextImportReference = null;
             return ValueTask.CompletedTask;
