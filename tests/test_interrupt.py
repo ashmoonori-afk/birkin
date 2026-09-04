@@ -615,7 +615,6 @@ def test_telegram_new_message_interrupts_previous(tmp_path, monkeypatch):
 
 
 def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
-    from birkin.gateway import workflow
     from birkin.gateway.channels import telegram
 
     class _StopPolling(BaseException):
@@ -685,15 +684,23 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
             return responses.pop(0)
         raise _StopPolling
 
-    monkeypatch.setattr(workflow, "restore_stranded_claims", lambda: 0)
+    monkeypatch.setattr(telegram, "restore_stranded_claims", lambda: 0)
     monkeypatch.setattr(ch, "_call", call)
     monkeypatch.setattr(
         ch, "_send_pending_buttons",
         lambda _gateway, chat_id: pending.append(chat_id))
-    monkeypatch.setattr(
-        ch, "_run_turn",
-        lambda _gateway, chat_id, text, _offset, sender_id=None:
-        turns.append((chat_id, text)))
+    def capture_turn(
+        _gateway,
+        chat_id,
+        text,
+        _offset,
+        sender_id=None,
+        *,
+        offset_ack,
+    ):
+        turns.append((chat_id, text, offset_ack))
+
+    monkeypatch.setattr(ch, "_run_turn", capture_turn)
     monkeypatch.setattr(telegram.threading, "Thread", _InlineThread)
 
     with pytest.raises(_StopPolling):
@@ -703,7 +710,11 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
         ("telegram", "42"), ("telegram", "42")]
     assert dead.join_calls == 0
     assert pending == ["42"]
-    assert turns == [("42", "hello")]
+    assert len(turns) == 1
+    chat_id, text, offset_ack = turns[0]
+    assert (chat_id, text) == ("42", "hello")
+    assert isinstance(offset_ack, threading.Event)
+    assert offset_ack.is_set()
 
 
 def test_telegram_group_sender_is_authorized_before_dispatch_or_media(

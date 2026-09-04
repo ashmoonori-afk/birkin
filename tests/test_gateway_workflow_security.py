@@ -243,8 +243,11 @@ def test_double_workflow_tap_starts_only_one_worker(tmp_path, monkeypatch) -> No
         _offset,
         workflow_id=None,
         sender_id=None,
+        *,
+        offset_ack: threading.Event | None,
     ) -> None:
         assert sender_id == "42"
+        assert offset_ack is None
         resumed.append(str(workflow_id))
         started.set()
         assert release.wait(timeout=2)
