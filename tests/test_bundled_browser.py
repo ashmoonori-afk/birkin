@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import errno
 import hashlib
 import json
+import logging
 import multiprocessing
 import os
 import shutil
+import subprocess
+import sys
+import tempfile
 from collections.abc import Generator
+from multiprocessing.connection import Connection
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -81,6 +87,10 @@ _READ_ONLY_FLAG: int = (
     else 1
 )
 _PROCESS_SIGNAL_TIMEOUT_SECONDS = 60.0
+_BACKUP_EXCLUSION_XATTR = "com.apple.metadata:com_apple_backup_excludeItem"
+_BACKUP_EXCLUSION_VALUE = bytes.fromhex(
+    "62706c69737430305f1011636f6d2e6170706c652e6261636b7570640800000000000000010100000000000000010000000000000000000000000000001c"
+)
 
 
 class _ReadOnlyStat:
@@ -95,7 +105,7 @@ def _read_only_statvfs(
 
 def _hold_runtime_lease(
     path: str,
-    connection: multiprocessing.connection.Connection,
+    connection: Connection,
 ) -> None:
     import fcntl
 
@@ -108,7 +118,7 @@ def _hold_runtime_lease(
 def _select_read_only_runtime(
     helper: str,
     home: str,
-    connection: multiprocessing.connection.Connection,
+    connection: Connection,
 ) -> None:
     os.environ["BIRKIN_HOME"] = home
     os.statvfs = _read_only_statvfs
@@ -120,6 +130,18 @@ def _select_read_only_runtime(
     )
     connection.send(str(selected))
     assert connection.recv() == "release"
+
+
+def _direct_backup_exclusion_xattr(path: Path) -> bytes | None:
+    result = subprocess.run(
+        ["/usr/bin/xattr", "-px", _BACKUP_EXCLUSION_XATTR, str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        return None
+    return bytes.fromhex(result.stdout)
 
 
 def _tree_identity(root: Path) -> tuple[str, int]:
@@ -170,6 +192,87 @@ def test_read_only_bundle_uses_private_verified_runtime_cache(
     assert _tree_identity(selected) == _tree_identity(fixture.runtime)
     assert os.environ["PLAYWRIGHT_BROWSERS_PATH"] == str(selected)
     assert selected.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Darwin xattr contract")
+def test_runtime_cache_excludes_only_parent_through_publish_reuse_and_prune(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = Path(tempfile.mkdtemp(prefix=".birkin-c040-", dir=Path.cwd()))
+    try:
+        fixture = BrowserBundleFixture.create(root / "bundle")
+        fixture.write_manifest()
+        home = root / "home"
+        sibling = home / "user-data"
+        sibling.mkdir(parents=True)
+        cache = home / "browser-runtime-cache"
+        stale = cache / "arm64-stale"
+        stale.mkdir(parents=True)
+        _ = (stale / "old").write_text("old", encoding="utf-8")
+        monkeypatch.setenv("BIRKIN_HOME", str(home))
+        monkeypatch.setattr(os, "statvfs", _read_only_statvfs)
+
+        selected = ensure_bundled_browser(
+            executable=fixture.helper,
+            frozen=True,
+        )
+        reused = ensure_bundled_browser(
+            executable=fixture.helper,
+            frozen=True,
+        )
+
+        assert selected is not None
+        assert selected == reused
+        assert not stale.exists()
+        assert _direct_backup_exclusion_xattr(cache) == _BACKUP_EXCLUSION_VALUE
+        assert _direct_backup_exclusion_xattr(selected) is None
+        assert _direct_backup_exclusion_xattr(home) is None
+        assert _direct_backup_exclusion_xattr(sibling) is None
+
+        renamed_cache = home / "renamed-runtime-cache"
+        _ = cache.rename(renamed_cache)
+        assert _direct_backup_exclusion_xattr(renamed_cache) == _BACKUP_EXCLUSION_VALUE
+        assert _direct_backup_exclusion_xattr(home) is None
+        assert _direct_backup_exclusion_xattr(sibling) is None
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.parametrize("failure_errno", [errno.ENOTSUP, errno.EROFS])
+def test_backup_exclusion_failure_keeps_verified_runtime_with_bounded_diagnostic(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    failure_errno: int,
+) -> None:
+    from birkin import bundled_browser_cache
+
+    fixture = BrowserBundleFixture.create(tmp_path / "bundle")
+    fixture.write_manifest()
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(os, "statvfs", _read_only_statvfs)
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    def reject_exclusion(_path: Path) -> None:
+        raise OSError(failure_errno, "metadata unavailable")
+
+    monkeypatch.setattr(
+        bundled_browser_cache,
+        "_set_backup_exclusion_xattr",
+        reject_exclusion,
+    )
+    caplog.set_level(logging.WARNING, logger=bundled_browser_cache.__name__)
+
+    selected = ensure_bundled_browser(
+        executable=fixture.helper,
+        frozen=True,
+    )
+
+    assert selected is not None
+    assert _tree_identity(selected) == _tree_identity(fixture.runtime)
+    assert len(caplog.records) == 1
+    assert len(caplog.records[0].getMessage()) <= 120
+    assert str(tmp_path) not in caplog.records[0].getMessage()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="read-only volumes are POSIX")
