@@ -1103,6 +1103,32 @@ registry에 연결됩니다.
 
 Architecture, protocol, security contract: [`docs/native-app/`](./docs/native-app/README.md).
 
+현재 macOS parity hardening에는 다음 내용이 포함됩니다.
+
+- 사용자가 조절할 수 있는 adaptive Navigation/Context 열과 Cmd+1/2/3
+  탐색, Cmd+Shift+A 승인 포커스
+- 렌더링 결과와 분리된 제한 크기 canonical terminal byte stream,
+  incremental UTF-8 decoding, 연속 PTY output 전달, 실패 시 atomic teardown,
+  성공한 foreground process 정리
+- 인증된 bridge ownership 이전, 제한된 crash recovery, typed first-run
+  Retry 안내, endpoint unavailable일 때만 허용되는 loopback fallback
+  (authentication, identity, version, protocol, malformed data, permission
+  failure는 downgrade하지 않음)
+- prompt를 띄우지 않는 passive TCC 안내와 엄격한 Computer Use evidence
+  mode: hosted runner는 deterministic availability를 기록하고,
+  `permissioned-required`는 소유한 visible effect, focus 보존/복원,
+  다른 target을 변경하지 않았음, clean teardown을 모두 증명
+- English default와 Korean native chrome/accessibility resource 및
+  unsupported locale의 English fallback; machine identifier, protocol value,
+  path, authority data는 번역하지 않음
+- source-stable OAuth refresh, private atomic credential publication,
+  child-specific managed-secret environment, physical secure erasure를
+  주장하지 않는 bounded authenticated Office retirement receipt
+- 일반 실행의 private-masked Unified Logging, QA 전용 redacted stdout,
+  rebuild 가능한 browser runtime cache에만 적용되는 Time Machine 제외,
+  signing 전에 봉인하는 project-owned app icon, customer DMG 밖에 보관하는
+  UUID 일치 private dSYM archive
+
 ### 패키지 앱 build와 검증
 
 Universal ad-hoc signed app을 build하고 DMG를 만든 뒤 production packaged
@@ -1166,8 +1192,11 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   소유권 밖으로 이동할 수 없습니다.
   Non-Darwin bridge는 Native Terminal command set을 광고하지 않습니다.
 - **Bridge lifecycle:** App은 배포된 `birkin native-bridge serve` 명령으로
-  자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint를 기다리며,
-  60초 안에 최대 다섯 번까지 재시작하고, 종료할 때 함께 정리합니다.
+  자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint와 시작한 process
+  identity가 일치하는지 검증하며, helper lifetime 동안 private diagnostic을
+  drain하고, 60초 안에 최대 다섯 번까지 재시작합니다. 인증된 transferable
+  ownership으로 재실행한 app이 announced PID에 signal을 보내지 않고 하나의
+  live helper를 reclaim할 수 있으며 abandoned helper는 self-retire합니다.
   `BIRKIN_NATIVE_SOCKET`을 설정하면 이미 실행 중인 사용자 관리 bridge에
   연결하며, 이 경우 app은 그 bridge를 종료하지 않습니다.
 - **복구:** Cursor replay, gap 또는 instance 변경 뒤 full snapshot,
@@ -1175,7 +1204,9 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   권한으로 취급하지 않고 local state를 복구합니다.
 - **Workspace:** Shell은 session, streaming conversation, Working Memory
   merge/clear, owned Terminal, approval, Activity, Browser Aside, Computer Use
-  상태/동의, Office create/open projection을 표시합니다.
+  상태/동의, Office create/open projection을 표시합니다. Navigation과 Context
+  열은 안전한 범위 안에서 pointer로 조절할 수 있고 accessibility 크기에서는
+  panel navigation으로 reflow하며 Primary conversation은 계속 표시됩니다.
 - **Desktop integration:** Navigation-only menu, redacted notification과 deep
   link, jailed file import, 선택적 voice gate, keyboard와 VoiceOver path,
   visual accessibility setting이 Python의 refusal boundary를 유지합니다.
@@ -1192,7 +1223,11 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   `BIRKIN_HOME` 아래 private architecture-bound content-addressed cache
   하나로 복사하고, 복사본을 다시 검증하며, link를 거부합니다. Live process
   lease가 있는 cache는 유지하고 실행 전에 inactive 이전 architecture
-  cache를 정리합니다.
+  cache를 정리합니다. Rebuild 가능한 cache parent만 Time Machine backup
+  대상에서 제외합니다. Package는 signing 전에 project-owned Birkin icon과
+  English/Korean resource를 봉인하고 UUID가 일치하는 universal dSYM을 만든 뒤
+  checksum과 manifest를 별도 private symbol ZIP으로 보관합니다. dSYM과 symbol
+  ZIP은 customer DMG에 포함되지 않습니다.
 - **Release QA:** 기본으로 비활성화된 `BIRKIN_NATIVE_JOURNEY=1` seam은 test
   transport나 direct wire client 없이 packaged UI와 같은 control을
   구동합니다. 빈 `HOME`, 정리된 `PATH`, bridge override가 없는 환경에서 실제

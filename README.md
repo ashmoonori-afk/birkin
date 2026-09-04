@@ -1035,6 +1035,32 @@ points return `Tool` objects consumed by the existing native tool registry.
 
 Architecture, protocol, and security contracts: [`docs/native-app/`](./docs/native-app/README.md).
 
+Current macOS parity hardening includes:
+
+- adaptive user-resizable Navigation and Context columns, with Cmd+1/2/3
+  navigation and Cmd+Shift+A approval focus;
+- a canonical bounded terminal byte stream kept separately from rendered
+  presentation, incremental UTF-8 decoding, continuous PTY output delivery,
+  failure-atomic teardown, and successful foreground-process cleanup;
+- authenticated bridge ownership transfer, bounded crash recovery, typed
+  first-run Retry guidance, and loopback fallback only for endpoint
+  unavailability—authentication, identity, version, protocol, malformed-data,
+  and permission failures never downgrade;
+- passive nonprompting TCC guidance and strict Computer Use evidence modes:
+  hosted runners record deterministic availability, while
+  `permissioned-required` must prove an owned visible effect, focus
+  preservation/restoration, no other-target mutation, and clean teardown;
+- English-default and Korean native chrome/accessibility resources with
+  unsupported locales falling back to English; machine identifiers, protocol
+  values, paths, and authority data are never translated;
+- source-stable OAuth refresh, private atomic credential publication,
+  child-specific managed-secret environments, and bounded authenticated Office
+  retirement receipts that explicitly do not claim physical secure erasure;
+- private-masked Unified Logging in normal launches, QA-only redacted stdout,
+  Time Machine exclusion limited to the rebuildable browser runtime cache, a
+  sealed project-owned app icon, and UUID-matched private dSYM archives kept
+  outside the customer DMG.
+
 ### Build and verify the packaged app
 
 Build the universal ad-hoc-signed app, create its DMG, and drive the built app
@@ -1100,15 +1126,21 @@ The shipped boundary is deliberate:
   not advertise the Native Terminal command set.
 - **Bridge lifecycle:** the app starts its own Python bridge with the shipped
   `birkin native-bridge serve` command, waits for the endpoint that command
-  announces, restarts it at most five times in sixty seconds, and terminates it
-  on exit. Setting `BIRKIN_NATIVE_SOCKET` attaches an already running,
-  user-managed bridge instead, which the app never terminates.
+  announces, validates that readiness belongs to the process it launched,
+  drains private diagnostics for the helper lifetime, and restarts it at most
+  five times in sixty seconds. Authenticated transferable ownership lets a
+  relaunched app reclaim one live helper without signalling an announced PID;
+  abandoned helpers self-retire. Setting `BIRKIN_NATIVE_SOCKET` attaches an
+  already running, user-managed bridge instead, which the app never terminates.
 - **Recovery:** cursor replay, full snapshots after gaps or instance changes,
   capability renewal, and bounded app-owned bridge restart recover local state
   without treating stale projections as authority.
 - **Workspace:** the shell presents sessions, streaming conversation, Working
   Memory merge/clear, owned Terminal, approvals, Activity, Browser Aside,
-  Computer Use status/consent, and Office create/open projections.
+  Computer Use status/consent, and Office create/open projections. Navigation
+  and Context columns are pointer-resizable within safe clamps and reflow to
+  panel navigation at accessibility sizes; the Primary conversation remains
+  visible.
 - **Desktop integration:** navigation-only menus, redacted notifications and
   deep links, jailed file import, optional voice gating, keyboard and VoiceOver
   paths, and visual accessibility settings retain Python's refusal boundaries.
@@ -1124,7 +1156,12 @@ The shipped boundary is deliberate:
   Browser Aside copies the sealed runtime into one private, architecture-bound,
   content-addressed cache under `BIRKIN_HOME`, verifies the copy again, rejects
   links, retains caches with live process leases, and prunes inactive prior
-  architecture caches before execution.
+  architecture caches before execution. The rebuildable cache parent alone is
+  marked as excluded from Time Machine backup. The package seals the
+  project-owned Birkin icon and English/Korean resources before signing,
+  generates a UUID-matched universal dSYM, and stores its checksum and manifest
+  in a separate private symbol ZIP; neither the dSYM nor symbol ZIP enters the
+  customer DMG.
 - **Release QA:** the disabled-by-default `BIRKIN_NATIVE_JOURNEY=1` seam drives
   the same controls as the packaged UI, with no test transport or direct wire
   client. Under an empty `HOME`, sanitized `PATH`, and absent bridge overrides,
