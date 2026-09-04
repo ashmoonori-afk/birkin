@@ -40,13 +40,33 @@ def _api_key_environment_command(
 
 def _choose_provider(current: str) -> str | None:
     providers = ["codex-cli", "claude-cli", "anthropic", "openai"]
+    detected = provider_onboarding.detect_engines()
+    if detected.codex.usable:
+        print(f"  ✓ 자동 감지: Codex CLI ({detected.codex.path})")
+    if detected.claude.usable:
+        print(f"  ✓ 자동 감지: Claude CLI ({detected.claude.path})")
+    if detected.preferred is None:
+        missing_message = (
+            "  ! 로컬에서 Codex CLI나 Claude CLI를 찾지 못했습니다. "
+            + "아래에서 프로바이더를 직접 선택하세요."
+        )
+        print(missing_message)
+        default_provider = current
+    else:
+        selected_message = (
+            f"  → 기본 엔진으로 {detected.preferred}을(를) 선택했습니다. "
+            + "다른 프로바이더를 고르려면 화살표로 이동하세요."
+        )
+        print(selected_message)
+        default_provider = detected.preferred
+
     while True:
         selected = menu.select(
             f"{BOLD}프로바이더{RESET}",
             providers,
             default=(
-                providers.index(current)
-                if current in providers
+                providers.index(default_provider)
+                if default_provider in providers
                 else 0
             ),
         )
@@ -56,7 +76,11 @@ def _choose_provider(current: str) -> str | None:
         if provider != "codex-cli":
             return provider
         while True:
-            status = provider_onboarding.probe_codex()
+            status = (
+                detected.codex
+                if detected.codex.usable
+                else provider_onboarding.probe_codex()
+            )
             if status.usable:
                 print(
                     f"  {GREEN}✓ Codex CLI 확인: "

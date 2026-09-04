@@ -32,6 +32,13 @@ class CodexProviderStatus:
     issue: CodexProbeIssue | None
 
 
+@dataclass(frozen=True, slots=True)
+class DetectedEngines:
+    codex: CodexProviderStatus
+    claude: CodexProviderStatus
+    preferred: str | None
+
+
 @final
 class CodexRecoveryAction(Enum):
     RETRY = "retry"
@@ -51,13 +58,12 @@ class CommandResolver(Protocol):
 WhichCommand = Callable[[str], str | None]
 
 
-def probe_codex(
-    resolver: CommandResolver | None = None,
-    *,
-    which: WhichCommand | None = None,
+def _probe_provider(
+    command: str,
+    resolver: CommandResolver | None,
+    which: WhichCommand | None,
 ) -> CodexProviderStatus:
-    """Execute ``codex --version`` and classify the observed result."""
-    selected_path = (which or shutil.which)("codex")
+    selected_path = (which or shutil.which)(command)
     if selected_path is None:
         return CodexProviderStatus(False, None, CodexProbeIssue.NOT_FOUND)
     resolution = (resolver or ExecutableResolver()).resolve(selected_path)
@@ -77,6 +83,47 @@ def probe_codex(
         case _:
             assert_never(resolution.attempts[0].failure_kind)
     return CodexProviderStatus(False, None, issue)
+
+
+def probe_codex(
+    resolver: CommandResolver | None = None,
+    *,
+    which: WhichCommand | None = None,
+) -> CodexProviderStatus:
+    """Execute ``codex --version`` and classify the observed result."""
+    return _probe_provider("codex", resolver, which)
+
+
+def probe_claude(
+    resolver: CommandResolver | None = None,
+    *,
+    which: WhichCommand | None = None,
+) -> CodexProviderStatus:
+    """Execute ``claude --version`` and classify the observed result."""
+    return _probe_provider("claude", resolver, which)
+
+
+def detect_engines(
+    resolver: CommandResolver | None = None,
+    *,
+    which: WhichCommand | None = None,
+) -> DetectedEngines:
+    """Probe local CLI engines in preference order."""
+    if resolver is None and which is None:
+        codex = probe_codex()
+        claude = probe_claude()
+    else:
+        shared_resolver = resolver or ExecutableResolver()
+        codex = probe_codex(shared_resolver, which=which)
+        claude = probe_claude(shared_resolver, which=which)
+    preferred = (
+        "codex-cli"
+        if codex.usable
+        else "claude-cli"
+        if claude.usable
+        else None
+    )
+    return DetectedEngines(codex, claude, preferred)
 
 
 def codex_install_command(platform_name: str | None = None) -> str:
