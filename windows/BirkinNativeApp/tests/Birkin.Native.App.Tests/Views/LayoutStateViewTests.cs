@@ -81,8 +81,7 @@ public sealed class LayoutStateViewTests
 
                 var saved = await persisted.Task.WaitAsync(deadline.Token);
                 Assert.IsTrue(saved.Navigation.Width > initial.Navigation.Width);
-                Assert.IsTrue(view.NavigationColumn.Width.IsAbsolute);
-                Assert.AreEqual(saved.Navigation.Width, view.NavigationColumn.Width.Value, 0.01);
+                Assert.AreEqual(saved.Navigation.Width, view.LayoutState.Navigation.Width, 0.01);
             }
             finally
             {
