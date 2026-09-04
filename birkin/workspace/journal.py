@@ -49,9 +49,8 @@ def _path_safe_session_id(value: object) -> str:
         or session_id.split(".")[0] in _RESERVED_DEVICE_NAMES
     ):
         raise ProtocolError(
-            "session_id must match "
-            f"{_PATH_SAFE_SESSION_ID.pattern} without a trailing dot "
-            "or a reserved device name"
+            f"session_id must match {_PATH_SAFE_SESSION_ID.pattern}"
+            + " without a trailing dot or a reserved device name"
         )
     return session_id
 

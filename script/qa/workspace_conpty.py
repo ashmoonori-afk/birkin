@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 import queue
 import re
@@ -10,22 +11,10 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, TextIO, TypeAlias, final
+from typing import Protocol, TextIO, TypeAlias, cast, final
 
 import pexpect
 from typing_extensions import override
-
-
-def _cancel_io_errors() -> tuple[type[BaseException], ...]:
-    """Bind the native cancel_io failure, or nothing where pywinpty is absent."""
-    try:
-        from winpty import WinptyError
-    except ImportError:  # pywinpty is installed on Windows only.
-        return ()
-    return (WinptyError,)
-
-
-_CANCEL_IO_ERRORS = _cancel_io_errors()
 
 
 class _CancelableIo(Protocol):
@@ -55,6 +44,41 @@ class _RawPtyProcess(Protocol):
     def isalive(self) -> bool: ...
 
     def wait(self) -> int | None: ...
+
+
+class _PtyProcessFactory(Protocol):
+    @staticmethod
+    def spawn(
+        argv: Sequence[str],
+        *,
+        cwd: str | None,
+        env: Mapping[str, str],
+        dimensions: tuple[int, int],
+    ) -> _RawPtyProcess: ...
+
+
+class _WinptyModule(Protocol):
+    WinptyError: type[BaseException]
+    PtyProcess: type[_PtyProcessFactory]
+
+
+def _load_winpty() -> _WinptyModule:
+    return cast(
+        _WinptyModule,
+        cast(object, importlib.import_module("winpty")),
+    )
+
+
+def _cancel_io_errors() -> tuple[type[BaseException], ...]:
+    """Bind the native cancel_io failure, or nothing where pywinpty is absent."""
+    try:
+        module = _load_winpty()
+    except ImportError:  # pywinpty is installed on Windows only.
+        return ()
+    return (module.WinptyError,)
+
+
+_CANCEL_IO_ERRORS = _cancel_io_errors()
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,12 +155,10 @@ class ConptySpawn:
         dimensions: tuple[int, int] = (24, 80),
     ) -> ConptySpawn:
         """Start a UTF-8 child attached to a native Windows pseudo-console."""
-        from winpty import PtyProcess
-
         child_env = dict(os.environ if env is None else env)
         child_env["PYTHONUTF8"] = "1"
         child_env["PYTHONIOENCODING"] = "utf-8"
-        raw_process: _RawPtyProcess = PtyProcess.spawn(
+        raw_process = _load_winpty().PtyProcess.spawn(
             [command, *args],
             cwd=None if cwd is None else str(cwd),
             env=child_env,

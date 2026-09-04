@@ -5,7 +5,7 @@ from __future__ import annotations
 import errno
 import json
 from pathlib import Path
-from typing import final
+from typing import cast, final
 
 from birkin.native.serve import BridgeProcess, NativeServeOptions
 
@@ -54,8 +54,12 @@ def test_writer_teardown_timeout_keeps_its_message_and_the_accept_budget(
     finally:
         process.close()
 
-    diagnostic = json.loads(lines[-1])
+    raw_diagnostic = cast(object, json.loads(lines[-1]))
+    assert isinstance(raw_diagnostic, dict)
+    diagnostic = cast(dict[object, object], raw_diagnostic)
     assert failures_before == 1
     assert failures_after == 1
     assert diagnostic["event"] == "connection_failed"
-    assert "writer did not stop" in diagnostic["error"]
+    error = diagnostic["error"]
+    assert isinstance(error, str)
+    assert "writer did not stop" in error
