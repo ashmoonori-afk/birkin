@@ -135,7 +135,7 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
             true
         )
 
-        runtime.stop()
+        await runtime.stopAndWait()
         let replay = BirkinApplicationRuntime(socketPath: socketPath, emit: { _ in })
         defer { replay.stop() }
         try await withTimeout("replay runtime start") { await replay.start() }
@@ -150,6 +150,7 @@ final class BirkinApplicationTerminalApprovalTests: XCTestCase {
             sessionCapability: try XCTUnwrap(readySession(replay)).sessionCapability,
             submit: { replay.submit($0) }
         ))
+        await replay.stopAndWait()
     }
 
     private func readySession(_ runtime: BirkinApplicationRuntime) -> NativeReadySession? {

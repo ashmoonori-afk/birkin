@@ -141,16 +141,15 @@ struct BirkinApplicationEvidenceTests {
         for runtime: BirkinApplicationRuntime,
         view: NSView
     ) -> AnyCancellable {
-        runtime.presentationModel.$requestGeneration
+        runtime.presentationModel.$target
             .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [presentationModel = runtime.presentationModel] generation in
-                view.layoutSubtreeIfNeeded()
-                guard let target = presentationModel.target else { return }
-                presentationModel.reportVisible(
-                    target: target,
-                    generation: generation
-                )
+            .compactMap { $0 }
+            .sink { [presentationModel = runtime.presentationModel] target in
+                let generation = presentationModel.requestGeneration
+                Task { @MainActor in
+                    view.layoutSubtreeIfNeeded()
+                    presentationModel.reportVisible(target: target, generation: generation)
+                }
             }
     }
 
@@ -203,12 +202,17 @@ final class BirkinApplicationUnprojectedSurfaceTests: XCTestCase {
         hostingView.frame = NSRect(x: 0, y: 0, width: 1_280, height: 800)
         hostingView.layoutSubtreeIfNeeded()
         captureView.view = hostingView
-        let focusStub = runtime.presentationModel.$requestGeneration
+        // Subscribe to the target value before runtime.start() triggers focus.
+        // requestGeneration publishes before focus assigns target, so reading
+        // target from that callback races the state transition under suite load.
+        let focusStub = runtime.presentationModel.$target
             .dropFirst()
-            .receive(on: DispatchQueue.main)
-            .sink { [presentationModel = runtime.presentationModel] generation in
-                guard let target = presentationModel.target else { return }
-                presentationModel.reportVisible(target: target, generation: generation)
+            .compactMap { $0 }
+            .sink { [presentationModel = runtime.presentationModel] target in
+                let generation = presentationModel.requestGeneration
+                Task { @MainActor in
+                    presentationModel.reportVisible(target: target, generation: generation)
+                }
             }
         defer {
             focusStub.cancel()
@@ -218,7 +222,7 @@ final class BirkinApplicationUnprojectedSurfaceTests: XCTestCase {
             try? FileManager.default.removeItem(at: root)
         }
 
-        try await withTimeout("runtime start") { await runtime.start() }
+        try await withTimeout("runtime start", events: events) { await runtime.start() }
 
         XCTAssertFalse(events.contains("surface-rendered name=office"))
         XCTAssertFalse(events.contains("surface-rendered name=browser_aside"))

@@ -46,10 +46,24 @@ public struct NativeHandshakeTranscript: Equatable, Sendable {
 }
 
 public struct NativeTransportError: Error, Equatable, CustomStringConvertible, Sendable {
+    public enum Code: String, Equatable, Sendable {
+        case endpointUnavailable
+        case permissionDenied
+        case authentication
+        case identity
+        case version
+        case protocolViolation
+        case malformed
+        case other
+    }
+
+    public let code: Code
     public let reason: String
     public var description: String { reason }
+    public var allowsLoopbackFallback: Bool { code == .endpointUnavailable }
 
-    init(_ reason: String) {
+    public init(_ reason: String, code: Code = .other) {
+        self.code = code
         self.reason = reason
     }
 }

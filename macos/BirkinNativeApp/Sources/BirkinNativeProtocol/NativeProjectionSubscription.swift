@@ -103,20 +103,137 @@ extension NativeTransportActor {
         sessionID: String? = nil,
         surfaceRevisions: [String: Int]? = nil,
         replaying: Bool
-    ) throws -> NativeProjectionSubscription {
+    ) async throws -> NativeProjectionSubscription {
         apply(.connect)
         do {
             let socket = try NativeSocket.connectUDS(path: socketPath)
-            apply(.socketConnected(.uds))
+            return try await openProjectionSubscription(
+                socket: socket, transport: .uds, authentication: .uds,
+                hello: hello, sessionID: sessionID,
+                surfaceRevisions: surfaceRevisions, replaying: replaying
+            )
+        } catch is CancellationError {
+            apply(.disconnect)
+            throw CancellationError()
+        } catch {
+            apply(.failed(reason: String(describing: error)))
+            throw error
+        }
+    }
+
+    /// Opens a long-lived endpoint-aware subscription after an explicitly
+    /// classified UDS availability failure. Discovery is never consulted for
+    /// a connected peer's authentication, identity, version, or protocol error.
+    public func openProjectionSubscriptionWithFallback(
+        udsSocketPath: String,
+        discoveryPath: String,
+        hello: NativeHello,
+        sessionID: String? = nil,
+        surfaceRevisions: [String: Int]? = nil,
+        replaying: Bool
+    ) async throws -> NativeProjectionSubscription {
+        apply(.connect)
+        do {
+            let socket = try NativeSocket.connectUDS(path: udsSocketPath)
+            return try await openProjectionSubscription(
+                socket: socket, transport: .uds, authentication: .uds,
+                hello: hello, sessionID: sessionID,
+                surfaceRevisions: surfaceRevisions, replaying: replaying
+            )
+        } catch is CancellationError {
+            apply(.disconnect)
+            throw CancellationError()
+        } catch let error as NativeTransportError where error.allowsLoopbackFallback {
+            apply(.udsUnavailable(reason: error.description))
+        } catch {
+            apply(.failed(reason: String(describing: error)))
+            throw error
+        }
+        do {
+            let record = try JSONDecoder().decode(
+                NativeDiscoveryRecord.self,
+                from: Data(contentsOf: URL(fileURLWithPath: discoveryPath))
+            )
+            guard record.transport == NativeTransportKind.loopback.rawValue,
+                  record.host == "127.0.0.1",
+                  record.protocolVersions.contains(NativeProtocol.version) else {
+                throw NativeTransportError(
+                    "loopback discovery record is unsupported", code: .malformed
+                )
+            }
+            let socket = try NativeSocket.connectLoopback(host: record.host, port: record.port)
+            let subscription = try await openProjectionSubscription(
+                socket: socket, transport: .loopback,
+                authentication: .loopback(secret: record.bootstrapSecret),
+                hello: hello, sessionID: sessionID,
+                surfaceRevisions: surfaceRevisions, replaying: replaying
+            )
+            try Task.checkCancellation()
+            guard subscription.session.instanceID == record.instanceID,
+                  subscription.session.serverVersion == record.serverVersion else {
+                socket.close()
+                throw NativeTransportError(
+                    "ready identity does not match discovery", code: .identity
+                )
+            }
+            return subscription
+        } catch is CancellationError {
+            apply(.disconnect)
+            throw CancellationError()
+        } catch {
+            apply(.failed(reason: String(describing: error)))
+            throw error
+        }
+    }
+
+    private func openProjectionSubscription(
+        socket: NativeSocket,
+        transport: NativeTransportKind,
+        authentication: NativeHandshakeAuthentication,
+        hello: NativeHello,
+        sessionID: String?,
+        surfaceRevisions: [String: Int]?,
+        replaying: Bool
+    ) async throws -> NativeProjectionSubscription {
+        try await withTaskCancellationHandler {
+            do {
+                try Task.checkCancellation()
+                let subscription = try openProjectionSubscriptionBlocking(
+                    socket: socket,
+                    transport: transport,
+                    authentication: authentication,
+                    hello: hello,
+                    sessionID: sessionID,
+                    surfaceRevisions: surfaceRevisions,
+                    replaying: replaying
+                )
+                try Task.checkCancellation()
+                return subscription
+            } catch {
+                try Task.checkCancellation()
+                throw error
+            }
+        } onCancel: {
+            socket.close()
+        }
+    }
+
+    private func openProjectionSubscriptionBlocking(
+        socket: NativeSocket,
+        transport: NativeTransportKind,
+        authentication: NativeHandshakeAuthentication,
+        hello: NativeHello,
+        sessionID: String?,
+        surfaceRevisions: [String: Int]?,
+        replaying: Bool
+    ) throws -> NativeProjectionSubscription {
+        do {
+            apply(.socketConnected(transport))
             let transcript = try negotiate(
-                socket: socket,
-                hello: hello,
-                authentication: .uds
+                socket: socket, hello: hello, authentication: authentication
             )
             acceptNegotiated(transcript.session)
-            if replaying {
-                beginReplay(transcript.session)
-            }
+            if replaying { beginReplay(transcript.session) }
             let requestedSurfaces = surfaceRevisions ?? Dictionary(
                 uniqueKeysWithValues: transcript.session.supportedSurfaces.map { ($0, 0) }
             )
@@ -129,8 +246,7 @@ extension NativeTransportActor {
                 id: "app-subscribe-\(UUID().uuidString)",
                 body: [
                     "session_id": .string(sessionID ?? transcript.session.currentSessionID),
-                    "after_cursor": .int(0),
-                    "known_instance_id": .null,
+                    "after_cursor": .int(0), "known_instance_id": .null,
                     "session_capability": .string(transcript.session.sessionCapability),
                     "surfaces": .object(surfaceBody),
                 ]
@@ -142,8 +258,7 @@ extension NativeTransportActor {
             )
             let capability = NativeProjectionCapability(
                 transcript.session.sessionCapability,
-                surface: hello.surface,
-                viewID: hello.viewID
+                surface: hello.surface, viewID: hello.viewID
             )
             let messages = AsyncThrowingStream<NativeEnvelope, any Error> { continuation in
                 continuation.onTermination = { _ in socket.close() }
@@ -151,37 +266,30 @@ extension NativeTransportActor {
                     defer { socket.close() }
                     do {
                         while true {
-                            let envelope = try NativeFrameCodec.decode(
-                                frame: socket.receiveFrame()
-                            )
+                            let envelope = try NativeFrameCodec.decode(frame: socket.receiveFrame())
                             if let response = try NativeProjectionSubscription.controlResponse(
-                                for: envelope,
-                                capability: capability
+                                for: envelope, capability: capability
                             ) {
                                 try socket.send(NativeFrameCodec.encode(response))
                             } else {
                                 continuation.yield(envelope)
                             }
                         }
-                        continuation.finish()
                     } catch {
                         continuation.finish(throwing: error)
                     }
                 }
             }
             return NativeProjectionSubscription(
-                session: transcript.session,
-                snapshot: snapshot,
-                messages: messages,
+                session: transcript.session, snapshot: snapshot, messages: messages,
                 submit: { request in
                     try socket.send(NativeFrameCodec.encode(
                         capability.commandEnvelope(for: request)
                     ))
-                },
-                replaying: replaying
+                }, replaying: replaying
             )
         } catch {
-            apply(.failed(reason: String(describing: error)))
+            socket.close()
             throw error
         }
     }
