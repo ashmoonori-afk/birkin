@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import codecs
+import errno
 import os
 import select
 import signal
 import struct
+import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,39 +88,80 @@ class TerminalSession:
     monotonic: Callable[[], float]
     input_sequence: int = 0
     output_sequence: int = 0
-    screen: bytearray = field(default_factory=bytearray)
+    screen: str = ""
     exited_emitted: bool = False
+    released: bool = False
+    _decoder: codecs.IncrementalDecoder = field(
+        default_factory=lambda: codecs.getincrementaldecoder("utf-8")(
+            errors="replace"
+        ),
+        repr=False,
+    )
+    _read_lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def pump_output(
+        self,
+        *,
+        timeout: float,
+        consume: Callable[[bytes, bool], None] | None = None,
+    ) -> tuple[bytes, bool]:
+        """Read one bounded batch while tolerating quiet gaps before deadline."""
+        chunks = bytearray()
+        reached_eof = False
+        deadline = time.monotonic() + timeout
+        with self._read_lock:
+            while len(chunks) < MAX_OUTPUT_BYTES and not self.released:
+                remaining = max(0.0, deadline - time.monotonic())
+                ready, _, _ = select.select(
+                    [self.master_fd], [], [], remaining
+                )
+                if not ready:
+                    if remaining > 0:
+                        continue
+                    break
+                try:
+                    chunk = os.read(
+                        self.master_fd,
+                        min(4_096, MAX_OUTPUT_BYTES - len(chunks)),
+                    )
+                except BlockingIOError:
+                    continue
+                except OSError as exc:
+                    if exc.errno == errno.EIO:
+                        reached_eof = True
+                        break
+                    raise
+                if not chunk:
+                    reached_eof = True
+                    break
+                chunks.extend(chunk)
+                if consume is not None:
+                    consume(chunk, False)
+            if reached_eof and consume is not None:
+                consume(b"", True)
+        return bytes(chunks), reached_eof
 
     def read_output(self, *, timeout: float) -> bytes:
-        chunks = bytearray()
-        deadline = self.monotonic() + timeout
-        ready, _, _ = select.select([self.master_fd], [], [], timeout)
-        while ready and len(chunks) < MAX_OUTPUT_BYTES:
-            try:
-                chunk = os.read(
-                    self.master_fd,
-                    min(4_096, MAX_OUTPUT_BYTES - len(chunks)),
-                )
-            except (BlockingIOError, OSError):
-                break
-            if not chunk:
-                break
-            chunks.extend(chunk)
-            remaining = max(0.0, deadline - self.monotonic())
-            ready, _, _ = select.select(
-                [self.master_fd], [], [], min(0.05, remaining)
-            )
-        return bytes(chunks)
+        """Compatibility projection for callers that only need raw bytes."""
+        return self.pump_output(timeout=timeout)[0]
 
-    def record_output(self, output: bytes) -> dict[str, object]:
-        self.output_sequence += 1
-        self.screen.extend(output)
-        if len(self.screen) > MAX_SCREEN_BYTES:
-            del self.screen[: len(self.screen) - MAX_SCREEN_BYTES]
+    def record_output(
+        self,
+        output: bytes,
+        *,
+        final: bool = False,
+    ) -> dict[str, object]:
+        text = self._decoder.decode(output, final=final)
+        if text:
+            self.output_sequence += 1
+            encoded_screen = (self.screen + text).encode("utf-8")
+            self.screen = encoded_screen[-MAX_SCREEN_BYTES:].decode(
+                "utf-8", errors="ignore"
+            )
         return {
             "terminal_id": self.terminal_id,
             "sequence": self.output_sequence,
-            "data": output.decode("utf-8", errors="replace"),
+            "data": text,
         }
 
     def write(self, data: bytes) -> None:
@@ -135,6 +180,9 @@ class TerminalSession:
         terminate_darwin_terminal(self.process)
 
     def release(self) -> None:
+        if self.released:
+            return
+        self.released = True
         try:
             os.close(self.master_fd)
         except OSError:

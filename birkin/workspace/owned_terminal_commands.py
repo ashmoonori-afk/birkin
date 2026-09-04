@@ -46,7 +46,11 @@ class TerminalCommands:
             raise ProtocolError(
                 f"terminal input must be between 1 and {MAX_INPUT_BYTES} bytes"
             )
-        session.write(encoded)
+        try:
+            session.write(encoded)
+        except (OSError, ProtocolError):
+            self._sessions.backend_failed(session)
+            raise
         session.input_sequence = sequence
         # Keystrokes are never durable; only their replay sequence is journaled.
         self._sessions.emit(
@@ -57,13 +61,17 @@ class TerminalCommands:
                 "redacted": True,
             },
         )
-        output = self._sessions.capture_output(session, timeout=1.0)
+        try:
+            output = self._sessions.capture_output(session, timeout=1.0)
+        except (OSError, ProtocolError):
+            self._sessions.backend_failed(session)
+            raise
         self._sessions.emit_exit_if_needed(session)
         return {
             "terminal_id": session.terminal_id,
             "input_sequence": sequence,
             "output_sequence": session.output_sequence,
-            "output": output.decode("utf-8", errors="replace"),
+            "output": output,
         }
 
     def resize(self, payload: dict[str, object]) -> dict[str, object]:
@@ -95,7 +103,11 @@ class TerminalCommands:
         signal_name = payload["signal"]
         if not isinstance(signal_name, str) or signal_name not in signals:
             raise TerminalSignalRejected("terminal signal must be INT, TERM, or HUP")
-        os.killpg(session.process.pid, signals[signal_name])
+        try:
+            os.killpg(session.process.pid, signals[signal_name])
+        except OSError:
+            self._sessions.backend_failed(session)
+            raise
         result: dict[str, object] = {
             "terminal_id": session.terminal_id,
             "signal": signal_name,
@@ -122,12 +134,17 @@ class TerminalCommands:
     def snapshot(self, payload: dict[str, object]) -> dict[str, object]:
         validate_keys(payload, required={"terminal_id"}, optional=set())
         session = self._sessions.session(payload["terminal_id"])
-        _ = self._sessions.capture_output(session, timeout=0.0)
+        if not session.released:
+            try:
+                _ = self._sessions.capture_output(session, timeout=0.0)
+            except (OSError, ProtocolError):
+                self._sessions.backend_failed(session)
+                raise
         self._sessions.emit_exit_if_needed(session)
         return {
             "terminal_id": session.terminal_id,
             "cwd": str(session.cwd),
-            "screen": bytes(session.screen).decode("utf-8", errors="replace"),
+            "screen": session.screen,
             "output_sequence": session.output_sequence,
             "state": "exited" if session.process.poll() is not None else "running",
             "exit_status": session.process.poll(),

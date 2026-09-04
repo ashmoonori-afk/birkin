@@ -62,6 +62,20 @@ def _event(client: socket.socket, event_type: str) -> dict[str, object]:
     raise AssertionError(f"missing {event_type}")
 
 
+def _terminal_output_until(client: socket.socket, expected: str) -> str:
+    pieces: list[str] = []
+    for _ in range(16):
+        payload = _event(client, "terminal.output")
+        data = payload["data"]
+        if not isinstance(data, str):
+            raise AssertionError("terminal output data must be a string")
+        pieces.append(data)
+        output = "".join(pieces)
+        if expected in output:
+            return output
+    raise AssertionError(f"missing terminal output sentinel: {expected}")
+
+
 def _bridge(
     tmp_path: Path, cfg: dict[str, object]
 ) -> tuple[NativeBridgeServer, WorkspaceService, TerminalAuthority]:
@@ -124,8 +138,8 @@ def test_full_native_bridge_real_pty_round_trip_and_invalid_signal(
             "data": "printf 'hello-native\\n'\n",
         })
         assert receive_kind(client, "receipt").body["state"] == "completed"
-        output = _event(client, "terminal.output")
-        assert "hello-native" in str(output["data"])
+        output = _terminal_output_until(client, "hello-native")
+        assert "hello-native" in output
 
         _send(client, token, source, "terminal.signal", "bad-signal", {
             "terminal_id": terminal_id,
