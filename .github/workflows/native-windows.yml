@@ -361,8 +361,102 @@ jobs:
       - run: uv sync --frozen --all-extras --all-groups
       - run: dotnet restore ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj
       - run: dotnet build ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj -c Release --no-restore
+      - name: Discover the complete App inventory
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $project = "./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj"
+          dotnet test $project -c Release --no-build --list-tests |
+            Tee-Object -FilePath "$env:RUNNER_TEMP/app-inventory.txt"
+          if ($LASTEXITCODE -ne 0) {
+            throw "App inventory discovery exited $LASTEXITCODE."
+          }
+          dotnet test $project -c Release --no-build --list-tests `
+            --filter "TestCategory=ExistingAccountProvider" |
+            Tee-Object -FilePath "$env:RUNNER_TEMP/app-provider-inventory.txt"
+          if ($LASTEXITCODE -ne 0) {
+            throw "Protected App inventory discovery exited $LASTEXITCODE."
+          }
       - run: >-
           dotnet test ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj
           -c Release --no-build
-          --filter "TestCategory=OfficeWorkflow&TestCategory=ExistingAccountProvider"
-          --logger "trx;LogFilePrefix=native-windows-provider-office"
+          --filter "TestCategory!=ExistingAccountProvider"
+          --logger "trx;LogFileName=app-deterministic.trx"
+          --results-directory "$env:RUNNER_TEMP/app-results/deterministic"
+      - run: >-
+          dotnet test ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj
+          -c Release --no-build
+          --filter "FullyQualifiedName=Birkin.Native.App.Tests.Journeys.ExistingAccountProviderJourneyTests.Window_WhenExistingAccountProviderCompletes_ProjectsExactAssistantMarker"
+          --logger "trx;LogFileName=app-provider-assistant.trx"
+          --results-directory "$env:RUNNER_TEMP/app-results/assistant"
+      - run: >-
+          dotnet test ./windows/BirkinNativeApp/tests/Birkin.Native.App.Tests/Birkin.Native.App.Tests.csproj
+          -c Release --no-build
+          --filter "FullyQualifiedName=Birkin.Native.App.Tests.Journeys.ProviderOfficeJourneyTests.MainWindow_ExistingAccountProviderAndPythonAuthority_CompleteOfficeApprovalJourney"
+          --logger "trx;LogFileName=app-provider-office.trx"
+          --results-directory "$env:RUNNER_TEMP/app-results/office"
+      - name: Verify exhaustive disjoint App results
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $paths = @(
+            "$env:RUNNER_TEMP/app-results/deterministic/app-deterministic.trx",
+            "$env:RUNNER_TEMP/app-results/assistant/app-provider-assistant.trx",
+            "$env:RUNNER_TEMP/app-results/office/app-provider-office.trx"
+          )
+          $expectedCounts = @(96, 1, 1)
+          $expectedNames = @($null,
+            "Window_WhenExistingAccountProviderCompletes_ProjectsExactAssistantMarker",
+            "MainWindow_ExistingAccountProviderAndPythonAuthority_CompleteOfficeApprovalJourney")
+          $inventoryNames = @(
+            Get-Content -LiteralPath "$env:RUNNER_TEMP/app-inventory.txt" |
+              ForEach-Object {
+                if ($_ -match '^\s{4}(\S.*)$') { $Matches[1].Trim() }
+              }
+          )
+          if ($inventoryNames.Count -ne 98) {
+            throw "Discovered App inventory was $($inventoryNames.Count), expected 98."
+          }
+          $providerInventoryNames = @(
+            Get-Content -LiteralPath "$env:RUNNER_TEMP/app-provider-inventory.txt" |
+              ForEach-Object {
+                if ($_ -match '^\s{4}(\S.*)$') { $Matches[1].Trim() }
+              }
+          )
+          $providerDifference = @(
+            Compare-Object `
+              -ReferenceObject $expectedNames[1..2] `
+              -DifferenceObject $providerInventoryNames
+          )
+          if ($providerInventoryNames.Count -ne 2 -or
+              $providerDifference.Count -ne 0) {
+            throw "Protected App inventory is not the two exhaustive expected tests."
+          }
+          $allNames = @()
+          for ($index = 0; $index -lt $paths.Count; $index++) {
+            [xml]$trx = Get-Content -LiteralPath $paths[$index]
+            $results = @($trx.TestRun.Results.UnitTestResult)
+            if ($results.Count -ne $expectedCounts[$index]) {
+              throw "App lane $index executed $($results.Count), expected $($expectedCounts[$index])."
+            }
+            $notPassed = @($results | Where-Object { $_.outcome -ne "Passed" })
+            if ($notPassed.Count -ne 0) {
+              throw "App lane $index contains non-passing results: $($notPassed.outcome -join ', ')."
+            }
+            if ($results.outcome -contains "Assert-Inconclusive" -or
+                $results.outcome -contains "Assert-Skipped") {
+              throw "App lane $index contains a skipped or inconclusive test."
+            }
+            if ($null -ne $expectedNames[$index] -and
+                $results[0].testName -ne $expectedNames[$index]) {
+              throw "App lane $index ran unexpected test $($results[0].testName)."
+            }
+            $allNames += @($results.testName)
+          }
+          if ($allNames.Count -ne 98) {
+            throw "Aggregate App inventory was $($allNames.Count), expected 98."
+          }
+          $duplicates = @($allNames | Group-Object | Where-Object Count -ne 1)
+          if ($duplicates.Count -ne 0) {
+            throw "App lanes were not disjoint: $($duplicates.Name -join ', ')."
+          }

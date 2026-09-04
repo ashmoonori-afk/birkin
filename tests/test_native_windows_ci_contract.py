@@ -33,7 +33,17 @@ PYTHON_DESELECTIONS = {
     "tests/test_native_transport.py::test_uds_listener_rejects_symlinked_parent",
     "tests/test_native_transport.py::test_uds_listener_rejects_symlinked_socket_path",
 }
-PROVIDER_FILTER = "TestCategory=OfficeWorkflow&TestCategory=ExistingAccountProvider"
+DETERMINISTIC_APP_FILTER = "TestCategory!=ExistingAccountProvider"
+ASSISTANT_PROVIDER_FILTER = (
+    "FullyQualifiedName=Birkin.Native.App.Tests.Journeys."
+    "ExistingAccountProviderJourneyTests."
+    "Window_WhenExistingAccountProviderCompletes_ProjectsExactAssistantMarker"
+)
+OFFICE_PROVIDER_FILTER = (
+    "FullyQualifiedName=Birkin.Native.App.Tests.Journeys."
+    "ProviderOfficeJourneyTests."
+    "MainWindow_ExistingAccountProviderAndPythonAuthority_CompleteOfficeApprovalJourney"
+)
 PORTABLE_FILTER = "TestCategory!=LiveBridge&TestCategory!=WindowsOnly"
 WPF_FILTER = "TestCategory!=LiveBridge&TestCategory!=ExistingAccountProvider"
 ACTION_PIN = re.compile(r"^[^@]+@[0-9a-f]{40}$")
@@ -410,8 +420,26 @@ def test_provider_office_gate_is_manual_protected_and_requires_existing_account_
     commands = [_normalized(command) for command in _commands(job)]
     assert LOCKED_SYNC in commands
     test_commands = [command for command in commands if command.startswith("dotnet test ")]
-    assert len(test_commands) == 1
-    assert re.findall(r'--filter "([^"]+)"', test_commands[0]) == [PROVIDER_FILTER]
+    assert len(test_commands) == 3
+    assert [re.findall(r'--filter "([^"]+)"', command) for command in test_commands] == [
+        [DETERMINISTIC_APP_FILTER],
+        [ASSISTANT_PROVIDER_FILTER],
+        [OFFICE_PROVIDER_FILTER],
+    ]
+    assert [re.findall(r'LogFileName=([^";]+)', command) for command in test_commands] == [
+        ["app-deterministic.trx"],
+        ["app-provider-assistant.trx"],
+        ["app-provider-office.trx"],
+    ]
+    joined = "\n".join(commands)
+    assert '$expectedCounts = @(96, 1, 1)' in joined
+    assert '$expectedNames = @($null,' in joined
+    assert '$inventoryNames.Count -ne 98' in joined
+    assert 'TestCategory=ExistingAccountProvider' in joined
+    assert '$providerInventoryNames.Count -ne 2' in joined
+    assert 'outcome -ne "Passed"' in joined
+    assert "Assert-Inconclusive" in joined
+    assert "Assert-Skipped" in joined
     assert not any("${{ secrets." in command for command in commands)
     assert not any("upload-artifact@" in str(step.get("uses", "")) for step in _steps(job))
 
