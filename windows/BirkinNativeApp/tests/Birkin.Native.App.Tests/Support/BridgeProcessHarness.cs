@@ -37,7 +37,7 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
     private readonly TaskCompletionSource<string> _listening;
     private readonly BridgeStandardErrorCapture _standardError;
 
-    private BridgeProcessHarness(
+    internal BridgeProcessHarness(
         IOwnedBridgeProcess process,
         string temporaryRoot,
         TaskCompletionSource<string> listening,
@@ -119,6 +119,17 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         await StopOwnedProcessAsync(_process);
         OwnedProcessExited = _process.HasExited;
         _process.Dispose();
+        foreach (var file in Directory.EnumerateFiles(
+            TemporaryRoot,
+            "*",
+            new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            }))
+        {
+            File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+        }
         Directory.Delete(TemporaryRoot, recursive: true);
         TemporaryRootDeleted = !Directory.Exists(TemporaryRoot);
     }
