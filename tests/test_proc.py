@@ -3,6 +3,7 @@ import shlex
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -137,7 +138,74 @@ def test_kill_tree_terminates_posix_process_group(monkeypatch) -> None:
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
-def test_kill_posix_tree_survives_exited_shell_leader(monkeypatch) -> None:
+def test_success_cleanup_uses_bounded_term_then_group_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signals: list[tuple[int, int]] = []
+    waits: list[float] = []
+
+    class _WaitEvent:
+        def wait(self, timeout: float) -> bool:
+            waits.append(timeout)
+            return False
+
+    def current_group() -> int:
+        return 9000
+
+    def record_signal(group: int, signum: int) -> None:
+        signals.append((group, signum))
+
+    monkeypatch.setattr(os, "getpgrp", current_group)
+    monkeypatch.setattr(
+        os,
+        "killpg",
+        record_signal,
+    )
+    monkeypatch.setattr(threading, "Event", _WaitEvent)
+
+    proc.terminate_posix_process_group(4312)
+
+    assert signals == [
+        (4312, signal.SIGTERM),
+        (4312, signal.SIGKILL),
+    ]
+    assert waits == [1.0]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_success_cleanup_does_not_wait_or_kill_when_group_is_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    signals: list[int] = []
+    waited = False
+
+    class _WaitEvent:
+        def wait(self, _timeout: float) -> bool:
+            nonlocal waited
+            waited = True
+            return False
+
+    def missing_group(_group: int, signum: int) -> None:
+        signals.append(signum)
+        raise ProcessLookupError
+
+    def current_group() -> int:
+        return 9000
+
+    monkeypatch.setattr(os, "getpgrp", current_group)
+    monkeypatch.setattr(os, "killpg", missing_group)
+    monkeypatch.setattr(threading, "Event", _WaitEvent)
+
+    proc.terminate_posix_process_group(4312)
+
+    assert signals == [signal.SIGTERM]
+    assert waited is False
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+def test_kill_posix_tree_survives_exited_shell_leader(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     calls: list[tuple[int, signal.Signals]] = []
     monkeypatch.setattr(
         proc.os,
@@ -152,7 +220,7 @@ def test_kill_posix_tree_survives_exited_shell_leader(monkeypatch) -> None:
     )
 
     assert proc.kill_process_group(4312) is True
-    assert calls == [(4312, proc._POSIX_KILL_SIGNAL)]
+    assert calls == [(4312, signal.SIGKILL)]
 
 
 def test_run_shell_command_cleans_tree_when_interrupted(monkeypatch) -> None:
