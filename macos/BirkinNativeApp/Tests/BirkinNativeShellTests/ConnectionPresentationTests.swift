@@ -6,6 +6,24 @@ import Testing
 
 @Suite("Native shell connection presentation")
 struct ConnectionPresentationTests {
+    @Test("typed first-run helper failures expose reinstall guidance and Retry")
+    func firstRunFailureRecovery() {
+        let missing = ConnectionPresentation(state: .failed(
+            reason: "code=embedded_helper_missing message=The embedded bridge executable is missing. Reinstall Birkin."
+        ))
+        let mismatch = ConnectionPresentation(state: .failed(
+            reason: "code=embedded_helper_hash_mismatch message=The embedded bridge executable failed its integrity check. Reinstall Birkin."
+        ))
+
+        #expect(missing.identifier == "failed-embedded_helper_missing")
+        #expect(mismatch.identifier == "failed-embedded_helper_hash_mismatch")
+        #expect(missing.actionLabel == "Retry")
+        #expect(mismatch.actionLabel == "Retry")
+        #expect(missing.detail.contains("Reinstall Birkin"))
+        #expect(!missing.detail.localizedCaseInsensitiveContains("choose"))
+        print("B4 PRESENTATION code=embedded_helper_missing action=Retry picker=false")
+    }
+
     @Test("every connection phase has a distinct non-color rendering")
     func everyStateIsDistinct() {
         let session = NativeReadySession(
@@ -28,6 +46,6 @@ struct ConnectionPresentationTests {
 
         #expect(Set(presentations.map(\.renderSignature)).count == presentations.count)
         #expect(presentations.allSatisfy { !$0.title.isEmpty && !$0.symbolName.isEmpty })
-        #expect(presentations.allSatisfy { $0.diagnosticsLabel == "Show Diagnostics" })
+        #expect(presentations.allSatisfy { !$0.actionLabel.isEmpty })
     }
 }

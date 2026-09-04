@@ -27,25 +27,45 @@ public struct DesktopMenuModel: Equatable, Sendable {
     public init(
         connection: NativeConnectionState,
         sessionID: String?,
-        pendingApprovalCount: Int
+        pendingApprovalCount: Int,
+        locale: Locale = NativeLocalization.currentLocale
     ) {
+        func text(_ key: String) -> String {
+            NativeLocalization.string(key, locale: locale)
+        }
         switch connection {
-        case .ready, .fallback(.ready): connectionTitle = "Connected"
-        case .replaying: connectionTitle = "Replaying"
-        case .connecting, .negotiating, .fallback: connectionTitle = "Connecting"
-        case .failed: connectionTitle = "Connection failed"
-        case .disconnected: connectionTitle = "Disconnected"
+        case .ready, .fallback(.ready): connectionTitle = text("Connected")
+        case .replaying: connectionTitle = text("Replaying")
+        case .connecting, .negotiating, .fallback:
+            connectionTitle = text("Connecting")
+        case .failed: connectionTitle = text("Connection failed")
+        case .disconnected: connectionTitle = text("Disconnected")
         }
         var values = [DesktopMenuItem(
-            title: "Connection: \(connectionTitle)", destination: .connection
+            title: NativeLocalization.string(
+                "Connection: %@",
+                locale: locale,
+                connectionTitle
+            ),
+            destination: .connection
         )]
         if let sessionID {
             values.append(DesktopMenuItem(
-                title: "Session: \(sessionID)", destination: .session(id: sessionID)
+                title: NativeLocalization.string(
+                    "Session: %@",
+                    locale: locale,
+                    sessionID
+                ),
+                destination: .session(id: sessionID)
             ))
         }
         values.append(DesktopMenuItem(
-            title: "Approvals (\(max(0, pendingApprovalCount)))", destination: .approvals
+            title: NativeLocalization.string(
+                "Approvals (%lld)",
+                locale: locale,
+                Int64(max(0, pendingApprovalCount))
+            ),
+            destination: .approvals
         ))
         items = values
     }
@@ -68,10 +88,12 @@ public struct DesktopMenuView: View {
             ForEach(model.items) { item in
                 Button(item.title) { navigate(item.destination) }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Navigates in Birkin; does not make a decision")
+                    .accessibilityHint(NativeLocalization.string(
+                        "Navigates in Birkin; does not make a decision"
+                    ))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel("Birkin status menu")
+        .accessibilityLabel(NativeLocalization.string("Birkin status menu"))
     }
 }

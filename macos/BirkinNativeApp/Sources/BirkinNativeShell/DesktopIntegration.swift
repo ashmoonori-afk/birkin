@@ -172,7 +172,7 @@ public struct JailedDropZone: View {
 
     private var label: String {
         switch model.state {
-        case .idle: "Drop a file to import"
+        case .idle: NativeLocalization.string("Drop a file to import")
         case .hovering: "Release to copy into workspace"
         case .importing(let name): "Importing \(name)"
         case .imported: "Imported"

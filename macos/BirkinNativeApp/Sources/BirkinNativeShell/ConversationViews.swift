@@ -74,22 +74,32 @@ public struct ConversationComposerView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Code mode", isOn: $model.isCodeMode)
-                .accessibilityLabel("Code mode")
+            Toggle(
+                NativeLocalization.string("Code mode"),
+                isOn: $model.isCodeMode
+            )
+                .accessibilityLabel(NativeLocalization.string("Code mode"))
             IMEAwareTextEditor(text: $model.draft, send: send)
                 .frame(minHeight: 72)
             .font(model.isCodeMode ? .system(.body, design: .monospaced) : .body)
-            .accessibilityLabel(model.isCodeMode ? "Code message draft" : "Message draft")
+            .accessibilityLabel(NativeLocalization.string(
+                model.isCodeMode ? "Code message draft" : "Message draft"
+            ))
             ForEach(model.attachments, id: \.importID) { attachment in
                 ImportedReferenceChip(reference: attachment)
             }
             HStack {
-                Text("\(model.draftByteCount) bytes")
+                Text(NativeLocalization.string(
+                    "%lld bytes",
+                    Int64(model.draftByteCount)
+                ))
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 Spacer()
-                Button("Send", action: send)
+                Button(NativeLocalization.string("Send"), action: send)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .accessibilityLabel("Send message")
+                    .accessibilityLabel(NativeLocalization.string(
+                        "Send message"
+                    ))
                     .disabled(!isSendEnabled)
             }
             if let reason = model.visibleReason {

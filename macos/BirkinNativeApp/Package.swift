@@ -5,6 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "BirkinNativeApp",
+    defaultLocalization: "en",
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "BirkinNativeProtocol", targets: ["BirkinNativeProtocol"]),
@@ -15,7 +16,8 @@ let package = Package(
         .target(name: "BirkinNativeProtocol"),
         .target(
             name: "BirkinNativeShell",
-            dependencies: ["BirkinNativeProtocol"]
+            dependencies: ["BirkinNativeProtocol"],
+            resources: [.process("Resources")]
         ),
         .executableTarget(
             name: "BirkinNativeApp",
