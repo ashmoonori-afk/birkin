@@ -10,7 +10,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Birkin.Native.App.Tests.Journeys;
 
 [TestClass]
-public sealed class ProviderOfficeDeterministicSeamTests
+public sealed class ProviderOfficeDeterministicSeamTests : MainWindowTestBase
 {
     [TestMethod]
     [TestCategory("OfficeWorkflow")]

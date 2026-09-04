@@ -15,7 +15,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Birkin.Native.App.Tests.Journeys;
 
 [TestClass]
-public sealed class ExistingAccountProviderJourneyTests
+public sealed class ExistingAccountProviderJourneyTests : MainWindowTestBase
 {
     private const string Prompt = "Reply with exactly PACKAGED_PROVIDER_COMPLETION_OK and no other text.";
     private const string Marker = "PACKAGED_PROVIDER_COMPLETION_OK";

@@ -17,7 +17,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Birkin.Native.App.Tests.Journeys;
 
 [TestClass]
-public sealed class DeterministicWindowJourneyTests
+public sealed class DeterministicWindowJourneyTests : MainWindowTestBase
 {
     [TestMethod]
     [TestCategory("LiveBridge")]
