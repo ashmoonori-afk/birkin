@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import cast, final
@@ -228,6 +229,7 @@ def test_input_backend_failure_terminates_and_releases_atomically(
     assert "top-secret" not in str(order)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="process groups are POSIX")
 def test_signal_backend_failure_terminates_and_releases_atomically(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

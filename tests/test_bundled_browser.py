@@ -238,6 +238,7 @@ def test_runtime_cache_excludes_only_parent_through_publish_reuse_and_prune(
         shutil.rmtree(root, ignore_errors=True)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="statvfs volumes are POSIX")
 @pytest.mark.parametrize("failure_errno", [errno.ENOTSUP, errno.EROFS])
 def test_backup_exclusion_failure_keeps_verified_runtime_with_bounded_diagnostic(
     tmp_path: Path,

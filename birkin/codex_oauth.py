@@ -101,6 +101,25 @@ def _same_file(path: Path, identity: tuple[int, int]) -> bool:
         metadata.st_dev, metadata.st_ino) == identity
 
 
+def _replace_with_retry(temporary: Path, path: Path) -> None:
+    """``os.replace`` with a short bounded retry on a sharing violation.
+
+    CPython opens files without ``FILE_SHARE_DELETE``, so on Windows a
+    concurrent reader or writer of the credential makes the rename fail with
+    ``PermissionError`` until that handle closes.  Ten attempts over ~1.5s
+    outlast it; a genuine permission error still raises.
+    """
+    delay = 0.01
+    for _ in range(9):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+            delay = min(delay * 2, 0.2)
+    os.replace(temporary, path)
+
+
 def write_store(tokens: dict[str, str]) -> None:
     """Durably publish a private Birkin-owned Codex credential.
 
@@ -129,7 +148,7 @@ def write_store(tokens: dict[str, str]) -> None:
             stream.write(payload)
             stream.flush()
             _ = os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        _replace_with_retry(temporary, path)
         published = True
         try:
             directory = os.open(path.parent, os.O_RDONLY
