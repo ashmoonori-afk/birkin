@@ -8,6 +8,7 @@ from threading import Event, Lock
 import pytest
 
 from birkin import approvals, config, store
+from birkin.workspace import approval_authority
 from birkin.workspace.records import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 from birkin.workspace.service import WorkspaceService
@@ -197,6 +198,41 @@ def test_snapshot_uses_authority_outcome_for_answer_state(
     assert item["status"] == outcome
     assert item["ui_state"] == expected_state
     assert item["decided"] is expected_decided
+
+
+def test_own_execution_failure_is_not_routed_as_answered_elsewhere(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        pending_id="abc123def456", category="shell", title="Fail once",
+        description="One failed execution", payload={"command": "exit 1"}, origin="test",
+    )
+
+    def fail_execution(
+        approval_id: str,
+        on_event: object = None,
+        *,
+        approved_by: str,
+        approved_via: str,
+    ) -> dict[str, object]:
+        del on_event, approved_by, approved_via
+        _ = store.resolve_pending(
+            approval_id,
+            "error",
+            updates={"execution_error": "action failed: exit 1"},
+        )
+        return {"ok": False, "error": "action failed: exit 1"}
+
+    monkeypatch.setattr(approvals, "approve", fail_execution)
+
+    result = approval_authority.decide(record["id"], decision="approve")
+
+    assert result == {
+        "outcome": "rejected_by_authority",
+        "approval_id": record["id"],
+        "error": "action failed: exit 1",
+    }
 
 
 def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(
