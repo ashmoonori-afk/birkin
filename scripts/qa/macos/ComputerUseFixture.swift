@@ -7,6 +7,7 @@ final class FixtureController: NSObject, NSApplicationDelegate {
     private var valueField: NSTextField!
     private var incrementButton: NSButton!
     private var counter = 0
+    private var emittedReady = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let title = ProcessInfo.processInfo.environment[
@@ -86,10 +87,26 @@ final class FixtureController: NSObject, NSApplicationDelegate {
         window.contentView = root
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        DispatchQueue.main.async {
-            print("READY \(ProcessInfo.processInfo.processIdentifier)")
-            fflush(stdout)
-        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        guard !emittedReady else { return }
+        emittedReady = true
+        let ready: [String: Any] = [
+            "event": "fixture.ready",
+            "pid": ProcessInfo.processInfo.processIdentifier,
+            "window_title": window.title,
+            "counter": counterLabel.stringValue,
+            "application_active": NSApp.isActive,
+            "window_key": window.isKeyWindow,
+            "window_visible": window.isVisible,
+        ]
+        let payload = try! JSONSerialization.data(
+            withJSONObject: ready,
+            options: [.sortedKeys]
+        )
+        print(String(data: payload, encoding: .utf8)!)
+        fflush(stdout)
     }
 
     @objc private func incrementCounter() {

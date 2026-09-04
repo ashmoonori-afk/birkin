@@ -183,7 +183,11 @@ class TerminalAuthority:
             "state": "running",
         }
         _ = self._emit("terminal.opened", {**opened, "lease": REDACTION_MARKER})
-        _ = self._sessions.capture_output(session, timeout=0.1)
+        try:
+            _ = self._sessions.capture_output(session, timeout=0.1)
+        except (OSError, ProtocolError):
+            self._sessions.backend_failed(session)
+            raise
         return opened
 
     def input(self, payload: dict[str, object]) -> dict[str, object]:

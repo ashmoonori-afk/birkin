@@ -27,6 +27,8 @@ from __future__ import annotations
 import base64
 import json
 import os
+import secrets
+import stat
 import threading
 import time
 import urllib.error
@@ -90,40 +92,86 @@ def _read_store() -> Optional[dict[str, Any]]:
     return data
 
 
-def _write_store(tokens: dict[str, str]) -> None:
-    """Persist tokens atomically, 0600 where the OS honours it.
+def _same_file(path: Path, identity: tuple[int, int]) -> bool:
+    try:
+        metadata = path.stat(follow_symlinks=False)
+    except OSError:
+        return False
+    return stat.S_ISREG(metadata.st_mode) and (
+        metadata.st_dev, metadata.st_ino) == identity
 
-    The rename is what matters: a crash mid-write leaves the old credential,
-    never a truncated one, and no readable ``.tmp`` behind. On Windows
-    ``chmod`` only toggles the read-only bit, so the mode is a no-op there and
-    the file rests on the profile directory's ACL — same as ``~/.codex``.
+
+def _replace_with_retry(temporary: Path, path: Path) -> None:
+    """``os.replace`` with a short bounded retry on a sharing violation.
+
+    CPython opens files without ``FILE_SHARE_DELETE``, so on Windows a
+    concurrent reader or writer of the credential makes the rename fail with
+    ``PermissionError`` until that handle closes.  Ten attempts over ~1.5s
+    outlast it; a genuine permission error still raises.
+    """
+    delay = 0.01
+    for _ in range(9):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            time.sleep(delay)
+            delay = min(delay * 2, 0.2)
+    os.replace(temporary, path)
+
+
+def write_store(tokens: dict[str, str]) -> None:
+    """Durably publish a private Birkin-owned Codex credential.
+
+    The temporary name is random and same-directory.  It is created 0600 with
+    O_EXCL/O_NOFOLLOW before any token byte is written, then flushed and
+    atomically replaced.  Cleanup is identity-bound so a raced pathname is
+    never removed.  A failure before replacement leaves the old valid store.
     """
     path = store_path()
-    payload = {
+    payload = json.dumps({
         "tokens": tokens,
         "auth_mode": "chatgpt",
         "last_refresh": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
-    tmp = path.with_suffix(".tmp")
+    }, indent=2).encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.parent / f".{path.name}.{secrets.token_hex(16)}.tmp"
+    flags = (os.O_WRONLY | os.O_CREAT | os.O_EXCL
+             | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0))
+    descriptor = os.open(temporary, flags, 0o600)
+    metadata = os.fstat(descriptor)
+    identity = (metadata.st_dev, metadata.st_ino)
+    published = False
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        with os.fdopen(descriptor, "wb", closefd=True) as stream:
+            descriptor = -1
+            stream.write(payload)
+            stream.flush()
+            _ = os.fsync(stream.fileno())
+        _replace_with_retry(temporary, path)
+        published = True
         try:
-            tmp.chmod(0o600)
+            directory = os.open(path.parent, os.O_RDONLY
+                                | getattr(os, "O_CLOEXEC", 0)
+                                | getattr(os, "O_DIRECTORY", 0)
+                                | getattr(os, "O_NOFOLLOW", 0))
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
         except OSError:
-            pass
-        tmp.replace(path)
-        try:
-            path.chmod(0o600)
-        except OSError:
-            pass
-    except OSError:
-        # Never leave a half-written .tmp holding a token behind.
-        try:
-            tmp.unlink()
-        except OSError:
-            pass
-        raise
+            if os.name != "nt":
+                raise
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if not published and _same_file(temporary, identity):
+            os.unlink(temporary)
+
+
+# Retain the internal name for existing callers while exposing a warning-free
+# public seam for security tests.
+_write_store = write_store
 
 
 def is_logged_in() -> bool:
@@ -173,7 +221,7 @@ def _is_expiring(access_token: str, skew_seconds: int) -> bool:
     return time.time() >= (float(exp) - skew_seconds)
 
 
-def account_id(access_token: str, tokens: Optional[dict] = None) -> str:
+def account_id(access_token: str, tokens: Optional[dict[str, Any]] = None) -> str:
     """ChatGPT account id — from the stored token, else the JWT claim."""
     if tokens:
         stored = tokens.get("account_id")
@@ -189,8 +237,8 @@ def account_id(access_token: str, tokens: Optional[dict] = None) -> str:
 
 # --- HTTP -----------------------------------------------------------------
 
-def _post(url: str, *, form: Optional[dict] = None,
-          payload: Optional[dict] = None,
+def _post(url: str, *, form: Optional[dict[str, Any]] = None,
+          payload: Optional[dict[str, Any]] = None,
           timeout: int = 20) -> tuple[int, dict[str, Any]]:
     """POST form-encoded or JSON; return (status, decoded-json-or-{})."""
     if form is not None:

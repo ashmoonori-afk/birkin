@@ -5,13 +5,11 @@ from __future__ import annotations
 import argparse
 import errno
 import os
-import signal
 import threading
 import uuid
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import FrameType
 from typing import Protocol, final
 
 from birkin import __version__, config
@@ -21,6 +19,11 @@ from birkin.native.serve_announce import (
     Announce,
     connection_failure,
     emit as _emit,
+    install_signal_handlers,
+    listening_record,
+    ownership_callbacks,
+    ownership_from_environment,
+    start_ownership_monitor,
     write_line as _write_line,
 )
 from birkin.native.serve_surfaces import (
@@ -97,6 +100,9 @@ class BridgeProcess:
         self._accept_failures = 0
         self._instance_id = uuid.uuid4().hex
         options.root.mkdir(parents=True, exist_ok=True)
+        self._ownership = ownership_from_environment(
+            options.root, instance_id=self._instance_id, pid=os.getpid()
+        )
         self._adapters: dict[str, RuntimeWorkspaceAdapter] = {}
         self._hub = WorkspaceHub(
             root=options.root / "workspace",
@@ -105,6 +111,9 @@ class BridgeProcess:
         _session, _created = self._hub.create(options.session_id)
         self._capabilities = BootstrapSecretStore(options.root / "native")
         self._socket_path = options.root / "bridge.sock"
+        on_authenticated, on_connection_closed = ownership_callbacks(
+            self._ownership
+        )
         self._bridge = NativeBridgeServer(
             self._hub,
             session_authority=self._hub,
@@ -112,6 +121,8 @@ class BridgeProcess:
             instance_id=self._instance_id,
             server_version=__version__,
             on_disconnect=self._revoke_terminal_leases,
+            on_authenticated=on_authenticated,
+            on_connection_closed=on_connection_closed,
             surface_authority=_SelectedSurfaceAuthority(self._hub, self._adapters),
         )
 
@@ -144,20 +155,11 @@ class BridgeProcess:
         )
 
     def _listening(self) -> dict[str, object]:
-        record: dict[str, object] = {
-            "event": "listening",
-            "transport": self._options.transport,
-            "pid": os.getpid(),
-            "root": str(self._options.root),
-            "session_id": self._options.session_id,
-            "instance_id": self._instance_id,
-            "server_version": __version__,
-        }
-        if self._options.transport == "uds":
-            record["socket_path"] = str(self._socket_path)
-        else:
-            record["discovery_path"] = str(self._capabilities.endpoint_path)
-        return record
+        return listening_record(
+            transport=self._options.transport, root=self._options.root,
+            session_id=self._options.session_id, instance_id=self._instance_id,
+            server_version=__version__, socket_path=self._socket_path,
+            discovery_path=self._capabilities.endpoint_path)
 
     @property
     def accept_failures(self) -> int:
@@ -172,10 +174,18 @@ class BridgeProcess:
         """Release the workspace resources this lifecycle owns."""
         for adapter in list(self._adapters.values()):
             adapter.close()
+        if self._ownership is not None:
+            self._ownership.close()
 
     def run(self) -> int:
         endpoint = self._open()
-        restore = _install_signal_handlers(lambda: self.stop(endpoint))
+        restore = install_signal_handlers(lambda: self.stop(endpoint))
+        ownership_endpoint = str(
+            self._socket_path if self._options.transport == "uds"
+            else self._capabilities.endpoint_path)
+        ownership_thread = start_ownership_monitor(
+            self._ownership, transport=self._options.transport,
+            endpoint=ownership_endpoint, stop=lambda: self.stop(endpoint))
         try:
             _emit(self._announce, self._listening())
             while not self._stopping.is_set():
@@ -184,6 +194,8 @@ class BridgeProcess:
             restore()
             endpoint.close()
             self.close()
+            if ownership_thread is not None:
+                ownership_thread.join(timeout=1)
             _emit(
                 self._announce,
                 {
@@ -245,22 +257,6 @@ class BridgeProcess:
                 "consecutive_failures": self._accept_failures,
             },
         )
-
-
-def _install_signal_handlers(stop: Callable[[], None]) -> Callable[[], None]:
-    def handle(_signum: int, _frame: FrameType | None) -> None:
-        stop()
-
-    previous = [
-        (number, signal.signal(number, handle))
-        for number in (signal.SIGTERM, signal.SIGINT)
-    ]
-
-    def restore() -> None:
-        for number, handler in previous:
-            _ = signal.signal(number, handler)
-
-    return restore
 
 
 def serve_bridge(

@@ -90,6 +90,18 @@ public struct BrowserAsideView: View {
     }
 }
 
+public enum ComputerUseGuidanceSemanticRole: String, Equatable, Sendable {
+    case staticText
+}
+
+public struct ComputerUseGuidanceSemantic: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let role: ComputerUseGuidanceSemanticRole
+    public let settingsPath: String
+    public let responsibleProcess: String
+    public let actions: [String]
+}
+
 public struct ComputerUseStatusView: View {
     public let presentation: ComputerUsePresentation
     public let canDecide: Bool
@@ -110,6 +122,18 @@ public struct ComputerUseStatusView: View {
         self.approve = approve; self.reject = reject; self.execute = execute
     }
 
+    public var guidanceSemantics: [ComputerUseGuidanceSemantic] {
+        presentation.guidance.map {
+            ComputerUseGuidanceSemantic(
+                id: "computer-use.guidance.\($0.id)",
+                role: .staticText,
+                settingsPath: $0.settingsPath,
+                responsibleProcess: $0.responsibleProcess,
+                actions: []
+            )
+        }
+    }
+
     public var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(
@@ -118,6 +142,15 @@ public struct ComputerUseStatusView: View {
             )
             Text("Accessibility: \(presentation.accessibilityStatus) · Screen Recording: \(presentation.screenRecordingStatus)")
             Text("Backend: \(presentation.backendStatus) · Binding: \(presentation.bindingStatus)")
+            ForEach(guidanceSemantics) { guidance in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(guidance.responsibleProcess)
+                    Text(guidance.settingsPath)
+                }
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier(guidance.id)
+            }
             if let state = presentation.consentState {
                 Text("One-shot grant \(presentation.grantID ?? "missing"): \(state)")
                 if let action = presentation.action { Text("Action \(action)") }

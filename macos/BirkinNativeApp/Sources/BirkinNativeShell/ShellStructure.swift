@@ -1,15 +1,23 @@
 import BirkinNativeProtocol
+import Foundation
 
 public enum ShellColumnID: String, CaseIterable, Equatable, Sendable {
     case navigation
     case primary
     case context
 
-    public var title: String {
+    public var title: String { localizedTitle() }
+
+    public func localizedTitle(
+        locale: Locale = NativeLocalization.currentLocale
+    ) -> String {
         switch self {
-        case .navigation: "Navigation"
-        case .primary: "Conversation"
-        case .context: "Context"
+        case .navigation:
+            NativeLocalization.string("Navigation", locale: locale)
+        case .primary:
+            NativeLocalization.string("Conversation", locale: locale)
+        case .context:
+            NativeLocalization.string("Context", locale: locale)
         }
     }
 
@@ -35,19 +43,28 @@ public enum ShellSectionID: String, CaseIterable, Equatable, Sendable {
     case office
     case computerUse
 
-    public var title: String {
+    public var title: String { localizedTitle() }
+
+    public func localizedTitle(
+        locale: Locale = NativeLocalization.currentLocale
+    ) -> String {
         switch self {
-        case .sessions: "Sessions"
-        case .templates: "Templates"
-        case .workingMemory: "Working Memory"
-        case .conversation: "Conversation"
-        case .composer: "Composer"
-        case .terminal: "Owned Terminal"
-        case .approvals: "Approvals"
-        case .activity: "Activity"
-        case .browserAside: "Browser Aside"
-        case .office: "Office"
-        case .computerUse: "Computer Use"
+        case .sessions: NativeLocalization.string("Sessions", locale: locale)
+        case .templates: NativeLocalization.string("Templates", locale: locale)
+        case .workingMemory:
+            NativeLocalization.string("Working Memory", locale: locale)
+        case .conversation:
+            NativeLocalization.string("Conversation", locale: locale)
+        case .composer: NativeLocalization.string("Composer", locale: locale)
+        case .terminal:
+            NativeLocalization.string("Owned Terminal", locale: locale)
+        case .approvals: NativeLocalization.string("Approvals", locale: locale)
+        case .activity: NativeLocalization.string("Activity", locale: locale)
+        case .browserAside:
+            NativeLocalization.string("Browser Aside", locale: locale)
+        case .office: NativeLocalization.string("Office", locale: locale)
+        case .computerUse:
+            NativeLocalization.string("Computer Use", locale: locale)
         }
     }
 }
@@ -103,13 +120,18 @@ public struct ShellStructure: Equatable, Sendable {
         guard let panel = projection.panels.first(where: { $0.key == key }) else {
             return ShellSection(
                 id: id,
-                state: .unavailable("Not advertised by the Python projection.")
+                state: .unavailable(NativeLocalization.string(
+                    "Not advertised by the Python projection."
+                ))
             )
         }
         return ShellSection(
             id: id,
             state: panel.items.isEmpty
-                ? .empty("No \(id.title.lowercased()) yet.")
+                ? .empty(NativeLocalization.string(
+                    "No %@ yet.",
+                    id.title.lowercased()
+                ))
                 : .content(itemCount: panel.items.count)
         )
     }
@@ -124,7 +146,7 @@ public struct ShellStructure: Equatable, Sendable {
         return ShellSection(
             id: .workingMemory,
             state: count == 0
-                ? .empty("No working memory yet.")
+                ? .empty(NativeLocalization.string("No working memory yet."))
                 : .content(itemCount: count)
         )
     }
@@ -134,14 +156,19 @@ public struct ShellStructure: Equatable, Sendable {
         return ShellSection(
             id: .conversation,
             state: projection.conversation.isEmpty
-                ? .empty("No conversation yet.")
+                ? .empty(NativeLocalization.string("No conversation yet."))
                 : .content(itemCount: projection.conversation.count)
         )
     }
 
     private static func composer(_ projection: NativeProjectionState?) -> ShellSection {
         guard projection != nil else { return waiting(.composer) }
-        return ShellSection(id: .composer, state: .empty("Ready for an explicit message."))
+        return ShellSection(
+            id: .composer,
+            state: .empty(NativeLocalization.string(
+                "Ready for an explicit message."
+            ))
+        )
     }
 
     private static func terminal(_ projection: NativeProjectionState?) -> ShellSection {
@@ -149,7 +176,7 @@ public struct ShellStructure: Equatable, Sendable {
         return ShellSection(
             id: .terminal,
             state: projection.terminals.isEmpty
-                ? .empty("No Python terminal yet.")
+                ? .empty(NativeLocalization.string("No Python terminal yet."))
                 : .content(itemCount: projection.terminals.count)
         )
     }
@@ -161,7 +188,9 @@ public struct ShellStructure: Equatable, Sendable {
         guard projection != nil else { return waiting(id) }
         return ShellSection(
             id: id,
-            state: .unavailable("Not advertised by the Python projection.")
+            state: .unavailable(NativeLocalization.string(
+                "Not advertised by the Python projection."
+            ))
         )
     }
 
@@ -174,13 +203,20 @@ public struct ShellStructure: Equatable, Sendable {
         guard store.surface(named: name) != nil else {
             return ShellSection(
                 id: id,
-                state: .unavailable("Not advertised by the Python projection.")
+                state: .unavailable(NativeLocalization.string(
+                    "Not advertised by the Python projection."
+                ))
             )
         }
         return ShellSection(id: id, state: .content(itemCount: 1))
     }
 
     private static func waiting(_ id: ShellSectionID) -> ShellSection {
-        ShellSection(id: id, state: .empty("Waiting for the canonical projection."))
+        ShellSection(
+            id: id,
+            state: .empty(NativeLocalization.string(
+                "Waiting for the canonical projection."
+            ))
+        )
     }
 }

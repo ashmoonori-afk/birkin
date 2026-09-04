@@ -57,6 +57,11 @@ _version_probe_started = False
 # Serializes token refresh so concurrent callers don't both spend the
 # single-use refresh_token (the loser would 400 and look "logged out").
 _token_lock = threading.Lock()
+# Once this process refreshes a source, keep reading that same authority.  In
+# particular, a stale external Keychain item must not shadow a freshly written
+# credentials file on the next read.
+_preferred_source: str | None = None
+_refreshed_credentials: dict[str, object] | None = None
 
 
 def _credentials_path() -> Path:
@@ -150,19 +155,35 @@ def _read_keychain() -> Optional[dict[str, Any]]:
         return None
 
 
-def read_credentials() -> Optional[dict[str, Any]]:
-    """Read Claude Code OAuth credentials (Keychain on macOS, else JSON file)."""
-    kc = _read_keychain()
-    if kc:
-        return kc
+def _read_credentials_source(source: str) -> dict[str, Any] | None:
+    if source == "macos_keychain":
+        if (_preferred_source == source
+                and _refreshed_credentials is not None
+                and _refreshed_credentials.get("source") == source):
+            return dict(_refreshed_credentials)
+        return _read_keychain()
+    if source != "credentials_file":
+        return None
     path = _credentials_path()
-    if path.exists():
-        try:
-            return _extract(json.loads(path.read_text(encoding="utf-8")),
-                            "credentials_file")
-        except (json.JSONDecodeError, OSError):
-            return None
-    return None
+    try:
+        return _extract(json.loads(path.read_text(encoding="utf-8")), source)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+
+def read_credentials() -> Optional[dict[str, Any]]:
+    """Read one stable Claude credential authority.
+
+    Keychain remains the normal macOS preference until this process refreshes a
+    different source.  A refresh pins that source so a stale external item
+    cannot immediately shadow the result.
+    """
+    if _preferred_source is not None:
+        preferred = _read_credentials_source(_preferred_source)
+        if preferred:
+            return preferred
+    return (_read_credentials_source("macos_keychain")
+            or _read_credentials_source("credentials_file"))
 
 
 def diagnose() -> dict[str, Any]:
@@ -269,7 +290,7 @@ def refresh(refresh_token: str) -> Optional[dict[str, Any]]:
 
 
 def _write_credentials(access: str, refresh_token: str, expires_at_ms: int,
-                       scopes: Optional[list] = None) -> None:
+                       scopes: Optional[list[object]] = None) -> None:
     """Persist refreshed credentials back to ~/.claude/.credentials.json.
 
     ``scopes`` (notably ``user:inference``) are preserved so the ``claude`` CLI's
@@ -324,17 +345,31 @@ def _refresh_locked(creds: dict[str, Any]) -> Optional[str]:
     from . import store
     try:
         with store.file_lock(_credentials_path()):
-            current = read_credentials() or creds
+            source = str(creds.get("source") or "")
+            current = _read_credentials_source(source) or creds
             if _token_valid(current):
                 return current["accessToken"]
             token = current.get("refreshToken") or creds.get("refreshToken")
             refreshed = refresh(token) if token else None
             if not refreshed:
                 return None
-            _write_credentials(refreshed["access_token"],
-                               refreshed["refresh_token"],
-                               refreshed["expires_at_ms"],
-                               current.get("scopes"))
+            global _preferred_source, _refreshed_credentials
+            _preferred_source = source
+            if source == "credentials_file":
+                _write_credentials(refreshed["access_token"],
+                                   refreshed["refresh_token"],
+                                   refreshed["expires_at_ms"],
+                                   current.get("scopes"))
+                _refreshed_credentials = None
+            else:
+                # External Claude Code Keychain data is read-only ownership.
+                _refreshed_credentials = {
+                    "accessToken": refreshed["access_token"],
+                    "refreshToken": refreshed["refresh_token"],
+                    "expiresAt": refreshed["expires_at_ms"],
+                    "scopes": current.get("scopes"),
+                    "source": source,
+                }
             return refreshed["access_token"]
     except store.FileLockTimeout:
         # Another process held the lock for the whole timeout. Attempting an

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -44,7 +46,10 @@ def test_wait_events_predicate_does_not_parse_the_journal(
         assert any(event.type == "command.completed" for event in settled)
 
         reads: list[int] = []
-        original = WorkspaceJournal._read_events
+        original = cast(
+            Callable[[WorkspaceJournal], list[WorkspaceEvent]],
+            cast(object, getattr(WorkspaceJournal, "_read_events")),
+        )
 
         def counting(journal: WorkspaceJournal) -> list[WorkspaceEvent]:
             reads.append(1)

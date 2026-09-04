@@ -1,6 +1,6 @@
 /// A stable, bounded reason an embedded bridge cannot be trusted.
 public struct OwnedBridgeDiscoveryError: Error, Equatable, Sendable, CustomStringConvertible {
-    public enum Code: String, Equatable, Sendable {
+    public enum Code: String, CaseIterable, Equatable, Sendable {
         case manifestMissing = "embedded_manifest_missing"
         case manifestMalformed = "embedded_manifest_malformed"
         case manifestVersionMismatch = "embedded_version_mismatch"
@@ -13,7 +13,7 @@ public struct OwnedBridgeDiscoveryError: Error, Equatable, Sendable, CustomStrin
 
     public let code: Code
 
-    init(_ code: Code) {
+    public init(_ code: Code) {
         self.code = code
     }
 

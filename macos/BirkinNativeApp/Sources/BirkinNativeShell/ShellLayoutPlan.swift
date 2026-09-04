@@ -8,6 +8,7 @@ public enum ShellLayoutMode: Equatable, Sendable {
 public struct ShellColumnWidthPolicy: Equatable, Sendable {
     public let minimum: CGFloat
     public let ideal: CGFloat
+    public let maximum: CGFloat
     public let layoutPriority: Double
 }
 
@@ -31,11 +32,17 @@ public struct ShellLayoutPlan: Equatable, Sendable {
     public func width(for column: ShellColumnID) -> ShellColumnWidthPolicy {
         switch column {
         case .navigation:
-            ShellColumnWidthPolicy(minimum: 240, ideal: 280, layoutPriority: 1)
+            ShellColumnWidthPolicy(
+                minimum: 240, ideal: 280, maximum: 420, layoutPriority: 1
+            )
         case .primary:
-            ShellColumnWidthPolicy(minimum: 400, ideal: 560, layoutPriority: 2)
+            ShellColumnWidthPolicy(
+                minimum: 400, ideal: 560, maximum: 900, layoutPriority: 2
+            )
         case .context:
-            ShellColumnWidthPolicy(minimum: 300, ideal: 380, layoutPriority: 1)
+            ShellColumnWidthPolicy(
+                minimum: 300, ideal: 380, maximum: 560, layoutPriority: 1
+            )
         }
     }
 }

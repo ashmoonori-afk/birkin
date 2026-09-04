@@ -126,21 +126,23 @@ public final class OwnedBridgeSupervisor {
 
 public final class FoundationBridgeProcess: SupervisedBridgeProcess {
     private let process: Process
-    private let supervisedPID: Int32
+    // Retains the private stdout drain until process termination.
+    private let outputDrain: AnyObject?
 
-    public var pid: Int32 { supervisedPID }
+    public var pid: Int32 { process.processIdentifier }
 
-    public init(process: Process, supervisedPID: Int32? = nil) {
+    public init(process: Process) {
         self.process = process
-        self.supervisedPID = supervisedPID ?? process.processIdentifier
+        self.outputDrain = nil
+    }
+
+    init(process: Process, outputDrain: AnyObject) {
+        self.process = process
+        self.outputDrain = outputDrain
     }
 
     public func terminate() {
         guard process.isRunning else { return }
-        if supervisedPID == process.processIdentifier {
-            process.terminate()
-        } else if kill(supervisedPID, SIGTERM) != 0 {
-            process.terminate()
-        }
+        process.terminate()
     }
 }

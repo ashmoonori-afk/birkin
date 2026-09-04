@@ -24,8 +24,15 @@ public final class BirkinApplicationRuntime: ObservableObject {
     @Published public private(set) var lastCommandError: String?
 
     private var socketPath: String?
-    private let ownedBridge: OwnedBridgeConfiguration?
+    private var udsSocketPath: String?
+    private var loopbackDiscoveryPath: String?
+    private var ownedBridgeTransport: NativeTransportKind = .uds
+    private var ownedBridge: OwnedBridgeConfiguration?
+    private let ownedBridgeResolver: () -> OwnedBridgeConfiguration?
+    private var ownedBridgeFailure: OwnedBridgeDiscoveryError?
     private var supervisor: OwnedBridgeSupervisor?
+    private var expectedOwnedInstanceID: String?
+    private var reclaimedOwnedBridge = false
     private let screenshotPath: String?
     private let reconnectClock: any NativeReconnectClock
     private let randomUnit: NativeReconnectScheduler.RandomUnit
@@ -51,6 +58,10 @@ public final class BirkinApplicationRuntime: ObservableObject {
             BirkinApplicationConfiguration.screenshotEnvironmentKey
         ],
         ownedBridge: OwnedBridgeConfiguration? = OwnedBridgeConfiguration.discovered(),
+        ownedBridgeFailure: OwnedBridgeDiscoveryError? = OwnedBridgeConfiguration.discoveryFailure(),
+        ownedBridgeResolver: @escaping () -> OwnedBridgeConfiguration? = {
+            OwnedBridgeConfiguration.discovered()
+        },
         reconnectClock: any NativeReconnectClock = NativeContinuousReconnectClock(),
         randomUnit: @escaping NativeReconnectScheduler.RandomUnit = {
             Double.random(in: 0...1)
@@ -62,6 +73,8 @@ public final class BirkinApplicationRuntime: ObservableObject {
     ) {
         self.socketPath = socketPath
         self.ownedBridge = ownedBridge
+        self.ownedBridgeFailure = ownedBridgeFailure
+        self.ownedBridgeResolver = ownedBridgeResolver
         self.screenshotPath = screenshotPath
         self.reconnectClock = reconnectClock
         self.randomUnit = randomUnit
@@ -132,28 +145,51 @@ public final class BirkinApplicationRuntime: ObservableObject {
 
     /// Start the bridge this application owns and adopt the endpoint it
     /// announces. An externally managed bridge is never touched.
-    private func startOwnedBridge() {
-        guard let ownedBridge else {
-            emit("bridge-unavailable \(OwnedBridgeConfiguration.discoveryDiagnostic())")
+    private func startOwnedBridge(transport selectedTransport: NativeTransportKind = .uds) {
+        guard let baseConfiguration = ownedBridge else {
+            let failure = ownedBridgeFailure ?? OwnedBridgeDiscoveryError(.helperMissing)
+            let reason = "code=\(failure.code.rawValue) message=\(failure.description)"
+            connectionState = .failed(reason: reason)
+            emit("bridge-unavailable \(reason)")
             return
         }
+        let ownedBridge = baseConfiguration.selectingTransport(selectedTransport)
+        ownedBridgeTransport = selectedTransport
         let supervisor = OwnedBridgeSupervisor(spawn: { [weak self] in
+            if selectedTransport == .uds,
+               let reclaimed = try OwnedBridgeLauncher.reclaim(ownedBridge) {
+                self?.socketPath = reclaimed.endpointPath
+                self?.udsSocketPath = reclaimed.endpointPath
+                self?.expectedOwnedInstanceID = reclaimed.instanceID
+                self?.reclaimedOwnedBridge = true
+                return reclaimed.process
+            }
             let launched = try OwnedBridgeLauncher.launch(ownedBridge) { pid, status in
                 Task { @MainActor in self?.ownedBridgeExited(pid: pid, status: status) }
             }
-            self?.socketPath = launched.socketPath
+            self?.socketPath = launched.endpointPath
+            if launched.transport == .uds {
+                self?.udsSocketPath = launched.endpointPath
+            } else {
+                self?.loopbackDiscoveryPath = launched.endpointPath
+            }
+            self?.expectedOwnedInstanceID = nil
+            self?.reclaimedOwnedBridge = false
             return launched.process
         })
         self.supervisor = supervisor
         guard supervisor.startOwnedIfNeeded() else {
-            emit("bridge-launch-failed reason=\(supervisor.state)")
+            let reason = "code=embedded_launch_failed message=The embedded bridge could not start. Reinstall Birkin."
+            connectionState = .failed(reason: reason)
+            emit("bridge-launch-failed \(reason)")
             return
         }
         if case .runningOwned(let pid) = supervisor.state {
             let owner = ProcessInfo.processInfo.environment["BIRKIN_NATIVE_OWNER_TOKEN"]
                 ?? "unscoped"
             emit(
-                "bridge-started kind=owned pid=\(pid) executable=\(ownedBridge.executable)"
+                "bridge-\(reclaimedOwnedBridge ? "reclaimed" : "started") kind=owned pid=\(pid)"
+                    + " executable=\(ownedBridge.executable)"
                     + " owner_sha256=\(Self.ownershipCorrelationDigest(owner))"
             )
         }
@@ -176,6 +212,21 @@ public final class BirkinApplicationRuntime: ObservableObject {
     }
 
     public func stop() {
+        guard prepareToStop() else { return }
+        Task { await transport.apply(.disconnect) }
+    }
+
+    func stopAndWait() async {
+        guard prepareToStop() else { return }
+        await transport.apply(.disconnect)
+    }
+
+    @discardableResult
+    private func prepareToStop() -> Bool {
+        guard started || supervisor != nil || listener != nil
+                || commandSubmitter != nil else {
+            return false
+        }
         started = false
         supervisor?.shutdown()
         supervisor = nil
@@ -185,27 +236,47 @@ public final class BirkinApplicationRuntime: ObservableObject {
         commandSubmitter = nil
         correlatedCommands.removeAll()
         connectionState = .disconnected
-        Task { await transport.apply(.disconnect) }
+        return true
     }
 
     private func connect(replaying: Bool) async -> Bool {
         guard started, let socketPath else { return false }
         connectionState = .connecting
-        emit(replaying ? "reconnect-attempt transport=uds" : "connecting transport=uds")
+        let transportLabel = ownedBridgeTransport.rawValue
+        emit(replaying ? "reconnect-attempt transport=\(transportLabel)" : "connecting transport=\(transportLabel)")
+        let hello = NativeHello(
+            client: "birkin-macos",
+            clientVersion: BirkinApplicationConfiguration.version,
+            clientBuild: BirkinApplicationConfiguration.build,
+            surface: "macos",
+            viewID: "main"
+        )
         do {
-            let subscription = try await transport.openProjectionSubscriptionUDS(
-                socketPath: socketPath,
-                hello: NativeHello(
-                    client: "birkin-macos",
-                    clientVersion: BirkinApplicationConfiguration.version,
-                    clientBuild: BirkinApplicationConfiguration.build,
-                    surface: "macos",
-                    viewID: "main"
-                ),
-                surfaceRevisions: store.requestedSurfaceRevisions.isEmpty
-                    ? nil : store.requestedSurfaceRevisions,
-                replaying: replaying
-            )
+            let revisions = store.requestedSurfaceRevisions.isEmpty
+                ? nil : store.requestedSurfaceRevisions
+            let subscription: NativeProjectionSubscription
+            if ownedBridgeTransport == .loopback,
+               let udsSocketPath,
+               let loopbackDiscoveryPath {
+                subscription = try await transport.openProjectionSubscriptionWithFallback(
+                    udsSocketPath: udsSocketPath,
+                    discoveryPath: loopbackDiscoveryPath,
+                    hello: hello,
+                    surfaceRevisions: revisions,
+                    replaying: replaying
+                )
+            } else {
+                subscription = try await transport.openProjectionSubscriptionUDS(
+                    socketPath: socketPath,
+                    hello: hello,
+                    surfaceRevisions: revisions,
+                    replaying: replaying
+                )
+            }
+            if let expectedOwnedInstanceID,
+               subscription.session.instanceID != expectedOwnedInstanceID {
+                throw NativeTransportError("owned helper instance identity mismatch")
+            }
             if subscription.replaying {
                 connectionState = .replaying(subscription.session)
                 emit("replaying session=\(subscription.session.currentSessionID) after_cursor=0")
@@ -226,15 +297,27 @@ public final class BirkinApplicationRuntime: ObservableObject {
                 )
             } else {
                 emit(
-                    "connected transport=uds session=\(subscription.session.currentSessionID) "
+                    "connected transport=\(ownedBridgeTransport.rawValue) session=\(subscription.session.currentSessionID) "
                         + "cursor=\(store.latestAppliedCursor ?? -1) "
                         + "conversation=\(store.projection?.conversation.count ?? 0)"
                 )
             }
             return true
+        } catch let error as NativeTransportError
+            where error.allowsLoopbackFallback
+                && ownedBridge != nil
+                && ownedBridgeTransport == .uds
+        {
+            emit("uds-unavailable code=endpoint_unavailable fallback=loopback")
+            supervisor?.shutdown()
+            supervisor = nil
+            self.socketPath = nil
+            startOwnedBridge(transport: .loopback)
+            guard self.socketPath != nil else { return false }
+            return await connect(replaying: replaying)
         } catch {
             connectionState = .failed(reason: String(describing: error))
-            emit("connect-failed reason=\(String(describing: error))")
+            emit("connect-failed reason=\(String(describing: error)) fallback=false")
             return false
         }
     }
@@ -307,7 +390,28 @@ public final class BirkinApplicationRuntime: ObservableObject {
     func emitJourney(_ message: String) { emit(message) }
 
     public func showDiagnostics() {
+        if case .failed(let reason) = connectionState,
+           reason.hasPrefix("code=embedded_") {
+            Task { await retryBridge() }
+            return
+        }
         emit("diagnostics state=\(String(describing: connectionState))")
+    }
+
+    public func retryBridge() async {
+        guard started else { return }
+        if ownedBridge == nil {
+            ownedBridge = ownedBridgeResolver()
+            ownedBridgeFailure = OwnedBridgeConfiguration.discoveryFailure()
+        }
+        supervisor?.shutdown()
+        supervisor = nil
+        socketPath = nil
+        startOwnedBridge()
+        guard socketPath != nil else { return }
+        if !(await connect(replaying: false)) {
+            await scheduleReconnect(reason: "bridge retry failed")
+        }
     }
 
     public func submit(_ control: ShellMutationControl) {
@@ -617,12 +721,17 @@ public final class BirkinApplicationRuntime: ObservableObject {
         let generation = presentationModel.focus(target)
         try await presentationModel.waitUntilVisible(generation: generation)
         await Task.yield()
-        let receipt = try captureEvidence(
-            to: URL(fileURLWithPath: screenshotPath),
-            focusTarget: target.evidenceName,
-            focusGeneration: generation
-        )
-        return receipt.pixelWidth > 0 && receipt.pixelHeight > 0
+        return try presentationModel.withCurrentVisibility(
+            target: target,
+            generation: generation
+        ) {
+            let receipt = try captureEvidence(
+                to: URL(fileURLWithPath: screenshotPath),
+                focusTarget: target.evidenceName,
+                focusGeneration: generation
+            )
+            return receipt.pixelWidth > 0 && receipt.pixelHeight > 0
+        }
     }
 
     /// Capture the launched app's owned window to an explicit destination.
@@ -657,15 +766,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
     }
 
     nonisolated public static func standardEvent(_ message: String) {
-        try? FileHandle.standardOutput.write(
-            contentsOf: standardEventData(message)
-        )
-    }
-
-    nonisolated static func standardEventData(_ message: String) -> Data {
-        Data(
-            "BIRKIN_APP_EVENT \(JourneyEvidenceRedactor.redact(message))\n".utf8
-        )
+        NativeDiagnosticsLogger.production.emit(message)
     }
 
     nonisolated static func ownershipCorrelationDigest(_ token: String) -> String {
@@ -710,10 +811,13 @@ enum BirkinApplicationHost {
         // Captured once: a production launch has no log, so it never even
         // schedules the work that would append to one.
         let events = journeyEvents
+        let diagnostics = NativeDiagnosticsLogger(
+            isJourneyMode: events != nil
+        )
         return BirkinApplicationRuntime(
             enableSystemNotifications: true,
             emit: { message in
-                BirkinApplicationRuntime.standardEvent(message)
+                diagnostics.emit(message)
                 guard let events else { return }
                 Task { @MainActor in events.record(message) }
             }

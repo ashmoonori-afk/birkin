@@ -113,8 +113,13 @@ public struct ActivityListView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Hide read", isOn: $filter.hideRead)
-                .accessibilityLabel("Hide read activity")
+            Toggle(
+                NativeLocalization.string("Hide read"),
+                isOn: $filter.hideRead
+            )
+                .accessibilityLabel(NativeLocalization.string(
+                    "Hide read activity"
+                ))
                 .accessibilityHint("Filters this view only and is not saved")
             ForEach(filter.presentations(items)) { item in
                 VStack(alignment: .leading, spacing: 4) {

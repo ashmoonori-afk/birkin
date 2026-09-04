@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any, Optional
 
 # A manager lookup should be quick; a hung one must not wedge startup.
@@ -33,7 +35,10 @@ DEFAULT_TIMEOUT = 10.0
 
 # name -> argv builder taking the reference. Both shell out exactly the way
 # hermes' own backends do.
-_BACKENDS = {
+_managed_names: set[str] = set()
+_managed_names_lock = threading.Lock()
+
+_BACKENDS: dict[str, Callable[[str], list[str]]] = {
     "bitwarden": lambda ref: ["bw", "get", "password", ref],
     "op": lambda ref: ["op", "read", "--no-newline", ref],
 }
@@ -88,6 +93,24 @@ def _fetch(argv: list[str], timeout: float) -> tuple[Optional[str], str]:
     return value, ""
 
 
+def local_cli_environment(
+    required_names: Iterable[str] = (),
+    *,
+    environ: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """Copy an environment while denying manager-owned secrets by default.
+
+    ``required_names`` is the explicit, exact-name opt-in for one child.  The
+    process environment is never edited, avoiding delete/restore races with
+    concurrent provider calls.
+    """
+    source = os.environ if environ is None else environ
+    required = frozenset(str(name) for name in required_names)
+    with _managed_names_lock:
+        denied = _managed_names - required
+    return {name: value for name, value in source.items() if name not in denied}
+
+
 def apply_all(cfg: dict[str, Any],
               env: Optional[dict[str, str]] = None) -> dict[str, Any]:
     """Resolve ``cfg["secrets"]`` into ``env`` (the process environment).
@@ -102,6 +125,8 @@ def apply_all(cfg: dict[str, Any],
     entries = (cfg or {}).get("secrets") or {}
     if not isinstance(entries, dict):
         return report
+    with _managed_names_lock:
+        _managed_names.update(str(name) for name in entries)
     for name, entry in entries.items():
         name = str(name)
         if target.get(name):

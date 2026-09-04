@@ -88,13 +88,24 @@ public struct ShellAccessibilityNode: Equatable, Identifiable, Sendable {
     }
 }
 
+public enum ShellKeyboardBinding: Equatable, Sendable {
+    case application
+    case nativeSystem
+}
+
 public struct ShellKeyboardCommand: Equatable, Sendable {
     public let shortcut: String
     public let action: String
+    public let binding: ShellKeyboardBinding
 
-    public init(shortcut: String, action: String) {
+    public init(
+        shortcut: String,
+        action: String,
+        binding: ShellKeyboardBinding = .application
+    ) {
         self.shortcut = shortcut
         self.action = action
+        self.binding = binding
     }
 }
 
@@ -119,7 +130,11 @@ public enum ShellKeyboardModel {
         ShellKeyboardCommand(shortcut: "cmd+.", action: "terminal.interrupt"),
         ShellKeyboardCommand(shortcut: "cmd+shift+a", action: "approvals.oldest"),
         ShellKeyboardCommand(shortcut: "cmd+shift+o", action: "composer.attach"),
-        ShellKeyboardCommand(shortcut: "escape", action: "overlay.dismiss"),
+        ShellKeyboardCommand(
+            shortcut: "escape",
+            action: "overlay.dismiss",
+            binding: .nativeSystem
+        ),
         ShellKeyboardCommand(shortcut: "cmd+1", action: "panel.navigation"),
         ShellKeyboardCommand(shortcut: "cmd+2", action: "panel.primary"),
         ShellKeyboardCommand(shortcut: "cmd+3", action: "panel.context"),
@@ -151,7 +166,10 @@ public enum ShellVoiceOverJourney: Sendable {
 }
 
 public enum ShellVoiceOverModel {
-    public static func journey(_ journey: ShellVoiceOverJourney) -> [ShellAccessibilityNode]? {
+    public static func journey(
+        _ journey: ShellVoiceOverJourney,
+        locale: Locale = NativeLocalization.currentLocale
+    ) -> [ShellAccessibilityNode]? {
         let ids: [String]
         switch journey {
         case .j2ResearchApproval:
@@ -165,14 +183,40 @@ public enum ShellVoiceOverModel {
                 "activity.receipt",
             ]
         }
-        let indexed = Dictionary(uniqueKeysWithValues: ShellAccessibilityInventory.nodes.map { ($0.id, $0) })
+        let indexed = Dictionary(uniqueKeysWithValues:
+            ShellAccessibilityInventory.localizedNodes(locale: locale)
+                .map { ($0.id, $0) }
+        )
         let nodes = ids.compactMap { indexed[$0] }
         return nodes.count == ids.count ? nodes : nil
     }
 }
 
 public enum ShellAccessibilityInventory {
-    public static let nodes: [ShellAccessibilityNode] = [
+    public static var nodes: [ShellAccessibilityNode] { localizedNodes() }
+
+    public static func localizedNodes(
+        locale: Locale = NativeLocalization.currentLocale
+    ) -> [ShellAccessibilityNode] {
+        sourceNodes.map { item in
+            ShellAccessibilityNode(
+                id: item.id,
+                surface: item.surface,
+                role: item.role,
+                label: NativeLocalization.string(
+                    item.label,
+                    locale: locale
+                ),
+                value: item.value.map {
+                    NativeLocalization.string($0, locale: locale)
+                },
+                actions: item.actions,
+                sortPriority: item.sortPriority
+            )
+        }
+    }
+
+    private static let sourceNodes: [ShellAccessibilityNode] = [
         node("connection.status", "chrome", .status, "Connection status", value: "Connection state and transport", priority: 1000),
         node("connection.diagnostics", "chrome", .button, "Show connection diagnostics", actions: ["press"], priority: 990),
         node("command-palette.open", "chrome", .button, "Open command palette", actions: ["press"], priority: 980),

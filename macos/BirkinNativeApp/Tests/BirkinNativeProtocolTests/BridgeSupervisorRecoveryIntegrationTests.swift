@@ -6,6 +6,41 @@ import Testing
 
 @Suite("Real owned bridge recovery")
 struct BridgeSupervisorRecoveryIntegrationTests {
+    @Test("authenticated relaunch reclaims the same live helper instance exactly once")
+    func authenticatedRelaunchClaim() async throws {
+        let repository = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let root = URL(fileURLWithPath: "/private/tmp/bk-reclaim-\(UUID().uuidString)")
+        let configuration = OwnedBridgeConfiguration(
+            executable: repository.appendingPathComponent(".venv/bin/python3").path,
+            leadingArguments: ["-m", "birkin"],
+            serveOptions: ["--root", root.path, "--session-id", "reclaim-session"]
+        )
+        let exit = DispatchSemaphore(value: 0)
+        let first = try OwnedBridgeLauncher.launch(configuration) { _, _ in exit.signal() }
+        defer { first.process.terminate() }
+
+        let reclaimed = try #require(try OwnedBridgeLauncher.reclaim(configuration))
+        #expect(reclaimed.process.pid == first.process.pid)
+        #expect(reclaimed.endpointPath == first.endpointPath)
+        let transcript = try await NativeTransportActor().connectUDS(
+            socketPath: reclaimed.endpointPath, hello: integrationHello
+        )
+        #expect(transcript.session.instanceID == reclaimed.instanceID)
+        reclaimed.process.terminate()
+        #expect(kill(first.process.pid, 0) == 0)
+        print(
+            "B3 RELAUNCH pid=\(first.process.pid) instance=\(transcript.session.instanceID)"
+                + " reclaimed=true spawned=1 pid_signalled=false"
+        )
+        first.process.terminate()
+        let exited = await Task.detached { waitForBridgeExit(exit) }.value
+        #expect(exited)
+        try FileManager.default.removeItem(at: root)
+    }
+
     @Test("owned crash restarts and app relaunch reattaches without duplicate sessions")
     func bothDirectionRestart() async throws {
         let root = URL(fileURLWithPath: "/private/tmp/birkin-supervisor-\(UUID().uuidString)")
@@ -70,4 +105,8 @@ struct BridgeSupervisorRecoveryIntegrationTests {
         print("SUPERVISOR RELAUNCH attached_external=true spawned=\(relaunchSpawnCount) sessions=1")
         print("SUPERVISOR CLEANUP \(cleanupReceipt) socket_removed=true root_removed=deferred")
     }
+}
+
+private func waitForBridgeExit(_ semaphore: DispatchSemaphore) -> Bool {
+    semaphore.wait(timeout: .now() + 10) == .success
 }

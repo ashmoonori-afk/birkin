@@ -140,7 +140,7 @@ class MacOSAX:
     def _find_window(self, window: ObservedWindow) -> Any:
         app = self.api.AXUIElementCreateApplication(window.pid)
         candidates = self._copy(app, self.api.kAXWindowsAttribute)
-        if not isinstance(candidates, (list, tuple)):
+        if candidates is None:
             raise BackendError("target_gone", "The AX window is unavailable.")
         matches = [
             candidate
@@ -197,7 +197,7 @@ class MacOSAX:
         self._locators[identity] = locator
         output.append(self._observed(element, locator, identity))
         children = self._copy(element, self.api.kAXChildrenAttribute)
-        if not isinstance(children, (list, tuple)):
+        if children is None:
             return
         for index, child in enumerate(children[:100]):
             self._walk(
@@ -213,7 +213,7 @@ class MacOSAX:
             element = self._find_window(locator.window)
             for index in locator.child_indexes:
                 children = self._copy(element, self.api.kAXChildrenAttribute)
-                if not isinstance(children, (list, tuple)):
+                if children is None:
                     return None
                 element = children[index]
             role = str(self._copy(element, self.api.kAXRoleAttribute) or "unknown")

@@ -39,3 +39,73 @@ jobs:
           --verify-tag
           --generate-notes
           --title "${GITHUB_REF_NAME}"
+
+  native-macos-release:
+    if: vars.BIRKIN_PUBLISH_MACOS == '1'
+    needs: artifacts
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: "0.11.8"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: Test native packaging contracts
+        run: >-
+          uv run --frozen pytest -p no:cacheprovider -o addopts= -q
+          tests/test_native_helper_packaging.py
+          tests/test_release_workflow.py
+      - name: Build native application, symbols, and customer DMG
+        shell: bash
+        run: |
+          scripts/native/package_macos_app.sh dist/native-macos
+          scripts/native/create_macos_dmg.sh dist/native-macos
+      - name: Verify native artifact and symbol UUID identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist=dist/native-macos
+          version="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          app_binary="$dist/Birkin.app/Contents/MacOS/BirkinNativeApp"
+          dsym="$dist/BirkinNativeApp.dSYM"
+          manifest="$dist/Birkin-$version-symbols-manifest.txt"
+          checksum="$dist/Birkin-$version-symbols.zip.sha256"
+          collect_uuids() {
+            /usr/bin/dwarfdump --uuid "$1" |
+              awk '{ architecture=$3; gsub(/[()]/, "", architecture); print architecture "=" tolower($2) }' |
+              LC_ALL=C sort
+          }
+          binary_uuids="$(collect_uuids "$app_binary")"
+          dsym_uuids="$(collect_uuids "$dsym")"
+          cmp -s <(printf '%s\n' "$binary_uuids") <(printf '%s\n' "$dsym_uuids")
+          grep -q "^arm64_uuid=$(awk -F= '/^arm64=/{print $2}' <<<"$binary_uuids")$" "$manifest"
+          grep -q "^x86_64_uuid=$(awk -F= '/^x86_64=/{print $2}' <<<"$binary_uuids")$" "$manifest"
+          (cd "$dist" && shasum -a 256 -c "$(basename "$checksum")")
+          test -z "$(find "$dist/Birkin.app" -name '*.dSYM' -print -quit)"
+      - name: Publish native customer artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" \
+            dist/native-macos/*.dmg \
+            dist/native-macos/artifact-manifest.sha256 \
+            dist/native-macos/build-manifest.txt \
+            --clobber
+      - name: Upload matching private native symbols
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: private-native-symbols-${{ github.ref_name }}
+          path: |
+            dist/native-macos/*-symbols.zip
+            dist/native-macos/*-symbols.zip.sha256
+            dist/native-macos/*-symbols-manifest.txt
+          if-no-files-found: error
+          retention-days: 14

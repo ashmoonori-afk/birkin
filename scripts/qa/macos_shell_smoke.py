@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile
@@ -18,6 +19,7 @@ from pathlib import Path
 from typing import cast
 
 from birkin import approvals, github_action, hooks, mcp, monitor, scheduler, store
+from birkin.proc import popen_detached
 from birkin.sandbox import PolicyRequest, SandboxJob, SandboxPolicy
 from birkin.sandbox_worktree import WorktreeRunner
 from birkin.tools import ToolContext, build_registry
@@ -40,6 +42,17 @@ def git(repo: Path, *args: str) -> None:
 def write_script(path: Path, source: str) -> None:
     _ = path.write_text(source, encoding="utf-8")
     path.chmod(0o755)
+
+
+def process_running(pid: int) -> bool:
+    result = subprocess.run(
+        ["ps", "-o", "stat=", "-p", str(pid)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    state = result.stdout.strip()
+    return bool(state) and not state.startswith("Z")
 
 
 def main() -> int:
@@ -75,6 +88,40 @@ def main() -> int:
                 )
             },
         )
+
+        child_pid_file = root / "foreground-child.pid"
+        child_parent = root / "foreground-parent.py"
+        write_script(
+            child_parent,
+            "import os, subprocess, sys\n"
+            + "from pathlib import Path\n"
+            + "with open(os.devnull, 'r+b') as null:\n"
+            + "    child = subprocess.Popen(\n"
+            + "        [sys.executable, '-c', 'import time; time.sleep(30)'],\n"
+            + "        stdin=null, stdout=null, stderr=null,\n"
+            + "    )\n"
+            + f"Path({str(child_pid_file)!r}).write_text(\n"
+            + "    str(child.pid), encoding='utf-8'\n"
+            + ")\n",
+        )
+        foreground = registry.execute(
+            "run_shell",
+            {"command": command([sys.executable, str(child_parent)])},
+        )
+        foreground_pid = int(child_pid_file.read_text(encoding="utf-8"))
+        foreground_absent = not process_running(foreground_pid)
+
+        detached = popen_detached([
+            sys.executable,
+            "-c",
+            "import time; time.sleep(30)",
+        ])
+        try:
+            detached_survived = process_running(detached.pid)
+        finally:
+            os.killpg(detached.pid, signal.SIGKILL)
+            _ = detached.wait(timeout=10)
+        detached_cleaned = not process_running(detached.pid)
 
         approval = cast(dict[str, object], approvals.propose(
             category="shell",
@@ -215,6 +262,10 @@ def main() -> int:
             },
             "approval": approved,
             "approval_retry": retry,
+            "detached_cleaned": detached_cleaned,
+            "detached_survived": detached_survived,
+            "foreground_absent": foreground_absent,
+            "foreground_pid": foreground_pid,
             "gateway_native": native_text,
             "hook": hooked,
             "mcp": (mcp_result.stdout or "").strip(),
@@ -227,6 +278,10 @@ def main() -> int:
         passed = (
             not native.is_error
             and "NATIVE" in native_text
+            and not foreground.is_error
+            and foreground_absent
+            and detached_survived
+            and detached_cleaned
             and approved.get("ok") is True
             and "approved-surface" in str(approved.get("result"))
             and queued.is_error

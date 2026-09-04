@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
+import signal
 import subprocess
 import sys
 from pathlib import Path
@@ -11,6 +13,7 @@ from typing import cast
 
 import pytest
 
+from birkin.proc import ShellCommand, popen_detached, run_shell_command, shell_env
 from birkin.tools import ToolContext, ToolResult
 from birkin.tools import shell as shell_mod
 
@@ -170,6 +173,94 @@ def test_streams_environment_cwd_and_temp_overrides(
     }
     assert "stderr-한글" in stderr
     assert "[exit 7]" in result.content
+
+
+def test_success_reaps_background_descendant_in_owned_process_group(
+    tmp_path: Path,
+) -> None:
+    metadata = tmp_path / "success-child.json"
+    parent = tmp_path / "success-parent.py"
+    _ = parent.write_text(
+        "import json, os, subprocess, sys\n"
+        + "from pathlib import Path\n"
+        + "with open(os.devnull, 'r+b') as null:\n"
+        + "    child = subprocess.Popen(\n"
+        + "        [sys.executable, '-c', 'import time; time.sleep(30)'],\n"
+        + "        stdin=null, stdout=null, stderr=null,\n"
+        + "    )\n"
+        + f"Path({str(metadata)!r}).write_text(json.dumps({{\n"
+        + "    'pid': child.pid,\n"
+        + "    'pgid': os.getpgid(child.pid),\n"
+        + "    'sid': os.getsid(child.pid),\n"
+        + "}), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    result = run_shell_command(
+        ShellCommand(
+            command=_command([sys.executable, str(parent)]),
+            cwd=tmp_path,
+            timeout=10,
+            environment=shell_env(),
+        )
+    )
+    child = cast(dict[str, int], json.loads(metadata.read_text(encoding="utf-8")))
+
+    try:
+        assert result.returncode == 0
+        assert child["pgid"] == child["sid"]
+        assert _process_running(child["pid"]) is False
+    finally:
+        if _process_running(child["pid"]):
+            os.killpg(child["pgid"], signal.SIGKILL)
+
+
+def test_success_cleanup_does_not_kill_child_that_escaped_session(
+    tmp_path: Path,
+) -> None:
+    pid_file = tmp_path / "escaped-child.pid"
+    parent = tmp_path / "escaped-parent.py"
+    _ = parent.write_text(
+        "import os, subprocess, sys\n"
+        + "from pathlib import Path\n"
+        + "with open(os.devnull, 'r+b') as null:\n"
+        + "    child = subprocess.Popen(\n"
+        + "        [sys.executable, '-c', 'import time; time.sleep(30)'],\n"
+        + "        stdin=null, stdout=null, stderr=null, start_new_session=True,\n"
+        + "    )\n"
+        + f"Path({str(pid_file)!r}).write_text(str(child.pid), encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    result = run_shell_command(
+        ShellCommand(
+            command=_command([sys.executable, str(parent)]),
+            cwd=tmp_path,
+            timeout=10,
+            environment=shell_env(),
+        )
+    )
+    child_pid = int(pid_file.read_text(encoding="utf-8"))
+
+    try:
+        assert result.returncode == 0
+        assert _process_running(child_pid) is True
+    finally:
+        os.killpg(child_pid, signal.SIGKILL)
+
+
+def test_popen_detached_process_remains_detached_by_contract() -> None:
+    detached = popen_detached([
+        sys.executable,
+        "-c",
+        "import time; time.sleep(30)",
+    ])
+    try:
+        assert _process_running(detached.pid) is True
+    finally:
+        os.killpg(detached.pid, signal.SIGKILL)
+        _ = detached.wait(timeout=10)
+    assert _process_running(detached.pid) is False
 
 
 def test_timeout_kills_background_descendant_after_shell_exits(

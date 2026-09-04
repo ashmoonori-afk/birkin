@@ -226,11 +226,13 @@ def test_own_execution_failure_is_not_routed_as_answered_elsewhere(
 
     monkeypatch.setattr(approvals, "approve", fail_execution)
 
-    result = approval_authority.decide(record["id"], decision="approve")
+    approval_id = record.get("id")
+    assert isinstance(approval_id, str)
+    result = approval_authority.decide(approval_id, decision="approve")
 
     assert result == {
         "outcome": "rejected_by_authority",
-        "approval_id": record["id"],
+        "approval_id": approval_id,
         "error": "action failed: exit 1",
     }
 
