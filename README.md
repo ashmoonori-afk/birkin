@@ -33,7 +33,7 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 
-Birkin's core runtime has three mandatory external dependencies: `pydantic` for validated data models, `psutil` for process identity, and `typing-extensions` for typed runtime contracts. `birkin_mnemosyne` is bundled with Birkin and is not installed separately. Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
+Birkin's core runtime has three cross-platform external dependencies: `pydantic` for validated data models, `psutil` for process identity, and `typing-extensions` for typed runtime contracts. On Windows, `tzdata` supplies the IANA time-zone database used by local scheduling. `birkin_mnemosyne` is bundled with Birkin and is not installed separately. Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
 
 ## Memory
 
@@ -88,8 +88,9 @@ The requested outcome and application scope remain binding: Birkin must not repl
 
 ### Language policy
 
-Birkin-owned user interfaces present approvals, errors, recovery actions,
-progress, and completion results in Korean. Code, identifiers, protocol fields,
+Birkin-owned user interfaces present navigation, Office actions, approvals,
+errors, recovery actions, progress, and completion results in Korean. Code,
+identifiers, protocol fields,
 stable error codes, logs, telemetry, and developer diagnostics remain English.
 Presentation layers translate typed machine data instead of making raw enums,
 cursors, exceptions, or receipt JSON the primary explanation; those appear
@@ -143,6 +144,34 @@ Birkin CLI is missing, times out, fails its handshake, or enters a crash loop,
 the app keeps running and shows a bounded reason, a retry action, and a field
 for saving the full executable path to `BIRKIN_EXECUTABLE`. The connection
 indicator is green only when the bridge is ready.
+
+The left workspace list restores durable sessions, shows their saved names,
+and creates, renames, or switches them through the canonical session commands.
+Switching waits for the selected session snapshot before showing its draft and
+attachments. The recent-results count is a display shortcut; the activity view
+shows the current projected history page, while the durable journal retains
+older items.
+
+The preview declares per-monitor V2 DPI awareness, exposes Korean UI Automation
+names and live status text, uses system colors for its principal high-contrast
+surfaces, and keeps progress understandable without a required animation.
+Ctrl+Enter ignores active Korean IME composition in both native and web input.
+
+Imported files appear above the Windows conversation draft as selectable
+attachments. Clearing a selection keeps the imported source, while sending
+passes only selected references to the bridge for same-session, hash, and file
+validation.
+
+The picker and full-window drop target accept DOCX, XLSX, PPTX, PDF, HWPX,
+and TXT files and import multiple selections in order. PDF content features can
+require the `office-advanced` extra; legacy binary HWP is not presented as HWPX
+support. Each failed file is reported by name while successful imports remain.
+
+The Windows Office panel accepts a purpose, DOCX body, destination, and an
+explicit overwrite request, then submits the existing `office.job_request`
+approval flow. Existing-document changes can be drafted into the conversation
+with the selected attachments. Connection, format, and overwrite refusals stay
+visible; no direct create or convert command bypass is enabled.
 
 See [`windows/BirkinNativeApp/README.md`](windows/BirkinNativeApp/README.md) for
 Windows build, run, `PATH`, executable-path, troubleshooting, and test
@@ -321,7 +350,33 @@ Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`
 
 ## Office Work OS v2
 
-Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
+Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and atomic copy-on-write edit sets across DOCX paragraphs, named XLSX sheets, and explicit PPTX slide parts. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
+
+DOCX and trusted-template HWPX creation also accept three versioned business plans: weekly report, meeting notes, and work proposal. DOCX emits a title, body, one table, and one bullet list through `python-docx`; HWPX reuses native field bindings. Missing required values and unbound HWPX fields fail before output. Results record source labels, the business-plan version/hash, and the source template hash, with layout marked unverified until a visual render succeeds.
+
+`review_meeting_actions` validates every proposed follow-up against an exact source sentence, preserves unknown owners and due dates, separates suggested dates, deduplicates candidates, and returns an unpersisted confirmation draft.
+
+Approved follow-ups become durable all-day `WorkItem` records. `list_work_items` groups them by today, overdue, missing owner/date, and recent completion in an explicit time zone; `work_item_request` approval-gates creation, edits, completion, and meeting-draft confirmation while retaining links to the original conversation, document, goal, or Office job.
+
+`search_office_sources` ranks live extraction spans with Mnemosyne's tokenizer and BM25 implementation. Each result retains its file label, paragraph/cell/slide locator, content hash, scope, and version; revoked, deleted, or hash-changed sources are excluded on the next query and no extracted-text cache is retained.
+
+The first external work connection is limited to Microsoft 365 delegated read access (`User.Read`, `Mail.Read`, `Calendars.Read`, and `Files.Read`). `m365_connection_status` shows the account, granted scopes, MCP server, and distinct connected, expired, revoked, reauthentication, or sync-failure states in the Office surface. `m365_connection_request` approval-gates connection, revocation, and reauthentication. It persists only a secrets-manager environment reference; token bytes never enter connection metadata.
+
+Microsoft 365 mail follows a read → local draft → explicit send sequence. Local new/reply/reply-all/forward drafts bind the sending account, recipients, subject, body, source revision, and attachment hashes. `m365_mail_send_request` exposes that exact snapshot for review; execution rejects changed drafts or attachments, creates a remote draft with an immutable Graph ID, and checks that ID before any retry after an uncertain send response.
+
+Calendar reads use the bounded Graph `calendarView` route so occurrences and exceptions are returned for a requested offset-aware range. Slot proposals combine the signed-in user's busy intervals with only attendee intervals the user supplied and list all unknown attendees. Event creation and update remain local drafts until `m365_calendar_event_request` is approved; execution rechecks the time range and source `etag`, then uses a transaction ID for creation or `If-Match` for update. `m365_meeting_prepare` joins one event with live, source-located Office search evidence.
+
+Daily briefings reuse the existing cron claim and run history. A deterministic template records its data basis time, today's and overdue work, pending approvals, recent changes, unread mail, calendar events, and every unreadable connection. Results and attention rows stay in the app. The schedule supports pause, resume, one-run skip, and explicit run-or-skip handling for a missed execution; a job/occurrence key prevents duplicate reports after restart.
+
+`office_batch_request` binds up to 25 unique source/change/destination sets in one approval and executes the existing canonical `OfficeJob` once per file in sequence. Its durable batch record reports each success and failure separately. A retry request rebuilds plans only for failed items, so already successful files are not overwritten.
+
+Saved Office templates are versioned aliases of the verified built-in report, meeting, and proposal layouts. `office_template_request` requires approval for clone, rename, preference changes, and restore; it stores only scope and presentation preferences, never document values or body text. `resolve_office_template` pins the exact saved version into the next Office creation preview, so later template changes cannot alter an already approved job.
+
+Team review handoff uses the Microsoft 365 drive-item invite operation with sign-in required and named read/write recipients. The local review record links proposer, reviewers, approval executor, source `etag`, permissions, and comments. Sharing and new comments re-read the drive item and stop on a changed version; only the proposer and named reviewers can read or comment. Real-time co-editing is outside this phase.
+
+`data_control_status` reports the connected account, searched Office folders, provider-transfer boundary, memory location, authenticated recovery expiry, and separate original/work-copy/memory/backup deletion semantics. `data_work_copy_delete_request` requires approval and an exact hash, then physically removes only a Birkin-owned imported copy. User originals remain outside this action; memory uses recoverable logical archive, and Office backups are physically purged only after their authenticated recovery window expires. Office search has no result cache, so a revoked or deleted source disappears on the next search.
+
+`script/qa/office_agent_journeys.py` completes five release journeys: first DOCX report, existing XLSX edit, PDF-to-DOCX summary, meeting-to-tasks, and mail-draft review. It checks artifact existence, reopened content, source hashes or locators, exact approval identity where a consequential action occurs, and two induced failure recoveries. Its separate metrics contain only a fixed journey identifier, time to first result, unnecessary-question count, manual-edit count, and recovery counts/rate; document and message bodies are excluded. The Office CI runs this suite on Windows, macOS, and Linux.
 
 `office_job_request` now accepts a source-free DOCX creation proposal with
 `content.paragraphs`. It writes neither a managed draft nor the caller's
@@ -337,7 +392,9 @@ Office provenance keeps exact reviewed artifact versions and supported runtime r
 
 Office mutation approval binds the proposer, source digest, destination, exact operations, and overwrite decision in an `authority_digest`. Durable receipts retain that digest and the approving principal separately from the proposer.
 
-After an approved Office export, native surfaces retain the decided approval, show its destination and 30-day rollback window, and let the user request rollback from the receipt without remembering an internal job ID.
+After an approved Office export, native surfaces keep the review and result in one card, distinguish structural validation from visual validation, show the destination and 30-day rollback window, and offer open, rollback, and follow-up edit actions without exposing internal job IDs.
+
+Native activity rows preserve the canonical Office stage and last-update time across reconnects. Stop requests remain labeled as requests until the separate interrupted event arrives, and retry is offered only for a retained conversation draft that the server explicitly marks retryable.
 
 The web workspace sends approval decisions through that bounded authority contract, releases failed submissions for retry, and keeps execution receipts available in the approval detail without exposing raw receipt data by default.
 
@@ -347,13 +404,18 @@ The web workspace sends approval decisions through that bounded authority contra
 | `docx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `xlsx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pptx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
-| `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | structured-preview |
+| `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | conditional-page-image |
 | `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 <!-- office-support-matrix:end -->
 
-`layered` comparison reports byte hashes, bounded normalized semantic text, and ZIP package-entry changes where applicable; it is not byte-only. PDF has no ZIP package layer. `structured-preview` means `render_artifact` succeeds only with `output_format: "structured_preview"`; visual `pdf`, `png`, and `thumbnail` requests return `RENDER_UNAVAILABLE`. Spreadsheet recalculation and general forms remain unavailable.
+`layered` comparison reports byte hashes, bounded normalized semantic text, and ZIP package-entry changes where applicable; it is not byte-only. PDF has no ZIP package layer. Every format provides `structured_preview`; PDF additionally renders one bounded page to PNG or thumbnail with pypdfium2. Visual PDF output and visual rendering of other formats return `RENDER_UNAVAILABLE`. Spreadsheet recalculation and general forms remain unavailable.
 
-The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, the canonical approval coordinator `office_job_request`, and the separately approval-gated `office_rollback_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
+Catalog capability and agent wiring are separate: `public_entrypoint` is null
+when no registered tool can invoke an operation. DOCX, XLSX, PPTX, PDF, and
+HWPX creation share the approval-bound `office_job_request` route. Non-ASCII
+PDF content binds a TrueType font artifact by URI and SHA-256.
+
+The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, the evidence-linked XLSX reviewer `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, the canonical approval coordinator `office_job_request`, and the separately approval-gated `office_rollback_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
 
 Document inputs are jailed to the dedicated `BIRKIN_HOME/office` tree, separate from configuration, vault, session, and native bootstrap files. With `BIRKIN_HOME=/workspace/.birkin`, copy or import sources under `/workspace/.birkin/office/artifacts/incoming`; a correctly hashed path elsewhere is still rejected. Durable jobs remain under `BIRKIN_HOME/office/jobs`, and generic model file tools cannot read, list, or rewrite Office receipt keys, jobs, validated drafts, backups, transaction journals, or destination locks. Consequential mutation and export use only `office_job_request`, whose destination must resolve beneath the caller's approved allowlisted root. Rollback is a second high-risk approval through `office_rollback_request`; export receipts are HMAC-authenticated, expire after 30 days, and expired receipts, active backup paths, and transaction/job journals are purged on the next Office request. Legacy unsigned receipts cannot authorize rollback. To avoid check-to-unlink and concurrent-hard-link races, authenticated helper and backup names are namespace-retired into a private `.birkin-retire` directory. POSIX cannot safely erase those inode bytes while also preserving a concurrently added hard link, so quarantined bytes may remain; they are not active state and cannot authorize rollback.
 
@@ -388,11 +450,11 @@ TXT conversion requires the `loss_budget` argument and never claims native or lo
 
 The base install keeps the boundary explicit. All five formats support inspect, validate, and compare. DOCX, XLSX, PPTX, and HWPX also support bounded extraction and explicit-budget TXT conversion. PDF inspection remains available, while PDF extraction and TXT conversion report a typed optional-capability boundary. Base creation covers ASCII PDF and trusted-template HWPX derivation; blank DOCX, XLSX, PPTX, and HWPX authoring returns `CAPABILITY_UNAVAILABLE`.
 
-Optional local Python tiers add fidelity without changing that boundary. Install `office` for conditional DOCX/XLSX/PPTX/HWPX blank authoring and bounded package operations, `office-advanced` for optional PDF extraction/TXT/deep reopen support, and `office-docling` for the separate docling path. Installed packages do not upgrade an unwired capability: pypdfium2 still does not provide visual rendering. The verified contract is **keyless, local-only Python stack; no external Office application/runtime required**. Office production workflows are offline-capable and Python-only: they never discover or launch external applications, executables, daemons, runtimes, or subprocess conversion engines. Built-in PDF creation is ASCII-only; non-Latin requests return a typed capability refusal without executing or suggesting ReportLab. Missing approved optional Python backends return typed errors and never silently select a candidate.
+Optional local Python tiers add fidelity without changing that boundary. Install `office` for conditional DOCX/XLSX/PPTX/HWPX blank authoring and bounded package operations, `office-advanced` for optional PDF extraction/TXT/deep reopen and page-image rendering, and `office-docling` for the separate docling path. The verified contract is **keyless, local-only Python stack; no external Office application/runtime required**. Office production workflows are offline-capable and Python-only: they never discover or launch external applications, executables, daemons, runtimes, or subprocess conversion engines. The base writer remains ASCII-only; `office-advanced` adds approved ReportLab authoring for non-ASCII text and tables when the request binds a TrueType font artifact by URI and SHA-256. Missing approved optional Python backends return typed errors and never silently select a candidate.
 
-Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
+Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.358`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.409`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
@@ -436,8 +498,8 @@ The contract above says what is allowed; this is the order you actually work in.
    HMAC-authenticated receipt no older than 30 days. A legacy unsigned receipt
    is not rollback authority.
 
-This journey still refuses PDF mutation, non-Latin built-in PDF creation, and
-every path that would launch an external Office application, runtime, or
+This journey still refuses PDF mutation and OCR, plus every path that would
+launch an external Office application, runtime, or
 subprocess conversion engine.
 
 Pull the text out of a Word file:
@@ -454,7 +516,7 @@ Convert the same file to TXT under an explicit loss budget:
 
 In chat you do not call these by name: a trusted Korean or English request routes deterministically to the matching skill (Word to `word-documents`, Excel to `spreadsheets`, PowerPoint to `presentations`, PDF to `pdf-documents`, HWP/HWPX to `korean-hwp-documents`, general office work to `office-work-os`), and conflicting signals route to inspect-first `office-documents`.
 
-What is refused, by design rather than by omission: PDF mutation, built-in PDF creation of anything non-Latin (ASCII only; a non-Latin request returns a typed capability refusal and never suggests ReportLab), and any path that would launch an external Office application, runtime, or subprocess conversion engine. A missing optional Python backend returns a typed error instead of quietly picking a substitute.
+What is refused, by design rather than by omission: PDF mutation, OCR, and any path that would launch an external Office application, runtime, or subprocess conversion engine. A missing optional Python backend returns a typed error instead of quietly picking a substitute.
 
 See the [detailed support contract](./docs/office-support.md#office-work-os-v2) for the full matrix.
 
@@ -1187,16 +1249,17 @@ Office, receipt, and recovery authority. Terminal truthfully reports that it
 is unavailable on Windows, and Browser displays canonical projected state
 without inventing controls or authority.
 
-The workspace layout is adjustable rather than fixed. Drag either divider to
-resize the Navigation or Context panel; the Primary conversation always stays
-visible and absorbs the remaining width. The **View** menu and window-level
-shortcuts toggle Navigation (`Ctrl+B`), Context (`Ctrl+Shift+B`), focus the
-conversation by hiding both side panels (`Ctrl+Shift+F`), or restore defaults
-(`Ctrl+Shift+0`). Hidden panels remain recoverable from status-bar buttons
-and edge controls. The WPF client stores panel widths and visibility locally in
-`%LOCALAPPDATA%\Birkin\layout.json`; missing, empty, malformed, and
-out-of-range state falls back to safe default widths without changing Python
-policy or execution authority.
+The workspace layout supports draggable dividers, collapsible Navigation and
+Context panels, a document focus view (`Ctrl+Shift+D`), a conversation focus
+view (`Ctrl+Shift+F`), and keyboard shortcuts for Navigation (`Ctrl+B`),
+Context (`Ctrl+Shift+B`), and default layout restore (`Ctrl+Shift+0`). Hidden
+panels remain recoverable from status-bar buttons and edge controls. Below 1100
+device-independent pixels it shows one selectable region at a time so the
+composer and approval controls remain reachable at high display scaling. The
+unavailable Windows terminal starts collapsed. Panel widths, visibility, and
+window bounds are stored in `%LOCALAPPDATA%\Birkin\layout.json`; missing,
+malformed, or out-of-range values fall back to bounded defaults without changing
+Python policy or execution authority.
 
 The Windows Office path is deliberately read-only: it can import a jailed
 artifact, select its canonical projection, request a Python-owned comparison,
@@ -1215,10 +1278,11 @@ and executes that authority. Approve and reject actions pass through an explicit
 confirmation state, then surface the decision as in flight until canonical
 projection catches up.
 
-There is no Windows installer or MSI, packaged app, or customer-ready release.
-Installer and updater delivery, production
-signing, and provider-backed production delivery remain future work. A shared cross-platform shell remains
-a separate future platform decision. The native-shell mockup above remains a
+The Windows packaging workflow now produces a bundled per-user development package with a self-contained native app and Python runtime. Its installer verifies file hashes and the product-version handshake, retains the previous version, and restores it after a failed update. Unsigned artifacts are labeled development-only and require an explicit install flag. A customer release candidate is produced only when the package catalog is signed and the clean-runner install/restart/recovery checks pass; this repository does not claim that a signed customer artifact has been issued. Provider-backed production delivery remains future work. A shared cross-platform shell remains
+a separate future platform decision. This adds installer and updater delivery
+for the development package. Production
+signing and provider-backed production delivery remain release requirements.
+The native-shell mockup above remains a
 roadmap, not a claim that every pictured Windows capability is active.
 
 ### Trade-offs and non-goals

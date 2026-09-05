@@ -16,6 +16,7 @@ SHELL_TESTS = (
     / "tests"
     / "Birkin.Native.Shell.Tests"
 )
+WINDOWS_APP = REPOSITORY / "windows" / "BirkinNativeApp" / "src" / "Birkin.Native.App"
 YamlValue: TypeAlias = (
     str | int | float | bool | None | list["YamlValue"] | dict[str, "YamlValue"]
 )
@@ -78,3 +79,11 @@ def test_portable_shell_fixtures_do_not_embed_windows_drive_paths() -> None:
         if '"root":"C:\\\\' in source.read_text(encoding="utf-8")
     ]
     assert offenders == []
+
+
+def test_windows_app_declares_per_monitor_v2_dpi_awareness() -> None:
+    project = (WINDOWS_APP / "Birkin.Native.App.csproj").read_text(encoding="utf-8")
+    manifest = (WINDOWS_APP / "app.manifest").read_text(encoding="utf-8")
+
+    assert "<ApplicationManifest>app.manifest</ApplicationManifest>" in project
+    assert ">PerMonitorV2</dpiAwareness>" in manifest

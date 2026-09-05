@@ -8,7 +8,7 @@ metadata:
   birkin:
     tags: [productivity, office, korean, hwp, hwpx]
     formats: [hwpx]
-    requires_tools: [list_document_adapters, inspect_document, extract_document, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
+    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, search_office_sources, list_office_batches, office_batch_request, list_office_templates, office_template_request, resolve_office_template, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
     inspect_first: inspect_document
     write_policy: copy-on-write
     extension_conversion: txt-only
@@ -60,6 +60,16 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `list_document_adapters`: no arguments.
 - `inspect_document`: required `source`.
 - `extract_document`: required `source`; optional `projection`, `max_spans`, `max_nodes`, and `max_text_bytes`.
+- `analyze_workbook`: required `source`, `sheet`, and `cell_range`; optional `group_by`, `value_column`, `compare_by`, and `include_hidden_rows`.
+- `review_meeting_actions`: required `notes` and evidence-bound `candidates`; returns a deduplicated draft and never persists unconfirmed actions.
+- `list_work_items`: optional `timezone_name`; returns today, overdue, needs-confirmation, and recent-completion groups.
+- `work_item_request`: approval-gated create, meeting confirmation, update, or completion; preserves session and source references.
+- `search_office_sources`: required `query` and access-granted scoped `sources`; returns live file, locator, hash, and version evidence without an extraction cache.
+- `list_office_batches`: optional `limit`; reports each batch and per-file result.
+- `office_batch_request`: required `items` or `retry_batch_id`; approval-binds and sequentially runs canonical per-file Office jobs.
+- `list_office_templates`: no arguments; previews verified bases and visible saved versions.
+- `office_template_request`: required `action`; approval-gates clone, rename, preference update, and default restore without storing document bodies.
+- `resolve_office_template`: required `template_id`, `version`, and `values`; resolves one exact saved version to the verified built-in template input.
 - `compare_documents`: required `left` and `right`.
 - `render_artifact`: required `artifact`; `output_format` must be `structured_preview`, `pdf`, `png`, or `thumbnail`, and `page` is optional.
 - `validate_artifact`: required `artifact`.

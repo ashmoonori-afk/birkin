@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 import time
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from pathlib import Path
 from queue import Empty, Queue
 from typing import final
@@ -13,7 +14,7 @@ from birkin import config
 
 from .contracts import ConfigMutationRejected, ProtocolError, WorkspaceCommand
 from .presets import SESSION_PRESETS, SessionPreset
-from .records import CommandReceipt, WorkspaceEvent, WorkspaceSnapshot
+from .records import CommandReceipt, PanelSummary, WorkspaceEvent, WorkspaceSnapshot
 from .service import CommandHandler, WorkspaceService
 from .working_memory import memory_write_handler
 
@@ -248,7 +249,47 @@ class WorkspaceHub:
 
     def snapshot(self) -> WorkspaceSnapshot:
         with self._lock:
-            return self._selected_session().snapshot()
+            selected = self._selected_session_id
+            snapshot = self._selected_session().snapshot()
+            sessions = tuple(
+                {
+                    "id": session_id,
+                    "session_id": session_id,
+                    "name": self._session_names[session_id],
+                    "summary": self._session_names[session_id],
+                    "status": "selected" if session_id == selected else "available",
+                    "kind": "session",
+                    "ui_state": "succeeded",
+                    "cursor": session.snapshot().cursor,
+                }
+                for session_id, session in self._sessions.items()
+            )
+        panels = tuple(
+            PanelSummary(panel.key, sessions)
+            if panel.key == "sessions_history"
+            else panel
+            for panel in snapshot.panels
+        )
+        return replace(snapshot, panels=panels)
+
+    def restore_existing(self) -> None:
+        """Open durable session journals already present beneath the hub root."""
+        if not self._root.is_dir():
+            return
+        for path in sorted(self._root.iterdir()):
+            if path.is_dir() and not path.is_symlink() and (path / "receipts").is_dir():
+                try:
+                    session, _created = self.create(path.name)
+                except ProtocolError:
+                    continue
+                for event in reversed(session.events()):
+                    if (
+                        event.type == "session.renamed"
+                        and event.payload.get("session_id") == path.name
+                        and isinstance(event.payload.get("name"), str)
+                    ):
+                        self._session_names[path.name] = str(event.payload["name"])
+                        break
 
     def events(self, *, after: int = 0) -> tuple[WorkspaceEvent, ...]:
         with self._lock:
@@ -340,13 +381,13 @@ class WorkspaceHub:
         emit: EventSink,
     ) -> Mapping[str, CommandHandler]:
         def create(payload: dict[str, object]) -> dict[str, object]:
-            session_id = payload.get("session_id")
-            if not isinstance(session_id, str) or not session_id:
+            requested_session_id = payload.get("session_id")
+            if not isinstance(requested_session_id, str) or not requested_session_id:
                 raise ProtocolError("session_id is required")
-            _session, created = self.create(session_id)
+            _session, created = self.create(requested_session_id)
             event_type = "session.created" if created else "session.selected"
-            _ = emit(event_type, {"session_id": session_id})
-            return {"session_id": session_id, "created": created}
+            _ = emit(event_type, {"session_id": requested_session_id})
+            return {"session_id": requested_session_id, "created": created}
 
         def select(payload: dict[str, object]) -> dict[str, object]:
             session_id = payload.get("session_id")

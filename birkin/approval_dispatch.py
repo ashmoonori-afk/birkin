@@ -206,6 +206,42 @@ def execute_action(
             if isinstance(value, str):
                 approval_id = SealedApprovalId(value)
         return execute_approved_rollback(payload, approval_id=approval_id)
+    if category == "office_batch":
+        from .office.batch import execute
+
+        return execute(payload, approval_id=configured.office_approval_id, on_transition=configured.on_event)
+    if category == "work_item":
+        from .work_items import apply_approved
+
+        return apply_approved(payload, configured.on_event)
+    if category == "connection":
+        from .m365_connection import apply_approved
+
+        return apply_approved(payload, configured.on_event)
+    if category == "mail_send":
+        from .m365_mail import execute_approved_send
+
+        return execute_approved_send(payload)
+    if category == "calendar_event":
+        from .m365_calendar import execute_approved_event
+
+        return execute_approved_event(payload)
+    if category == "briefing_schedule":
+        from .daily_briefing import apply_schedule
+
+        return apply_schedule(payload, configured.on_event)
+    if category == "team_share":
+        from .team_review import execute_share
+
+        return execute_share(payload, approval_id=configured.office_approval_id)
+    if category == "office_template":
+        from .office.saved_templates import apply_approved
+
+        return apply_approved(payload)
+    if category == "data_delete":
+        from .data_controls import delete_work_copy
+
+        return delete_work_copy(payload)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
         if not isinstance(operation, _OperationExecutor):

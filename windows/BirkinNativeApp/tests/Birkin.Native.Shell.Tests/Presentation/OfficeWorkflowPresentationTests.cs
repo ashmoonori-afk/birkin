@@ -232,6 +232,33 @@ public sealed class OfficeWorkflowPresentationTests
     }
 
     [TestMethod]
+    public void Workflow_WhenInterruptIsPending_DoesNotClaimCancellationCompleted()
+    {
+        var pending = OfficeWorkflowPresentation.Empty.Begin("stop-1", "chat.interrupt");
+        var accepted = pending.Accept("stop-1", 12);
+
+        Assert.AreEqual("중지 요청을 전송하고 있습니다.", pending.CommandProgressText);
+        Assert.AreEqual("중지 요청을 처리하고 있습니다.", accepted.CommandProgressText);
+    }
+
+    [TestMethod]
+    public void Workflow_WhenRetryableConversationFails_AllowsOnlyThatDraftToRetry()
+    {
+        var available = OfficeWorkflowPresentation.Empty.Availability with
+        {
+            ConversationSend = new MutationAvailability(true, null),
+        };
+        var retryable = (OfficeWorkflowPresentation.Empty with { Availability = available })
+            .WithDraft("보고서 다시 작성")
+            .Begin("retry-1", "chat.send")
+            .Refuse("retry-1", "E_BUSY", "busy", true, null);
+
+        Assert.IsTrue(retryable.CanRetryConversation);
+        Assert.IsFalse((retryable with { CommandType = "office.job_request" }).CanRetryConversation);
+        Assert.IsFalse((retryable with { RefusalRetryable = false }).CanRetryConversation);
+    }
+
+    [TestMethod]
     public void Workflow_WhenAuthorityClears_PreservesDraftAndClearsPending()
     {
         // Given
@@ -258,10 +285,28 @@ public sealed class OfficeWorkflowPresentationTests
         Assert.AreEqual("draft", cleared.Draft);
         Assert.IsNull(cleared.CommandId);
         Assert.AreEqual(WorkflowCommandState.Idle, cleared.CommandState);
-        Assert.AreEqual(0, cleared.Imports.Count);
+        Assert.AreEqual(1, cleared.Imports.Count);
+        Assert.IsTrue(cleared.Imports.Single().IsSelected);
         Assert.IsNull(cleared.RefusalCode);
         Assert.IsNull(cleared.RefusalMessage);
         Assert.IsNull(cleared.RefusalRetryable);
         Assert.IsNull(cleared.CurrentCursor);
+    }
+
+    [TestMethod]
+    public void Workflow_WhenImportIsDeselected_PreservesReferenceWithoutSelectingIt()
+    {
+        var workflow = OfficeWorkflowPresentation.Empty.WithImport(
+            new ImportedFilePresentation(
+                "import-1",
+                "first-report.xlsx",
+                "import-1.xlsx",
+                new string('a', 64),
+                1200));
+
+        var changed = workflow.WithImportSelection("import-1", false);
+
+        Assert.AreEqual(1, changed.Imports.Count);
+        Assert.IsFalse(changed.Imports.Single().IsSelected);
     }
 }

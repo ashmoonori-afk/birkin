@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import hashlib
-import importlib
 import json
+import shutil
 from pathlib import Path
 from typing import cast
 
@@ -96,28 +96,47 @@ def test_pdf_provenance_matches_wired_optional_backend() -> None:
     assert "not wired" not in pypdf["role"].lower()
 
 
-def test_non_latin_pdf_creation_refuses_without_importing_reportlab(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.skipif(
+    not Path("C:/Windows/Fonts/malgun.ttf").exists(),
+    reason="Windows Korean font validation requires Malgun Gothic",
+)
+def test_korean_pdf_creation_embeds_hash_bound_font_and_extracts_all_content(
+    tmp_path: Path,
 ) -> None:
-    real_import = importlib.import_module
+    font = tmp_path / "imports" / "malgun.ttf"
+    font.parent.mkdir()
+    _ = shutil.copy2("C:/Windows/Fonts/malgun.ttf", font)
+    service = DocumentService(tmp_path)
+    created = service.create_document(
+        format="pdf",
+        content={
+            "paragraphs": ["분기 보고서 Quarter 3", "합계 123,456원"],
+            "table": [["항목", "금액"], ["매출", "123,456"]],
+            "font": _artifact(font),
+        },
+        output_name="korean.pdf",
+    )
+    extracted = service.extract_document(created["draft_artifact"])
+    assert all(text in extracted["text"] for text in ("분기 보고서", "Quarter 3", "123,456", "항목", "매출"))
 
-    def import_without_reportlab(name: str, package: str | None = None) -> object:
-        if name.startswith("reportlab"):
-            raise AssertionError("refused ReportLab path was executed")
-        return real_import(name, package)
+    from pypdf import PdfReader
 
-    monkeypatch.setattr(importlib, "import_module", import_without_reportlab)
-    with pytest.raises(DocumentError) as caught:
-        _ = DocumentService(tmp_path).create_document(
-            format="pdf",
-            content={"paragraphs": ["분기 보고서"]},
-            output_name="korean.pdf",
+    reader = PdfReader(created["draft_artifact"]["uri"])
+    fonts = reader.pages[0]["/Resources"]["/Font"]
+
+    def embedded(font_object: object) -> bool:
+        raw = font_object.get_object()
+        descriptors = [raw.get("/FontDescriptor")]
+        descriptors.extend(
+            descendant.get_object().get("/FontDescriptor")
+            for descendant in raw.get("/DescendantFonts", [])
+        )
+        return any(
+            descriptor is not None and "/FontFile2" in descriptor.get_object()
+            for descriptor in descriptors
         )
 
-    assert caught.value.code is DocumentErrorCode.CAPABILITY_UNAVAILABLE
-    assert caught.value.details["reason"] == "pdf_non_latin_backend_unavailable"
-    assert "install_hint" not in caught.value.details
-    assert not (tmp_path / "artifacts" / "drafts" / "korean.pdf").exists()
+    assert any(embedded(font_object) for font_object in fonts.values())
 
 
 def test_catalog_derives_runtime_and_registered_read_surfaces(tmp_path: Path) -> None:

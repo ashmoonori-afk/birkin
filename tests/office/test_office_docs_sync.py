@@ -62,7 +62,7 @@ EXPECTED_MATRIX = {
         "layered",
         "conditional",
         "refused",
-        "structured-preview",
+        "conditional-page-image",
     ),
     "hwpx": (
         "bounded",
@@ -128,6 +128,7 @@ def test_docs_publish_current_tool_arguments_and_workspace_boundary() -> None:
         assert "/workspace/.birkin/" in text, path
         assert "structured_preview" in text, path
         assert "RENDER_UNAVAILABLE" in text, path
+        assert "public_entrypoint" in text, path
 
 
 def test_registered_tool_and_skill_identifiers_are_documented() -> None:

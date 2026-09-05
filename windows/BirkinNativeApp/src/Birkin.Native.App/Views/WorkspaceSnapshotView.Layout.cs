@@ -10,14 +10,20 @@ namespace Birkin.Native.App.Views;
 
 public partial class WorkspaceSnapshotView
 {
+    private enum CompactPane { Navigation, Primary, Context }
+
     private LayoutState _layout = LayoutState.Default;
     private Action<LayoutState, bool>? _saveLayout;
     private DispatcherTimer? _tipTimer;
     private IInputElement? _splitterRestoreFocus;
+    private LayoutFocusRestore? _documentFocusRestore;
+    private CompactPane _compactPane = CompactPane.Primary;
+    private bool _compactMode;
 
     public static RoutedCommand ToggleNavigationCommand { get; } = new();
     public static RoutedCommand ToggleContextCommand { get; } = new();
     public static RoutedCommand ToggleFocusCommand { get; } = new();
+    public static RoutedCommand ToggleDocumentFocusCommand { get; } = new();
     public static RoutedCommand ResetLayoutCommand { get; } = new();
 
     public LayoutState LayoutState => _layout;
@@ -27,6 +33,7 @@ public partial class WorkspaceSnapshotView
         CommandBindings.Add(new CommandBinding(ToggleNavigationCommand, (_, _) => ToggleNavigationPanel()));
         CommandBindings.Add(new CommandBinding(ToggleContextCommand, (_, _) => ToggleContextPanel()));
         CommandBindings.Add(new CommandBinding(ToggleFocusCommand, (_, _) => ToggleFocusMode()));
+        CommandBindings.Add(new CommandBinding(ToggleDocumentFocusCommand, (_, _) => ToggleDocumentFocusMode()));
         CommandBindings.Add(new CommandBinding(ResetLayoutCommand, (_, _) => ResetLayout()));
         PreviewKeyDown += (_, _) => HideLayoutTip();
         NavigationSplitter.KeyUp += SplitterKeyUp;
@@ -51,17 +58,58 @@ public partial class WorkspaceSnapshotView
 
     public void ApplyAvailableWidth(double width)
     {
-        if (width > 0) ApplyLayout(false, width);
+        if (width <= 0) return;
+        _compactMode = width < LayoutState.CompactBreakpoint;
+        ApplyLayout(false, width);
     }
 
-    public void ToggleNavigationPanel() => SetPanelVisibility(LayoutPanel.Navigation, !_layout.Navigation.Visible);
+    public void ToggleNavigationPanel()
+    {
+        if (_compactMode) ShowCompactPane(CompactPane.Navigation);
+        else SetPanelVisibility(LayoutPanel.Navigation, !_layout.Navigation.Visible);
+    }
 
-    public void ToggleContextPanel() => SetPanelVisibility(LayoutPanel.Context, !_layout.Context.Visible);
+    public void ToggleContextPanel()
+    {
+        if (_compactMode) ShowCompactPane(CompactPane.Context);
+        else SetPanelVisibility(LayoutPanel.Context, !_layout.Context.Visible);
+    }
+
+    public void ToggleDocumentFocusMode()
+    {
+        if (_compactMode)
+        {
+            ShowCompactPane(CompactPane.Context);
+            return;
+        }
+        if (_documentFocusRestore is null)
+        {
+            _documentFocusRestore = new LayoutFocusRestore(
+                _layout.Navigation.Visible, _layout.Context.Visible);
+        }
+        else
+        {
+            _layout = _layout with
+            {
+                Navigation = _layout.Navigation with { Visible = _documentFocusRestore.Navigation },
+                Context = _layout.Context with { Visible = _documentFocusRestore.Context },
+            };
+            _documentFocusRestore = null;
+        }
+        ApplyLayout(true);
+    }
+
+    public void ShowContextForCurrentWidth()
+    {
+        if (_compactMode) ShowCompactPane(CompactPane.Context);
+    }
 
     public void ResetLayout()
     {
         var window = _layout.Window;
         var hints = _layout.Hints;
+        _documentFocusRestore = null;
+        _compactPane = CompactPane.Primary;
         _layout = LayoutState.Default with { Window = window, Hints = hints };
         ApplyLayout(true);
         _saveLayout?.Invoke(_layout, true);
@@ -95,6 +143,33 @@ public partial class WorkspaceSnapshotView
 
     private void ApplyLayout(bool animate, double? availableWidth = null)
     {
+        if (_compactMode)
+        {
+            ApplySinglePane(
+                _compactPane == CompactPane.Navigation,
+                _compactPane == CompactPane.Primary,
+                _compactPane == CompactPane.Context);
+            NavigationMenuItem.IsChecked = _compactPane == CompactPane.Navigation;
+            ContextMenuItem.IsChecked = _compactPane == CompactPane.Context;
+            FocusMenuItem.IsChecked = _compactPane == CompactPane.Primary;
+            DocumentFocusMenuItem.IsChecked = _compactPane == CompactPane.Context;
+            return;
+        }
+        if (_documentFocusRestore is not null)
+        {
+            ApplySinglePane(false, false, true);
+            NavigationMenuItem.IsChecked = false;
+            ContextMenuItem.IsChecked = true;
+            FocusMenuItem.IsChecked = false;
+            DocumentFocusMenuItem.IsChecked = true;
+            return;
+        }
+        PrimaryColumnDefinition.MinWidth = 400;
+        PrimaryColumnDefinition.Width = new GridLength(1, GridUnitType.Star);
+        PrimaryColumnView.Visibility = Visibility.Visible;
+        NavigationColumn.MaxWidth = LayoutState.NavigationMaxWidth;
+        ContextColumn.MaxWidth = LayoutState.ContextMaxWidth;
+        DiagnosticStatusGroup.Visibility = Visibility.Visible;
         var resolved = LayoutArbiter.Resolve(
             _layout, availableWidth ?? (ActualWidth > 0 ? ActualWidth : _layout.Window.Width));
         ApplyPanel(NavigationColumn, NavigationColumnView, NavigationSplitterColumn, NavigationSplitter,
@@ -104,12 +179,40 @@ public partial class WorkspaceSnapshotView
         NavigationMenuItem.IsChecked = _layout.Navigation.Visible;
         ContextMenuItem.IsChecked = _layout.Context.Visible;
         FocusMenuItem.IsChecked = _layout.FocusRestore is not null;
+        DocumentFocusMenuItem.IsChecked = false;
         RestoreNavigationButton.Visibility = NavigationHotStrip.Visibility =
             _layout.Navigation.Visible ? Visibility.Collapsed : Visibility.Visible;
         RestoreContextButton.Visibility = ContextHotStrip.Visibility =
             _layout.Context.Visible ? Visibility.Collapsed : Visibility.Visible;
         RestoreNavigationButton.IsEnabled = NavigationHotStrip.IsEnabled = !_layout.Navigation.Visible;
         RestoreContextButton.IsEnabled = ContextHotStrip.IsEnabled = !_layout.Context.Visible;
+    }
+
+    private void ApplySinglePane(bool navigation, bool primary, bool context)
+    {
+        NavigationColumn.MinWidth = 0;
+        NavigationColumn.MaxWidth = double.PositiveInfinity;
+        NavigationColumn.Width = navigation ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        NavigationColumnView.Visibility = navigation ? Visibility.Visible : Visibility.Collapsed;
+        PrimaryColumnDefinition.MinWidth = 0;
+        PrimaryColumnDefinition.Width = primary ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        PrimaryColumnView.Visibility = primary ? Visibility.Visible : Visibility.Collapsed;
+        ContextColumn.MinWidth = 0;
+        ContextColumn.MaxWidth = double.PositiveInfinity;
+        ContextColumn.Width = context ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        ContextColumnView.Visibility = context ? Visibility.Visible : Visibility.Collapsed;
+        NavigationSplitterColumn.Width = ContextSplitterColumn.Width = new GridLength(0);
+        NavigationSplitter.Visibility = ContextSplitter.Visibility = Visibility.Collapsed;
+        DiagnosticStatusGroup.Visibility = Visibility.Collapsed;
+        LayoutTipText.Visibility = Visibility.Collapsed;
+        RestoreNavigationButton.Visibility = RestoreContextButton.Visibility = Visibility.Collapsed;
+        NavigationHotStrip.Visibility = ContextHotStrip.Visibility = Visibility.Collapsed;
+    }
+
+    private void ShowCompactPane(CompactPane pane)
+    {
+        _compactPane = pane;
+        ApplyLayout(false);
     }
 
     private static void ApplyPanel(
@@ -221,6 +324,7 @@ public partial class WorkspaceSnapshotView
 
     private void ToggleNavigationClicked(object sender, RoutedEventArgs eventArgs) => ToggleNavigationPanel();
     private void ToggleContextClicked(object sender, RoutedEventArgs eventArgs) => ToggleContextPanel();
+    private void ToggleDocumentFocusClicked(object sender, RoutedEventArgs eventArgs) => ToggleDocumentFocusMode();
     private void ResetLayoutClicked(object sender, RoutedEventArgs eventArgs) => ResetLayout();
     private void ShowNavigationClicked(object sender, RoutedEventArgs eventArgs)
     {

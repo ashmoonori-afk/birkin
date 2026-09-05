@@ -46,7 +46,7 @@
                         <RotateTransform />
                     </Path.RenderTransform>
                     <Path.Triggers>
-                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
+                        <EventTrigger RoutedEvent="Loaded">
                             <BeginStoryboard>
                                 <Storyboard RepeatBehavior="Forever">
                                     <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
@@ -95,14 +95,31 @@
         </Grid>
         <Border Grid.Row="2" Background="{StaticResource RaisedBrush}" BorderBrush="{StaticResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="11" Margin="0,10,0,0" automation:AutomationProperties.AutomationId="composer.landmark" automation:AutomationProperties.Name="대화 입력">
             <Grid>
-                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                <Grid>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <ItemsControl ItemsSource="{Binding OfficeWorkflow.Imports}"
+                              Margin="0,0,0,8"
+                              automation:AutomationProperties.AutomationId="conversation.attachments"
+                              automation:AutomationProperties.Name="이번 메시지에 첨부할 파일">
+                    <ItemsControl.Style><Style TargetType="ItemsControl"><Setter Property="Visibility" Value="Visible"/><Style.Triggers><DataTrigger Binding="{Binding OfficeWorkflow.Imports.Count}" Value="0"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></ItemsControl.Style>
+                    <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate><DataTemplate>
+                        <CheckBox Content="{Binding DisplayName}"
+                                  Tag="{Binding ImportId}"
+                                  IsChecked="{Binding IsSelected, Mode=OneWay}"
+                                  Margin="0,0,10,4"
+                                  Click="AttachmentToggled"
+                                  automation:AutomationProperties.AutomationId="{Binding ImportId}"
+                                  automation:AutomationProperties.Name="{Binding AccessibleName}"
+                                  automation:AutomationProperties.HelpText="선택하면 이번 메시지에 첨부합니다. 선택을 해제해도 가져온 원본은 삭제되지 않습니다." />
+                    </DataTemplate></ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Grid Grid.Row="1">
                     <TextBox x:Name="DraftBox" automation:AutomationProperties.AutomationId="conversation.draft" automation:AutomationProperties.Name="메시지 초안" AcceptsReturn="True" MinHeight="56" MaxHeight="120" VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Background="Transparent" BorderThickness="0" Foreground="{StaticResource TextBrush}" CaretBrush="{StaticResource AccentBrush}" IsEnabled="{Binding OfficeWorkflow.Availability.ConversationSend.IsEnabled}" TextChanged="DraftChanged" PreviewKeyDown="DraftPreviewKeyDown" LostKeyboardFocus="DraftKeyboardFocusLost" />
                     <TextBlock Text="Birkin에게 무엇이든 물어보세요..." Foreground="{StaticResource MutedBrush}" Margin="2,1" IsHitTestVisible="False">
                         <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=DraftBox}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                     </TextBlock>
                 </Grid>
-                <DockPanel Grid.Row="1" Margin="0,8,0,0">
+                <DockPanel Grid.Row="2" Margin="0,8,0,0">
                     <StackPanel DockPanel.Dock="Right"
                                 Orientation="Horizontal"
                                 automation:AutomationProperties.AutomationId="conversation.actions"
@@ -112,7 +129,16 @@
                     </StackPanel>
                     <TextBlock Text="{Binding OfficeWorkflow.Availability.ConversationSend.DisabledReasonText}" Style="{StaticResource MutedTextStyle}" VerticalAlignment="Center" automation:AutomationProperties.AutomationId="composer.read-only-caption" />
                 </DockPanel>
-                <StackPanel Grid.Row="2" Margin="0,6,0,0">
+                <StackPanel Grid.Row="3" Margin="0,6,0,0">
+                    <Button Content="다시 시도"
+                            HorizontalAlignment="Left"
+                            Margin="0,0,0,6"
+                            automation:AutomationProperties.AutomationId="conversation.retry"
+                            automation:AutomationProperties.Name="대화 요청 다시 시도"
+                            IsEnabled="{Binding OfficeWorkflow.CanRetryConversation}"
+                            Click="RetryClicked">
+                        <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ComposerActionStyle}"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding OfficeWorkflow.CanRetryConversation}" Value="True"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Button.Style>
+                    </Button>
                     <TextBlock Text="{Binding OfficeWorkflow.RefusalText}" Foreground="{StaticResource DangerBrush}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="conversation.refusal">
                         <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><DataTrigger Binding="{Binding OfficeWorkflow.RefusalCode}" Value="{x:Null}"><Setter Property="Visibility" Value="Collapsed"/></DataTrigger></Style.Triggers></Style></TextBlock.Style>
                     </TextBlock>

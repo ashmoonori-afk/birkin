@@ -93,7 +93,7 @@ Birkin: 원본을 읽기 전용으로 검사하고 보고서 초안을 준비하
 | 코딩 에이전트가 사용자가 plan을 이해하기 전에 파일을 변경함 | 공식 VS Code extension이 editor context를 보내고, plan을 먼저 검토하며, 제안 diff를 표시하고, Birkin 승인을 처리하고, checkpoint를 복원합니다. |
 | 로컬 도구가 불투명한 서비스가 됨 | run, approval, checkpoint, status, config가 모두 로컬에서 확인 가능합니다. |
 
-Birkin 핵심 런타임에는 검증된 데이터 모델용 `pydantic`, process identity용 `psutil`, 타입화된 runtime 계약용 `typing-extensions`라는 세 외부 필수 의존성이 있습니다. `birkin_mnemosyne`은 Birkin에 번들되며 별도로 설치하지 않습니다. 선택적 extra가 voice, native desktop Computer Use, browser, office 파일 지원을 추가합니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
+Birkin 핵심 런타임에는 검증된 데이터 모델용 `pydantic`, process identity용 `psutil`, 타입화된 runtime 계약용 `typing-extensions`라는 세 공통 외부 의존성이 있습니다. Windows에서는 `tzdata`가 로컬 일정에 필요한 IANA 시간대 데이터베이스를 제공합니다. `birkin_mnemosyne`은 Birkin에 번들되며 별도로 설치하지 않습니다. 선택적 extra가 voice, native desktop Computer Use, browser, office 파일 지원을 추가합니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
 
 ## 메모리
 
@@ -148,8 +148,8 @@ Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다.
 
 ### 언어 정책
 
-Birkin이 소유하는 사용자 인터페이스의 승인, 오류, 복구 동작, 진행 상태,
-완료 결과는 한국어로 표시합니다. 코드, 식별자, protocol field, stable error
+Birkin이 소유하는 사용자 인터페이스의 탐색, Office 작업, 승인, 오류, 복구 동작,
+진행 상태와 완료 결과는 한국어로 표시합니다. 코드, 식별자, protocol field, stable error
 code, log, telemetry, 개발자 진단은 영어로 유지합니다. 표시 계층은 typed
 machine data를 번역하며 raw enum, cursor, exception, receipt JSON을 기본
 설명으로 삼지 않습니다. 이러한 진단은 명시적으로 공개된 제한된 상세
@@ -203,6 +203,32 @@ WPF 개발 프리뷰는 로컬 bridge 연결 전에 창을 먼저 표시합니�
 들어가도 앱은 종료되지 않습니다. 대신 제한된 오류 원인, 재시도 동작,
 `BIRKIN_EXECUTABLE`에 전체 실행 파일 경로를 저장하는 입력란을 표시합니다.
 연결 상태 점은 bridge가 준비된 경우에만 초록색입니다.
+
+왼쪽 업무 목록은 영속 세션과 저장된 업무명을 복원하고, 정식 세션 명령으로
+업무를 만들고 이름을 바꾸거나 전환합니다. 전환할 때는 선택한 업무의 스냅샷을
+받은 뒤 해당 초안과 첨부를 표시합니다. 최근 결과 개수는 화면 표시용 바로가기일
+뿐입니다. 활동 보기는 현재 투영된 기록 페이지를 표시하고 이전 항목은 영속
+journal에 계속 보관합니다.
+
+개발 프리뷰는 모니터별 V2 DPI 배율을 선언하고, 한국어 UI Automation 이름과
+상태 알림 텍스트를 제공합니다. 주요 고대비 화면은 시스템 색상을 사용하고
+애니메이션 없이도 진행 상태를 이해할 수 있습니다. Windows와 웹 입력 모두
+한글 IME 조합 중에는 Ctrl+Enter 전송을 실행하지 않습니다.
+
+가져온 파일은 Windows 대화 초안 위에 선택 가능한 첨부로 표시됩니다. 선택을
+해제해도 가져온 원본은 유지되며, 전송할 때는 선택한 참조만 bridge에서 같은
+세션·해시·파일 상태 검증을 거칩니다.
+
+선택창과 전체 창 드롭 영역은 DOCX, XLSX, PPTX, PDF, HWPX, TXT를 같은
+정책으로 받아 여러 파일을 순서대로 가져옵니다. PDF 내용 기능에는
+`office-advanced` 추가 설치가 필요할 수 있으며 기존 바이너리 HWP를 HWPX
+지원으로 안내하지 않습니다. 실패한 파일은 이름별로 알리고 성공한 항목은
+유지합니다.
+
+Windows Office 패널에서 목적, DOCX 본문, 저장 위치, 명시적인 덮어쓰기 요청을
+입력하면 기존 `office.job_request` 승인 흐름으로 제출합니다. 기존 문서 수정은
+선택한 첨부와 함께 대화 요청 초안으로 작성할 수 있습니다. 연결·형식·덮어쓰기
+거절은 화면에 남으며 직접 생성·변환 우회 명령은 활성화하지 않습니다.
 
 Windows 빌드·실행·`PATH`·실행 파일 경로·문제 해결·테스트 방법은
 [`windows/BirkinNativeApp/README.md`](windows/BirkinNativeApp/README.md)를
@@ -383,7 +409,33 @@ Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 
 
 ## Office Work OS v2
 
-Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
+Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview를 지원합니다. DOCX 여러 문단, 이름으로 지정한 XLSX 여러 시트, 명시한 PPTX 여러 slide part의 변경 묶음은 관리되는 복사본에 적용한 뒤 한 번에 게시합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
+
+DOCX와 신뢰된 template 기반 HWPX 생성은 버전이 고정된 주간보고·회의록·업무제안 3종도 받습니다. DOCX는 `python-docx`로 제목·본문·표 하나·글머리표 목록 하나를 만들고, HWPX는 native field binding을 재사용합니다. 필수값 누락과 미치환 HWPX field는 출력 전에 거부합니다. 결과에는 입력 출처, 업무 양식 버전·해시, 원본 template 해시를 기록하며 실제 렌더링 전까지 layout은 미검증으로 표시합니다.
+
+`review_meeting_actions`는 각 후속 업무 후보의 근거 문장이 원문에 정확히 있는지 확인하고, 담당자·기한 미정을 유지하며 제안 기한을 분리하고, 중복을 제거한 뒤 저장하지 않은 확인 초안을 반환합니다.
+
+확정된 후속 업무는 종일 기한을 가진 `WorkItem`으로 저장됩니다. `list_work_items`는 명시한 시간대 기준으로 오늘·지연·담당자/기한 확인 필요·최근 완료를 묶고, `work_item_request`는 생성·수정·완료·회의 초안 확정을 승인받은 뒤 원래 대화·문서·goal·Office job 연결과 함께 반영합니다.
+
+`search_office_sources`는 조회 시점에 접근 가능한 원문만 다시 검증·추출하고 Mnemosyne의 tokenizer와 BM25 구현으로 순위를 계산합니다. 결과에는 파일 이름, 문단·셀·슬라이드 위치, 내용 해시, 범위, 버전이 남으며 철회·삭제·해시 변경 자료는 다음 조회에서 제외되고 추출 본문 캐시는 저장하지 않습니다.
+
+첫 외부 업무 연결은 Microsoft 365 위임 읽기 권한(`User.Read`, `Mail.Read`, `Calendars.Read`, `Files.Read`)으로 제한합니다. `m365_connection_status`는 계정·허용 범위·MCP 서버와 연결됨·만료·철회·재인증 필요·동기화 실패 상태를 Office 화면에 구분해 표시하고, `m365_connection_request`는 연결·철회·재인증을 승인받습니다. 연결 메타데이터에는 secrets manager가 해석할 환경 변수 이름만 저장하며 토큰 본문은 저장하지 않습니다.
+
+Microsoft 365 메일은 읽기→로컬 초안→명시적 발송 순서로 동작합니다. 새 메일·답장·전체 답장·전달 초안은 발신 계정, 받는 사람, 참조, 제목, 본문, 원문 버전, 첨부 해시를 고정합니다. `m365_mail_send_request`는 이 스냅샷 전체를 검토 대상으로 보여 주며, 실행 시 바뀐 초안·첨부를 거부하고 Graph 불변 ID로 원격 초안을 만든 뒤 불확실한 발송 응답이 있으면 재시도 전에 해당 ID의 상태를 확인합니다.
+
+일정 조회는 시간대 오프셋을 가진 범위의 반복 발생과 예외를 함께 받도록 제한된 Graph `calendarView` 경로를 사용합니다. 후보 시간은 본인 일정과 사용자가 제공한 참석자 일정만 합치고 확인하지 못한 참석자를 따로 표시합니다. 생성·변경은 `m365_calendar_event_request` 승인 전까지 로컬 초안이며, 실행 직전에 시간 충돌과 원본 `etag`를 재검사한 뒤 생성은 transaction ID, 변경은 `If-Match`를 사용합니다. `m365_meeting_prepare`는 일정 한 건과 실시간 출처 locator를 가진 Office 검색 근거를 모읍니다.
+
+일일 브리핑은 기존 cron claim과 실행 이력을 재사용합니다. 정해진 템플릿에 데이터 기준 시각, 오늘·지연 업무, 대기 승인, 최근 변경, 읽지 않은 메일, 일정, 읽지 못한 연결을 기록하고 결과와 확인 알림은 앱 안에만 둡니다. 예약은 일시정지·재개·한 번 건너뛰기와 놓친 실행의 실행/건너뛰기 정책을 지원하며, job/occurrence 키로 재시작 뒤 중복 보고서를 막습니다.
+
+`office_batch_request`는 최대 25개의 고유한 원본·변경·저장 위치를 한 번의 승인에 고정하고, 기존 정식 `OfficeJob`을 파일별로 순차 실행합니다. 영속 묶음 기록은 성공과 실패를 항목별로 분리하며, 재시도 요청은 실패 항목만 새 계획으로 만들기 때문에 이미 성공한 파일을 덮어쓰지 않습니다.
+
+저장된 Office 양식은 검증된 보고서·회의록·제안서 기본 양식의 버전별 별칭입니다. `office_template_request`는 복제·이름 변경·표현 선호 변경·기본값 복원에 승인을 요구하며 문서 값이나 본문은 저장하지 않습니다. `resolve_office_template`는 다음 생성 미리보기에 정확한 저장 버전을 고정하므로 이후 양식 변경이 이미 승인된 작업을 바꾸지 않습니다.
+
+팀 검토 인계는 Microsoft 365 drive item 초대를 사용하며 로그인을 요구하고 이름이 지정된 검토자에게 읽기/쓰기 권한을 부여합니다. 로컬 검토 기록은 제안자·검토자·승인 실행자·원본 `etag`·권한·의견을 연결합니다. 공유와 새 의견은 drive item을 다시 읽고 버전이 바뀌면 중단하며, 제안자와 지정 검토자만 조회·의견 추가가 가능합니다. 실시간 공동 편집은 이 단계에 포함하지 않습니다.
+
+`data_control_status`는 연결 계정, Office 검색 폴더, 공급자 전달 범위, 기억 위치, 인증된 복구 만료 시점과 원본·업무 복사본·기억·백업의 서로 다른 삭제 의미를 표시합니다. `data_work_copy_delete_request`는 승인과 정확한 hash를 요구하고 Birkin이 소유한 가져오기 복사본만 물리적으로 삭제합니다. 사용자 원본은 이 동작의 대상이 아니며, 기억은 복구 가능한 논리적 보관을 사용하고 Office 백업은 인증된 복구 기간이 끝난 뒤에만 물리적으로 폐기됩니다. Office 검색 결과 cache는 없으므로 철회되거나 삭제된 자료는 다음 검색에서 즉시 제외됩니다.
+
+`script/qa/office_agent_journeys.py`는 첫 DOCX 보고서, 기존 XLSX 수정, PDF→DOCX 요약, 회의록→할 일, 메일 초안 검토의 5개 출시 여정을 완주합니다. 결과물 존재, 다시 연 내용, 출처 hash 또는 locator, 실행 영향이 있는 동작의 정확한 승인 신원, 의도적으로 만든 두 실패의 복구를 확인합니다. 별도 지표에는 고정된 여정 식별자, 첫 결과까지 시간, 불필요 재질문 수, 수동 수정량, 복구 횟수와 성공률만 포함하고 문서·메일 본문은 제외합니다. Office CI는 이 suite를 Windows·macOS·Linux에서 실행합니다.
 
 `office_job_request`는 이제 `content.paragraphs`를 사용하는 source 없는 DOCX
 생성 proposal도 받습니다. 별도 `office_create` approval이 결합된 proposal을
@@ -398,7 +450,9 @@ Office provenance는 검토된 artifact의 정확한 version과 지원 runtime r
 
 Office mutation 승인은 proposer, source digest, destination, 정확한 operation, overwrite 결정을 `authority_digest`에 결합합니다. Durable receipt는 해당 digest와 승인 주체를 proposer와 분리해 보존합니다.
 
-Office export 승인 뒤 native surface는 결정된 승인 이력을 유지하고 저장 위치와 30일 되돌리기 기한을 표시하며, 사용자가 내부 job ID를 기억하지 않아도 receipt에서 되돌리기를 요청할 수 있게 합니다.
+Office export 승인 뒤 native surface는 검토 내용과 완료 결과를 한 카드에 유지하고 구조 검증과 시각 검증을 구분해 표시합니다. 저장 위치와 30일 되돌리기 기한을 보여 주며 내부 job ID 없이 파일 열기, 되돌리기, 후속 수정을 요청할 수 있습니다.
+
+Native 진행 행은 재연결 뒤에도 정식 Office 단계와 마지막 갱신 시각을 유지합니다. 중지는 별도 중단 완료 이벤트가 도착할 때까지 요청으로 표시하며, 서버가 다시 시도 가능하다고 명시한 대화 요청의 보존된 초안에만 재시도를 제공합니다.
 
 웹 workspace는 같은 bounded authority contract로 승인 결정을 전송하고, 실패한 제출을 다시 시도할 수 있게 해제하며, raw receipt data를 기본 노출하지 않고 승인 상세에서 실행 영수증을 확인할 수 있게 합니다.
 
@@ -408,13 +462,18 @@ Office export 승인 뒤 native surface는 결정된 승인 이력을 유지하�
 | `docx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `xlsx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pptx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
-| `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | structured-preview |
+| `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | conditional-page-image |
 | `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 <!-- office-support-matrix:end -->
 
-`layered` 비교는 byte hash뿐 아니라 범위가 제한된 정규화 semantic text와 가능한 경우 ZIP package entry 변경도 각각 보고합니다. PDF에는 ZIP package 계층이 없습니다. `structured-preview`는 `output_format: "structured_preview"`일 때만 `render_artifact`가 성공한다는 뜻입니다. Visual `pdf`, `png`, `thumbnail` 요청은 `RENDER_UNAVAILABLE`을 반환합니다. Spreadsheet 재계산과 일반 form 처리는 지원하지 않습니다.
+`layered` 비교는 byte hash뿐 아니라 범위가 제한된 정규화 semantic text와 가능한 경우 ZIP package entry 변경도 각각 보고합니다. PDF에는 ZIP package 계층이 없습니다. 모든 format은 `structured_preview`를 제공하며 PDF는 pypdfium2로 한 페이지를 PNG 또는 thumbnail로 렌더링할 수 있습니다. Visual PDF 출력과 다른 format의 시각 렌더링은 `RENDER_UNAVAILABLE`을 반환합니다. Spreadsheet 재계산과 일반 form 처리는 지원하지 않습니다.
 
-등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, 정식 승인 코디네이터 `office_job_request`, 그리고 별도 승인을 거치는 `office_rollback_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
+Catalog의 하위 기능과 에이전트 연결 여부는 별도입니다. 등록된 tool 경로가
+없으면 `public_entrypoint`는 null입니다. DOCX, XLSX, PPTX, PDF, HWPX 생성은
+승인 결합 `office_job_request` 경로를 공유합니다. 비ASCII PDF content는
+TrueType font artifact의 URI와 SHA-256을 승인 내용에 포함합니다.
+
+등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, 셀 근거를 포함하는 XLSX 검토용 `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, 정식 승인 코디네이터 `office_job_request`, 그리고 별도 승인을 거치는 `office_rollback_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
 
 문서 입력은 config, vault, session, native bootstrap 파일과 분리된 전용 `BIRKIN_HOME/office` jail 안에 있어야 합니다. `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/office/artifacts/incoming` 아래로 복사하거나 import해야 하며, 다른 위치의 path는 hash가 일치해도 거부됩니다. Durable job은 `BIRKIN_HOME/office/jobs`에 유지되며 generic model file tool은 Office receipt key, job, validated draft, backup, transaction journal, destination lock을 읽거나 나열하거나 다시 쓸 수 없습니다. 결과를 만드는 mutation과 export는 caller가 승인한 allowlist root 아래 destination을 사용하는 `office_job_request`로만 요청합니다. Rollback은 `office_rollback_request`를 통한 두 번째 high-risk 승인이며, export receipt에는 HMAC이 적용되고 30일 뒤 만료됩니다. 만료된 receipt, 활성 backup path, transaction/job journal은 다음 Office request에서 purge됩니다. Legacy unsigned receipt는 rollback authority로 허용되지 않습니다. Check-to-unlink race와 concurrent hard-link race를 피하기 위해 인증된 helper와 backup name은 private `.birkin-retire` directory로 namespace-retire됩니다. POSIX에서는 동시에 추가된 hard link를 보존하면서 해당 inode byte를 안전하게 지울 수 없으므로 격리된 byte가 남을 수 있지만, 이는 active state가 아니며 rollback authority를 부여하지 않습니다.
 
@@ -449,11 +508,11 @@ TXT 변환에는 `loss_budget` 인자가 필수이며 native 또는 lossless 변
 
 Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validate, compare를 지원합니다. DOCX, XLSX, PPTX, HWPX는 bounded extraction과 명시적 budget을 둔 TXT conversion도 지원합니다. PDF inspection은 base에서 가능하지만 PDF extraction과 TXT conversion은 typed optional-capability boundary를 반환합니다. Base creation은 ASCII PDF와 trusted-template HWPX derivation을 제공하며, 빈 DOCX, XLSX, PPTX, HWPX authoring은 `CAPABILITY_UNAVAILABLE`로 거부합니다.
 
-선택 local Python tier는 이 경계를 바꾸지 않고 fidelity를 추가합니다. `office`는 조건부 DOCX/XLSX/PPTX/HWPX blank authoring과 bounded package operation을, `office-advanced`는 선택적 PDF extraction/TXT/deep reopen을, `office-docling`은 별도 docling path를 제공합니다. Package가 설치되어도 연결되지 않은 capability는 활성화되지 않으며 pypdfium2는 visual rendering을 제공하지 않습니다. 검증된 계약은 **keyless, local-only Python stack; no external Office application/runtime required**입니다. Office production workflow는 offline-capable, Python-only이며 외부 application, executable, daemon, runtime 또는 subprocess conversion engine을 탐색하거나 실행하지 않습니다. 내장 PDF 생성은 ASCII 전용이며 non-Latin 요청은 ReportLab을 실행하거나 설치하라고 안내하지 않고 타입화된 capability refusal을 반환합니다. 승인된 선택 Python backend가 없으면 타입화된 오류를 반환하며 다른 후보를 조용히 선택하지 않습니다.
+선택 local Python tier는 이 경계를 바꾸지 않고 fidelity를 추가합니다. `office`는 조건부 DOCX/XLSX/PPTX/HWPX blank authoring과 bounded package operation을, `office-advanced`는 선택적 PDF extraction/TXT/deep reopen과 페이지 이미지 렌더링을, `office-docling`은 별도 docling path를 제공합니다. 검증된 계약은 **keyless, local-only Python stack; no external Office application/runtime required**입니다. Office production workflow는 offline-capable, Python-only이며 외부 application, executable, daemon, runtime 또는 subprocess conversion engine을 탐색하거나 실행하지 않습니다. 기본 PDF writer는 ASCII 전용이며, `office-advanced`는 URI와 SHA-256으로 묶인 TrueType font artifact가 있는 요청에 승인된 ReportLab 한글·표 생성을 제공합니다. 승인된 선택 Python backend가 없으면 타입화된 오류를 반환하며 다른 후보를 조용히 선택하지 않습니다.
 
-신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
+신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.358`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.409`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -502,8 +561,8 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
    별도의 high-risk 승인을 만듭니다. Legacy unsigned receipt는 rollback
    authority가 아닙니다.
 
-이 여정에서도 PDF mutation, non-Latin 내장 PDF 생성, 외부 Office
-application·runtime·subprocess conversion engine 실행은 지원하지 않습니다.
+이 여정에서도 PDF mutation, OCR, 외부 Office application·runtime·subprocess
+conversion engine 실행은 지원하지 않습니다.
 
 Word 파일에서 텍스트를 추출합니다.
 
@@ -519,7 +578,7 @@ Word 파일에서 텍스트를 추출합니다.
 
 chat에서는 이 이름들을 직접 부르지 않습니다. 신뢰된 한국어·영어 요청이 결정적으로 해당 skill로 route됩니다(Word는 `word-documents`, Excel은 `spreadsheets`, PowerPoint는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 office 작업은 `office-work-os`). 신호가 충돌하면 inspect-first `office-documents`로 route합니다.
 
-누락이 아니라 설계로 거부하는 것들: PDF 변경, non-Latin 내장 PDF 생성(ASCII 전용이며 non-Latin 요청은 타입화된 capability refusal을 반환하고 ReportLab을 제안하지 않습니다), 그리고 외부 Office application·runtime·subprocess 변환 engine을 실행하는 모든 경로입니다. 승인된 선택 Python backend가 없으면 대체품을 조용히 고르지 않고 타입화된 오류를 반환합니다.
+누락이 아니라 설계로 거부하는 것들: PDF 변경, OCR, 그리고 외부 Office application·runtime·subprocess 변환 engine을 실행하는 모든 경로입니다. 승인된 선택 Python backend가 없으면 대체품을 조용히 고르지 않고 타입화된 오류를 반환합니다.
 
 전체 matrix는 [상세 지원 계약](./docs/office-support.md#office-work-os-v2)을 참고하십시오.
 
@@ -1253,16 +1312,15 @@ shell에 상태를 제공하며, policy, execution, approval, Office, receipt, r
 사실대로 표시하고, Browser는 control이나 authority를 만들지 않고 canonical
 projected state만 표시합니다.
 
-Workspace layout은 고정형이 아닙니다. 두 divider를 드래그해 Navigation과
-Context panel 너비를 조절할 수 있으며, Primary 대화 영역은 항상 표시되고
-남는 너비를 사용합니다. **보기** 메뉴와 window-level shortcut으로 Navigation
-(`Ctrl+B`), Context(`Ctrl+Shift+B`), 두 side panel을 숨기는 대화 집중
-(`Ctrl+Shift+F`), 기본 layout 복원(`Ctrl+Shift+0`)을 실행합니다. 숨긴
-panel은 status bar button이나 edge control로 다시 표시할 수 있습니다. WPF
-client는 panel 너비와 표시 상태를 로컬
-`%LOCALAPPDATA%\Birkin\layout.json`에 저장하며, 파일이 없거나 비어
-있거나 malformed/out-of-range이면 안전한 기본 너비로 돌아갑니다. 이 상태는
-Python의 policy와 execution authority를 바꾸지 않습니다.
+작업공간은 드래그 가능한 분할선, 접을 수 있는 업무 목록·상세 패널, 문서 확대
+보기(`Ctrl+Shift+D`), 대화 집중 보기(`Ctrl+Shift+F`)와 키보드 패널 단축키를
+제공합니다. Navigation(`Ctrl+B`), 상세 패널(`Ctrl+Shift+B`), 기본 레이아웃
+복원(`Ctrl+Shift+0`)도 키보드로 실행할 수 있고, 숨긴 패널은 상태 표시줄 버튼과
+가장자리 컨트롤로 다시 표시할 수 있습니다. 너비가 1100 DIP보다 좁으면 한 번에
+한 영역을 표시해 고배율에서도 입력창과 승인 동작에 접근할 수 있습니다. 사용할 수
+없는 Windows 터미널은 처음에 접혀 있습니다. 패널 너비·표시 상태·창 위치는
+`%LOCALAPPDATA%\Birkin\layout.json`에 저장되며, 파일이 없거나 잘못된 값은
+Python의 정책이나 실행 권한을 바꾸지 않고 제한된 기본값으로 복구됩니다.
 
 Windows Office path는 의도적으로 read-only입니다. Jail 안으로 artifact를 import하고,
 canonical projection을 선택하고, Python 소유 comparison을 요청하고, 그 결과인
@@ -1280,10 +1338,10 @@ reconnect snapshot이 같은 reviewed identity를 유지하지만, 이 authority
 Approve와 reject action은 explicit confirmation state를 거치고, canonical
 projection이 반영될 때까지 decision이 전송 중임을 표시합니다.
 
-Windows installer나 MSI, packaged app, customer-ready release는 아직 없습니다.
-Installer와 updater delivery, production signing,
-provider-backed production delivery는 향후 작업으로 남아 있습니다. 공통 cross-platform shell은 별도의 향후
-platform 결정입니다. 위 native-shell mockup은 모든 Windows capability가
+Windows 패키징 workflow는 self-contained native app과 Python runtime을 담은 사용자별 개발 패키지를 만듭니다. Installer는 파일 hash와 제품 version handshake를 확인하고 이전 버전을 보관하며 update 실패 시 복구합니다. 미서명 artifact는 개발용으로 표시되고 명시적인 설치 flag가 필요합니다. 패키지 catalog가 서명되고 깨끗한 runner의 설치·재시작·복구 검증을 통과한 경우에만 고객 release candidate를 만들며, 이 저장소는 서명된 고객 artifact가 이미 발행됐다고 주장하지 않습니다. Provider-backed production delivery는 향후 작업으로 남아 있습니다. 공통 cross-platform shell은 별도의 향후
+platform 결정입니다. Development package에 installer와 updater delivery를
+추가했습니다. Production signing과 provider-backed production delivery는 release
+요건으로 남아 있습니다. 위 native-shell mockup은 모든 Windows capability가
 활성화되었다는 주장이 아니라 roadmap입니다.
 
 ### 절충점과 비목표

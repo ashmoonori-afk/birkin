@@ -27,9 +27,23 @@ public sealed partial class ShellCoordinator
 
     public Task<bool> SendConversationAsync(CancellationToken cancellationToken) =>
         SubmitAsync(
-            (draft, context) => ConversationCommands.Send(draft, context),
+            (draft, context) => ConversationCommands.Send(
+                draft,
+                context,
+                _workflow.Imports.Where(imported => imported.IsSelected)),
             conversationProjectionRequired: true,
             cancellationToken);
+
+    public void SetImportSelected(string importId, bool isSelected)
+    {
+        bool drain;
+        lock (_stateLock)
+        {
+            _workflow = _workflow.WithImportSelection(importId, isSelected);
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+        }
+        DrainPresentations(drain);
+    }
 
     public Task<bool> InterruptConversationAsync(
         CancellationToken cancellationToken) =>
@@ -82,6 +96,79 @@ public sealed partial class ShellCoordinator
     public Task<bool> ConvertOfficeDocumentAsync(
         OfficeConvertIntent intent,
         CancellationToken cancellationToken) => UnavailableOfficeMutation(cancellationToken);
+
+    public Task<bool> CreateWorkspaceSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken) =>
+        SubmitAsync(
+            (_, context) => SessionCommands.Create(sessionId, context),
+            false,
+            cancellationToken);
+
+    public async Task<bool> SelectWorkspaceSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        string? commandId = null;
+        var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnCanonical(NativeEnvelope envelope)
+        {
+            if (commandId is null
+                || envelope.Body["command_id"] is not NativeJsonString eventCommandId
+                || !string.Equals(commandId, eventCommandId.Value, StringComparison.Ordinal)
+                || envelope.Body["type"] is not NativeJsonString eventType)
+            {
+                return;
+            }
+            if (eventType.Value == "session.selected")
+            {
+                completed.TrySetResult(true);
+            }
+            else if (eventType.Value == "command.failed")
+            {
+                completed.TrySetResult(false);
+            }
+        }
+        _projectionStore.CanonicalApplied += OnCanonical;
+        try
+        {
+            var accepted = await SubmitAsync(
+                (_, context) =>
+                {
+                    commandId = context.CommandId;
+                    return SessionCommands.Select(sessionId, context);
+                },
+                false,
+                cancellationToken).ConfigureAwait(false);
+            if (!accepted || !await completed.Task.WaitAsync(cancellationToken).ConfigureAwait(false))
+            {
+                return false;
+            }
+        }
+        finally
+        {
+            _projectionStore.CanonicalApplied -= OnCanonical;
+        }
+        await _connection.SwitchSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+        bool drain;
+        lock (_stateLock)
+        {
+            _workflow = OfficeWorkflowPresentation.Empty;
+            RefreshMutationAvailabilityLocked(CaptureConnectionAuthority());
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+        }
+        DrainPresentations(drain);
+        return true;
+    }
+
+    public Task<bool> RenameWorkspaceSessionAsync(
+        string sessionId,
+        string name,
+        CancellationToken cancellationToken) =>
+        SubmitAsync(
+            (_, context) => SessionCommands.Rename(sessionId, name, context),
+            false,
+            cancellationToken);
 
     private static Task<bool> UnavailableOfficeMutation(CancellationToken cancellationToken)
     {
@@ -426,7 +513,10 @@ public sealed partial class ShellCoordinator
             AvailabilityLocked(OfficeCommands.OpenCommandType, true, authority),
             AvailabilityLocked(OfficeCommands.CompareCommandType, true, authority),
             AvailabilityLocked(OfficeCommands.DraftCommandType, true, authority),
-            new MutationAvailability(false, "E_OFFICE_JOB_REQUEST_REQUIRED")));
+            new MutationAvailability(false, "E_OFFICE_JOB_REQUEST_REQUIRED"),
+            AvailabilityLocked(SessionCommands.CreateCommandType, true, authority),
+            AvailabilityLocked(SessionCommands.SelectCommandType, true, authority),
+            AvailabilityLocked(SessionCommands.RenameCommandType, true, authority)));
     }
 
     private void ClearWorkflowAuthority()

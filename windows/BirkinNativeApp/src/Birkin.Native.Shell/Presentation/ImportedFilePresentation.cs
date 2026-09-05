@@ -9,9 +9,10 @@ public sealed record ImportedFilePresentation(
     string DisplayName,
     string JailName,
     string Sha256,
-    long ByteCount)
+    long ByteCount,
+    bool IsSelected = true)
 {
-    public string AccessibleName => $"{DisplayName}, {ByteCount} bytes";
+    public string AccessibleName => $"{DisplayName}, {ByteCount}바이트";
 }
 
 public static class ImportedFilePresentationMapper

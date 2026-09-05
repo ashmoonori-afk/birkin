@@ -32,6 +32,14 @@ CATEGORY_RISK: dict[str, str] = {
     "memory": "low",
     "skill":  "low",
     "cron":   "medium",
+    "work_item": "medium",
+    "connection": "medium",
+    "mail_send": "high",
+    "calendar_event": "high",
+    "briefing_schedule": "medium",
+    "team_share": "high",
+    "office_template": "medium",
+    "data_delete": "high",
     # A workflow spends tokens and time but writes nothing by itself;
     # its agents are text-only and every consequential act inside one
     # still hits its own gate.
@@ -45,6 +53,7 @@ CATEGORY_RISK: dict[str, str] = {
     "office_create": "high",
     "office_job": "high",
     "office_rollback": "high",
+    "office_batch": "high",
     "checkpoint_restore": "high",
     "computer_use": "high",
 }

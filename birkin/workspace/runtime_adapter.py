@@ -18,6 +18,7 @@ from ..computer_use.reducer import ComputerState, reduce_event
 from ..computer_use.runtime import default_backend
 from ..native.jailed_import import JailedImportAuthority
 from ..llm import LLMError, LLMStatus
+from ..office.adapters.catalog import supported_formats
 from ..office.coordinator_data import canonical_office_home
 from ..office.presentation import format_preview_replacements
 from ..office.preview_semantics import PreviewSummary
@@ -37,6 +38,10 @@ from .working_memory import memory_write_handler
 from .service import CommandHandler
 
 EventSink = Callable[[str, dict[str, object]], WorkspaceEvent]
+
+_REGISTERED_IMPORT_SUFFIXES = {
+    f".{format_name}" for format_name in supported_formats()
+} | {".txt"}
 
 _EXTERNAL_PANEL_SOURCES = {
     "tasks_runs": "agents",
@@ -576,7 +581,7 @@ class RuntimeWorkspaceAdapter:
             if isinstance(display_name, str)
             else ""
         )
-        if suffix not in {".docx", ".xlsx", ".pptx", ".hwpx", ".pdf", ".txt"}:
+        if suffix not in _REGISTERED_IMPORT_SUFFIXES:
             return imported
         _attachment, source = self._jailed_import.validate_attachment(reference)
         registered = self.surface_authority.office.register_import(reference, source)
@@ -744,20 +749,33 @@ class RuntimeWorkspaceAdapter:
                 "office_create",
                 "Office creation request, outcome, and destination are required",
             )
-        if payload["format"] != "docx":
+        format_name = payload["format"]
+        if not isinstance(format_name, str) or format_name not in {"docx", "xlsx", "pptx", "hwpx"}:
             raise DocumentError(
                 DocumentErrorCode.UNSUPPORTED_FORMAT,
                 "office_create",
-                "Office creation job request currently supports DOCX only",
+                "Office creation job request supports DOCX, XLSX, PPTX, and HWPX",
             )
         raw_content = payload["content"]
-        if not isinstance(raw_content, dict) or raw_content.keys() != {"paragraphs"}:
+        if not isinstance(raw_content, dict):
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "DOCX creation content fields changed",
             )
-        raw_paragraphs = cast(object, raw_content["paragraphs"])
+        allowed_content = {
+            "docx": ({"paragraphs"}, {"business_template"}),
+            "xlsx": ({"sheets"},),
+            "pptx": ({"slides"},),
+            "hwpx": ({"paragraphs"},),
+        }
+        if set(raw_content) not in allowed_content[cast("str", format_name)]:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                f"{str(format_name).upper()} creation content fields changed",
+            )
+        raw_paragraphs = cast(object, raw_content.get("paragraphs", ()))
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
             raw_paragraphs,
             (str, bytes),
@@ -792,9 +810,11 @@ class RuntimeWorkspaceAdapter:
             outcome=outcome,
             destination=Path(destination),
             overwrite_approved=overwrite_approved,
+            content=raw_content if format_name != "docx" or "business_template" in raw_content else None,
+            format_name=cast("str", format_name),
         ))
         description = (
-            f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+            f"{str(format_name).upper()} 문서를 {'구조화된 내용으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
             f"{approval['destination']}."
         )
         queued = approvals.propose(
@@ -848,11 +868,12 @@ class RuntimeWorkspaceAdapter:
                 "office_create",
                 "native Office creation payload fields changed",
             )
-        if payload.get("format") != "docx":
+        format_name = payload.get("format")
+        if not isinstance(format_name, str) or format_name not in {"docx", "xlsx", "pptx", "hwpx"}:
             raise DocumentError(
                 DocumentErrorCode.UNSUPPORTED_FORMAT,
                 "office_create",
-                "native Office creation currently supports DOCX only",
+                "native Office creation supports DOCX, XLSX, PPTX, and HWPX",
             )
         raw_content = payload.get("content")
         if not isinstance(raw_content, dict):
@@ -861,13 +882,19 @@ class RuntimeWorkspaceAdapter:
                 "office_create",
                 "Office creation content must be an object",
             )
-        if raw_content.keys() != {"paragraphs"}:
+        allowed_content = {
+            "docx": ({"paragraphs"}, {"business_template"}),
+            "xlsx": ({"sheets"},),
+            "pptx": ({"slides"},),
+            "hwpx": ({"paragraphs"},),
+        }
+        if set(raw_content) not in allowed_content[cast("str", format_name)]:
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
-                "DOCX creation content fields changed",
+                f"{str(format_name).upper()} creation content fields changed",
             )
-        raw_paragraphs = cast(object, raw_content["paragraphs"])
+        raw_paragraphs = cast(object, raw_content.get("paragraphs", ()))
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
             raw_paragraphs,
             (str, bytes),
@@ -899,13 +926,15 @@ class RuntimeWorkspaceAdapter:
                 actor=f"native:{self._session_id}",
             )
         ).request(OfficeCreationRequest(
-            request_text=f"Create a new DOCX document at {output_name}",
+            request_text=f"Create a new {str(format_name).upper()} document at {output_name}",
             paragraphs=tuple(paragraphs),
             outcome=f"Create {output_name}",
             destination=self._workspace_root / output_name,
+            content=raw_content if format_name != "docx" or "business_template" in raw_content else None,
+            format_name=cast("str", format_name),
         ))
         description = (
-            f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+            f"{str(format_name).upper()} 문서를 {'구조화된 내용으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
             f"{approval['destination']}."
         )
         queued = approvals.propose(
@@ -995,6 +1024,8 @@ class RuntimeWorkspaceAdapter:
                 "issued_at",
                 "expires_at",
                 "backup_exists",
+                "validation_summary",
+                "visual_validation_summary",
             ):
                 event_payload[field] = projected_payload[field]
             result["receipt_ref"] = receipt_projection.receipt_ref

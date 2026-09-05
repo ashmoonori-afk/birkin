@@ -76,6 +76,9 @@ public sealed class WorkspaceSnapshotPresentationTests
             "원본은 백업되었으며 9월 28일까지 되돌리기 가능",
             row.RollbackAvailabilityLabel);
         Assert.IsTrue(row.CanRollback);
+        var workItem = presentation.WorkItems.Single();
+        Assert.AreEqual("견적 확인", workItem.Summary);
+        Assert.AreEqual("오늘", workItem.Status);
     }
 
     [TestMethod]
@@ -164,7 +167,7 @@ public sealed class WorkspaceSnapshotPresentationTests
         Assert.IsFalse(presentation.Composer.IsEnabled);
         Assert.IsFalse(presentation.MutationAvailability.IsEnabled);
         CollectionAssert.AreEqual(
-            new[] { "Goals", "Context", "Files", "Constraints", "Notes" },
+            new[] { "목표", "맥락", "파일", "제약 조건", "메모" },
             presentation.WorkingMemory.Rows.Select(row => row.Label).ToArray());
         CollectionAssert.AreEqual(
             new[] { "Ship native Working Memory" },
@@ -183,8 +186,8 @@ public sealed class WorkspaceSnapshotPresentationTests
             presentation.WorkingMemory.Rows[4].Values.ToArray());
         Assert.AreEqual(1L, presentation.WorkingMemory.Revision);
         Assert.AreEqual(3, presentation.Approvals.Count);
-        Assert.IsTrue(presentation.Approvals.All(row => row.EffectiveState == "Ask"));
-        Assert.IsTrue(presentation.Approvals.All(row => row.RequestedState == "Default"));
+        Assert.IsTrue(presentation.Approvals.All(row => row.EffectiveState == "확인"));
+        Assert.IsTrue(presentation.Approvals.All(row => row.RequestedState == "기본값"));
         Assert.AreEqual(0, presentation.Activity.Count);
         Assert.AreEqual(0, presentation.Browser.Count);
         Assert.AreEqual(0, presentation.Office.Count);
@@ -201,6 +204,21 @@ public sealed class WorkspaceSnapshotPresentationTests
                 "unstructured difference"));
 
         Assert.AreEqual("예상 변경", row.Label);
+    }
+
+    [TestMethod]
+    public void Activity_WhenOfficeProgressIsProjected_ShowsStageAndLastUpdate()
+    {
+        var row = new PanelItemPresentation(
+            "progress-1",
+            "activity",
+            "초안 검증을 완료했습니다.",
+            Status: "working",
+            OfficePhase: "validation",
+            UpdatedAt: "2026-09-05T04:21:59Z");
+
+        Assert.AreEqual("검증", row.OfficePhaseLabel);
+        StringAssert.StartsWith(row.LastUpdatedLabel, "마지막 갱신 ");
     }
 
     private static NativeProjectionState ReceiptProjection()
@@ -225,6 +243,18 @@ public sealed class WorkspaceSnapshotPresentationTests
                             new("expires_at", new NativeJsonString("2099-09-28T12:00:00+00:00")),
                             new("receipt_ref", new NativeJsonString("office:job-7")),
                             new("backup_exists", new NativeJsonBoolean(true)),
+                        ]),
+                    ])),
+                ]),
+                new NativeJsonObject([
+                    new("key", new NativeJsonString("tasks_runs")),
+                    new("items", new NativeJsonArray([
+                        new NativeJsonObject([
+                            new("id", new NativeJsonString("work-1")),
+                            new("kind", new NativeJsonString("work_item")),
+                            new("summary", new NativeJsonString("견적 확인")),
+                            new("description", new NativeJsonString("민지 · 2026-09-05")),
+                            new("status", new NativeJsonString("오늘")),
                         ]),
                     ])),
                 ]),

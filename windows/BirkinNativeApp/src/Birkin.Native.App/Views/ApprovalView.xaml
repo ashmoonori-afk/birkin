@@ -289,6 +289,16 @@
                                            FontSize="11"
                                            Margin="0,7,0,0"
                                            automation:AutomationProperties.AutomationId="{Binding ReceiptRetentionAutomationId}"/>
+                                <TextBlock Text="{Binding ValidationSummary}"
+                                           Foreground="{StaticResource SuccessBrush}"
+                                           FontSize="11"
+                                           Margin="0,7,0,0"
+                                           automation:AutomationProperties.AutomationId="{Binding ValidationAutomationId}"/>
+                                <TextBlock Text="{Binding VisualValidationSummary}"
+                                           Foreground="{StaticResource MutedBrush}"
+                                           FontSize="11"
+                                           Margin="0,2,0,0"
+                                           automation:AutomationProperties.AutomationId="{Binding VisualValidationAutomationId}"/>
                                 <WrapPanel Margin="0,8,0,0">
                                     <Button Content="파일 열기"
                                             Margin="0,0,5,0"
@@ -299,9 +309,13 @@
                                             automation:AutomationProperties.AutomationId="{Binding OpenFolderAutomationId}"
                                             Click="OpenFolderClicked"/>
                                     <Button Content="되돌리기"
+                                            Margin="0,0,5,0"
                                             IsEnabled="{Binding CanRollback}"
                                             automation:AutomationProperties.AutomationId="{Binding RollbackAutomationId}"
                                             Click="RollbackClicked"/>
+                                    <Button Content="후속 수정"
+                                            automation:AutomationProperties.AutomationId="{Binding FollowUpAutomationId}"
+                                            Click="FollowUpClicked"/>
                                 </WrapPanel>
                             </StackPanel>
                         </Border>
@@ -372,7 +386,7 @@
                   IsExpanded="False"
                   Margin="0,8,0,0"
                   Foreground="{StaticResource TextBrush}"
-                  automation:AutomationProperties.Name="Decided approvals"
+                  automation:AutomationProperties.Name="결정한 승인 요청"
                   automation:AutomationProperties.AutomationId="approval.decided.section">
             <Expander.Style>
                 <Style TargetType="Expander">

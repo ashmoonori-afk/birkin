@@ -22,13 +22,24 @@ _PACKAGES: Final[dict[str, tuple[str, str]]] = {
     "hwpx": ("python-hwpx", "uv sync --extra office"),
     "xlsx": ("openpyxl", "uv sync --extra office"),
     "pptx": ("python-pptx", "uv sync --extra office"),
+    "pdf": ("reportlab", "uv sync --extra office-advanced"),
 }
-_EXACT_VERSIONS: Final[dict[str, str]] = {"hwpx": "6.1.0"}
+_EXACT_VERSIONS: Final[dict[str, str]] = {"hwpx": "6.1.0", "pdf": "4.5.1"}
 
 
 class _Document(Protocol):
-    def add_paragraph(self, text: str) -> object: ...
+    def add_paragraph(self, text: str, style: str | None = None) -> object: ...
+    def add_heading(self, text: str, level: int) -> object: ...
+    def add_table(self, rows: int, cols: int) -> _Table: ...
     def save(self, path: str) -> None: ...
+
+
+class _Cell(Protocol):
+    text: str
+
+
+class _Table(Protocol):
+    def cell(self, row_idx: int, col_idx: int) -> _Cell: ...
 
 
 class _Worksheet(Protocol):
@@ -135,8 +146,17 @@ def optional_backend(module_name: str, format_name: str) -> ModuleType:
 def write_docx(plan: ParagraphPlan, target: Path) -> None:
     factory = cast("Callable[[], _Document]", module_member(optional_backend("docx", "docx"), "Document"))
     document = factory()
+    if plan.title is not None:
+        _ = document.add_heading(plan.title, level=0)
     for paragraph in plan.paragraphs:
         _ = document.add_paragraph(paragraph)
+    if plan.table:
+        table = document.add_table(rows=len(plan.table), cols=len(plan.table[0]))
+        for row_index, row in enumerate(plan.table):
+            for column_index, value in enumerate(row):
+                table.cell(row_index, column_index).text = value
+    for item in plan.bullets:
+        _ = document.add_paragraph(item, style="List Bullet")
     document.save(str(target))
 
 

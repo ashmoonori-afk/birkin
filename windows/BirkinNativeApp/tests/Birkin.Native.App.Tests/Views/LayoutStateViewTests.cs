@@ -14,6 +14,51 @@ namespace Birkin.Native.App.Tests.Views;
 [TestClass]
 public sealed class LayoutStateViewTests
 {
+    [DataTestMethod]
+    [DataRow(683d)]
+    [DataRow(910d)]
+    public async Task CompactWidth_ShowsOneKeyboardSelectableRegionAtATime(double width)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(() =>
+        {
+            var view = CreateView();
+            view.ApplyAvailableWidth(width);
+            Assert.AreEqual(Visibility.Visible, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, view.NavigationColumnView.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, view.ContextColumnView.Visibility);
+            Assert.IsFalse(OfficeWorkflowViewHarness.Find<Expander>(view, "terminal.landmark").IsExpanded);
+
+            view.ToggleContextPanel();
+            Assert.AreEqual(Visibility.Collapsed, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.ContextColumnView.Visibility);
+            Assert.AreEqual(GridUnitType.Star, view.ContextColumn.Width.GridUnitType);
+            return true;
+        });
+    }
+
+    [TestMethod]
+    public async Task DocumentFocus_HidesOtherRegionsAndRestoresThePriorLayout()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(() =>
+        {
+            var view = CreateView();
+            view.ToggleDocumentFocusMode();
+            Assert.AreEqual(Visibility.Collapsed, view.NavigationColumnView.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.ContextColumnView.Visibility);
+
+            view.ToggleDocumentFocusMode();
+            Assert.AreEqual(Visibility.Visible, view.NavigationColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.ContextColumnView.Visibility);
+            return true;
+        });
+    }
+
     [TestMethod]
     public async Task ContextToggle_HidesAndRestoresColumnSplitterViewAndChip()
     {
@@ -66,6 +111,9 @@ public sealed class LayoutStateViewTests
                     if (!immediate && state.Navigation.Width > initial.Navigation.Width)
                         persisted.TrySetResult(state);
                 });
+                Assert.AreSame(
+                    view.NavigationSplitter,
+                    Keyboard.Focus(view.NavigationSplitter));
                 var source = PresentationSource.FromVisual(view.NavigationSplitter)!;
 
                 for (var index = 0; index < 15; index++)
@@ -81,7 +129,7 @@ public sealed class LayoutStateViewTests
 
                 var saved = await persisted.Task.WaitAsync(deadline.Token);
                 Assert.IsTrue(saved.Navigation.Width > initial.Navigation.Width);
-                Assert.AreEqual(saved.Navigation.Width, view.LayoutState.Navigation.Width, 0.01);
+                Assert.AreEqual(view.LayoutState.Navigation.Width, saved.Navigation.Width, 0.01);
             }
             finally
             {

@@ -54,6 +54,7 @@ def test_runtime_dependencies_and_desktop_extra_are_declared():
     assert data["project"]["dependencies"] == [
         "pydantic>=2,<3",
         "psutil>=6",
+        "tzdata>=2025,<2027; sys_platform == 'win32'",
         "typing-extensions>=4.12",
     ]
     dependencies = data["project"]["optional-dependencies"]["desktop"]

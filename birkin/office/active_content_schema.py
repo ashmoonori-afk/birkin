@@ -57,10 +57,44 @@ PATCH_OPERATION_SCHEMA: dict[str, object] = {
         {
             "type": "object",
             "properties": {
+                "locator": {
+                    "type": "object",
+                    "properties": {
+                        "sheet": {"type": "string", "minLength": 1},
+                        "cell": {"type": "string"},
+                    },
+                    "required": ["sheet", "cell"],
+                    "additionalProperties": False,
+                },
+                "value": {"type": "number"},
+            },
+            "required": ["locator", "value"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
                 "placeholder_idx": {"type": "integer", "minimum": 0},
                 "value": {"type": "string"},
             },
             "required": ["placeholder_idx", "value"],
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {
+                "locator": {
+                    "type": "object",
+                    "properties": {
+                        "slide_part": {"type": "string", "pattern": "^ppt/slides/slide[1-9][0-9]*\\.xml$"},
+                        "placeholder_idx": {"type": "integer", "minimum": 0},
+                    },
+                    "required": ["slide_part", "placeholder_idx"],
+                    "additionalProperties": False,
+                },
+                "value": {"type": "string"},
+            },
+            "required": ["locator", "value"],
             "additionalProperties": False,
         },
     ]

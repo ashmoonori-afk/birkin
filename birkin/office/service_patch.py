@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import hashlib
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import cast
@@ -134,7 +135,7 @@ def fill_template(
 def _patch_writer(
     source: Path,
     fmt: str,
-    operation: Mapping[str, object],
+    operations: Sequence[Mapping[str, object]],
     expected_sha256: str,
 ) -> Callable[[Path], None]:
     def write(target: Path) -> None:
@@ -144,43 +145,55 @@ def _patch_writer(
             | getattr(os, "O_CLOEXEC", 0)
             | getattr(os, "O_BINARY", 0),
         )
-        descriptor, name = tempfile.mkstemp(dir=target.parent, suffix=source.suffix)
-        os.close(descriptor)
-        staging = Path(name)
-        staging.unlink()
-        value = operation.get("value")
+        current = source
+        current_sha256 = expected_sha256
+        temporary_paths: list[Path] = []
         try:
-            if fmt == "docx" and "locator" in operation:
-                if not isinstance(value, str):
-                    raise _invalid("DOCX paragraph patch value must be a string")
-                selector = operation.get("locator")
-                if not isinstance(selector, Mapping):
-                    raise _invalid("DOCX paragraph locator must be an object")
-                adapter = DocxAdapter()
-                _ = adapter.patch_text(
-                    source,
-                    staging,
-                    resolve_docx_paragraph(source, selector),
-                    value,
-                    expected_source_sha256=expected_sha256,
-                )
-            elif fmt in {"docx", "hwpx"}:
-                if not isinstance(value, str):
-                    raise _invalid("field patch value must be a string")
-                adapter = DocxAdapter() if fmt == "docx" else HwpxAdapter()
-                _ = adapter.patch_field(source, staging, _string(operation, "field"), value, expected_source_sha256=expected_sha256)
-            elif fmt == "xlsx":
-                _ = XlsxAdapter().patch_cell(source, staging, _string(operation, "cell"), value, expected_source_sha256=expected_sha256)
-            elif fmt == "pptx":
-                index = operation.get("placeholder_idx")
-                if not isinstance(index, int) or isinstance(index, bool):
-                    raise _invalid("patch operation 'placeholder_idx' must be an integer")
-                if not isinstance(value, str):
-                    raise _invalid("placeholder patch value must be a string")
-                _ = PptxAdapter().patch_placeholder(source, staging, index, value, expected_source_sha256=expected_sha256)
-            else:
-                raise DocumentError(DocumentErrorCode.UNSUPPORTED_EDIT, "apply", "format is read only")
-            payload = staging.read_bytes()
+            for operation in operations:
+                descriptor, name = tempfile.mkstemp(dir=target.parent, suffix=source.suffix)
+                os.close(descriptor)
+                staging = Path(name)
+                staging.unlink()
+                temporary_paths.append(staging)
+                value = operation.get("value")
+                locator = operation.get("locator")
+                if fmt == "docx" and locator is not None:
+                    if not isinstance(value, str) or not isinstance(locator, Mapping):
+                        raise _invalid("DOCX paragraph patch is malformed")
+                    _ = DocxAdapter().patch_text(
+                        current, staging, resolve_docx_paragraph(current, locator), value,
+                        expected_source_sha256=current_sha256,
+                    )
+                elif fmt in {"docx", "hwpx"}:
+                    if not isinstance(value, str):
+                        raise _invalid("field patch value must be a string")
+                    adapter = DocxAdapter() if fmt == "docx" else HwpxAdapter()
+                    _ = adapter.patch_field(current, staging, _string(operation, "field"), value, expected_source_sha256=current_sha256)
+                elif fmt == "xlsx":
+                    cell = _string(operation, "cell") if locator is None else _string(cast("Mapping[str, object]", locator), "cell")
+                    sheet_part = "xl/worksheets/sheet1.xml"
+                    if locator is not None:
+                        sheet = _string(cast("Mapping[str, object]", locator), "sheet")
+                        inventory = XlsxAdapter().inspect(current).get("sheet_inventory", [])
+                        matches = [item for item in cast("list[dict[str, object]]", inventory) if item.get("name") == sheet]
+                        if len(matches) != 1 or not isinstance(matches[0].get("sheet_part"), str):
+                            raise DocumentError(DocumentErrorCode.NODE_NOT_FOUND, "locate", "worksheet name was not found uniquely")
+                        sheet_part = cast("str", matches[0]["sheet_part"])
+                    _ = XlsxAdapter().patch_cell(current, staging, cell, value, sheet_part=sheet_part, expected_source_sha256=current_sha256)
+                elif fmt == "pptx":
+                    location = cast("Mapping[str, object]", locator) if locator is not None else operation
+                    index = location.get("placeholder_idx")
+                    if not isinstance(index, int) or isinstance(index, bool) or not isinstance(value, str):
+                        raise _invalid("PPTX placeholder patch is malformed")
+                    slide_part = location.get("slide_part", "ppt/slides/slide1.xml")
+                    if not isinstance(slide_part, str):
+                        raise _invalid("PPTX slide part must be a string")
+                    _ = PptxAdapter().patch_placeholder(current, staging, index, value, slide_part=slide_part, expected_source_sha256=current_sha256)
+                else:
+                    raise DocumentError(DocumentErrorCode.UNSUPPORTED_EDIT, "apply", "format is read only")
+                current = staging
+                current_sha256 = hashlib.sha256(current.read_bytes()).hexdigest()
+            payload = current.read_bytes()
             os.ftruncate(target_fd, 0)
             view = memoryview(payload)
             while view:
@@ -188,7 +201,8 @@ def _patch_writer(
                 view = view[written:]
         finally:
             os.close(target_fd)
-            staging.unlink(missing_ok=True)
+            for temporary in temporary_paths:
+                temporary.unlink(missing_ok=True)
     return write
 
 
@@ -212,7 +226,7 @@ def apply_document_patch(
         if fmt == "hwpx":
             require_hwpx_content(source)
         validate_operations(
-            fmt, operations, operation_name="patch", require_single=True
+            fmt, operations, operation_name="patch", require_single=False
         )
         evidence = inspect_active_content(source)
         if evidence["source_sha256"] != expected_source_sha256:
@@ -229,7 +243,6 @@ def apply_document_patch(
                 "source_sha256": expected_source_sha256, "active_content_evidence": evidence,
             }
         require_preservation_consent(evidence, patch.get("active_content_consent"))
-        operation = operations[0]
         output_evidence: dict[str, object] = {}
 
         def validate(candidate: Path) -> None:
@@ -247,7 +260,7 @@ def apply_document_patch(
                 ) from exc
 
         _ = workspace.atomic_publish(
-            output, _patch_writer(source, fmt, operation, expected_source_sha256), validate
+            output, _patch_writer(source, fmt, operations, expected_source_sha256), validate
         )
         if workspace.hash_file(source) != expected_source_sha256:
             output.unlink(missing_ok=True)

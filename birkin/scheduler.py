@@ -409,6 +409,17 @@ def run_job(job: dict[str, Any]) -> None:
             store.save_run("cron", f"[{job.get('name')}] {summary[:200]}",
                            {"summary": summary, "job": job["id"],
                             "delivery": delivery})
+        elif jtype == "briefing":
+            from .daily_briefing import generate
+
+            options = json.loads(str(value) or "{}")
+            scheduled = datetime.fromisoformat(str(job.get("next_run")))
+            if options.get("missed_policy") == "skip" and datetime.now() - scheduled > timedelta(minutes=5):
+                store.save_run("briefing", f"[{job.get('name')}] skipped missed run", {"job": job["id"], "policy": "skip"})
+                return
+            report = generate(job)
+            if report.get("created") is True:
+                store.save_run("briefing", f"[{job.get('name')}] briefing ready", {"job": job["id"], "briefing_id": report["id"], "delivery": "in_app_only"}, usage={"tokens": 0})
     except Exception as exc:
         store.save_run("cron", f"[{job.get('name')}] error: {exc}")
 

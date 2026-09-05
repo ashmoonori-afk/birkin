@@ -54,6 +54,46 @@ public sealed class ConversationViewTests
     }
 
     [TestMethod]
+    public async Task Send_WhenOnlyFirstImportedFileIsSelected_AttachesOnlyFirstReference()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            foreach (var imported in new[]
+            {
+                new ImportedFilePresentation("import-a", "a.xlsx", "import-a.xlsx", new string('a', 64), 100),
+                new ImportedFilePresentation("import-b", "b.xlsx", "import-b.xlsx", new string('b', 64), 200),
+            })
+            {
+                fixture.Connection.NextImportReference = imported;
+                Assert.IsTrue(await fixture.Coordinator.ImportAsync(
+                    new Birkin.Native.Shell.Commands.FileImportIntent($@"C:\{imported.DisplayName}"),
+                    deadline.Token));
+                await fixture.ResolveLastAsync();
+            }
+
+            var view = new ConversationView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+            var second = OfficeWorkflowViewHarness.Find<CheckBox>(view, "import-b");
+            second.IsChecked = false;
+            second.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+            fixture.Coordinator.SetConversationDraft("inspect");
+
+            Assert.IsTrue(await fixture.Coordinator.SendConversationAsync(deadline.Token));
+
+            var request = fixture.Connection.Sent[^1];
+            var attachments = (NativeJsonArray)request.Payload["attachments"]!;
+            var reference = (NativeJsonObject)attachments.Values.Single();
+            Assert.AreEqual("import-a", ((NativeJsonString)reference["import_id"]!).Value);
+            Assert.AreEqual(2, fixture.Model.OfficeWorkflow.Imports.Count);
+            Assert.IsFalse(fixture.Model.OfficeWorkflow.Imports.Single(item => item.ImportId == "import-b").IsSelected);
+            StringAssert.Contains(AutomationProperties.GetHelpText(second), "삭제되지 않습니다");
+        });
+    }
+
+    [TestMethod]
     public async Task Stop_WhenTurnIsInterruptible_SubmitsCanonicalInterruptOnce()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -291,7 +331,37 @@ public sealed class ConversationViewTests
     }
 
     [TestMethod]
-    public async Task CommandProgress_WhenPending_ShowsKoreanCopyAndAnimatedSpinner()
+    public async Task Retry_WhenConversationRefusalIsRetryable_ResubmitsPreservedDraft()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Coordinator.SetConversationDraft("보고서 다시 작성");
+            var refusal = fixture.Model.OfficeWorkflow
+                .Begin("retry-1", "chat.send")
+                .Refuse("retry-1", "E_BUSY", "busy", true, null);
+            var view = new ConversationView(fixture.Model, fixture.Coordinator);
+            fixture.Model.PresentOfficeWorkflow(refusal);
+            OfficeWorkflowViewHarness.Layout(view);
+
+            var retry = OfficeWorkflowViewHarness.Find<Button>(
+                view,
+                "conversation.retry");
+            Assert.AreEqual(Visibility.Visible, retry.Visibility);
+            retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.AreEqual(1, fixture.Connection.Sent.Count);
+            Assert.AreEqual("chat.send", fixture.Connection.Sent[0].CommandType);
+            Assert.AreEqual(
+                "보고서 다시 작성",
+                ((NativeJsonString)fixture.Connection.Sent[0].Payload["text"]!).Value);
+        });
+    }
+
+    [TestMethod]
+    public async Task CommandProgress_WhenPending_ShowsKoreanCopyAndAnimation()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
@@ -329,8 +399,7 @@ public sealed class ConversationViewTests
                 Assert.AreEqual("명령을 전송하고 있습니다.", label.Text);
                 Assert.IsInstanceOfType<RotateTransform>(
                     spinner.RenderTransform);
-                Assert.IsTrue(
-                    spinner.RenderTransform.HasAnimatedProperties);
+                Assert.IsTrue(spinner.RenderTransform.HasAnimatedProperties);
             }
             finally
             {

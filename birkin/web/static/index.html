@@ -73,7 +73,8 @@
     color: var(--muted);
     opacity: 1;
   }
-  button:focus-visible, textarea:focus-visible, summary:focus-visible {
+  button:focus-visible, input:focus-visible, select:focus-visible,
+  textarea:focus-visible, summary:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
   }
@@ -499,7 +500,12 @@
     .brand span { display: none; }
   }
   @media (prefers-reduced-motion: reduce) {
-    *, *::before, *::after { scroll-behavior: auto; transition-duration: 0.001ms; }
+    *, *::before, *::after {
+      scroll-behavior: auto;
+      transition-duration: 0.001ms;
+      animation-duration: 0.001ms;
+      animation-iteration-count: 1;
+    }
   }
 </style>
 </head>
@@ -555,32 +561,33 @@
                 aria-controls="workspace-panel">뒤로</button>
         <div class="panel-tabs" role="tablist" aria-label="워크스페이스 패널"
              data-testid="workspace-panel-tabs">
-          <button type="button" class="panel-tab" role="tab" data-panel="tasks_runs"
-                  aria-controls="workspace-panel-body" aria-selected="true">작업</button>
+          <button id="panel-tab-tasks" type="button" class="panel-tab" role="tab" data-panel="tasks_runs"
+                  aria-controls="workspace-panel-body" aria-selected="true" tabindex="0">작업</button>
           <button id="approval-tab" type="button" class="panel-tab" role="tab"
                   data-panel="approvals" aria-controls="workspace-panel-body"
-                  aria-selected="false">승인</button>
+                  aria-selected="false" tabindex="-1">승인</button>
           <button type="button" class="panel-tab" role="tab" data-panel="files_evidence"
-                  aria-controls="workspace-panel-body" aria-selected="false">근거</button>
+                  aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">근거</button>
           <button type="button" class="panel-tab" role="tab" data-panel="sessions_history"
-                  aria-controls="workspace-panel-body" aria-selected="false">세션</button>
+                  aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">세션</button>
           <button type="button" class="panel-tab" role="tab" data-panel="activity_logs"
-                  aria-controls="workspace-panel-body" aria-selected="false">활동</button>
+                  aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">활동</button>
           <button type="button" class="panel-tab" role="tab" data-panel="cron"
-                  aria-controls="workspace-panel-body" aria-selected="false">예약</button>
+                  aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">예약</button>
           <button type="button" class="panel-tab" role="tab" data-panel="memory_skills"
-                  aria-controls="workspace-panel-body" aria-selected="false">기억</button>
+                  aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">기억</button>
           <button type="button" class="panel-tab" role="tab" data-panel="checkpoints_restore"
-                  aria-controls="workspace-panel-body" aria-selected="false">복원</button>
+                  aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">복원</button>
           <button type="button" class="panel-tab" role="tab" data-panel="computer_use"
-                  aria-controls="workspace-panel-body" aria-selected="false">컴퓨터 사용</button>
+                  aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">컴퓨터 사용</button>
           <button type="button" class="panel-tab" role="tab" data-panel="settings_status"
-                  aria-controls="workspace-panel-body" aria-selected="false">상태</button>
+                  aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">상태</button>
         </div>
         <button id="panel-more" class="panel-more" type="button"
                 aria-label="더 많은 패널 보기">›</button>
       </div>
-      <div id="workspace-panel-body" class="panel-body" role="tabpanel"></div>
+      <div id="workspace-panel-body" class="panel-body" role="tabpanel"
+           aria-labelledby="panel-tab-tasks" tabindex="0"></div>
     </aside>
 
     <aside class="browser-aside" id="browser-aside"
@@ -2020,15 +2027,32 @@ async function bootstrap() {
   announce("");
 }
 
-document.querySelectorAll("[data-panel]").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    state.activePanel = tab.dataset.panel;
-    document.querySelectorAll("[data-panel]").forEach((entry) => {
-      entry.setAttribute("aria-selected", String(entry === tab));
-    });
-    shell.dataset.panelOpen = "true";
-    renderPanel();
+const workspacePanelTabs = [...document.querySelectorAll('[role="tab"][data-panel]')];
+function activatePanelTab(tab) {
+  state.activePanel = tab.dataset.panel;
+  workspacePanelTabs.forEach((entry) => {
+    const selected = entry === tab;
+    entry.setAttribute("aria-selected", String(selected));
+    entry.tabIndex = selected ? 0 : -1;
   });
+  byId("workspace-panel-body").setAttribute("aria-labelledby", tab.id || "");
+  shell.dataset.panelOpen = "true";
+  renderPanel();
+}
+workspacePanelTabs.forEach((tab, index) => {
+  if (!tab.id) tab.id = `panel-tab-${index}`;
+  tab.addEventListener("click", () => activatePanelTab(tab));
+});
+panelTabs.addEventListener("keydown", (event) => {
+  const current = workspacePanelTabs.indexOf(document.activeElement);
+  if (current < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const target = event.key === "Home" ? 0
+    : event.key === "End" ? workspacePanelTabs.length - 1
+    : (current + (event.key === "ArrowRight" ? 1 : -1) + workspacePanelTabs.length)
+      % workspacePanelTabs.length;
+  workspacePanelTabs[target].focus();
+  activatePanelTab(workspacePanelTabs[target]);
 });
 
 byId("lens-toggle").addEventListener("click", () => {
@@ -2075,7 +2099,7 @@ byId("workspace-composer").addEventListener("submit", async (event) => {
 });
 
 input.addEventListener("keydown", (event) => {
-  if (event.key === "Enter" && event.ctrlKey) {
+  if (event.key === "Enter" && event.ctrlKey && !event.isComposing && event.keyCode !== 229) {
     event.preventDefault();
     byId("workspace-composer").requestSubmit();
   }

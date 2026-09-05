@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol, cast
@@ -26,6 +27,7 @@ from .extract_contract import (
     build_extraction,
 )
 from .inspect_contract import build_inspection, verify_identity
+from .meeting_actions import review_meeting_actions
 from .render_contract import render_document
 from .service_create import convert_document as convert_document_operation
 from .service_create import create_document as create_document_operation
@@ -34,6 +36,7 @@ from .service_patch import fill_template as fill_template_operation
 from .service_types import ConvertedDocument, CreatedDocument, ExtractionResult
 from .service_workspace import DocumentWorkspace
 from .validation import ValidationResult, validate_document
+from .xlsx_analysis import analyze_xlsx
 
 
 class _InspectAdapter(Protocol):
@@ -90,7 +93,19 @@ class DocumentService:
         output_name: str,
         template: Mapping[str, object] | None = None,
     ) -> CreatedDocument:
-        if format.strip().lower().lstrip(".") != "hwpx" or template is None:
+        normalized = format.strip().lower().lstrip(".")
+        font = content.get("font")
+        if normalized == "pdf" and isinstance(font, Mapping):
+            with self._workspace.artifact_snapshot(font) as snapshot:
+                prepared = {**content, "font": self._snapshot_ref(font, snapshot)}
+                return create_document_operation(
+                    self._workspace,
+                    format_name=format,
+                    content=prepared,
+                    output_name=output_name,
+                    template=template,
+                )
+        if normalized != "hwpx" or template is None:
             return create_document_operation(self._workspace, format_name=format, content=content, output_name=output_name, template=template)
         with self._workspace.artifact_snapshot(template) as snapshot:
             require_hwpx_content(snapshot)
@@ -237,6 +252,32 @@ class DocumentService:
                 max_spans=max_spans, max_nodes=max_nodes, max_text_bytes=max_text_bytes,
             )
 
+    def analyze_workbook(
+        self,
+        source: Mapping[str, object],
+        *,
+        sheet: object,
+        cell_range: object,
+        group_by: object = None,
+        value_column: object = None,
+        compare_by: object = None,
+        include_hidden_rows: object = False,
+    ) -> dict[str, object]:
+        with self._workspace.artifact_snapshot(source) as path:
+            if self._format(path) != "xlsx":
+                raise DocumentError(DocumentErrorCode.UNSUPPORTED_FORMAT, "analyze", "workbook analysis requires XLSX")
+            _ = verify_identity(path, "xlsx")
+            digest = self._workspace.hash_file(path)
+            return analyze_xlsx(
+                path, digest, sheet=sheet, cell_range=cell_range,
+                group_by=group_by, value_column=value_column, compare_by=compare_by,
+                include_hidden_rows=include_hidden_rows,
+            )
+
+    @staticmethod
+    def review_meeting_actions(*, notes: object, candidates: object) -> dict[str, object]:
+        return review_meeting_actions(notes, candidates)
+
     def validate_artifact(self, artifact: Mapping[str, object]) -> ValidationResult:
         with self._workspace.artifact_snapshot(artifact) as path:
             fmt = self._format(path)
@@ -282,10 +323,26 @@ class DocumentService:
         with self._workspace.artifact_snapshot(artifact) as path:
             fmt = self._format(path)
             self._require_content(path, fmt)
-            return render_document(
-                path, fmt, self._workspace.hash_file(path),
-                output_format=output_format, page=page,
-            )
+            digest = self._workspace.hash_file(path)
+            if fmt == "pdf" and output_format in {"png", "thumbnail"}:
+                wanted = 1 if page is None else page
+                output = self._workspace.output_path(
+                    f"render-{digest[:16]}-p{wanted}-{uuid.uuid4().hex[:8]}.png",
+                    ".png",
+                )
+                rendered: dict[str, object] = {}
+                self._workspace.atomic_publish(
+                    output,
+                    lambda target: rendered.update(render_document(
+                        path, fmt, digest, output_format=output_format, page=page,
+                        output_path=target,
+                    )),
+                )
+                output_artifact = self._workspace.artifact(output, artifact)
+                rendered["output_artifact"] = output_artifact
+                cast("dict[str, object]", rendered["receipt"])["output_artifact"] = output_artifact
+                return rendered
+            return render_document(path, fmt, digest, output_format=output_format, page=page)
 
     def fill_template(
         self,

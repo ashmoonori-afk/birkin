@@ -110,6 +110,17 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
         }
     }
 
+    private void FollowUpClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (_coordinator is not null
+            && sender is Button { DataContext: PanelItemPresentation card }
+            && card.Destination is { Length: > 0 } destination)
+        {
+            _coordinator.SetConversationDraft(
+                $"'{destination}' 결과 문서를 이어서 수정해 주세요: ");
+        }
+    }
+
     private async Task AnswerAsync(object sender, ApprovalDecision decision)
     {
         if (_coordinator is not null

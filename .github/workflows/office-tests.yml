@@ -70,6 +70,7 @@ jobs:
         run: |
           uv run --no-sync python -c "from pathlib import Path; Path('office-ci-evidence').mkdir(exist_ok=True)"
           uv run --no-sync python script/qa/office_work_os_dogfood.py --output-dir office-ci-work > office-ci-evidence/dogfood.json
+          uv run --no-sync python script/qa/office_agent_journeys.py --output-dir office-agent-journeys > office-ci-evidence/agent-journeys.json
       - name: Build wheel
         run: uv build --wheel --out-dir dist
       - name: Smoke test a base-only clean wheel install

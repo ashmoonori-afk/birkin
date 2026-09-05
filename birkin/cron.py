@@ -31,7 +31,7 @@ from typing import Any, Optional
 from . import config, cronexpr, monitor, store
 
 CRON_SCHEMA_VERSION = 1
-_ACTION_TYPES = {"prompt", "shell", "monitor"}
+_ACTION_TYPES = {"prompt", "shell", "monitor", "briefing"}
 _SCHEDULE_KINDS = {"daily", "interval", "once", "cron"}
 _COMMON_JOB_FIELDS = {
     "schema_version", "id", "name", "hour", "minute", "type", "value",
@@ -561,6 +561,34 @@ def remove_job(job_id: str) -> bool:
             return False
         save_jobs(new)
     return True
+
+
+def set_enabled(job_id: str, enabled: bool) -> bool:
+    with store.file_lock(config.cron_path()):
+        jobs = _load_jobs_unlocked(persist_migration=True)
+        found = False
+        for job in jobs:
+            if job.get("id") == job_id:
+                job["enabled"] = enabled
+                found = True
+        if found:
+            save_jobs(jobs)
+        return found
+
+
+def skip_next(job_id: str, now: datetime | None = None) -> bool:
+    now = now or datetime.now()
+    with store.file_lock(config.cron_path()):
+        jobs = _load_jobs_unlocked(persist_migration=True)
+        job = next((item for item in jobs if item.get("id") == job_id), None)
+        if job is None or not isinstance(job.get("schedule"), dict):
+            return False
+        scheduled = _parse_dt(job.get("next_run"))
+        anchor = scheduled if scheduled is not None and scheduled > now else now
+        job["last_run"] = anchor.isoformat(timespec="seconds")
+        job["next_run"] = compute_next_run(job["schedule"], last=anchor, now=anchor)
+        save_jobs(jobs)
+        return True
 
 
 def mark_ran(job_id: str) -> None:

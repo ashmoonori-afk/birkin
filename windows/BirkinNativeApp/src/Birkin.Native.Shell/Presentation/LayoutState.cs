@@ -39,8 +39,9 @@ public sealed record LayoutState(
     public const double ContextDefaultWidth = 340;
     public const double ContextMinWidth = 300;
     public const double ContextMaxWidth = 600;
-    public const double WindowMinWidth = 1100;
-    public const double WindowMinHeight = 700;
+    public const double WindowMinWidth = 640;
+    public const double WindowMinHeight = 480;
+    public const double CompactBreakpoint = 1100;
     public const double WindowMaxWidth = 16384;
     public const double WindowMaxHeight = 16384;
 

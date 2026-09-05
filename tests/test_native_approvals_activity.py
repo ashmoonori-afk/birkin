@@ -154,6 +154,7 @@ def test_snapshot_reconciles_answered_approval_without_losing_request_details() 
         "sealed": True,
         "decided": True,
         "receipt_ref": "exit 0: approved",
+        "updated_at": "2026-08-20T00:00:00Z",
     }
 
 

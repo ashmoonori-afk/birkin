@@ -191,15 +191,17 @@ public sealed class WorkspaceSnapshotViewTests : MainWindowTestBase
         {
             var model = new ShellPresentationModel(SynchronizationContext.Current!);
             var window = new MainWindow(model);
-            var result = (window.Title, window.ResizeMode, window.Focusable);
+            var result = (window.Title, window.ResizeMode, window.Focusable, window.MinWidth, window.MinHeight);
             window.Close();
             return result;
         });
 
         // Then
-        Assert.AreEqual("Birkin for Windows - Development Preview", properties.Title);
+        Assert.AreEqual("Windows용 Birkin - 개발 프리뷰", properties.Title);
         Assert.AreEqual(ResizeMode.CanResize, properties.ResizeMode);
         Assert.IsTrue(properties.Focusable);
+        Assert.AreEqual(640, properties.MinWidth);
+        Assert.AreEqual(480, properties.MinHeight);
     }
 
     private static string Text(FrameworkElement view, string name) =>

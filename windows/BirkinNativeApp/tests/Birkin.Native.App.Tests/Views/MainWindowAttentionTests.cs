@@ -52,8 +52,8 @@ public sealed class MainWindowAttentionTests : MainWindowTestBase
     {
         var content = ApprovalToastContent.For("opaque-approval-1");
 
-        Assert.AreEqual("Approval requested", content.Title);
-        Assert.AreEqual("Open Birkin to review this request.", content.Body);
+        Assert.AreEqual("승인 요청이 도착했습니다", content.Title);
+        Assert.AreEqual("Birkin에서 요청 내용을 확인하세요.", content.Body);
         Assert.AreEqual("opaque-approval-1", content.ApprovalId);
         Assert.AreEqual("approvals", content.Route);
         Assert.AreEqual(0, content.DecisionActions.Count);

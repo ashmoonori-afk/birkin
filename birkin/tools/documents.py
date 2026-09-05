@@ -13,6 +13,16 @@ NAMES = (
     "list_document_adapters",
     "inspect_document",
     "extract_document",
+    "analyze_workbook",
+    "review_meeting_actions",
+    "list_work_items",
+    "work_item_request",
+    "search_office_sources",
+    "list_office_batches",
+    "office_batch_request",
+    "list_office_templates",
+    "office_template_request",
+    "resolve_office_template",
     "compare_documents",
     "render_artifact",
     "validate_artifact",
@@ -139,9 +149,10 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     approval_category = "office_job"
                 else:
                     raw_content = _payload(payload["content"])
-                    paragraphs = _strings(
-                        raw_content["paragraphs"],
-                        "content paragraphs",
+                    paragraphs = (
+                        _strings(raw_content["paragraphs"], "content paragraphs")
+                        if set(raw_content) == {"paragraphs"}
+                        else ()
                     )
                     coordinator = OfficeCreationCoordinator(
                         OfficeCreationCaller(
@@ -158,10 +169,13 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                             "bool",
                             payload.get("overwrite_approved", False),
                         ),
+                        content=raw_content if not paragraphs else None,
+                        format_name=cast("str", payload["format"]),
                     ))
-                    title = f"Office 문서 생성: {payload['outcome']}"
+                    format_name = cast("str", payload["format"])
+                    title = f"Office {format_name.upper()} 생성: {payload['outcome']}"
                     description = (
-                        f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+                        f"{format_name.upper()} 문서를 {'구조화된 내용으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
                         f"{approval['destination']}."
                     )
                     approval_category = "office_create"
@@ -178,6 +192,69 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     "category": approval_category,
                     "approval": approval,
                 }
+            elif name == "list_work_items":
+                from ..work_items import grouped
+
+                result = grouped(**payload)
+            elif name == "work_item_request":
+                action = cast("str", payload["action"])
+                result = {
+                    **approvals.propose(
+                        category="work_item",
+                        title="후속 업무 변경 확인",
+                        description=f"{action} 작업을 확인한 뒤 오늘 업무에 반영합니다.",
+                        payload=payload,
+                        cfg={},
+                        origin=ctx.record_source,
+                    ),
+                    "category": "work_item",
+                }
+            elif name == "search_office_sources":
+                from ..office.search import search_sources
+
+                result = search_sources(
+                    payload["query"], payload["sources"],
+                    extract=service.extract_document,
+                    limit=payload.get("limit", 20),
+                )
+            elif name == "list_office_batches":
+                from ..office.batch import list_batches
+
+                result = {"batches": list_batches(cast("int", payload.get("limit", 20)))}
+            elif name == "office_batch_request":
+                from ..office.batch import prepare
+                from ..office.coordinator import OfficeCaller
+
+                batch = prepare(
+                    payload.get("items", []),
+                    OfficeCaller(allowlist_root=ctx.cwd, actor=ctx.record_source),
+                    retry_of=cast("str | None", payload.get("retry_batch_id")),
+                )
+                queued = approvals.propose(
+                    category="office_batch", title=f"Office 일괄 작업: {len(batch['plans'])}개 파일",
+                    description="대상·변경·저장 위치를 고정하고 파일별로 순차 실행합니다.",
+                    payload=batch, cfg={}, origin=ctx.record_source,
+                )
+                result = {**queued, "category": "office_batch", "batch": batch}
+            elif name == "list_office_templates":
+                from ..office.saved_templates import list_templates
+
+                result = list_templates(ctx.cwd)
+            elif name == "office_template_request":
+                template_payload = {**payload, "workspace": str(ctx.cwd.resolve())}
+                queued = approvals.propose(
+                    category="office_template", title="Office 양식 설정 확인",
+                    description="본문을 제외한 양식 이름·범위·표현 선호를 저장합니다.",
+                    payload=template_payload, cfg={}, origin=ctx.record_source,
+                )
+                result = {**queued, "category": "office_template", "preview": template_payload}
+            elif name == "resolve_office_template":
+                from ..office.saved_templates import resolve
+
+                result = resolve(
+                    payload["template_id"], payload["version"], payload["values"],
+                    payload.get("sources", {}), ctx.cwd,
+                )
             elif name == "office_rollback_request":
                 from ..office.rollback_approval import request_rollback
 
@@ -189,6 +266,8 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                 methods: dict[str, Callable[..., object]] = {
                     "inspect_document": service.inspect_document,
                     "extract_document": service.extract_document,
+                    "analyze_workbook": service.analyze_workbook,
+                    "review_meeting_actions": service.review_meeting_actions,
                     "compare_documents": service.compare_documents,
                     "validate_artifact": service.validate_artifact,
                 }
@@ -224,6 +303,123 @@ def tools() -> list[Tool]:
             },
             ["source"],
         ),
+        "analyze_workbook": _object(
+            {
+                "source": _ARTIFACT,
+                "sheet": {"type": "string", "minLength": 1},
+                "cell_range": {"type": "string", "minLength": 1},
+                "group_by": {"type": "string", "minLength": 1},
+                "value_column": {"type": "string", "minLength": 1},
+                "compare_by": {"type": "string", "minLength": 1},
+                "include_hidden_rows": {"type": "boolean"},
+            },
+            ["source", "sheet", "cell_range"],
+        ),
+        "review_meeting_actions": _object(
+            {
+                "notes": {"type": "string", "minLength": 1, "maxLength": 100_000},
+                "candidates": {
+                    "type": "array",
+                    "maxItems": 500,
+                    "items": _object({
+                        "action": {"type": "string", "minLength": 1},
+                        "evidence": {"type": "string", "minLength": 1},
+                        "assignee": {"type": "string", "minLength": 1},
+                        "due_date": {"type": "string", "format": "date"},
+                        "suggested_due_date": {"type": "string", "format": "date"},
+                    }, ["action", "evidence"]),
+                },
+            },
+            ["notes", "candidates"],
+        ),
+        "list_work_items": _object(
+            {"timezone_name": {"type": "string", "minLength": 1}},
+        ),
+        "work_item_request": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["create", "confirm_meeting", "update", "complete"]},
+                "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "title": {"type": ["string", "null"]},
+                "assignee": {"type": ["string", "null"]},
+                "due_date": {"type": ["string", "null"], "format": "date"},
+                "session_id": {"type": ["string", "null"]},
+                "source": {"type": "object", "additionalProperties": {"type": "string"}},
+                "evidence": {"type": ["string", "null"]},
+                "draft_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "items": {"type": "array", "maxItems": 500, "items": {"type": "object"}},
+                "selected": {"type": "array", "uniqueItems": True, "items": {"type": "integer", "minimum": 0}},
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+            "allOf": [
+                {"if": {"properties": {"action": {"const": "create"}}}, "then": {"required": ["title"]}},
+                {"if": {"properties": {"action": {"const": "confirm_meeting"}}}, "then": {"required": ["draft_sha256", "items", "selected"]}},
+                {"if": {"properties": {"action": {"enum": ["update", "complete"]}}}, "then": {"required": ["id"]}},
+            ],
+        },
+        "search_office_sources": _object(
+            {
+                "query": {"type": "string", "minLength": 1},
+                "sources": {
+                    "type": "array", "minItems": 1, "maxItems": 100,
+                    "items": _object({
+                        "artifact": _ARTIFACT,
+                        "scope": {"type": "string", "enum": ["current_work", "selected_folder", "allowed_connection"]},
+                        "access_granted": {"type": "boolean"},
+                        "label": {"type": "string", "minLength": 1},
+                        "version": {"type": "string", "minLength": 1},
+                        "current_version": {"type": "string", "minLength": 1},
+                    }, ["artifact", "scope", "access_granted", "version"]),
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            ["query", "sources"],
+        ),
+        "list_office_batches": _object({"limit": {"type": "integer", "minimum": 1, "maximum": 100}}),
+        "office_batch_request": {
+            "type": "object",
+            "properties": {
+                "items": {"type": "array", "minItems": 1, "maxItems": 25, "items": _object({
+                    "request": {"type": "string", "minLength": 1}, "source": _ARTIFACT,
+                    "outcome": {"type": "string", "minLength": 1}, "operations": {"type": "array", "minItems": 1, "maxItems": 1000, "items": PATCH_OPERATION_SCHEMA},
+                    "destination": {"type": "string", "minLength": 1}, "overwrite_approved": {"type": "boolean"},
+                }, ["request", "source", "outcome", "operations", "destination"])},
+                "retry_batch_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+            },
+            "required": [],
+            "additionalProperties": False,
+            "oneOf": [{"required": ["items"]}, {"required": ["retry_batch_id"]}],
+        },
+        "list_office_templates": _object({}),
+        "office_template_request": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["clone", "rename", "update", "restore"]},
+                "base": {"type": "string", "enum": ["weekly_report", "meeting_notes", "work_proposal"]},
+                "template_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "version": {"type": "integer", "minimum": 1},
+                "name": {"type": "string", "minLength": 1},
+                "scope": {"type": "string", "enum": ["current_work", "global"]},
+                "preferences": _object({
+                    "tone": {"type": "string", "enum": ["plain", "concise", "formal"]},
+                    "include_optional": {"type": "boolean"},
+                }),
+            },
+            "required": ["action"], "additionalProperties": False,
+            "allOf": [
+                {"if": {"properties": {"action": {"const": "clone"}}}, "then": {"required": ["base", "name", "scope"]}},
+                {"if": {"properties": {"action": {"enum": ["rename", "update", "restore"]}}}, "then": {"required": ["template_id", "version"]}},
+                {"if": {"properties": {"action": {"const": "rename"}}}, "then": {"required": ["name"]}},
+                {"if": {"properties": {"action": {"const": "update"}}}, "then": {"required": ["preferences"]}},
+            ],
+        },
+        "resolve_office_template": _object({
+            "template_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+            "version": {"type": "integer", "minimum": 1},
+            "values": {"type": "object"},
+            "sources": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+        }, ["template_id", "version", "values"]),
         "compare_documents": _object({"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]),
         "render_artifact": _object(
             {
@@ -239,24 +435,30 @@ def tools() -> list[Tool]:
                 {
                     "request": {"type": "string", "minLength": 1},
                     "source": _ARTIFACT,
-                    "format": {"type": "string", "enum": ["docx"]},
-                    "content": _object(
-                        {
-                            "paragraphs": {
-                                "type": "array",
-                                "minItems": 1,
-                                "items": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                },
-                            },
-                        },
-                        ["paragraphs"],
-                    ),
+                    "format": {"type": "string", "enum": ["docx", "xlsx", "pptx", "pdf", "hwpx"]},
+                    "content": {
+                        "oneOf": [
+                            _object({"paragraphs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}, ["paragraphs"]),
+                            _object({"business_template": _object({
+                                "name": {"type": "string", "enum": ["weekly_report", "meeting_notes", "work_proposal"]},
+                                "version": {"type": "string", "enum": ["1.0"]},
+                                "values": {"type": "object"},
+                                "sources": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+                            }, ["name", "version", "values"])}, ["business_template"]),
+                            _object({"sheets": {"type": "array", "minItems": 1, "items": {"type": "object"}}}, ["sheets"]),
+                            _object({"slides": {"type": "array", "minItems": 1, "items": {"type": "object"}}}, ["slides"]),
+                            _object({
+                                "paragraphs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                                "table": {"type": "array", "items": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
+                                "font": _ARTIFACT,
+                            }, ["paragraphs", "font"]),
+                        ]
+                    },
                     "outcome": {"type": "string", "minLength": 1},
                     "operations": {
                         "type": "array",
                         "minItems": 1,
+                        "maxItems": 1000,
                         "items": PATCH_OPERATION_SCHEMA,
                     },
                     "destination": {"type": "string", "minLength": 1},

@@ -138,6 +138,19 @@ PYPDF = _published_package(
     role="Approved optional PDF inspection and bounded native-text extraction backend, wired lazily through PdfAdapter.",
 )
 
+REPORTLAB = _published_package(
+    name="ReportLab",
+    version="4.5.1",
+    version_range=">=4.4,<5",
+    repository_url="https://github.com/MrBitBucket/reportlab-mirror",
+    artifact_url="https://files.pythonhosted.org/packages/4d/3f/b3861b7e40c9d66f4a04e018958d681d16b948bfd1963c962d43a8c23f66/reportlab-4.5.1.tar.gz",
+    artifact_sha256="9fdf68f4de9171ec66acb4a5feed8f8ca2af43479e707a6fbb0daa75d88e5494",
+    license_name="BSD-3-Clause",
+    license_sha256="ef831761646313921375fc2cb888e8eeaf7da213d0b92852c10c42f3a0b4d138",
+    import_name="reportlab",
+    role="Approved local PDF authoring backend with caller-supplied embedded TrueType fonts.",
+)
+
 PILLOW = _published_package(
     name="Pillow",
     version="12.3.0",
@@ -199,6 +212,6 @@ PYPDFIUM2 = _published_package(
     artifact_sha256="48b5b7e5566665bc1015b9d69c1ebabe21f6aee468b509531c3c8318eeee2e16",
     license_name="(Apache-2.0 OR BSD-3-Clause) AND LicenseRef-PdfiumThirdParty",
     import_name="pypdfium2",
-    role="Approved optional PDF rasterization candidate; not wired as a capability.",
+    role="Approved optional PDF page rasterizer wired to PNG and thumbnail previews.",
     os_evidence="Platform-specific PDFium wheels; runtime support varies by OS/architecture.",
 )

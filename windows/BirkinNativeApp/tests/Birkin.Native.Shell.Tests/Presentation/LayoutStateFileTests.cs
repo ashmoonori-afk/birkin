@@ -65,7 +65,7 @@ public sealed class LayoutStateFileTests
     [DataTestMethod]
     [DataRow("1e308", 16384.0)]
     [DataRow("16384", 16384.0)]
-    [DataRow("-1", 1100.0)]
+    [DataRow("-1", 640.0)]
     [DataRow("\"wide\"", 1500.0)]
     public void Parse_WindowWidth_ClampsFiniteValuesAndDefaultsNonnumeric(string value, double expected)
     {
@@ -76,7 +76,7 @@ public sealed class LayoutStateFileTests
     [DataTestMethod]
     [DataRow("1e308", 16384.0)]
     [DataRow("16384", 16384.0)]
-    [DataRow("-1", 700.0)]
+    [DataRow("-1", 480.0)]
     [DataRow("\"tall\"", 940.0)]
     public void Parse_WindowHeight_ClampsFiniteValuesAndDefaultsNonnumeric(string value, double expected)
     {
@@ -93,8 +93,8 @@ public sealed class LayoutStateFileTests
         Assert.AreEqual(new LayoutColumnState(410, true), state.Context);
         Assert.AreEqual(LayoutPanel.Context, state.LastTouched);
         Assert.IsNull(state.FocusRestore);
-        Assert.AreEqual(1100, state.Window.Width);
-        Assert.AreEqual(700, state.Window.Height);
+        Assert.AreEqual(900, state.Window.Width);
+        Assert.AreEqual(600, state.Window.Height);
         Assert.AreEqual(LayoutWindowMode.Normal, state.Window.State);
         Assert.IsFalse(state.Hints.LayoutTipShown);
     }

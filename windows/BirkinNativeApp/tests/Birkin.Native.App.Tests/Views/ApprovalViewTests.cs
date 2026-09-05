@@ -256,7 +256,9 @@ public sealed class ApprovalViewTests
                 ("destination", Text("C:\\workspace\\approved.xlsx")),
                 ("receipt_ref", Text("office:job-7")),
                 ("expires_at", Text("2099-09-28T12:00:00+00:00")),
-                ("backup_exists", new NativeJsonBoolean(true))));
+                ("backup_exists", new NativeJsonBoolean(true)),
+                ("validation_summary", Text("등록된 구조 검증 통과")),
+                ("visual_validation_summary", Text("시각 검증 미실행"))));
             var view = new ApprovalView(fixture.Model, fixture.Coordinator);
             OfficeWorkflowViewHarness.Layout(view);
 
@@ -301,6 +303,23 @@ public sealed class ApprovalViewTests
                 OfficeWorkflowViewHarness.Find<Button>(
                     view,
                     "approval.receipt.open-folder.approval-7"));
+            Assert.AreEqual(
+                "등록된 구조 검증 통과",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.receipt.validation.approval-7").Text);
+            Assert.AreEqual(
+                "시각 검증 미실행",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.receipt.visual-validation.approval-7").Text);
+            OfficeWorkflowViewHarness.Find<Button>(
+                view,
+                "approval.receipt.follow-up.approval-7").RaiseEvent(
+                    new RoutedEventArgs(Button.ClickEvent));
+            StringAssert.Contains(
+                fixture.Model.OfficeWorkflow.Draft,
+                "C:\\workspace\\approved.xlsx");
         });
     }
 

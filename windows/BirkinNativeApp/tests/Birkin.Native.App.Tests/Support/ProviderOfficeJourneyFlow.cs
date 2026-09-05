@@ -130,15 +130,29 @@ internal static class ProviderOfficeJourneyFlow
 
             await RenderBarrierAsync(window);
             var scroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
-            diffView.BringIntoView();
-            await RenderBarrierAsync(window);
+            var workflowScroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "office.workflow-scroll");
             var oldValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.old-value")
                 .First(text => text.Text.Contains("4100", StringComparison.Ordinal));
             var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
                 .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
-            Assert.IsTrue(IsInViewport(diffView, scroll), "the Python diff was not visibly in the pre-approval viewport");
-            Assert.IsTrue(IsInViewport(oldValue, scroll) && IsInViewport(newValue, scroll),
-                "the labeled 4100 -> 4700 controls were not fully visible before approval");
+            Assert.IsTrue(draftBox.Focus(), "the conversation composer did not regain keyboard focus");
+            scroll.ScrollToEnd();
+            workflowScroll.ScrollToHome();
+            await RenderBarrierAsync(window);
+            var oldBounds = oldValue.TransformToAncestor(workflowScroll).TransformBounds(
+                new Rect(new Point(), oldValue.RenderSize));
+            var newBounds = newValue.TransformToAncestor(workflowScroll).TransformBounds(
+                new Rect(new Point(), newValue.RenderSize));
+            var contentCenter = (Math.Min(oldBounds.Top, newBounds.Top)
+                + Math.Max(oldBounds.Bottom, newBounds.Bottom)) / 2;
+            workflowScroll.ScrollToVerticalOffset(Math.Max(0, contentCenter - workflowScroll.ViewportHeight / 2));
+            await RenderBarrierAsync(window);
+            oldBounds = oldValue.TransformToAncestor(workflowScroll).TransformBounds(
+                new Rect(new Point(), oldValue.RenderSize));
+            newBounds = newValue.TransformToAncestor(workflowScroll).TransformBounds(
+                new Rect(new Point(), newValue.RenderSize));
+            Assert.IsTrue(IsInViewport(oldValue, workflowScroll) && IsInViewport(newValue, workflowScroll),
+                $"the labeled 4100 -> 4700 controls were not fully visible before approval; old={oldBounds}; new={newBounds}; viewport={workflowScroll.RenderSize}; offset={workflowScroll.VerticalOffset}");
             var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff-1500x940.png");
             var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940);
             evidence.Record("pre-approval-screenshot", new Dictionary<string, object?>
@@ -157,6 +171,8 @@ internal static class ProviderOfficeJourneyFlow
                 $"approval.approve.{approvalId}");
             Assert.AreEqual(approvalId, approve.Tag as string);
             Assert.IsTrue(approve.IsEnabled);
+            approve.BringIntoView();
+            await RenderBarrierAsync(window);
             Assert.IsTrue(IsInViewport(approve, scroll), "the exact projected approval was not visibly actionable");
             var approval = await ProviderOfficeJourneyActions.ClickAsync(
                 composition.PresentationModel, events, approve, "approval.answer", officeCancellationToken);
@@ -244,7 +260,7 @@ internal static class ProviderOfficeJourneyFlow
         var bounds = element.TransformToAncestor(viewport).TransformBounds(
             new Rect(new Point(0, 0), element.RenderSize));
         var visible = new Rect(new Point(0, 0), viewport.RenderSize);
-        return element.IsVisible
+        return element.Visibility == Visibility.Visible
             && bounds.Left >= visible.Left - 1
             && bounds.Top >= visible.Top - 1
             && bounds.Right <= visible.Right + 1

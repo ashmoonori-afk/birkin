@@ -6,7 +6,7 @@ import threading
 from dataclasses import replace
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import final
+from typing import cast, final
 
 from .contracts import (
     CONTROL_COMMAND_TYPES,
@@ -28,6 +28,7 @@ from .records import (
 )
 from .snapshot import reduce_snapshot
 from .working_memory import project_working_memory
+from ..work_items import grouped as grouped_work_items
 
 CommandHandler = Callable[[dict[str, JsonValue]], dict[str, JsonValue]]
 EventListener = Callable[[WorkspaceEvent], None]
@@ -280,9 +281,62 @@ class WorkspaceService:
         files = next(
             panel.items for panel in snapshot.panels if panel.key == "files_evidence"
         )
+        work_groups = grouped_work_items()
+        from ..m365_connection import status as connection_status
+
+        connection = connection_status()
+        account = cast("dict[str, object] | None", connection.get("account"))
+        connection_row = {
+            "id": "connection:microsoft-365",
+            "kind": "connection",
+            "summary": f"Microsoft 365 · {account.get('name') if account else '연결되지 않음'}",
+            "description": " · ".join(cast("list[str]", connection.get("scopes", []))),
+            "status": connection["state"],
+        }
+        from ..daily_briefing import latest as latest_briefings
+
+        briefing_rows = tuple({
+            "id": f"briefing:{item['id']}",
+            "kind": "briefing",
+            "summary": "일일 브리핑",
+            "description": f"기준 시각 {item['data_basis_at']}",
+            "status": "확인 필요",
+            "updated_at": item["data_basis_at"],
+        } for item in latest_briefings(5))
+        seen: set[str] = set()
+        work_rows: list[dict[str, object]] = []
+        for group in ("overdue", "today", "needs_confirmation", "recently_completed"):
+            for item in work_groups[group]:
+                item_id = str(item["id"])
+                if item_id in seen:
+                    continue
+                seen.add(item_id)
+                source = cast("dict[str, str]", item["source"])
+                work_rows.append({
+                    "id": item_id,
+                    "kind": "work_item",
+                    "summary": item["title"],
+                    "description": " · ".join(filter(None, [
+                        str(item.get("assignee") or "담당자 미정"),
+                        str(item.get("due_date") or "기한 미정"),
+                    ])),
+                    "status": {
+                        "overdue": "지연",
+                        "today": "오늘",
+                        "needs_confirmation": "확인 필요",
+                        "recently_completed": "최근 완료",
+                    }[group],
+                    "updated_at": item["updated_at"],
+                    "session_id": item.get("session_id") or "",
+                    "target": next(iter(source.values()), ""),
+                })
         panels = tuple(
             replace(panel, items=approval_items(panel.items))
             if panel.key == "approvals"
+            else replace(panel, items=briefing_rows + tuple(work_rows) + panel.items)
+            if panel.key == "tasks_runs"
+            else replace(panel, items=(connection_row,) + panel.items)
+            if panel.key == "files_evidence"
             else panel
             for panel in snapshot.panels
         )

@@ -3,14 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
              automation:AutomationProperties.AutomationId="office.workflow"
-             automation:AutomationProperties.Name="Office document workflow">
+             automation:AutomationProperties.Name="업무 문서 작업">
     <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
     <ScrollViewer automation:AutomationProperties.AutomationId="office.workflow-scroll"
                   VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled"
                   CanContentScroll="False">
     <Grid>
-        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid>
             <ItemsControl automation:AutomationProperties.AutomationId="office.items" ItemsSource="{Binding DocumentRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <ItemsControl.ItemTemplate><DataTemplate>
@@ -21,7 +21,7 @@
                                 <TextBlock automation:AutomationProperties.AutomationId="office.document-summary" Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding MediaType}" Foreground="{StaticResource FaintBrush}" FontSize="10" TextWrapping="Wrap" />
                             </StackPanel>
-                            <Button Grid.Column="1" Content="Select" Tag="{Binding Id}" Margin="6,0,0,0" automation:AutomationProperties.AutomationId="office.select" automation:AutomationProperties.Name="Select projected office document" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.OfficeSelect.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="SelectClicked" />
+                            <Button Grid.Column="1" Content="선택" Tag="{Binding Id}" Margin="6,0,0,0" automation:AutomationProperties.AutomationId="office.select" automation:AutomationProperties.Name="이 업무 문서 선택" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.OfficeSelect.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="SelectClicked" />
                         </Grid>
                     </Border>
                 </DataTemplate></ItemsControl.ItemTemplate>
@@ -29,19 +29,72 @@
             <StackPanel VerticalAlignment="Center">
                 <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding DocumentRows.Count, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
                 <TextBlock Text="&#xE8A5;" Style="{StaticResource GlyphStyle}" FontSize="18" />
-                <TextBlock Text="No documents open" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                <TextBlock Text="열린 문서가 없습니다" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
             </StackPanel>
         </Grid>
         <ContentControl x:Name="DiffHost" Grid.Row="1" />
-        <Grid Grid.Row="2" Margin="0,4,0,0">
+        <Expander Grid.Row="2"
+                  Header="형식별 지원 상태"
+                  Margin="0,4,0,0"
+                  Foreground="{StaticResource TextBrush}"
+                  automation:AutomationProperties.AutomationId="office.support"
+                  automation:AutomationProperties.Name="Office 형식별 읽기 생성 수정 렌더링 재계산 지원 상태">
+            <ItemsControl Margin="0,6,0,0"
+                          ItemsSource="{Binding SupportRows, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                          automation:AutomationProperties.AutomationId="office.support.items">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
+                            <StackPanel>
+                                <TextBlock Text="{Binding FormatLabel}" FontWeight="SemiBold" />
+                                <ItemsControl ItemsSource="{Binding Operations}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,3,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="64" />
+                                                    <ColumnDefinition Width="100" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Label}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Status}" Foreground="{StaticResource AccentBrush}" />
+                                                <StackPanel Grid.Column="2">
+                                                    <TextBlock Text="{Binding AgentPath}" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding InstallCondition}" Style="{StaticResource MutedTextStyle}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Expander>
+        <Grid Grid.Row="3" Margin="0,4,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Expander Header="Save unavailable" automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="Office save availability" Foreground="{StaticResource TextBrush}">
+            <Expander Header="새 문서와 수정 요청" automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="새 문서와 수정 요청" Foreground="{StaticResource TextBrush}">
                 <StackPanel Margin="0,6,6,0">
-                    <TextBlock Text="Office changes can be reviewed here, but saving requires an approved office_job_request from Python." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" />
-                    <Button Content="Save unavailable" HorizontalAlignment="Right" Margin="0,5,0,0" automation:AutomationProperties.AutomationId="office.save-unavailable" automation:AutomationProperties.Name="Office save unavailable without approved job request" Style="{StaticResource DisabledActionStyle}" IsEnabled="False" />
+                    <TextBlock Text="목적" Style="{StaticResource MutedTextStyle}" />
+                    <TextBox x:Name="PurposeBox" Margin="0,3,0,6" Padding="6" automation:AutomationProperties.AutomationId="office.request" automation:AutomationProperties.Name="문서 작업 목적" />
+                    <TextBlock Text="본문(줄마다 한 문단)" Style="{StaticResource MutedTextStyle}" />
+                    <TextBox x:Name="ContentBox" Margin="0,3,0,6" MinHeight="52" AcceptsReturn="True" TextWrapping="Wrap" Padding="6" automation:AutomationProperties.AutomationId="office.content" automation:AutomationProperties.Name="새 DOCX 본문" />
+                    <TextBlock Text="결과 형식: DOCX" Style="{StaticResource MutedTextStyle}" />
+                    <TextBlock Text="저장 위치" Margin="0,6,0,0" Style="{StaticResource MutedTextStyle}" />
+                    <TextBox x:Name="DestinationBox" Margin="0,3,0,6" Padding="6" automation:AutomationProperties.AutomationId="office.destination" automation:AutomationProperties.Name="결과 DOCX 저장 위치" />
+                    <CheckBox x:Name="OverwriteBox" Content="같은 이름의 파일 덮어쓰기 요청" automation:AutomationProperties.AutomationId="office.overwrite" automation:AutomationProperties.HelpText="실제 저장은 별도 승인 후 진행됩니다." />
+                    <WrapPanel HorizontalAlignment="Right" Margin="0,6,0,0">
+                        <Button Content="수정 요청 작성" Margin="0,0,6,0" automation:AutomationProperties.AutomationId="office.edit-draft" automation:AutomationProperties.Name="가져온 문서 수정 요청을 대화에 작성" Style="{StaticResource ActionButtonStyle}" Click="EditDraftClicked" />
+                        <Button automation:AutomationProperties.AutomationId="office.draft" automation:AutomationProperties.Name="새 DOCX 초안 요청" IsEnabled="{Binding OfficeWorkflow.Availability.OfficeDraft.IsEnabled}" Click="DraftClicked">
+                            <Button.Style><Style TargetType="Button" BasedOn="{StaticResource ActionButtonStyle}"><Setter Property="Content" Value="초안 요청"/><Style.Triggers><MultiDataTrigger><MultiDataTrigger.Conditions><Condition Binding="{Binding OfficeWorkflow.CommandType}" Value="office.job_request"/><Condition Binding="{Binding OfficeWorkflow.CommandState}" Value="PendingReceipt"/></MultiDataTrigger.Conditions><Setter Property="Content" Value="변경 검토 중"/></MultiDataTrigger><MultiDataTrigger><MultiDataTrigger.Conditions><Condition Binding="{Binding OfficeWorkflow.CommandType}" Value="office.job_request"/><Condition Binding="{Binding OfficeWorkflow.CommandState}" Value="AcceptedPendingProjection"/></MultiDataTrigger.Conditions><Setter Property="Content" Value="승인 후 저장"/></MultiDataTrigger></Style.Triggers></Style></Button.Style>
+                        </Button>
+                    </WrapPanel>
+                    <TextBlock Text="{Binding OfficeWorkflow.Availability.OfficeDraft.DisabledReasonText}" Margin="0,4,0,0" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" automation:AutomationProperties.AutomationId="office.draft-disabled-reason" />
+                    <TextBlock x:Name="RequestStatusText" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="Collapsed" automation:AutomationProperties.AutomationId="office.request-status" automation:AutomationProperties.LiveSetting="Assertive" />
                 </StackPanel>
             </Expander>
-            <Expander x:Name="ImportPanel" Grid.Column="1" Header="Import file" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="Import office file controls" Foreground="{StaticResource TextBrush}">
+            <Expander x:Name="ImportPanel" Grid.Column="1" Header="문서 가져오기" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="업무 문서 가져오기" Foreground="{StaticResource TextBrush}">
                 <ContentControl x:Name="ImportHost" />
             </Expander>
         </Grid>

@@ -31,13 +31,15 @@ def _text(value: object, field: str) -> str:
 class OfficeReceiptProjection:
     approval_id: str
     artifact_id: str
-    diff_id: str
+    diff_id: str | None
     job_id: str
     destination: str
     receipt_ref: str
     issued_at: str
     expires_at: str
     backup_exists: bool
+    validation_summary: str
+    visual_validation_summary: str
 
     @classmethod
     def from_result(
@@ -46,43 +48,70 @@ class OfficeReceiptProjection:
         approval_record: Mapping[str, object],
         receipt_text: str,
     ) -> OfficeReceiptProjection | None:
-        if approval_record.get("category") != "office_job":
+        category = approval_record.get("category")
+        if category not in {"office_job", "office_create"}:
             return None
         approval = _mapping(approval_record.get("payload"), "approval")
         diff_id = approval.get("diff_id")
-        if not isinstance(diff_id, str) or not diff_id:
+        if category == "office_job" and (
+            not isinstance(diff_id, str) or not diff_id
+        ):
             return None
         decoded = cast(object, json.loads(receipt_text))
         receipt = _mapping(decoded, "root")
-        publication = _mapping(receipt.get("publication"), "publication")
-        artifact = _mapping(publication.get("artifact"), "artifact")
+        artifact = _mapping(
+            _mapping(
+                receipt.get("publication")
+                if category == "office_job"
+                else receipt.get("creation"),
+                "artifact container",
+            ).get("artifact"),
+            "artifact",
+        )
         export = _mapping(receipt.get("export"), "export")
+        validation = _mapping(receipt.get("validation"), "validation")
+        layers = _mapping(validation.get("layers"), "validation layers")
+        fidelity = _mapping(layers.get("fidelity"), "fidelity validation")
         job_id = _text(approval.get("job_id"), "job_id")
         return cls(
             approval_id=approval_id,
             artifact_id=_text(artifact.get("artifact_id"), "artifact_id"),
-            diff_id=diff_id,
+            diff_id=diff_id if isinstance(diff_id, str) else None,
             job_id=job_id,
             destination=_text(export.get("path"), "destination"),
             receipt_ref=f"{_OFFICE_RECEIPT_PREFIX}{job_id}",
             issued_at=_text(export.get("issued_at"), "issued_at"),
             expires_at=_text(export.get("expires_at"), "expires_at"),
             backup_exists=export.get("destination_existed") is True,
+            validation_summary=(
+                "등록된 구조 검증 통과"
+                if validation.get("valid") is True
+                else "구조 검증 실패"
+            ),
+            visual_validation_summary=(
+                "시각 검증 완료"
+                if fidelity.get("status") == "pass"
+                else "시각 검증 미실행"
+            ),
         )
 
     def event_payload(self) -> dict[str, object]:
-        return {
+        payload: dict[str, object] = {
             "summary": "Office export completed",
             "approval_id": self.approval_id,
             "artifact_id": self.artifact_id,
-            "diff_id": self.diff_id,
             "job_id": self.job_id,
             "destination": self.destination,
             "receipt_ref": self.receipt_ref,
             "issued_at": self.issued_at,
             "expires_at": self.expires_at,
             "backup_exists": self.backup_exists,
+            "validation_summary": self.validation_summary,
+            "visual_validation_summary": self.visual_validation_summary,
         }
+        if self.diff_id is not None:
+            payload["diff_id"] = self.diff_id
+        return payload
 
 
 def job_id_from_receipt_ref(receipt_ref: str) -> str:

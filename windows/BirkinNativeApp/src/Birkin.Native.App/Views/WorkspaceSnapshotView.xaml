@@ -19,20 +19,24 @@
             <Menu HorizontalAlignment="Left" VerticalAlignment="Top"
                   Background="Transparent" Foreground="{StaticResource TextBrush}">
                 <MenuItem Header="보기(_V)">
-                    <MenuItem x:Name="NavigationMenuItem" Header="내비게이션 패널(_N)"
-                              ToolTip="Toggle Navigation panel" InputGestureText="Ctrl+B"
+                    <MenuItem x:Name="NavigationMenuItem" Header="업무 목록 패널(_N)"
+                              ToolTip="업무 목록 패널 표시 전환" InputGestureText="Ctrl+B"
                               IsCheckable="True" IsChecked="True" Click="ToggleNavigationClicked"
                               automation:AutomationProperties.AutomationId="menu.view.navigation" />
-                    <MenuItem x:Name="ContextMenuItem" Header="컨텍스트 패널(_C)"
-                              ToolTip="Toggle Context panel" InputGestureText="Ctrl+Shift+B"
+                    <MenuItem x:Name="ContextMenuItem" Header="업무 상세 패널(_C)"
+                              ToolTip="업무 상세 패널 표시 전환" InputGestureText="Ctrl+Shift+B"
                               IsCheckable="True" IsChecked="True" Click="ToggleContextClicked"
                               automation:AutomationProperties.AutomationId="menu.view.context" />
                     <MenuItem x:Name="FocusMenuItem" Header="대화에 집중(_F)"
-                              ToolTip="Focus conversation" InputGestureText="Ctrl+Shift+F"
+                              ToolTip="대화 영역만 확대" InputGestureText="Ctrl+Shift+F"
                               IsCheckable="True" Click="ToggleFocusClicked"
                               automation:AutomationProperties.AutomationId="menu.view.focus" />
+                    <MenuItem x:Name="DocumentFocusMenuItem" Header="문서 확대(_D)"
+                              ToolTip="업무 상세 문서 영역만 확대" InputGestureText="Ctrl+Shift+D"
+                              IsCheckable="True" Click="ToggleDocumentFocusClicked"
+                              automation:AutomationProperties.AutomationId="menu.view.document-focus" />
                     <Separator />
-                    <MenuItem Header="레이아웃 초기화(_R)" ToolTip="Reset layout"
+                    <MenuItem Header="레이아웃 초기화(_R)" ToolTip="기본 레이아웃으로 초기화"
                               InputGestureText="Ctrl+Shift+0" Click="ResetLayoutClicked"
                               automation:AutomationProperties.AutomationId="menu.view.reset" />
                 </MenuItem>
@@ -62,6 +66,8 @@
                     </Ellipse>
                     <TextBlock x:Name="ConnectionStatusText"
                                automation:AutomationProperties.AutomationId="ConnectionStatusText"
+                               automation:AutomationProperties.Name="로컬 브리지 연결 상태"
+                               automation:AutomationProperties.LiveSetting="Polite"
                                Text="{Binding Connection.StatusText}"
                                Foreground="{StaticResource TextBrush}"
                                FontSize="13" FontWeight="SemiBold" />
@@ -83,7 +89,7 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="NavigationColumn" Width="280" MinWidth="240" MaxWidth="480" />
                 <ColumnDefinition x:Name="NavigationSplitterColumn" Width="6" />
-                <ColumnDefinition Width="*" MinWidth="400" />
+                <ColumnDefinition x:Name="PrimaryColumnDefinition" Width="*" MinWidth="400" />
                 <ColumnDefinition x:Name="ContextSplitterColumn" Width="6" />
                 <ColumnDefinition x:Name="ContextColumn" Width="340" MinWidth="300" MaxWidth="600" />
             </Grid.ColumnDefinitions>
@@ -98,7 +104,7 @@
                           DragCompleted="NavigationSplitterDragCompleted"
                           MouseDoubleClick="NavigationSplitterDoubleClicked"
                           automation:AutomationProperties.AutomationId="workspace.splitter.navigation"
-                          automation:AutomationProperties.Name="내비게이션 패널 크기 조절" />
+                          automation:AutomationProperties.Name="업무 목록 패널 크기 조절" />
             <views:PrimaryColumnView x:Name="PrimaryColumnView" Grid.Column="2" />
             <GridSplitter x:Name="ContextSplitter" Grid.Column="3"
                           Style="{StaticResource PanelSplitterStyle}"
@@ -110,15 +116,15 @@
                           DragCompleted="ContextSplitterDragCompleted"
                           MouseDoubleClick="ContextSplitterDoubleClicked"
                           automation:AutomationProperties.AutomationId="workspace.splitter.context"
-                          automation:AutomationProperties.Name="컨텍스트 패널 크기 조절" />
+                          automation:AutomationProperties.Name="업무 상세 패널 크기 조절" />
             <views:ContextColumnView x:Name="ContextColumnView" Grid.Column="4" />
             <Button x:Name="NavigationHotStrip" Grid.Column="2" Width="4" Padding="0"
                     HorizontalAlignment="Left" Cursor="Hand" Visibility="Collapsed" IsEnabled="False"
-                    ToolTipService.InitialShowDelay="400" ToolTip="내비게이션 패널 표시 (Ctrl+B)"
+                    ToolTipService.InitialShowDelay="400" ToolTip="업무 목록 패널 표시 (Ctrl+B)"
                     Background="Transparent" BorderThickness="0" Click="ShowNavigationClicked" />
             <Button x:Name="ContextHotStrip" Grid.Column="2" Width="4" Padding="0"
                     HorizontalAlignment="Right" Cursor="Hand" Visibility="Collapsed" IsEnabled="False"
-                    ToolTipService.InitialShowDelay="400" ToolTip="컨텍스트 패널 표시 (Ctrl+Shift+B)"
+                    ToolTipService.InitialShowDelay="400" ToolTip="업무 상세 패널 표시 (Ctrl+Shift+B)"
                     Background="Transparent" BorderThickness="0" Click="ShowContextClicked" />
         </Grid>
 
@@ -243,39 +249,39 @@
                            Text="패널을 드래그해 크기를 조절하고 Ctrl+B / Ctrl+Shift+B로 숨길 수 있습니다." />
                 <StackPanel x:Name="DiagnosticStatusGroup" Grid.Column="1" Orientation="Horizontal"
                             HorizontalAlignment="Center">
-                    <TextBlock Text="Transport " Foreground="{StaticResource FaintBrush}" />
+                    <TextBlock Text="연결 방식 " Foreground="{StaticResource FaintBrush}" />
                     <TextBlock x:Name="TransportText"
                                automation:AutomationProperties.AutomationId="TransportText"
                                Text="{Binding Workspace.Transport}" />
-                    <TextBlock Text="  ·  Session " Foreground="{StaticResource FaintBrush}" />
+                    <TextBlock Text="  ·  업무 " Foreground="{StaticResource FaintBrush}" />
                     <TextBlock x:Name="SessionIdText"
                                automation:AutomationProperties.AutomationId="SessionIdText"
                                Text="{Binding Workspace.SessionId}" />
-                    <TextBlock Text="  ·  Cursor " Foreground="{StaticResource FaintBrush}" />
+                    <TextBlock Text="  ·  처리 위치 " Foreground="{StaticResource FaintBrush}" />
                     <TextBlock x:Name="CursorText"
                                automation:AutomationProperties.AutomationId="CursorText"
                                Text="{Binding Workspace.Cursor}" />
-                    <TextBlock Text="  ·  Reset " Foreground="{StaticResource FaintBrush}" />
+                    <TextBlock Text="  ·  초기화 " Foreground="{StaticResource FaintBrush}" />
                     <TextBlock x:Name="ResetReasonText"
                                automation:AutomationProperties.AutomationId="ResetReasonText"
                                Text="{Binding Workspace.ResetReason}" />
-                    <TextBlock Text="  ·  Panels " Foreground="{StaticResource FaintBrush}" />
+                    <TextBlock Text="  ·  패널 " Foreground="{StaticResource FaintBrush}" />
                     <TextBlock x:Name="PanelCountText"
                                automation:AutomationProperties.AutomationId="PanelCountText"
                                Text="{Binding Workspace.PanelCount}" />
                 </StackPanel>
                 <StackPanel x:Name="RestoreActionGroup" Grid.Column="2" Orientation="Horizontal"
                             HorizontalAlignment="Right" Margin="12,0,0,0">
-                    <Button x:Name="RestoreNavigationButton" Content="▸ 내비게이션"
+                    <Button x:Name="RestoreNavigationButton" Content="▸ 업무 목록"
                             Style="{StaticResource RestoreChipStyle}" Visibility="Collapsed" IsEnabled="False"
                             Click="ShowNavigationClicked"
                             automation:AutomationProperties.AutomationId="workspace.status.restore.navigation"
-                            automation:AutomationProperties.Name="내비게이션 패널 표시" />
-                    <Button x:Name="RestoreContextButton" Content="◂ 컨텍스트"
+                            automation:AutomationProperties.Name="업무 목록 패널 표시" />
+                    <Button x:Name="RestoreContextButton" Content="◂ 업무 상세"
                             Style="{StaticResource RestoreChipStyle}" Visibility="Collapsed" IsEnabled="False"
                             Click="ShowContextClicked" Margin="6,0,0,0"
                             automation:AutomationProperties.AutomationId="workspace.status.restore.context"
-                            automation:AutomationProperties.Name="컨텍스트 패널 표시" />
+                            automation:AutomationProperties.Name="업무 상세 패널 표시" />
                 </StackPanel>
             </Grid>
         </Border>

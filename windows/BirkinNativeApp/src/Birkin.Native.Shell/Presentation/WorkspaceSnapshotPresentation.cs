@@ -52,7 +52,9 @@ public sealed record WorkspaceSnapshotPresentation
         IReadOnlyList<PanelItemPresentation> Browser,
         IReadOnlyList<PanelItemPresentation> Office,
         TerminalPresentation Terminal,
-        MutationAvailabilityPresentation MutationAvailability)
+        MutationAvailabilityPresentation MutationAvailability,
+        IReadOnlyList<PanelItemPresentation>? Sessions = null,
+        IReadOnlyList<PanelItemPresentation>? WorkItems = null)
     {
         this.ProtocolVersion = ProtocolVersion;
         this.SessionId = SessionId;
@@ -72,6 +74,13 @@ public sealed record WorkspaceSnapshotPresentation
         this.Office = Office;
         this.Terminal = Terminal;
         this.MutationAvailability = MutationAvailability;
+        this.Sessions = Sessions ?? [];
+        this.WorkItems = WorkItems ?? [];
+        RecentResults = Activity
+            .Where(item => item.HasReceipt || item.Kind is "office.job.completed" or "office.create.completed")
+            .TakeLast(8)
+            .Reverse()
+            .ToArray();
     }
 
     public long ProtocolVersion { get; }
@@ -92,6 +101,9 @@ public sealed record WorkspaceSnapshotPresentation
     public IReadOnlyList<PanelItemPresentation> Office { get; }
     public TerminalPresentation Terminal { get; }
     public MutationAvailabilityPresentation MutationAvailability { get; }
+    public IReadOnlyList<PanelItemPresentation> Sessions { get; }
+    public IReadOnlyList<PanelItemPresentation> WorkItems { get; }
+    public IReadOnlyList<PanelItemPresentation> RecentResults { get; }
 
     public static WorkspaceSnapshotPresentation FromProjection(
         NativeProjectionState state,

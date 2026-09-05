@@ -9,6 +9,12 @@ public partial class WorkspaceSnapshotView
 
     private void ToggleFocusMode()
     {
+        if (_compactMode)
+        {
+            ShowCompactPane(CompactPane.Primary);
+            return;
+        }
+        _documentFocusRestore = null;
         if (_layout.FocusRestore is not null)
         {
             var restore = _layout.FocusRestore;

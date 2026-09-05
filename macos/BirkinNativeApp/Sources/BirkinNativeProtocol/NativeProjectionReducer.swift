@@ -4,6 +4,7 @@ struct NativeProjectionEvent {
     let cursor: Int
     let eventID: String
     let type: String
+    let timestamp: String
     let actorID: String
     let commandID: String
     let payload: NativeJSONObject
@@ -261,6 +262,7 @@ enum NativeProjectionReducer {
             "id": .string(id), "summary": .string(summary), "status": .string(status),
             "cursor": .int(event.cursor), "kind": .string(kind),
             "ui_state": .string(payload.string("ui_state") ?? defaultState),
+            "updated_at": .string(event.timestamp),
         ]
         for field in [
             "requester", "description", "category", "target", "expected_impact", "rejection_result",

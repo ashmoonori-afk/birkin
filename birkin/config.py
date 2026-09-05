@@ -653,6 +653,47 @@ def goals_dir() -> Path:
     return d
 
 
+def work_items_path() -> Path:
+    """Persisted user-confirmed follow-up work."""
+    return birkin_home() / "work-items.json"
+
+
+def connections_path() -> Path:
+    """Persisted connection metadata; credentials stay in the secrets source."""
+    return birkin_home() / "connections.json"
+
+
+def mail_drafts_path() -> Path:
+    return birkin_home() / "mail-drafts.json"
+
+
+def mail_receipts_path() -> Path:
+    return birkin_home() / "mail-send-receipts.json"
+
+
+def calendar_drafts_path() -> Path:
+    return birkin_home() / "calendar-drafts.json"
+
+
+def office_templates_path() -> Path:
+    """User-confirmed Office template profiles; document bodies are excluded."""
+    return birkin_home() / "office-templates.json"
+
+
+def data_deletions_path() -> Path:
+    return birkin_home() / "data-deletions.json"
+
+
+def briefings_dir() -> Path:
+    path = birkin_home() / "briefings"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def team_reviews_path() -> Path:
+    return birkin_home() / "team-reviews.json"
+
+
 def companion_dir() -> Path:
     """Commitment / check-in domain state (mutable, outside memory curation)."""
     d = birkin_home() / "companion"

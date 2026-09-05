@@ -62,6 +62,8 @@ def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -
     )
     assert batch.snapshot is not None
     projected = cast(dict[str, object], batch.snapshot["working_memory"])
+    evidence = cast(list[dict[str, object]], projected["files_evidence"])
+    assert isinstance(evidence[0]["updated_at"], str)
     assert projected == {
         "revision": 1,
         "goal": {
@@ -86,6 +88,7 @@ def test_native_projection_maps_goal_fields_files_and_revision(tmp_path: Path) -
                 "cursor": 3,
                 "kind": "evidence",
                 "ui_state": "succeeded",
+                "updated_at": evidence[0]["updated_at"],
             }
         ],
     }

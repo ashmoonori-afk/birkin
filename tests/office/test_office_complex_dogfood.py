@@ -57,14 +57,14 @@ def test_literal_complex_office_dogfood_path_and_module(tmp_path: Path) -> None:
 
     formats = cast(dict[str, dict[str, object]], report["formats"])
     assert set(formats) == FORMATS
-    for evidence in formats.values():
+    for format_name, evidence in formats.items():
         assert evidence["source_sha256_before"] == evidence["source_sha256_after"]
         operations = cast(dict[str, object], evidence["operations"])
         assert {"create", "inspect", "extract", "modify", "validate", "diff", "structured_preview", "convert_txt", "visual_render"} == set(operations)
         preview = cast(dict[str, object], operations["structured_preview"])
         visual = cast(dict[str, object], operations["visual_render"])
         assert preview == {"status": "preview", "visual_proof": False}
-        assert visual["status"] == "unavailable"
+        assert visual["status"] == ("rendered" if format_name == "pdf" else "unavailable")
         artifact = Path(cast(str, evidence["modified_artifact"]))
         assert artifact.is_file() and artifact.resolve().is_relative_to(path_output.resolve())
         reopen = cast(dict[str, object], evidence["reopen_validation"])
