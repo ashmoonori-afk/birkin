@@ -681,6 +681,10 @@ def briefings_dir() -> Path:
     return path
 
 
+def team_reviews_path() -> Path:
+    return birkin_home() / "team-reviews.json"
+
+
 def companion_dir() -> Path:
     """Commitment / check-in domain state (mutable, outside memory curation)."""
     d = birkin_home() / "companion"

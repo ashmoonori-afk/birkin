@@ -12,7 +12,7 @@ from . import config, store
 
 SERVICE = "microsoft-365"
 READ_SCOPES = frozenset({"User.Read", "Mail.Read", "Calendars.Read", "Files.Read"})
-WRITE_SCOPES = frozenset({"Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite"})
+WRITE_SCOPES = frozenset({"Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite", "Files.ReadWrite"})
 
 
 def _read() -> dict[str, object]:

@@ -115,6 +115,36 @@ def _briefing_request(data: ToolInput, ctx: ToolContext) -> ToolResult:
     return ToolResult(json.dumps({**queued, "category": "briefing_schedule"}, ensure_ascii=False))
 
 
+def _review_draft(data: ToolInput, _ctx: ToolContext) -> ToolResult:
+    from ..team_review import create_handoff
+
+    return ToolResult(json.dumps(create_handoff(data), ensure_ascii=False))
+
+
+def _review_share(data: ToolInput, ctx: ToolContext) -> ToolResult:
+    from ..team_review import get_handoff
+
+    review = get_handoff(data.get("review_id"), data.get("content_sha256"))
+    queued = approvals.propose(
+        category="team_share", title=f"팀 검토 인계 확인: {review['source_name']}",
+        description=f"{', '.join(review['reviewers'])}에게 {review['role']} 권한으로 공유합니다.",
+        payload={**review, "review_id": review["id"]}, cfg={}, origin=ctx.record_source,
+    )
+    return ToolResult(json.dumps({**queued, "category": "team_share", "review": review}, ensure_ascii=False))
+
+
+def _review_comment(data: ToolInput, _ctx: ToolContext) -> ToolResult:
+    from ..team_review import add_comment
+
+    return ToolResult(json.dumps(add_comment(data), ensure_ascii=False))
+
+
+def _review_list(data: ToolInput, _ctx: ToolContext) -> ToolResult:
+    from ..team_review import list_review
+
+    return ToolResult(json.dumps(list_review(data.get("review_id"), data.get("actor")), ensure_ascii=False))
+
+
 def tools() -> list[Tool]:
     artifact = {
         "type": "object", "properties": {
@@ -177,4 +207,12 @@ def tools() -> list[Tool]:
             "name": {"type": "string"}, "schedule": {"type": "string"}, "timezone_name": {"type": "string"},
             "missed_policy": {"type": "string", "enum": ["run", "skip"]},
         }, "required": ["action"], "additionalProperties": False}, _briefing_request),
+        Tool("m365_review_draft", "Create a local version-bound Microsoft 365 file review handoff.", {"type": "object", "properties": {
+            "drive_item_id": {"type": "string"}, "source_etag": {"type": "string"}, "source_name": {"type": "string"},
+            "proposer": {"type": "string"}, "reviewers": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            "role": {"type": "string", "enum": ["read", "write"]}, "message": {"type": "string", "maxLength": 2000},
+        }, "required": ["drive_item_id", "source_etag", "source_name", "proposer", "reviewers"], "additionalProperties": False}, _review_draft),
+        Tool("m365_review_share_request", "Request approval to share one unchanged drive item with named reviewers.", {"type": "object", "properties": {"review_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "required": ["review_id", "content_sha256"], "additionalProperties": False}, _review_share),
+        Tool("m365_review_comment", "Add a local review comment bound to the current drive item version.", {"type": "object", "properties": {"review_id": {"type": "string"}, "actor": {"type": "string"}, "text": {"type": "string", "minLength": 1}}, "required": ["review_id", "actor", "text"], "additionalProperties": False}, _review_comment),
+        Tool("m365_review_get", "Read a review only as its proposer or named reviewer.", {"type": "object", "properties": {"review_id": {"type": "string"}, "actor": {"type": "string"}}, "required": ["review_id", "actor"], "additionalProperties": False}, _review_list),
     ]

@@ -366,6 +366,8 @@ Daily briefings reuse the existing cron claim and run history. A deterministic t
 
 `office_batch_request` binds up to 25 unique source/change/destination sets in one approval and executes the existing canonical `OfficeJob` once per file in sequence. Its durable batch record reports each success and failure separately. A retry request rebuilds plans only for failed items, so already successful files are not overwritten.
 
+Team review handoff uses the Microsoft 365 drive-item invite operation with sign-in required and named read/write recipients. The local review record links proposer, reviewers, approval executor, source `etag`, permissions, and comments. Sharing and new comments re-read the drive item and stop on a changed version; only the proposer and named reviewers can read or comment. Real-time co-editing is outside this phase.
+
 `office_job_request` now accepts a source-free DOCX creation proposal with
 `content.paragraphs`. It writes neither a managed draft nor the caller's
 destination until the separate `office_create` approval executes the bound
@@ -442,7 +444,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.381`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.382`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
