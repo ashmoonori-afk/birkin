@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.358`
+- Birkin version: `0.4.359`
 - `catalog_revision: 4`
 - `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
@@ -39,12 +39,13 @@ The tracked catalog and these generated package-tree files are the publication a
 | PDF | Built-in ASCII text-first creation; optional pypdf inspection/extraction; structural validation and TXT projection. | Non-Latin creation returns a typed refusal. Existing content is read-only: no OCR, form fill, annotation, signing, redaction, or object rewrite. |
 | HWPX | Exact-pinned `python-hwpx==6.1.0` text-first blank authoring, trusted-template field derivation, extraction, validation/comparison, TXT projection, and one section-0 field edit. | No legacy HWP, application automation, PDF export, or typography proof. |
 
-Trusted Korean and English Office requests are routed before model execution from user intent and supplied artifact names only. DOCX, XLSX, PPTX, PDF, and HWPX select their matching bundled skill; general Office requests select `office-work-os`; conflicts select inspect-first `office-documents`. Extracted document text is never routing authority. All routed writes remain copy-on-write.
+Trusted Korean and English Office requests are routed before model execution from user intent and supplied artifact names only. DOCX, XLSX, PPTX, PDF, and HWPX select their matching bundled skill, while general Office requests select `office-work-os`. Source formats and the target format are separate route fields; an explicit save format wins over a generic document label, and a default DOCX result is marked as a changeable suggestion. Extracted document text is never routing authority. All routed writes remain copy-on-write.
 
-Korean format aliases are deterministic: `보고서` and `리포트` select DOCX,
-`파워포인트` and `피피티` select PPTX, and `한글파일` selects HWPX. If one
-request names more than one format, Birkin routes to `office-documents` and
-asks exactly `어느 포맷으로 저장할까요?` before any mutation proposal.
+Korean format aliases are deterministic: `보고서` and `리포트` suggest DOCX,
+`파워포인트` and `피피티` select PPTX, and `한글파일` selects HWPX. Multiple
+source formats are allowed. If one request asks for more than one output
+format, Birkin routes to `office-documents` and asks exactly
+`어느 포맷으로 저장할까요?` before any mutation proposal.
 
 ## Registered tools and arguments
 

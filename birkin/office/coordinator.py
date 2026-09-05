@@ -119,6 +119,7 @@ class OfficeCoordinator:
         route = route_office_request(
             request.request_text,
             artifact_names=(_text(request.source.get("uri"), "source uri"),),
+            target_name=request.destination.name,
         )
         if route is not None and route.clarification_question is not None:
             raise _error(

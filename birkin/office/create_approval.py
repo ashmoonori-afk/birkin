@@ -38,7 +38,7 @@ class OfficeCreationCoordinator:
     def request(self, request: OfficeCreationRequest) -> dict[str, object]:
         route = route_office_request(
             request.request_text,
-            artifact_names=(request.destination.name,),
+            target_name=request.destination.name,
         )
         if route is not None and route.clarification_question is not None:
             raise creation_error(route.clarification_question)
