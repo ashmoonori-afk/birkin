@@ -248,9 +248,17 @@ def run(output_dir: Path) -> dict[str, object]:
         validation = call("validate_artifact", {"artifact": source})
         comparison = call("compare_documents", {"left": source, "right": source})
         preview = call("render_artifact", {"artifact": source, "output_format": "structured_preview"})
-        visual = call("render_artifact", {"artifact": source, "output_format": "png"}, refused=True)
-        visual_error = cast(dict[str, object], visual["error"])
-        expected_refusals.append({"format": fmt, "operation": "visual_render", **visual_error})
+        visual = call(
+            "render_artifact",
+            {"artifact": source, "output_format": "png"},
+            refused=fmt != "pdf",
+        )
+        if fmt == "pdf":
+            visual_result = {"status": "rendered", "page_count": visual["page_count"]}
+        else:
+            visual_error = cast(dict[str, object], visual["error"])
+            expected_refusals.append({"format": fmt, "operation": "visual_render", **visual_error})
+            visual_result = {"status": "unavailable", "code": visual_error["code"]}
         budget = {category: 100 for category in LOSS_CATEGORIES}
         converted = cast(dict[str, str], service.convert_document(source, target_format="txt", output_name=f"complex-{fmt}.txt", loss_budget=budget)["draft_artifact"])
         primary = source
@@ -299,7 +307,7 @@ def run(output_dir: Path) -> dict[str, object]:
         records[fmt] = {
             "source_sha256_before": source_digest, "source_sha256_after": sha256(source_path),
             "capabilities": adapter_by_format[fmt]["capabilities"], "modified_artifact": primary["uri"],
-            "operations": {"create": creation, "inspect": "ok", "extract": {"status": "ok", "spans": len(cast(list[object], extraction["spans"]))}, "modify": mutation, "validate": {"status": "ok", "checks": len(cast(list[object], validation["checks"]))}, "diff": {"status": "ok", "self_equal": comparison["equal"]}, "structured_preview": {"status": "preview", "visual_proof": preview["visual_proof"]}, "convert_txt": {"status": "ok", "sha256": converted["content_hash"]}, "visual_render": {"status": "unavailable", "code": visual_error["code"]}},
+            "operations": {"create": creation, "inspect": "ok", "extract": {"status": "ok", "spans": len(cast(list[object], extraction["spans"]))}, "modify": mutation, "validate": {"status": "ok", "checks": len(cast(list[object], validation["checks"]))}, "diff": {"status": "ok", "self_equal": comparison["equal"]}, "structured_preview": {"status": "preview", "visual_proof": preview["visual_proof"]}, "convert_txt": {"status": "ok", "sha256": converted["content_hash"]}, "visual_render": visual_result},
             "structure": structure, "preservation": preservation,
             "reopen_validation": reopened,
             "expected_content_match": expected_content_match,
