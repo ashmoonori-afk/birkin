@@ -134,6 +134,7 @@ internal static class ProviderOfficeJourneyFlow
                 .First(text => text.Text.Contains("4100", StringComparison.Ordinal));
             var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
                 .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
+            Assert.IsTrue(draftBox.Focus(), "the conversation composer did not regain keyboard focus");
             scroll.ScrollToHome();
             await RenderBarrierAsync(window);
             var oldBounds = oldValue.TransformToAncestor(scroll).TransformBounds(
