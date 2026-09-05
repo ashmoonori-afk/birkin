@@ -31,14 +31,14 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="&gt;_" FontFamily="Consolas" FontSize="17"
                                Foreground="{StaticResource MutedBrush}" Margin="0,0,10,0" />
-                    <TextBlock Text="Terminal" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="터미널" Style="{StaticResource SectionTitleStyle}" />
                 </StackPanel>
                 <Border Grid.Row="1" Background="{StaticResource TerminalBrush}" CornerRadius="7" Margin="0,10,0,0">
                     <StackPanel VerticalAlignment="Center">
                         <TextBlock Text="&#xE756;" Style="{StaticResource GlyphStyle}" />
-                        <TextBlock Text="Terminal unavailable on Windows"
+                        <TextBlock Text="Windows에서는 터미널을 아직 사용할 수 없습니다"
                                    FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,4" />
-                        <TextBlock Text="Python has no PTY backend on this platform yet."
+                        <TextBlock Text="이 플랫폼에서 터미널 연결 기능을 준비하고 있습니다."
                                    Style="{StaticResource MutedTextStyle}" HorizontalAlignment="Center" />
                     </StackPanel>
                 </Border>

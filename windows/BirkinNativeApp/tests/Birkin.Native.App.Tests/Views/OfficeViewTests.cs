@@ -101,7 +101,7 @@ public sealed class OfficeViewTests
             Assert.IsFalse(save.IsEnabled);
             Assert.AreEqual(0, fixture.Connection.Sent.Count);
             Assert.AreEqual(
-                "Office save unavailable without approved job request",
+                "변경 작업 승인 후 저장 가능",
                 AutomationProperties.GetName(save));
         });
     }

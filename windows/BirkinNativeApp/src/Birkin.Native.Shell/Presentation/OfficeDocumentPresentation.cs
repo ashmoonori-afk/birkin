@@ -36,7 +36,7 @@ public static class OfficeDocumentPresentationMapper
 
     public static OfficeDocumentRowPresentation FromProjected(PanelItemPresentation item) => new(
         item.Id ?? string.Empty,
-        item.Summary ?? item.Id ?? "Office document",
+        item.Summary ?? item.Id ?? "업무 문서",
         item.Kind ?? "office",
         item.Kind ?? "document");
 

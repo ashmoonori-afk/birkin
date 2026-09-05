@@ -372,7 +372,7 @@
                   IsExpanded="False"
                   Margin="0,8,0,0"
                   Foreground="{StaticResource TextBrush}"
-                  automation:AutomationProperties.Name="Decided approvals"
+                  automation:AutomationProperties.Name="결정한 승인 요청"
                   automation:AutomationProperties.AutomationId="approval.decided.section">
             <Expander.Style>
                 <Style TargetType="Expander">

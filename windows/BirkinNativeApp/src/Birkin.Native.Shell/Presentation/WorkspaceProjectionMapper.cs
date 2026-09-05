@@ -8,9 +8,9 @@ internal static class WorkspaceProjectionMapper
 {
     private static readonly (string Label, string Category)[] ApprovalCategories =
     [
-        ("File Changes", "operation"),
-        ("Command Execution", "shell"),
-        ("Network Access", "network"),
+        ("파일 변경", "operation"),
+        ("명령 실행", "shell"),
+        ("네트워크 접근", "network"),
     ];
 
     public static WorkspaceSnapshotPresentation Map(NativeProjectionState state, string transport) =>
@@ -55,11 +55,11 @@ internal static class WorkspaceProjectionMapper
             Integer(memory, "revision") ?? 0,
             ReadOnly(
             [
-                MemoryRow("Goals", goal is null ? [] : Values(goal, "objective"), "None set"),
-                MemoryRow("Context", FieldValues(fields, "corrections", "decisions", "evidence"), "Empty"),
-                MemoryRow("Files", ObjectSummaries(memory, "files_evidence"), "Empty"),
-                MemoryRow("Constraints", FieldValues(fields, "constraints"), "None set"),
-                MemoryRow("Notes", FieldValues(fields, "incomplete", "next_actions"), "Empty"),
+                MemoryRow("목표", goal is null ? [] : Values(goal, "objective"), "설정되지 않음"),
+                MemoryRow("맥락", FieldValues(fields, "corrections", "decisions", "evidence"), "비어 있음"),
+                MemoryRow("파일", ObjectSummaries(memory, "files_evidence"), "비어 있음"),
+                MemoryRow("제약 조건", FieldValues(fields, "constraints"), "설정되지 않음"),
+                MemoryRow("메모", FieldValues(fields, "incomplete", "next_actions"), "비어 있음"),
             ]));
     }
 
@@ -88,7 +88,7 @@ internal static class WorkspaceProjectionMapper
         return ReadOnly(ApprovalCategories.Select(category => new ApprovalPolicyRowPresentation(
             category.Label,
             category.Category,
-            effective.Contains(category.Category) ? "Auto" : "Ask",
+            effective.Contains(category.Category) ? "자동" : "확인",
             RequestedState(requestedValue, category.Category),
             false)));
     }
@@ -98,12 +98,12 @@ internal static class WorkspaceProjectionMapper
 
     private static string RequestedState(NativeJsonValue? value, string category) => value switch
     {
-        null or NativeJsonNull => "Default",
+        null or NativeJsonNull => "기본값",
         NativeJsonString text => string.Equals(text.Value, category, StringComparison.Ordinal)
-            ? "Auto"
-            : "Ask",
-        NativeJsonArray => AutoApprove(value).Contains(category) ? "Auto" : "Ask",
-        _ => "Invalid",
+            ? "자동"
+            : "확인",
+        NativeJsonArray => AutoApprove(value).Contains(category) ? "자동" : "확인",
+        _ => "잘못된 값",
     };
 
     private static IReadOnlyList<PanelItemPresentation> PanelItems(

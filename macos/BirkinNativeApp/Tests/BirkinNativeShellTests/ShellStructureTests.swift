@@ -15,7 +15,7 @@ struct ShellStructureTests {
         #expect(empty.columns.map(\.id) == [.navigation, .primary, .context])
         #expect(empty.columns.flatMap(\.sections).map(\.id) == ShellSectionID.allCases)
         #expect(empty.columns.flatMap(\.sections).allSatisfy {
-            $0.state == .empty("Waiting for the canonical projection.")
+            $0.state == .empty("최신 작업 상태를 불러오는 중입니다.")
         })
 
         try store.apply(snapshot: snapshot())
@@ -25,7 +25,7 @@ struct ShellStructureTests {
             .first { $0.id == .conversation }
         #expect(conversation?.state == .content(itemCount: 1))
         #expect(projected.columns.flatMap(\.sections).contains {
-            $0.state == .unavailable("Not advertised by the Python projection.")
+            $0.state == .unavailable("현재 연결에서 이 기능을 지원하지 않습니다.")
         })
     }
 

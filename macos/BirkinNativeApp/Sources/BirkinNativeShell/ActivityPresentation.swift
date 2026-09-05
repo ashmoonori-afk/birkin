@@ -69,9 +69,9 @@ public struct ActivityPresentation: Equatable, Sendable, Identifiable {
     }
 
     private static let detailFields: [(String, String)] = [
-        ("target", "Target"), ("status", "Status"),
-        ("effect", "Effect"), ("receipt_ref", "Receipt"),
-        ("snapshot_ref", "Snapshot"), ("refusal_code", "Refusal"),
+        ("target", "대상"), ("status", "상태"),
+        ("effect", "영향"), ("receipt_ref", "처리 기록"),
+        ("snapshot_ref", "상태 기록"), ("refusal_code", "거부 사유"),
     ]
 }
 
@@ -113,9 +113,9 @@ public struct ActivityListView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Toggle("Hide read", isOn: $filter.hideRead)
-                .accessibilityLabel("Hide read activity")
-                .accessibilityHint("Filters this view only and is not saved")
+            Toggle("확인한 항목 숨기기", isOn: $filter.hideRead)
+                .accessibilityLabel("확인한 진행 기록 숨기기")
+                .accessibilityHint("현재 화면에만 적용되며 저장되지 않습니다")
             ForEach(filter.presentations(items)) { item in
                 VStack(alignment: .leading, spacing: 4) {
                     Button {
@@ -152,11 +152,11 @@ public struct ActivityListView: View {
 
     private func accessibilityLabel(_ kind: ActivityKind) -> String {
         switch kind {
-        case .tool: "Tool activity"
-        case .receipt: "Activity receipt"
-        case .failure: "Activity failure"
-        case .integrityWarning: "Activity integrity warning"
-        case .other: "Activity item"
+        case .tool: "도구 작업"
+        case .receipt: "작업 처리 기록"
+        case .failure: "실패한 작업"
+        case .integrityWarning: "무결성 경고"
+        case .other: "진행 기록"
         }
     }
 }

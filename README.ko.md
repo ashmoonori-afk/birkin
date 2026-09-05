@@ -148,8 +148,8 @@ Workspace `SOUL.md`는 deprecated되었고 더 이상 주입되지 않습니다.
 
 ### 언어 정책
 
-Birkin이 소유하는 사용자 인터페이스의 승인, 오류, 복구 동작, 진행 상태,
-완료 결과는 한국어로 표시합니다. 코드, 식별자, protocol field, stable error
+Birkin이 소유하는 사용자 인터페이스의 탐색, Office 작업, 승인, 오류, 복구 동작,
+진행 상태와 완료 결과는 한국어로 표시합니다. 코드, 식별자, protocol field, stable error
 code, log, telemetry, 개발자 진단은 영어로 유지합니다. 표시 계층은 typed
 machine data를 번역하며 raw enum, cursor, exception, receipt JSON을 기본
 설명으로 삼지 않습니다. 이러한 진단은 명시적으로 공개된 제한된 상세
@@ -448,7 +448,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.354`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.355`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

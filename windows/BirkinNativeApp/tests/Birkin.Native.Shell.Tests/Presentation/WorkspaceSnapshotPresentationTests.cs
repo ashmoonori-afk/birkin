@@ -164,7 +164,7 @@ public sealed class WorkspaceSnapshotPresentationTests
         Assert.IsFalse(presentation.Composer.IsEnabled);
         Assert.IsFalse(presentation.MutationAvailability.IsEnabled);
         CollectionAssert.AreEqual(
-            new[] { "Goals", "Context", "Files", "Constraints", "Notes" },
+            new[] { "목표", "맥락", "파일", "제약 조건", "메모" },
             presentation.WorkingMemory.Rows.Select(row => row.Label).ToArray());
         CollectionAssert.AreEqual(
             new[] { "Ship native Working Memory" },
@@ -183,8 +183,8 @@ public sealed class WorkspaceSnapshotPresentationTests
             presentation.WorkingMemory.Rows[4].Values.ToArray());
         Assert.AreEqual(1L, presentation.WorkingMemory.Revision);
         Assert.AreEqual(3, presentation.Approvals.Count);
-        Assert.IsTrue(presentation.Approvals.All(row => row.EffectiveState == "Ask"));
-        Assert.IsTrue(presentation.Approvals.All(row => row.RequestedState == "Default"));
+        Assert.IsTrue(presentation.Approvals.All(row => row.EffectiveState == "확인"));
+        Assert.IsTrue(presentation.Approvals.All(row => row.RequestedState == "기본값"));
         Assert.AreEqual(0, presentation.Activity.Count);
         Assert.AreEqual(0, presentation.Browser.Count);
         Assert.AreEqual(0, presentation.Office.Count);

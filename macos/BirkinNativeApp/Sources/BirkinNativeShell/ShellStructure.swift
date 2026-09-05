@@ -7,9 +7,9 @@ public enum ShellColumnID: String, CaseIterable, Equatable, Sendable {
 
     public var title: String {
         switch self {
-        case .navigation: "Navigation"
-        case .primary: "Conversation"
-        case .context: "Context"
+        case .navigation: "탐색"
+        case .primary: "대화"
+        case .context: "업무 상세"
         }
     }
 
@@ -37,17 +37,17 @@ public enum ShellSectionID: String, CaseIterable, Equatable, Sendable {
 
     public var title: String {
         switch self {
-        case .sessions: "Sessions"
-        case .templates: "Templates"
-        case .workingMemory: "Working Memory"
-        case .conversation: "Conversation"
-        case .composer: "Composer"
-        case .terminal: "Owned Terminal"
-        case .approvals: "Approvals"
-        case .activity: "Activity"
-        case .browserAside: "Browser Aside"
-        case .office: "Office"
-        case .computerUse: "Computer Use"
+        case .sessions: "업무"
+        case .templates: "템플릿"
+        case .workingMemory: "작업 기억"
+        case .conversation: "대화"
+        case .composer: "메시지 입력"
+        case .terminal: "터미널"
+        case .approvals: "승인"
+        case .activity: "진행 상황"
+        case .browserAside: "브라우저"
+        case .office: "문서 작업"
+        case .computerUse: "컴퓨터 사용"
         }
     }
 }
@@ -103,13 +103,13 @@ public struct ShellStructure: Equatable, Sendable {
         guard let panel = projection.panels.first(where: { $0.key == key }) else {
             return ShellSection(
                 id: id,
-                state: .unavailable("Not advertised by the Python projection.")
+                state: .unavailable("현재 연결에서 이 기능을 지원하지 않습니다.")
             )
         }
         return ShellSection(
             id: id,
             state: panel.items.isEmpty
-                ? .empty("No \(id.title.lowercased()) yet.")
+                ? .empty("아직 \(id.title) 항목이 없습니다.")
                 : .content(itemCount: panel.items.count)
         )
     }
@@ -124,7 +124,7 @@ public struct ShellStructure: Equatable, Sendable {
         return ShellSection(
             id: .workingMemory,
             state: count == 0
-                ? .empty("No working memory yet.")
+                ? .empty("아직 저장된 작업 기억이 없습니다.")
                 : .content(itemCount: count)
         )
     }
@@ -134,14 +134,14 @@ public struct ShellStructure: Equatable, Sendable {
         return ShellSection(
             id: .conversation,
             state: projection.conversation.isEmpty
-                ? .empty("No conversation yet.")
+                ? .empty("아직 대화가 없습니다.")
                 : .content(itemCount: projection.conversation.count)
         )
     }
 
     private static func composer(_ projection: NativeProjectionState?) -> ShellSection {
         guard projection != nil else { return waiting(.composer) }
-        return ShellSection(id: .composer, state: .empty("Ready for an explicit message."))
+        return ShellSection(id: .composer, state: .empty("메시지를 입력할 수 있습니다."))
     }
 
     private static func terminal(_ projection: NativeProjectionState?) -> ShellSection {
@@ -149,7 +149,7 @@ public struct ShellStructure: Equatable, Sendable {
         return ShellSection(
             id: .terminal,
             state: projection.terminals.isEmpty
-                ? .empty("No Python terminal yet.")
+                ? .empty("아직 열린 Python 터미널이 없습니다.")
                 : .content(itemCount: projection.terminals.count)
         )
     }
@@ -161,7 +161,7 @@ public struct ShellStructure: Equatable, Sendable {
         guard projection != nil else { return waiting(id) }
         return ShellSection(
             id: id,
-            state: .unavailable("Not advertised by the Python projection.")
+            state: .unavailable("현재 연결에서 이 기능을 지원하지 않습니다.")
         )
     }
 
@@ -174,13 +174,13 @@ public struct ShellStructure: Equatable, Sendable {
         guard store.surface(named: name) != nil else {
             return ShellSection(
                 id: id,
-                state: .unavailable("Not advertised by the Python projection.")
+                state: .unavailable("현재 연결에서 이 기능을 지원하지 않습니다.")
             )
         }
         return ShellSection(id: id, state: .content(itemCount: 1))
     }
 
     private static func waiting(_ id: ShellSectionID) -> ShellSection {
-        ShellSection(id: id, state: .empty("Waiting for the canonical projection."))
+        ShellSection(id: id, state: .empty("최신 작업 상태를 불러오는 중입니다."))
     }
 }

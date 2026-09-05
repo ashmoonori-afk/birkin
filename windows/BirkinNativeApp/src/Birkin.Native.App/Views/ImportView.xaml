@@ -3,12 +3,12 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
              automation:AutomationProperties.AutomationId="import.landmark"
-             automation:AutomationProperties.Name="Office file import">
+             automation:AutomationProperties.Name="업무 문서 가져오기">
     <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
     <StackPanel Margin="0,8,0,0">
         <TextBox x:Name="PathBox"
                  automation:AutomationProperties.AutomationId="import.path"
-                 automation:AutomationProperties.Name="Selected office file path"
+                 automation:AutomationProperties.Name="가져올 문서 경로"
                  Background="{StaticResource RaisedBrush}"
                  BorderBrush="{StaticResource BorderBrush}"
                  Foreground="{StaticResource TextBrush}"
@@ -18,19 +18,19 @@
         <WrapPanel Margin="0,8,0,0"
                    HorizontalAlignment="Right"
                    automation:AutomationProperties.AutomationId="import.actions"
-                   automation:AutomationProperties.Name="File import actions">
+                   automation:AutomationProperties.Name="문서 가져오기 동작">
             <Button x:Name="BrowseButton"
-                    Content="Browse"
+                    Content="찾아보기"
                     Margin="0,0,8,8"
                     automation:AutomationProperties.AutomationId="import.browse"
-                    automation:AutomationProperties.Name="Choose office file to import"
+                    automation:AutomationProperties.Name="가져올 업무 문서 선택"
                     Style="{StaticResource ActionButtonStyle}"
                     Click="BrowseClicked" />
             <Button x:Name="ImportButton"
-                    Content="Import"
+                    Content="가져오기"
                     Margin="0,0,0,8"
                     automation:AutomationProperties.AutomationId="import.submit"
-                    automation:AutomationProperties.Name="Import selected office file"
+                    automation:AutomationProperties.Name="선택한 업무 문서 가져오기"
                     Style="{StaticResource ActionButtonStyle}"
                     IsEnabled="{Binding OfficeWorkflow.Availability.FileImport.IsEnabled}"
                     Click="ImportClicked" />
@@ -44,7 +44,7 @@
         <ItemsControl Margin="0,8,0,0"
                       ItemsSource="{Binding OfficeWorkflow.Imports}"
                       automation:AutomationProperties.AutomationId="import.chips"
-                      automation:AutomationProperties.Name="Imported files">
+                      automation:AutomationProperties.Name="가져온 문서">
             <ItemsControl.ItemsPanel>
                 <ItemsPanelTemplate>
                     <WrapPanel />

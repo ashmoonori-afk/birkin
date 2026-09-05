@@ -47,46 +47,46 @@ public struct BrowserAsideView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Button("Start") { start?() }.disabled(start == nil || presentation.isLive)
+                Button("시작") { start?() }.disabled(start == nil || presentation.isLive)
                 Button(action: { back?() }) { Image(systemName: "chevron.left") }
                     .disabled(back == nil || !presentation.canGoBack)
-                    .accessibilityLabel("Back")
+                    .accessibilityLabel("뒤로")
                 Button(action: { forward?() }) { Image(systemName: "chevron.right") }
                     .disabled(forward == nil || !presentation.canGoForward)
-                    .accessibilityLabel("Forward")
+                    .accessibilityLabel("앞으로")
                 Button(action: { reload?() }) { Image(systemName: "arrow.clockwise") }
                     .disabled(reload == nil || !presentation.isLive)
-                    .accessibilityLabel("Reload")
-                Button("Close") { close?() }.disabled(close == nil || !presentation.isLive)
+                    .accessibilityLabel("새로고침")
+                Button("닫기") { close?() }.disabled(close == nil || !presentation.isLive)
             }
             HStack {
-                TextField("Address", text: $address).textFieldStyle(.roundedBorder)
-                    .onSubmit { submit() }.accessibilityLabel("Browser address")
-                Button("Navigate", action: submit)
+                TextField("주소", text: $address).textFieldStyle(.roundedBorder)
+                    .onSubmit { submit() }.accessibilityLabel("브라우저 주소")
+                Button("이동", action: submit)
                     .disabled(navigate == nil || !presentation.isLive || address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            if presentation.isLoading { ProgressView("Loading") }
-            Text(presentation.displayURL.isEmpty ? "No page loaded" : presentation.displayURL).lineLimit(1)
-            Text("Private profile \(presentation.profileGeneration) · \(presentation.ownerKind) · history \(presentation.historyIndex + 1)/\(presentation.historyEntries.count)")
+            if presentation.isLoading { ProgressView("불러오는 중") }
+            Text(presentation.displayURL.isEmpty ? "열린 페이지가 없습니다" : presentation.displayURL).lineLimit(1)
+            Text("전용 프로필 \(presentation.profileGeneration) · \(presentation.ownerKind) · 방문 기록 \(presentation.historyIndex + 1)/\(presentation.historyEntries.count)")
                 .font(.caption).foregroundStyle(.secondary)
             Group {
                 if let digest = presentation.frameDigest,
                    presentation.frameMediaType == "image/png",
                    presentation.frameMaximumBytes > 0 {
                     VStack {
-                        Label("Bounded browser frame", systemImage: "photo")
+                        Label("제한된 브라우저 화면", systemImage: "photo")
                         Text(digest).font(.caption2).lineLimit(1)
-                        Text("revision \(presentation.frameRevision) · limit \(presentation.frameMaximumBytes) bytes")
+                        Text("버전 \(presentation.frameRevision) · 최대 \(presentation.frameMaximumBytes)바이트")
                             .font(.caption2).foregroundStyle(.secondary)
                     }
-                } else { Text("No frame available.") }
+                } else { Text("표시할 화면이 없습니다.") }
             }
             .frame(maxWidth: .infinity, minHeight: 90)
             .background(.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
             if let refusal = presentation.refusal { Text(refusal).foregroundStyle(.red) }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Browser Aside private workspace")
+        .accessibilityLabel("브라우저 전용 작업공간")
     }
 }
 
@@ -113,30 +113,30 @@ public struct ComputerUseStatusView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 7) {
             Label(
-                presentation.permissionPrompted ? "Permission status unavailable" : "Checked without prompting",
+                presentation.permissionPrompted ? "권한 상태를 확인할 수 없음" : "추가 요청 없이 확인됨",
                 systemImage: presentation.permissionPrompted ? "exclamationmark.triangle" : "checkmark.shield"
             )
-            Text("Accessibility: \(presentation.accessibilityStatus) · Screen Recording: \(presentation.screenRecordingStatus)")
-            Text("Backend: \(presentation.backendStatus) · Binding: \(presentation.bindingStatus)")
+            Text("손쉬운 사용: \(presentation.accessibilityStatus) · 화면 기록: \(presentation.screenRecordingStatus)")
+            Text("실행 환경: \(presentation.backendStatus) · 연결: \(presentation.bindingStatus)")
             if let state = presentation.consentState {
-                Text("One-shot grant \(presentation.grantID ?? "missing"): \(state)")
-                if let action = presentation.action { Text("Action \(action)") }
-                if let app = presentation.applicationRef { Text("Application \(app)") }
-                if let window = presentation.windowRef { Text("Window \(window)") }
+                Text("일회성 승인 \(presentation.grantID ?? "없음"): \(state)")
+                if let action = presentation.action { Text("작업 \(action)") }
+                if let app = presentation.applicationRef { Text("앱 \(app)") }
+                if let window = presentation.windowRef { Text("창 \(window)") }
                 if let countdown = presentation.countdownText { Text(countdown).monospacedDigit() }
                 HStack {
-                    Button("Approve once", action: approve)
-                    Button("Reject", action: reject)
-                    Button("Execute once", action: execute)
+                    Button("한 번만 승인", action: approve)
+                    Button("거부", action: reject)
+                    Button("한 번 실행", action: execute)
                         .disabled(!canExecute || state != "approved")
                 }
                 .disabled(!canDecide || state == "expired" || state == "consumed")
-            } else { Text("No foreground consent requested.").foregroundStyle(.secondary) }
-            Text("\(presentation.receipts.count) execution receipt(s)")
+            } else { Text("확인이 필요한 화면 작업이 없습니다.").foregroundStyle(.secondary) }
+            Text("실행 기록 \(presentation.receipts.count)건")
                 .font(.caption).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Computer Use consent")
+        .accessibilityLabel("컴퓨터 사용 승인")
     }
 }
 
@@ -185,35 +185,35 @@ public struct OfficeView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            Picker("Format", selection: $format) {
+            Picker("형식", selection: $format) {
                 ForEach(presentation.formats, id: \.self) { Text($0).tag($0) }
             }
-            TextField("Document name", text: $outputName).textFieldStyle(.roundedBorder)
-            TextField("Document content", text: $content).textFieldStyle(.roundedBorder)
+            TextField("문서 이름", text: $outputName).textFieldStyle(.roundedBorder)
+            TextField("문서 내용", text: $content).textFieldStyle(.roundedBorder)
             HStack {
-                Button("New", action: createDocument)
+                Button("새 문서", action: createDocument)
                     .disabled(!canCreate || outputName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("Open", action: open)
+                Button("열기", action: open)
                     .disabled(!canOpen || presentation.selectedDocument == nil)
             }
-            Picker("Document", selection: Binding(
+            Picker("문서", selection: Binding(
                 get: { presentation.selectedArtifactID ?? "" },
                 set: { if !$0.isEmpty { select($0) } }
             )) {
-                Text("Select a document").tag("")
+                Text("문서를 선택하세요").tag("")
                 ForEach(presentation.documentPresentations) { Text($0.id).tag($0.id) }
             }
             if let document = presentation.selectedDocument {
-                Text("Active content: \(document.activeContent.count) · provenance \(document.provenance == nil ? "missing" : "verified") · conversion \(document.conversion == nil ? "none" : "recorded")")
+                Text("활성 콘텐츠: \(document.activeContent.count) · 출처 \(document.provenance == nil ? "없음" : "확인됨") · 변환 \(document.conversion == nil ? "없음" : "기록됨")")
                     .font(.caption)
             }
-            Text("\(presentation.documents.count) jailed document(s) · \(presentation.receipts.count) receipt(s)")
+            Text("보호된 문서 \(presentation.documents.count)개 · 작업 기록 \(presentation.receipts.count)건")
                 .font(.caption).foregroundStyle(.secondary)
             if let refusal = presentation.refusalCode {
-                Label("Refused: \(refusal)", systemImage: "hand.raised.fill").foregroundStyle(.red)
+                Label("거부됨: \(refusal)", systemImage: "hand.raised.fill").foregroundStyle(.red)
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Office document service")
+        .accessibilityLabel("업무 문서 서비스")
     }
 }

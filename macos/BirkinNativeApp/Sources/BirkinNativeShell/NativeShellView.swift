@@ -83,10 +83,10 @@ public struct NativeShellView: View {
                 Button {
                     showsCommandPalette = true
                 } label: {
-                    Label("Commands", systemImage: "command")
+                    Label("명령", systemImage: "command")
                 }
                 .keyboardShortcut("k", modifiers: .command)
-                .accessibilityLabel("Open command palette")
+                .accessibilityLabel("명령 팔레트 열기")
             }
             .padding(12)
             .overlay {
@@ -107,7 +107,7 @@ public struct NativeShellView: View {
                     .lineLimit(3)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
-                    .accessibilityLabel("Command error: \(commandError)")
+                    .accessibilityLabel("명령 오류: \(commandError)")
             }
             Divider()
             GeometryReader { geometry in
@@ -205,13 +205,13 @@ public struct NativeShellView: View {
 
     @ViewBuilder
     private var panelSelector: some View {
-        Text("Panel")
+        Text("패널")
             .font(.headline)
             .fixedSize(horizontal: false, vertical: true)
         ForEach(ShellColumnID.allCases, id: \.self) { column in
             Button(column.title) { selectedColumn = column }
                 .buttonStyle(.plain)
-                .accessibilityLabel("Show \(column.title) panel")
+                .accessibilityLabel("\(column.title) 패널 보기")
                 .accessibilityAddTraits(selectedColumn == column ? .isSelected : [])
                 .fontWeight(selectedColumn == column ? .bold : .regular)
                 .padding(.horizontal, 8)
@@ -341,7 +341,7 @@ public struct NativeShellView: View {
                     if let reference = jailedDrop.reference {
                         ImportedReferenceChip(reference: reference)
                     } else {
-                        Label("Drop a file to import", systemImage: "tray.and.arrow.down")
+                        Label("가져올 파일을 놓으세요", systemImage: "tray.and.arrow.down")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -358,11 +358,11 @@ public struct NativeShellView: View {
                     Button {
                         showsAttachmentPicker = true
                     } label: {
-                        Label("Attach File", systemImage: "paperclip")
+                        Label("파일 첨부", systemImage: "paperclip")
                     }
                     .disabled(!availability.isEnabled || !isFileImportAdvertised)
                     .keyboardShortcut("o", modifiers: [.command, .shift])
-                    .accessibilityLabel("Choose a file to import into the workspace jail")
+                    .accessibilityLabel("안전한 작업공간으로 가져올 파일 선택")
                     JailedDropZone(model: jailedDrop) { urls in
                         importDroppedURLs(urls, availability: availability)
                     }
@@ -382,9 +382,9 @@ public struct NativeShellView: View {
                 }
             }
             if section.id == .terminal, store.projection?.terminals.isEmpty != false {
-                Button("New Terminal") { requestTerminal(availability: availability) }
+                Button("새 터미널") { requestTerminal(availability: availability) }
                     .disabled(!availability.isEnabled || !terminalCreateAdvertised)
-                    .accessibilityLabel("Request new Python terminal")
+                    .accessibilityLabel("새 Python 터미널 요청")
             }
             if let control = mutationControl(for: section.id) {
                 let surfaceEnabled = isAdvertised(control)
@@ -469,7 +469,7 @@ public struct NativeShellView: View {
                 }
             }
             .disabled(!availability.isEnabled || !isSessionCreateAdvertised)
-            .accessibilityLabel("Launch \(preset.name) template")
+            .accessibilityLabel("\(preset.name) 템플릿 시작")
         }
     }
 
@@ -482,7 +482,7 @@ public struct NativeShellView: View {
         let items = store.projection?.panels.first(where: { $0.key == "approvals" })?.items ?? []
         let cards = items.compactMap(ApprovalCardPresentation.init)
         if cards.isEmpty {
-            Text("No approvals yet.").font(.subheadline).foregroundStyle(.secondary)
+            Text("대기 중인 승인 요청이 없습니다.").font(.subheadline).foregroundStyle(.secondary)
         } else {
             ForEach(cards) { card in
                 ApprovalCardView(

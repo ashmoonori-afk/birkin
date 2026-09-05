@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
              automation:AutomationProperties.AutomationId="office.workflow"
-             automation:AutomationProperties.Name="Office document workflow">
+             automation:AutomationProperties.Name="업무 문서 작업">
     <UserControl.Resources><ResourceDictionary Source="../Styles/ShellStyles.xaml" /></UserControl.Resources>
     <ScrollViewer automation:AutomationProperties.AutomationId="office.workflow-scroll"
                   VerticalScrollBarVisibility="Auto"
@@ -21,7 +21,7 @@
                                 <TextBlock automation:AutomationProperties.AutomationId="office.document-summary" Text="{Binding Name}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Text="{Binding MediaType}" Foreground="{StaticResource FaintBrush}" FontSize="10" TextWrapping="Wrap" />
                             </StackPanel>
-                            <Button Grid.Column="1" Content="Select" Tag="{Binding Id}" Margin="6,0,0,0" automation:AutomationProperties.AutomationId="office.select" automation:AutomationProperties.Name="Select projected office document" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.OfficeSelect.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="SelectClicked" />
+                            <Button Grid.Column="1" Content="선택" Tag="{Binding Id}" Margin="6,0,0,0" automation:AutomationProperties.AutomationId="office.select" automation:AutomationProperties.Name="이 업무 문서 선택" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.OfficeSelect.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="SelectClicked" />
                         </Grid>
                     </Border>
                 </DataTemplate></ItemsControl.ItemTemplate>
@@ -29,19 +29,19 @@
             <StackPanel VerticalAlignment="Center">
                 <StackPanel.Style><Style TargetType="StackPanel"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding DocumentRows.Count, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="0"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></StackPanel.Style>
                 <TextBlock Text="&#xE8A5;" Style="{StaticResource GlyphStyle}" FontSize="18" />
-                <TextBlock Text="No documents open" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                <TextBlock Text="열린 문서가 없습니다" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
             </StackPanel>
         </Grid>
         <ContentControl x:Name="DiffHost" Grid.Row="1" />
         <Grid Grid.Row="2" Margin="0,4,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-            <Expander Header="Save unavailable" automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="Office save availability" Foreground="{StaticResource TextBrush}">
+            <Expander Header="저장 준비 필요" automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="문서 저장 가능 여부" Foreground="{StaticResource TextBrush}">
                 <StackPanel Margin="0,6,6,0">
-                    <TextBlock Text="Office changes can be reviewed here, but saving requires an approved office_job_request from Python." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" />
-                    <Button Content="Save unavailable" HorizontalAlignment="Right" Margin="0,5,0,0" automation:AutomationProperties.AutomationId="office.save-unavailable" automation:AutomationProperties.Name="Office save unavailable without approved job request" Style="{StaticResource DisabledActionStyle}" IsEnabled="False" />
+                    <TextBlock Text="변경 사항은 여기서 확인할 수 있습니다. 저장하려면 Birkin에 변경 작업을 요청하고 승인하세요." TextWrapping="Wrap" Foreground="{StaticResource MutedBrush}" />
+                    <Button Content="승인 후 저장 가능" HorizontalAlignment="Right" Margin="0,5,0,0" automation:AutomationProperties.AutomationId="office.save-unavailable" automation:AutomationProperties.Name="변경 작업 승인 후 저장 가능" Style="{StaticResource DisabledActionStyle}" IsEnabled="False" />
                 </StackPanel>
             </Expander>
-            <Expander x:Name="ImportPanel" Grid.Column="1" Header="Import file" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="Import office file controls" Foreground="{StaticResource TextBrush}">
+            <Expander x:Name="ImportPanel" Grid.Column="1" Header="문서 가져오기" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="업무 문서 가져오기" Foreground="{StaticResource TextBrush}">
                 <ContentControl x:Name="ImportHost" />
             </Expander>
         </Grid>

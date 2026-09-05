@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:views="clr-namespace:Birkin.Native.App.Views"
         xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
-        Title="Birkin for Windows - Development Preview"
+        Title="Windows용 Birkin - 개발 프리뷰"
         Width="1500"
         Height="940"
         MinWidth="1100"
@@ -34,14 +34,14 @@
                 BorderThickness="2"
                 CornerRadius="12"
                 automation:AutomationProperties.AutomationId="import.drop-overlay"
-                automation:AutomationProperties.Name="Office file drop target">
+                automation:AutomationProperties.Name="업무 문서 가져오기 영역">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock Text="&#xE8B7;"
                            Style="{StaticResource GlyphStyle}"
                            Foreground="{StaticResource AccentBrush}" />
                 <TextBlock x:Name="DropOverlayText"
                            Margin="0,12,0,0"
-                           Text="Drop one file to copy it into Birkin's session jail"
+                           Text="파일 하나를 안전한 작업공간으로 가져오세요"
                            Foreground="{StaticResource TextBrush}"
                            FontSize="17"
                            FontWeight="SemiBold" />

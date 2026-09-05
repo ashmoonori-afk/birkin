@@ -28,6 +28,6 @@ struct ConnectionPresentationTests {
 
         #expect(Set(presentations.map(\.renderSignature)).count == presentations.count)
         #expect(presentations.allSatisfy { !$0.title.isEmpty && !$0.symbolName.isEmpty })
-        #expect(presentations.allSatisfy { $0.diagnosticsLabel == "Show Diagnostics" })
+        #expect(presentations.allSatisfy { $0.diagnosticsLabel == "연결 세부 정보" })
     }
 }

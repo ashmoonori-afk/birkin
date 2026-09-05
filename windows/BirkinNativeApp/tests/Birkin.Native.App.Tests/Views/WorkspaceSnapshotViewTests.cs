@@ -197,7 +197,7 @@ public sealed class WorkspaceSnapshotViewTests
         });
 
         // Then
-        Assert.AreEqual("Birkin for Windows - Development Preview", properties.Title);
+        Assert.AreEqual("Windows용 Birkin - 개발 프리뷰", properties.Title);
         Assert.AreEqual(ResizeMode.CanResize, properties.ResizeMode);
         Assert.IsTrue(properties.Focusable);
     }

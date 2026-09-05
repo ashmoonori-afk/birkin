@@ -29,23 +29,23 @@ public struct ConversationTurnControlsView: View {
         VStack(alignment: .leading, spacing: 8) {
             if turn.canInterrupt {
                 HStack {
-                    TextField("Steer the active turn", text: $steeringText)
+                    TextField("진행 중인 응답에 추가 지시", text: $steeringText)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("conversation-steer-field")
-                    Button("Steer") { send(.steer(steeringText)) }
+                    Button("지시 보내기") { send(.steer(steeringText)) }
                         .disabled(!available(.steer(steeringText)).isEnabled)
-                    Button("Interrupt") { send(.interrupt) }
+                    Button("중지") { send(.interrupt) }
                         .disabled(!available(.interrupt).isEnabled)
                 }
             }
             if turn.canResume || turn.hasFailedIntent {
                 HStack {
                     if turn.canResume {
-                        Button("Resume") { send(.resume) }
+                        Button("계속") { send(.resume) }
                             .disabled(!available(.resume).isEnabled)
                     }
                     if turn.hasFailedIntent {
-                        Button("Retry") { send(.retry) }
+                        Button("다시 시도") { send(.retry) }
                             .disabled(!available(.retry).isEnabled)
                     }
                 }
@@ -57,7 +57,7 @@ public struct ConversationTurnControlsView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Conversation turn controls")
+        .accessibilityLabel("대화 응답 제어")
     }
 
     private func available(
@@ -86,7 +86,7 @@ public struct ConversationTurnControlsView: View {
             if case .steer = command { steeringText = "" }
             visibleReason = nil
         } catch {
-            visibleReason = "The conversation command was refused locally."
+            visibleReason = "이 기기에서 대화 명령을 처리하지 못했습니다. 연결 상태를 확인하고 다시 시도하세요."
         }
     }
 }

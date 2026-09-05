@@ -192,7 +192,7 @@
                 CornerRadius="6,6,0,0"
                 Padding="10,6">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <TextBlock Text="Transport " Foreground="{StaticResource FaintBrush}" />
+                <TextBlock Text="연결 방식 " Foreground="{StaticResource FaintBrush}" />
                 <TextBlock x:Name="TransportText"
                            automation:AutomationProperties.AutomationId="TransportText"
                            Text="{Binding Workspace.Transport}" />

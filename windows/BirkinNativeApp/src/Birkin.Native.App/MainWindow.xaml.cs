@@ -149,8 +149,8 @@ public partial class MainWindow : Window
         var paths = DroppedPaths(eventArgs.Data);
         var eligible = OfficeFileSelection.Select(paths) is not null;
         DropOverlayText.Text = eligible
-            ? "Drop one file to copy it into Birkin's session jail"
-            : "Choose exactly one file";
+            ? "파일 하나를 안전한 작업공간으로 가져오세요"
+            : "파일을 하나만 선택하세요";
         DropOverlay.Visibility = Visibility.Visible;
         eventArgs.Effects = eligible
             ? DragDropEffects.Copy

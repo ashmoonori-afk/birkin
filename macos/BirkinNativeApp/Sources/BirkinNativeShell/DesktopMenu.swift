@@ -30,22 +30,22 @@ public struct DesktopMenuModel: Equatable, Sendable {
         pendingApprovalCount: Int
     ) {
         switch connection {
-        case .ready, .fallback(.ready): connectionTitle = "Connected"
-        case .replaying: connectionTitle = "Replaying"
-        case .connecting, .negotiating, .fallback: connectionTitle = "Connecting"
-        case .failed: connectionTitle = "Connection failed"
-        case .disconnected: connectionTitle = "Disconnected"
+        case .ready, .fallback(.ready): connectionTitle = "연결됨"
+        case .replaying: connectionTitle = "상태 복원 중"
+        case .connecting, .negotiating, .fallback: connectionTitle = "연결 중"
+        case .failed: connectionTitle = "연결 실패"
+        case .disconnected: connectionTitle = "연결 끊김"
         }
         var values = [DesktopMenuItem(
-            title: "Connection: \(connectionTitle)", destination: .connection
+            title: "연결: \(connectionTitle)", destination: .connection
         )]
         if let sessionID {
             values.append(DesktopMenuItem(
-                title: "Session: \(sessionID)", destination: .session(id: sessionID)
+                title: "업무: \(sessionID)", destination: .session(id: sessionID)
             ))
         }
         values.append(DesktopMenuItem(
-            title: "Approvals (\(max(0, pendingApprovalCount)))", destination: .approvals
+            title: "승인 요청 \(max(0, pendingApprovalCount))건", destination: .approvals
         ))
         items = values
     }
@@ -68,10 +68,10 @@ public struct DesktopMenuView: View {
             ForEach(model.items) { item in
                 Button(item.title) { navigate(item.destination) }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Navigates in Birkin; does not make a decision")
+                    .accessibilityHint("Birkin의 승인 화면으로 이동하며 결정을 대신 내리지 않습니다")
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel("Birkin status menu")
+        .accessibilityLabel("Birkin 상태 메뉴")
     }
 }

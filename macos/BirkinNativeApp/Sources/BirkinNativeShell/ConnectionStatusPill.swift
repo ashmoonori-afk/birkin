@@ -27,7 +27,7 @@ public struct ConnectionStatusPill: View {
                 .strokeBorder(tint.opacity(0.7), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Connection status")
+        .accessibilityLabel("연결 상태")
         .accessibilityValue(
             "\(presentation.title), \(presentation.transportLabel), \(presentation.detail)"
         )
@@ -60,8 +60,8 @@ public struct ConnectionStatusPill: View {
         Button(presentation.diagnosticsLabel, action: diagnosticsAction)
             .buttonStyle(DiagnosticsButtonStyle())
             .fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel("Show connection diagnostics")
-            .accessibilityHint("Opens bounded connection diagnostics")
+            .accessibilityLabel("연결 세부 정보 보기")
+            .accessibilityHint("제한된 연결 진단 정보를 엽니다")
     }
 
     private var tint: Color {

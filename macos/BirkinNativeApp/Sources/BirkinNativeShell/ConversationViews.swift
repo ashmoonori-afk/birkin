@@ -15,7 +15,7 @@ public struct MessageStreamView: View {
                 messageRows
             }
         }
-        .accessibilityLabel("Conversation message stream")
+        .accessibilityLabel("대화 메시지 목록")
     }
 
     @ViewBuilder
@@ -75,7 +75,7 @@ public struct ConversationComposerView: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Toggle("Code mode", isOn: $model.isCodeMode)
-                .accessibilityLabel("Code mode")
+                .accessibilityLabel("코드 모드")
             IMEAwareTextEditor(text: $model.draft, send: send)
                 .frame(minHeight: 72)
             .font(model.isCodeMode ? .system(.body, design: .monospaced) : .body)
@@ -87,9 +87,9 @@ public struct ConversationComposerView: View {
                 Text("\(model.draftByteCount) bytes")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 Spacer()
-                Button("Send", action: send)
+                Button("보내기", action: send)
                     .keyboardShortcut(.return, modifiers: .command)
-                    .accessibilityLabel("Send message")
+                    .accessibilityLabel("메시지 보내기")
                     .disabled(!isSendEnabled)
             }
             if let reason = model.visibleReason {

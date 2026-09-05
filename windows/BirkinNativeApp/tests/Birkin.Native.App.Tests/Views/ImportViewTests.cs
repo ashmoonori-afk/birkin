@@ -166,7 +166,7 @@ public sealed class ImportViewTests
             Assert.AreEqual(1, fixture.Connection.Sent.Count);
             Assert.AreEqual("file.import", fixture.Connection.Sent[0].CommandType);
             Assert.AreEqual(path.Text, ((NativeJsonString)fixture.Connection.Sent[0].Payload["source_path"]!).Value);
-            Assert.AreEqual("Import selected office file", AutomationProperties.GetName(submit));
+            Assert.AreEqual("선택한 업무 문서 가져오기", AutomationProperties.GetName(submit));
         });
     }
 
