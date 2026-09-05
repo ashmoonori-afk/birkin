@@ -28,6 +28,7 @@ NAMES = {
     "list_document_adapters",
     "inspect_document",
     "extract_document",
+    "analyze_workbook",
     "compare_documents",
     "render_artifact",
     "validate_artifact",

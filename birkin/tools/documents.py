@@ -13,6 +13,7 @@ NAMES = (
     "list_document_adapters",
     "inspect_document",
     "extract_document",
+    "analyze_workbook",
     "compare_documents",
     "render_artifact",
     "validate_artifact",
@@ -193,6 +194,7 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                 methods: dict[str, Callable[..., object]] = {
                     "inspect_document": service.inspect_document,
                     "extract_document": service.extract_document,
+                    "analyze_workbook": service.analyze_workbook,
                     "compare_documents": service.compare_documents,
                     "validate_artifact": service.validate_artifact,
                 }
@@ -227,6 +229,18 @@ def tools() -> list[Tool]:
                 "max_text_bytes": {"type": "integer", "minimum": 1, "maximum": 1_000_000},
             },
             ["source"],
+        ),
+        "analyze_workbook": _object(
+            {
+                "source": _ARTIFACT,
+                "sheet": {"type": "string", "minLength": 1},
+                "cell_range": {"type": "string", "minLength": 1},
+                "group_by": {"type": "string", "minLength": 1},
+                "value_column": {"type": "string", "minLength": 1},
+                "compare_by": {"type": "string", "minLength": 1},
+                "include_hidden_rows": {"type": "boolean"},
+            },
+            ["source", "sheet", "cell_range"],
         ),
         "compare_documents": _object({"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]),
         "render_artifact": _object(

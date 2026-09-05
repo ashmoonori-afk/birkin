@@ -34,6 +34,7 @@ from .service_patch import fill_template as fill_template_operation
 from .service_types import ConvertedDocument, CreatedDocument, ExtractionResult
 from .service_workspace import DocumentWorkspace
 from .validation import ValidationResult, validate_document
+from .xlsx_analysis import analyze_xlsx
 
 
 class _InspectAdapter(Protocol):
@@ -235,6 +236,28 @@ class DocumentService:
             return build_extraction(
                 extract_items(path, fmt), fmt, digest, projection=projection,
                 max_spans=max_spans, max_nodes=max_nodes, max_text_bytes=max_text_bytes,
+            )
+
+    def analyze_workbook(
+        self,
+        source: Mapping[str, object],
+        *,
+        sheet: object,
+        cell_range: object,
+        group_by: object = None,
+        value_column: object = None,
+        compare_by: object = None,
+        include_hidden_rows: object = False,
+    ) -> dict[str, object]:
+        with self._workspace.artifact_snapshot(source) as path:
+            if self._format(path) != "xlsx":
+                raise DocumentError(DocumentErrorCode.UNSUPPORTED_FORMAT, "analyze", "workbook analysis requires XLSX")
+            _ = verify_identity(path, "xlsx")
+            digest = self._workspace.hash_file(path)
+            return analyze_xlsx(
+                path, digest, sheet=sheet, cell_range=cell_range,
+                group_by=group_by, value_column=value_column, compare_by=compare_by,
+                include_hidden_rows=include_hidden_rows,
             )
 
     def validate_artifact(self, artifact: Mapping[str, object]) -> ValidationResult:

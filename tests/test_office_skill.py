@@ -24,6 +24,7 @@ REQUIRED_ARGUMENTS = {
     "list_document_adapters": [],
     "inspect_document": ["source"],
     "extract_document": ["source"],
+    "analyze_workbook": ["source", "sheet", "cell_range"],
     "compare_documents": ["left", "right"],
     "render_artifact": ["artifact"],
     "validate_artifact": ["artifact"],
