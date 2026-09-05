@@ -48,8 +48,6 @@ MAX_CONSECUTIVE_ACCEPT_FAILURES = 64
 
 
 class ServingEndpoint(Protocol):
-    """The accept-and-serve surface one bridge lifecycle needs."""
-
     def serve_once(self) -> None: ...
 
     def close(self) -> None: ...
