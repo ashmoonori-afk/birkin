@@ -130,27 +130,29 @@ internal static class ProviderOfficeJourneyFlow
 
             await RenderBarrierAsync(window);
             var scroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
+            var workflowScroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "office.workflow-scroll");
             var oldValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.old-value")
                 .First(text => text.Text.Contains("4100", StringComparison.Ordinal));
             var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
                 .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
             Assert.IsTrue(draftBox.Focus(), "the conversation composer did not regain keyboard focus");
-            scroll.ScrollToHome();
+            scroll.ScrollToEnd();
+            workflowScroll.ScrollToHome();
             await RenderBarrierAsync(window);
-            var oldBounds = oldValue.TransformToAncestor(scroll).TransformBounds(
+            var oldBounds = oldValue.TransformToAncestor(workflowScroll).TransformBounds(
                 new Rect(new Point(), oldValue.RenderSize));
-            var newBounds = newValue.TransformToAncestor(scroll).TransformBounds(
+            var newBounds = newValue.TransformToAncestor(workflowScroll).TransformBounds(
                 new Rect(new Point(), newValue.RenderSize));
             var contentCenter = (Math.Min(oldBounds.Top, newBounds.Top)
                 + Math.Max(oldBounds.Bottom, newBounds.Bottom)) / 2;
-            scroll.ScrollToVerticalOffset(Math.Max(0, contentCenter - scroll.ViewportHeight / 2));
+            workflowScroll.ScrollToVerticalOffset(Math.Max(0, contentCenter - workflowScroll.ViewportHeight / 2));
             await RenderBarrierAsync(window);
-            oldBounds = oldValue.TransformToAncestor(scroll).TransformBounds(
+            oldBounds = oldValue.TransformToAncestor(workflowScroll).TransformBounds(
                 new Rect(new Point(), oldValue.RenderSize));
-            newBounds = newValue.TransformToAncestor(scroll).TransformBounds(
+            newBounds = newValue.TransformToAncestor(workflowScroll).TransformBounds(
                 new Rect(new Point(), newValue.RenderSize));
-            Assert.IsTrue(IsInViewport(oldValue, scroll) && IsInViewport(newValue, scroll),
-                $"the labeled 4100 -> 4700 controls were not fully visible before approval; old={oldBounds}; new={newBounds}; viewport={scroll.RenderSize}; offset={scroll.VerticalOffset}");
+            Assert.IsTrue(IsInViewport(oldValue, workflowScroll) && IsInViewport(newValue, workflowScroll),
+                $"the labeled 4100 -> 4700 controls were not fully visible before approval; old={oldBounds}; new={newBounds}; viewport={workflowScroll.RenderSize}; offset={workflowScroll.VerticalOffset}");
             var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff-1500x940.png");
             var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940);
             evidence.Record("pre-approval-screenshot", new Dictionary<string, object?>
@@ -257,8 +259,6 @@ internal static class ProviderOfficeJourneyFlow
     {
         var bounds = element.TransformToAncestor(viewport).TransformBounds(
             new Rect(new Point(0, 0), element.RenderSize));
-        if (viewport is ScrollViewer scroll)
-            bounds.Offset(-scroll.HorizontalOffset, -scroll.VerticalOffset);
         var visible = new Rect(new Point(0, 0), viewport.RenderSize);
         return element.IsVisible
             && bounds.Left >= visible.Left - 1
