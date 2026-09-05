@@ -134,19 +134,16 @@ internal static class ProviderOfficeJourneyFlow
                 .First(text => text.Text.Contains("4100", StringComparison.Ordinal));
             var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
                 .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
+            scroll.ScrollToHome();
+            await RenderBarrierAsync(window);
             var oldBounds = oldValue.TransformToAncestor(scroll).TransformBounds(
                 new Rect(new Point(), oldValue.RenderSize));
             var newBounds = newValue.TransformToAncestor(scroll).TransformBounds(
                 new Rect(new Point(), newValue.RenderSize));
             var contentCenter = (Math.Min(oldBounds.Top, newBounds.Top)
                 + Math.Max(oldBounds.Bottom, newBounds.Bottom)) / 2;
-            var targetOffset = Math.Max(0, contentCenter - scroll.ViewportHeight / 2);
-            scroll.ScrollToVerticalOffset(targetOffset);
+            scroll.ScrollToVerticalOffset(Math.Max(0, contentCenter - scroll.ViewportHeight / 2));
             await RenderBarrierAsync(window);
-            scroll.ScrollToHome();
-            scroll.UpdateLayout();
-            scroll.ScrollToVerticalOffset(targetOffset);
-            scroll.UpdateLayout();
             oldBounds = oldValue.TransformToAncestor(scroll).TransformBounds(
                 new Rect(new Point(), oldValue.RenderSize));
             newBounds = newValue.TransformToAncestor(scroll).TransformBounds(
