@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "birkin"
-version = "0.4.387"
+version = "0.4.388"
 description = "Lightweight, self-improving CLI agent workspace with skill management, subagents, and a WebUI. Inspired by hermes-agent and openclaw."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -16,6 +16,7 @@ keywords = ["agent", "cli", "skills", "subagents", "self-improving", "llm"]
 dependencies = [
     "pydantic>=2,<3",
     "psutil>=6",
+    "tzdata>=2025,<2027; sys_platform == 'win32'",
     "typing-extensions>=4.12",
 ]
 
@@ -49,6 +50,7 @@ office-advanced = [
     "Pillow>=11,<13",
     "pypdf>=5.9,<7",
     "pypdfium2>=4.30,<5",
+    "reportlab>=4,<5",
 ]
 office-docling = ["docling>=2.50,<3"]
 research = ["jsonschema>=4.23,<5", "rfc8785>=0.1.4,<1"]
@@ -75,6 +77,7 @@ full = [
     "python-pptx>=1.0.2,<2",
     "pypdf>=5.9,<7",
     "pypdfium2>=4.30,<5",
+    "reportlab>=4,<5",
     "playwright>=1.54,<2",
 ]
 dev = [
