@@ -249,6 +249,19 @@ def run(output_dir: Path) -> dict[str, object]:
     if work_approved["ok"] is not True:
         raise AssertionError(f"work item approval failed: {work_approved}")
     _ = call("list_work_items", {})
+    batch_request = call("office_batch_request", {
+        "items": [{
+            "request": REQUESTS["docx"],
+            "source": artifact(paths["docx"]),
+            "outcome": "Apply one approved DOCX batch edit",
+            "operations": [PATCH["docx"]],
+            "destination": str(coordinated / "batch-docx.docx"),
+        }],
+    })
+    batch_approved = approve(cast(str, batch_request["id"]), approved_by="system:qa", approved_via="qa:script")
+    if batch_approved["ok"] is not True:
+        raise AssertionError(f"office batch approval failed: {batch_approved}")
+    _ = call("list_office_batches", {})
     adapter_by_format = {str(item["format"]): item for item in inventory}
     template_plan = service.fill_template(
         artifact(paths["hwpx"]),

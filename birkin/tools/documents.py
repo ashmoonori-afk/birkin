@@ -18,6 +18,8 @@ NAMES = (
     "list_work_items",
     "work_item_request",
     "search_office_sources",
+    "list_office_batches",
+    "office_batch_request",
     "compare_documents",
     "render_artifact",
     "validate_artifact",
@@ -212,6 +214,25 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     extract=service.extract_document,
                     limit=payload.get("limit", 20),
                 )
+            elif name == "list_office_batches":
+                from ..office.batch import list_batches
+
+                result = {"batches": list_batches(cast("int", payload.get("limit", 20)))}
+            elif name == "office_batch_request":
+                from ..office.batch import prepare
+                from ..office.coordinator import OfficeCaller
+
+                batch = prepare(
+                    payload.get("items", []),
+                    OfficeCaller(allowlist_root=ctx.cwd, actor=ctx.record_source),
+                    retry_of=cast("str | None", payload.get("retry_batch_id")),
+                )
+                queued = approvals.propose(
+                    category="office_batch", title=f"Office 일괄 작업: {len(batch['plans'])}개 파일",
+                    description="대상·변경·저장 위치를 고정하고 파일별로 순차 실행합니다.",
+                    payload=batch, cfg={}, origin=ctx.record_source,
+                )
+                result = {**queued, "category": "office_batch", "batch": batch}
             elif name == "office_rollback_request":
                 from ..office.rollback_approval import request_rollback
 
@@ -333,6 +354,21 @@ def tools() -> list[Tool]:
             },
             ["query", "sources"],
         ),
+        "list_office_batches": _object({"limit": {"type": "integer", "minimum": 1, "maximum": 100}}),
+        "office_batch_request": {
+            "type": "object",
+            "properties": {
+                "items": {"type": "array", "minItems": 1, "maxItems": 25, "items": _object({
+                    "request": {"type": "string", "minLength": 1}, "source": _ARTIFACT,
+                    "outcome": {"type": "string", "minLength": 1}, "operations": {"type": "array", "minItems": 1, "maxItems": 1000, "items": PATCH_OPERATION_SCHEMA},
+                    "destination": {"type": "string", "minLength": 1}, "overwrite_approved": {"type": "boolean"},
+                }, ["request", "source", "outcome", "operations", "destination"])},
+                "retry_batch_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+            },
+            "required": [],
+            "additionalProperties": False,
+            "oneOf": [{"required": ["items"]}, {"required": ["retry_batch_id"]}],
+        },
         "compare_documents": _object({"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]),
         "render_artifact": _object(
             {

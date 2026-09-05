@@ -206,6 +206,10 @@ def execute_action(
             if isinstance(value, str):
                 approval_id = SealedApprovalId(value)
         return execute_approved_rollback(payload, approval_id=approval_id)
+    if category == "office_batch":
+        from .office.batch import execute
+
+        return execute(payload, approval_id=configured.office_approval_id, on_transition=configured.on_event)
     if category == "work_item":
         from .work_items import apply_approved
 

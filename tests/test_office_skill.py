@@ -29,6 +29,8 @@ REQUIRED_ARGUMENTS = {
     "list_work_items": [],
     "work_item_request": ["action"],
     "search_office_sources": ["query", "sources"],
+    "list_office_batches": [],
+    "office_batch_request": [],
     "compare_documents": ["left", "right"],
     "render_artifact": ["artifact"],
     "validate_artifact": ["artifact"],

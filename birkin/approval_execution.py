@@ -14,7 +14,7 @@ from .approval_execution_journal import (
 from .approval_execution_state import JournalPhase
 from .approval_execution_types import ActionExecutor, EventSink
 
-_OFFICE_CATEGORIES = frozenset({"office_create", "office_job", "office_rollback"})
+_OFFICE_CATEGORIES = frozenset({"office_create", "office_job", "office_rollback", "office_batch"})
 
 
 def _pending_path(approval_id: str) -> Path:

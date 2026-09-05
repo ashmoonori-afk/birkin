@@ -8,7 +8,7 @@ metadata:
   birkin:
     tags: [productivity, office, documents, routing]
     formats: [docx, xlsx, pptx, pdf, hwpx]
-    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, search_office_sources, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
+    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, search_office_sources, list_office_batches, office_batch_request, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
     inspect_first: inspect_document
     write_policy: copy-on-write
     extension_conversion: txt-only
@@ -81,6 +81,8 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `list_work_items`: optional `timezone_name`; returns today, overdue, needs-confirmation, and recent-completion groups.
 - `work_item_request`: approval-gated create, meeting confirmation, update, or completion; preserves session and source references.
 - `search_office_sources`: required `query` and access-granted scoped `sources`; returns live file, locator, hash, and version evidence without an extraction cache.
+- `list_office_batches`: optional `limit`; reports each batch and per-file result.
+- `office_batch_request`: required `items` or `retry_batch_id`; approval-binds and sequentially runs canonical per-file Office jobs.
 - `compare_documents`: required `left` and `right`.
 - `render_artifact`: required `artifact`; `output_format` must be `structured_preview`, `pdf`, `png`, or `thumbnail`, and `page` is optional.
 - `validate_artifact`: required `artifact`.
