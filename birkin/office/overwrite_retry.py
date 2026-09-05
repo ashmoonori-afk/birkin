@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
-from typing import cast
 
 from .. import store
 from .coordinator import OfficeCaller, OfficeCoordinator, OfficeMutationRequest
@@ -20,8 +19,7 @@ from .create_approval import OfficeCreationCoordinator
 from .create_contract import (
     OfficeCreationCaller,
     OfficeCreationRequest,
-    creation_error,
-    parse_paragraphs,
+    parse_creation_content,
 )
 from .errors import DocumentErrorCode
 
@@ -30,13 +28,7 @@ OVERWRITE_QUESTION = "기존 파일을 덮어쓸까요?"
 
 def _creation_payload(payload: Mapping[str, object]) -> dict[str, object]:
     content = required_mapping(payload.get("content"), "creation content")
-    raw_paragraphs = content.get("paragraphs")
-    if not isinstance(raw_paragraphs, Sequence) or isinstance(
-        raw_paragraphs,
-        (str, bytes),
-    ):
-        raise creation_error("creation paragraphs are unavailable")
-    paragraphs = parse_paragraphs(cast("Sequence[object]", raw_paragraphs))
+    _, paragraphs = parse_creation_content(content)
     destination = Path(required_text(payload.get("destination"), "destination"))
     # The destination reaches the router only through artifact_names: a filename
     # embedded in the request text re-routes names like "notes.xlsx.docx" to a
@@ -55,6 +47,7 @@ def _creation_payload(payload: Mapping[str, object]) -> dict[str, object]:
             outcome=required_text(payload.get("outcome"), "outcome"),
             destination=destination,
             overwrite_approved=True,
+            content=content if "business_template" in content else None,
         )
     )
 

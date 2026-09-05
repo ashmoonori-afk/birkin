@@ -139,9 +139,10 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     approval_category = "office_job"
                 else:
                     raw_content = _payload(payload["content"])
-                    paragraphs = _strings(
-                        raw_content["paragraphs"],
-                        "content paragraphs",
+                    paragraphs = (
+                        _strings(raw_content["paragraphs"], "content paragraphs")
+                        if set(raw_content) == {"paragraphs"}
+                        else ()
                     )
                     coordinator = OfficeCreationCoordinator(
                         OfficeCreationCaller(
@@ -158,10 +159,11 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                             "bool",
                             payload.get("overwrite_approved", False),
                         ),
+                        content=raw_content if not paragraphs else None,
                     ))
                     title = f"Office 문서 생성: {payload['outcome']}"
                     description = (
-                        f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+                        f"DOCX 문서를 {'업무 양식으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
                         f"{approval['destination']}."
                     )
                     approval_category = "office_create"
@@ -240,19 +242,17 @@ def tools() -> list[Tool]:
                     "request": {"type": "string", "minLength": 1},
                     "source": _ARTIFACT,
                     "format": {"type": "string", "enum": ["docx"]},
-                    "content": _object(
-                        {
-                            "paragraphs": {
-                                "type": "array",
-                                "minItems": 1,
-                                "items": {
-                                    "type": "string",
-                                    "minLength": 1,
-                                },
-                            },
-                        },
-                        ["paragraphs"],
-                    ),
+                    "content": {
+                        "oneOf": [
+                            _object({"paragraphs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}, ["paragraphs"]),
+                            _object({"business_template": _object({
+                                "name": {"type": "string", "enum": ["weekly_report", "meeting_notes", "work_proposal"]},
+                                "version": {"type": "string", "enum": ["1.0"]},
+                                "values": {"type": "object"},
+                                "sources": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+                            }, ["name", "version", "values"])}, ["business_template"]),
+                        ]
+                    },
                     "outcome": {"type": "string", "minLength": 1},
                     "operations": {
                         "type": "array",

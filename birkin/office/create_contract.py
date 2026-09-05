@@ -7,8 +7,11 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from .artifact_serialization import canonical_integrity_json
+from .business_templates import prepare_business_content
+from .create_content import ParagraphPlan, validate_plan
 from .errors import DocumentError, DocumentErrorCode
 from .export_types import JSONValue
 from .extract_contract import MAX_TEXT_BYTES
@@ -46,6 +49,7 @@ class OfficeCreationRequest:
     outcome: str
     destination: Path
     overwrite_approved: bool = False
+    content: Mapping[str, object] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +109,31 @@ def creation_content(
     paragraphs: tuple[str, ...],
 ) -> dict[str, JSONValue]:
     return {"paragraphs": list(paragraphs)}
+
+
+def parse_creation_content(value: object) -> tuple[dict[str, JSONValue], tuple[str, ...]]:
+    if not isinstance(value, Mapping) or any(not isinstance(key, str) for key in value):
+        raise creation_error("creation content must be an object with string keys")
+    raw = cast("Mapping[str, object]", value)
+    if set(raw) == {"paragraphs"}:
+        paragraphs = parse_paragraphs(raw.get("paragraphs"))
+        content = creation_content(paragraphs)
+        _ = validate_plan(FORMAT, content)
+        return content, paragraphs
+    prepared, metadata = prepare_business_content(FORMAT, raw)
+    if metadata is None:
+        raise creation_error("creation content fields changed")
+    plan = validate_plan(FORMAT, prepared)
+    if not isinstance(plan, ParagraphPlan):
+        raise creation_error("creation content did not produce a DOCX plan")
+    expected = tuple(
+        ([plan.title] if plan.title is not None else [])
+        + list(plan.paragraphs)
+        + [cell for row in plan.table for cell in row]
+        + list(plan.bullets)
+    )
+    _ = parse_paragraphs(expected)
+    return cast("dict[str, JSONValue]", dict(raw)), expected
 
 
 def content_sha256(content: Mapping[str, JSONValue]) -> str:

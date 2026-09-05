@@ -43,6 +43,7 @@ class CreatedDocument(TypedDict):
     validation_evidence: list[CreationEvidence]
     warnings: list[str]
     receipt: CreationReceipt
+    business_template: dict[str, object] | None
 
 
 class SourceIdentity(TypedDict):

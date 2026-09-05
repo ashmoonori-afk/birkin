@@ -406,6 +406,8 @@ Raw screenshot은 `BIRKIN_HOME/computer-use/artifacts` 아래 content-addressed 
 
 Birkin은 DOCX, XLSX, PPTX, PDF, HWPX에 대해 범위가 제한된 workflow를 등록합니다. 텍스트 추출, 텍스트 중심 생성, 계층형 검증/비교, 명시적 손실 예산을 사용하는 TXT 변환, semantic structured preview, copy-on-write package 수정 한 건을 지원합니다. PDF 변경은 거부합니다. HWPX blank authoring은 `office` extra의 정확히 pin된 `python-hwpx==6.1.0`을 사용하며, 신뢰된 template derivation도 계속 지원합니다.
 
+DOCX와 신뢰된 template 기반 HWPX 생성은 버전이 고정된 주간보고·회의록·업무제안 3종도 받습니다. DOCX는 `python-docx`로 제목·본문·표 하나·글머리표 목록 하나를 만들고, HWPX는 native field binding을 재사용합니다. 필수값 누락과 미치환 HWPX field는 출력 전에 거부합니다. 결과에는 입력 출처, 업무 양식 버전·해시, 원본 template 해시를 기록하며 실제 렌더링 전까지 layout은 미검증으로 표시합니다.
+
 `office_job_request`는 이제 `content.paragraphs`를 사용하는 source 없는 DOCX
 생성 proposal도 받습니다. 별도 `office_create` approval이 결합된 proposal을
 실행하기 전에는 managed draft와 호출자 destination 모두에 파일을 쓰지
@@ -481,7 +483,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.365`, `catalog_revision: 5`, `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.366`, `catalog_revision: 5`, `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

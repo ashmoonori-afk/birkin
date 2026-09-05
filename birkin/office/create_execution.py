@@ -15,10 +15,9 @@ from .create_contract import (
     PAYLOAD_KEYS,
     VERSION,
     content_sha256,
-    creation_content,
     creation_error,
     creation_operations,
-    parse_paragraphs,
+    parse_creation_content,
     required_text,
 )
 from .create_journal import CreationJobJournal
@@ -64,10 +63,7 @@ def _parsed_payload(
     if payload.get("version") != VERSION or payload.get("format") != FORMAT:
         raise creation_error("creation approval version or format changed")
     raw_content = payload.get("content")
-    if not isinstance(raw_content, Mapping) or set(raw_content) != {"paragraphs"}:
-        raise creation_error("creation content fields changed")
-    paragraphs = parse_paragraphs(raw_content.get("paragraphs"))
-    content = creation_content(paragraphs)
+    content, expected_lines = parse_creation_content(raw_content)
     approved_content_sha256 = required_text(
         payload.get("content_sha256"),
         "content_sha256",
@@ -112,7 +108,7 @@ def _parsed_payload(
         raise creation_error("creation export authority changed after approval")
     return (
         content,
-        paragraphs,
+        expected_lines,
         output_name,
         destination,
         allowlist_root,
@@ -130,7 +126,7 @@ def execute_approved_office_creation(
     _approval_authorized(payload, approval_id)
     (
         content,
-        paragraphs,
+        expected_lines,
         output_name,
         destination,
         allowlist_root,
@@ -159,12 +155,12 @@ def execute_approved_office_creation(
         artifact = cast("ArtifactRef", created["draft_artifact"])
     extracted = service.extract_document(
         artifact,
-        max_spans=max(1, len(paragraphs)),
-        max_nodes=max(1, len(paragraphs)),
+        max_spans=max(1, len(expected_lines)),
+        max_nodes=max(1, len(expected_lines)),
         max_text_bytes=1_000_000,
     )
     if extracted["truncation"]["truncated"] or extracted["text"] != "\n".join(
-        paragraphs
+        expected_lines
     ):
         raise DocumentError(
             DocumentErrorCode.SOURCE_CHANGED,

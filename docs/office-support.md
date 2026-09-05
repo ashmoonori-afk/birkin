@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.365`
+- Birkin version: `0.4.366`
 - `catalog_revision: 5`
 - `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
@@ -44,11 +44,11 @@ lower-level capability. Installing a package does not create an agent route.
 
 | Format | Current bounded behavior | Explicit boundary |
 |---|---|---|
-| DOCX | Paragraph creation, package inspection/extraction, layered validation/comparison, TXT projection, and one paragraph or tagged content-control edit. | No tracked-change synthesis, arbitrary rewrite, or layout proof. |
+| DOCX | Paragraph creation plus approved weekly-report, meeting-notes, and work-proposal plans with a title, body, one table, and one bullet list; package inspection/extraction, layered validation/comparison, TXT projection, and one paragraph or tagged content-control edit. | No tracked-change synthesis, arbitrary rewrite, or layout proof. Business templates record their definition version/hash and sources but remain visually unverified until rendered. |
 | XLSX | Scalar-row creation, cell extraction, layered validation/comparison, TXT projection, and one existing sheet-1 cell edit. | Formulas are preserved but never evaluated or recalculated. |
 | PPTX | Title/body creation, text extraction, layered validation/comparison, TXT projection, and one slide-1 placeholder edit. | No master, animation, media, overflow, or layout proof. |
 | PDF | Built-in ASCII text-first creation; optional pypdf inspection/extraction; structural validation and TXT projection. | Non-Latin creation returns a typed refusal. Existing content is read-only: no OCR, form fill, annotation, signing, redaction, or object rewrite. |
-| HWPX | Exact-pinned `python-hwpx==6.1.0` text-first blank authoring, trusted-template field derivation, extraction, validation/comparison, TXT projection, and one section-0 field edit. | No legacy HWP, application automation, PDF export, or typography proof. |
+| HWPX | Exact-pinned `python-hwpx==6.1.0` text-first blank authoring, trusted-template field derivation (including the three approved business plans), extraction, validation/comparison, TXT projection, and one section-0 field edit. | Business-plan derivation rejects missing required inputs and any template field left unbound. It records the source template hash and does not claim layout fidelity before rendering. No legacy HWP, application automation, PDF export, or typography proof. |
 
 Trusted Korean and English Office requests are routed before model execution from user intent and supplied artifact names only. DOCX, XLSX, PPTX, PDF, and HWPX select their matching bundled skill, while general Office requests select `office-work-os`. Source formats and the target format are separate route fields; an explicit save format wins over a generic document label, and a default DOCX result is marked as a changeable suggestion. Extracted document text is never routing authority. All routed writes remain copy-on-write.
 

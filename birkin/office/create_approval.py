@@ -6,7 +6,6 @@ import uuid
 from typing import final
 
 from .coordinator_data import canonical_office_home
-from .create_content import validate_plan
 from .create_contract import (
     FORMAT,
     VERSION,
@@ -16,6 +15,7 @@ from .create_contract import (
     creation_content,
     creation_error,
     creation_operations,
+    parse_creation_content,
     parse_paragraphs,
 )
 from .create_journal import CreationJobJournal
@@ -46,12 +46,12 @@ class OfficeCreationCoordinator:
             raise creation_error(
                 "creation request must resolve to exactly one DOCX document"
             )
-        paragraphs = parse_paragraphs(request.paragraphs)
-        content = creation_content(paragraphs)
+        content, _ = parse_creation_content(
+            request.content if request.content is not None else creation_content(parse_paragraphs(request.paragraphs))
+        )
         # Apply the exact limits execution applies, so nobody approves a
         # document that the creation stage would then reject.
         DocumentWorkspace.enforce_content_limit(content)
-        _ = validate_plan(FORMAT, content)
         approved_content_sha256 = content_sha256(content)
         job_id = uuid.uuid4().hex
         operations = creation_operations(approved_content_sha256, job_id)

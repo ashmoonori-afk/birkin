@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Final
 
 from .adapters.catalog import supported_formats
+from .business_templates import prepare_business_content
 from .create_backends import write_docx, write_hwpx, write_pptx, write_xlsx
 from .create_content import ParagraphPlan, PresentationPlan, WorkbookPlan, validate_plan
 from .create_pdf import write_pdf
@@ -44,7 +45,8 @@ def create_document_file(format_name: str, content: Mapping[str, object], output
             f"unsupported creation format: {format_name}",
             details={"supported": list(SUPPORTED_FORMATS)},
         )
-    plan = validate_plan(normalized, content)
+    prepared, _ = prepare_business_content(normalized, content)
+    plan = validate_plan(normalized, prepared)
     output = Path(output)
     if output.exists() or output.is_symlink():
         raise DocumentError(DocumentErrorCode.OUTPUT_EXISTS, "emit", "output exists")

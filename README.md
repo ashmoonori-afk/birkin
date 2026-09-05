@@ -348,6 +348,8 @@ Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`
 
 Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
 
+DOCX and trusted-template HWPX creation also accept three versioned business plans: weekly report, meeting notes, and work proposal. DOCX emits a title, body, one table, and one bullet list through `python-docx`; HWPX reuses native field bindings. Missing required values and unbound HWPX fields fail before output. Results record source labels, the business-plan version/hash, and the source template hash, with layout marked unverified until a visual render succeeds.
+
 `office_job_request` now accepts a source-free DOCX creation proposal with
 `content.paragraphs`. It writes neither a managed draft nor the caller's
 destination until the separate `office_create` approval executes the bound
@@ -424,7 +426,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.365`, `catalog_revision: 5`, `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.366`, `catalog_revision: 5`, `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`.
 
 ### Doing office work end to end
 

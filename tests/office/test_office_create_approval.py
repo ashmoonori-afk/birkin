@@ -221,6 +221,53 @@ def test_approved_creation_writes_real_docx_and_hash_receipt(
     assert journal["export"] == exported
 
 
+def test_approved_business_template_creation_preserves_reviewed_structure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    (home / "office").mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    destination = caller / "weekly.docx"
+    registry = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:template"),
+        include={"documents"},
+    )
+    proposed = registry.execute("office_job_request", {
+        "request": "주간보고를 DOCX로 만들어 주세요.",
+        "format": "docx",
+        "content": {"business_template": {
+            "name": "weekly_report",
+            "version": "1.0",
+            "values": {
+                "title": "주간 보고",
+                "period": "2026-09-01 ~ 2026-09-05",
+                "summary": "계획 완료",
+                "achievements": ["검증 완료"],
+                "metrics": [["항목", "값"], ["완료", "3"]],
+            },
+            "sources": {"summary": "user://request"},
+        }},
+        "outcome": "주간보고 작성",
+        "destination": str(destination),
+    })
+    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
+    assert proposed.is_error is False, body
+
+    result = approvals.approve(
+        cast(str, body["id"]),
+        approved_by="human:template-reviewer",
+        approved_via="test:business-template",
+    )
+
+    assert result["ok"] is True, result
+    reopened = Document(str(destination))
+    assert reopened.paragraphs[0].text == "주간 보고"
+    assert reopened.tables[0].cell(1, 1).text == "3"
+
+
 def test_creation_execution_is_denied_outside_the_approval_queue(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

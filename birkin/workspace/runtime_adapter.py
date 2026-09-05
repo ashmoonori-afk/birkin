@@ -756,13 +756,13 @@ class RuntimeWorkspaceAdapter:
                 "Office creation job request currently supports DOCX only",
             )
         raw_content = payload["content"]
-        if not isinstance(raw_content, dict) or raw_content.keys() != {"paragraphs"}:
+        if not isinstance(raw_content, dict) or set(raw_content) not in ({"paragraphs"}, {"business_template"}):
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "DOCX creation content fields changed",
             )
-        raw_paragraphs = cast(object, raw_content["paragraphs"])
+        raw_paragraphs = cast(object, raw_content.get("paragraphs", ()))
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
             raw_paragraphs,
             (str, bytes),
@@ -797,9 +797,10 @@ class RuntimeWorkspaceAdapter:
             outcome=outcome,
             destination=Path(destination),
             overwrite_approved=overwrite_approved,
+            content=raw_content if "business_template" in raw_content else None,
         ))
         description = (
-            f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+            f"DOCX 문서를 {'업무 양식으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
             f"{approval['destination']}."
         )
         queued = approvals.propose(
@@ -866,13 +867,13 @@ class RuntimeWorkspaceAdapter:
                 "office_create",
                 "Office creation content must be an object",
             )
-        if raw_content.keys() != {"paragraphs"}:
+        if set(raw_content) not in ({"paragraphs"}, {"business_template"}):
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "DOCX creation content fields changed",
             )
-        raw_paragraphs = cast(object, raw_content["paragraphs"])
+        raw_paragraphs = cast(object, raw_content.get("paragraphs", ()))
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
             raw_paragraphs,
             (str, bytes),
@@ -908,9 +909,10 @@ class RuntimeWorkspaceAdapter:
             paragraphs=tuple(paragraphs),
             outcome=f"Create {output_name}",
             destination=self._workspace_root / output_name,
+            content=raw_content if "business_template" in raw_content else None,
         ))
         description = (
-            f"DOCX 문서를 {len(paragraphs)}개 단락으로 생성합니다: "
+            f"DOCX 문서를 {'업무 양식으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
             f"{approval['destination']}."
         )
         queued = approvals.propose(

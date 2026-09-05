@@ -24,6 +24,9 @@ _BAD_SHEET_NAME: Final = re.compile(r"[\\/*?:\[\]]")
 @dataclass(frozen=True)
 class ParagraphPlan:
     paragraphs: tuple[str, ...]
+    title: str | None = None
+    table: tuple[tuple[str, ...], ...] = ()
+    bullets: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -90,9 +93,34 @@ def _text(value: object, label: str) -> str:
 
 
 def _paragraph_plan(content: Content, label: str) -> ParagraphPlan:
-    _reject_unknown(content, frozenset({"paragraphs"}), f"{label} content")
+    allowed = {"paragraphs"}
+    if label == "docx":
+        allowed.update({"title", "table", "list"})
+    _reject_unknown(content, frozenset(allowed), f"{label} content")
     values = _entries(content.get("paragraphs"), f"{label} paragraphs", _MAX_PARAGRAPHS)
-    return ParagraphPlan(tuple(_text(value, f"{label} paragraph") for value in values))
+    paragraphs = tuple(_text(value, f"{label} paragraph") for value in values)
+    if label != "docx":
+        return ParagraphPlan(paragraphs)
+    title_value = content.get("title")
+    title = None if title_value is None else _text(title_value, "docx title")
+    bullets_value = content.get("list", [])
+    if not isinstance(bullets_value, Sequence) or isinstance(bullets_value, (str, bytes)):
+        raise invalid_content("docx list must be a list")
+    bullets = tuple(_text(value, "docx list item") for value in bullets_value)
+    table_value = content.get("table", [])
+    if not isinstance(table_value, Sequence) or isinstance(table_value, (str, bytes)):
+        raise invalid_content("docx table must be a list")
+    table: list[tuple[str, ...]] = []
+    width: int | None = None
+    for raw_row in table_value:
+        if not isinstance(raw_row, Sequence) or isinstance(raw_row, (str, bytes)):
+            raise invalid_content("docx table row must be a list")
+        row = tuple(_text(cell, "docx table cell") for cell in raw_row)
+        if not row or (width is not None and len(row) != width):
+            raise invalid_content("docx table rows must be non-empty and have equal width")
+        width = len(row)
+        table.append(row)
+    return ParagraphPlan(paragraphs, title, tuple(table), bullets)
 
 
 def _cell(value: object) -> CellValue:
