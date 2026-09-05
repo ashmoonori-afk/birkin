@@ -19,6 +19,12 @@ from birkin.office.adapters.adapter_provenance import (
 from birkin.office.adapters.catalog import adapter_inventory
 
 REQUIRED_LOCKED_PACKAGES = {
+    "reportlab": (
+        "4.5.1",
+        "BSD-3-Clause",
+        "https://files.pythonhosted.org/packages/4d/3f/b3861b7e40c9d66f4a04e018958d681d16b948bfd1963c962d43a8c23f66/reportlab-4.5.1.tar.gz",
+        "9fdf68f4de9171ec66acb4a5feed8f8ca2af43479e707a6fbb0daa75d88e5494",
+    ),
     "pillow": (
         "12.3.0",
         "MIT-CMU",
@@ -174,7 +180,7 @@ def test_catalog_operation_contract_matches_registered_runtime() -> None:
         assert capabilities["render"]["availability"] == "structured-preview-only"
 
     assert inventory["pdf"]["create"]["state"] == "native"
-    assert inventory["pdf"]["create"]["availability"] == "bounded"
+    assert inventory["pdf"]["create"]["availability"] == "conditional"
     assert inventory["hwpx"]["create"]["state"] == "native"
     assert inventory["hwpx"]["create"]["availability"] == "conditional"
     assert inventory["docx"]["create"]["public_entrypoint"] == "office_job_request"
@@ -186,9 +192,8 @@ def test_catalog_operation_contract_matches_registered_runtime() -> None:
     )
     assert all(
         inventory[format_name]["create"]["public_entrypoint"] == "office_job_request"
-        for format_name in {"xlsx", "pptx", "hwpx"}
-    )
-    assert inventory["pdf"]["create"]["public_entrypoint"] is None
+            for format_name in {"xlsx", "pptx", "pdf", "hwpx"}
+        )
     assert any(
         "blank authoring uses exact-pinned" in limitation.casefold()
         for limitation in next(

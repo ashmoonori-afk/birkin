@@ -4,8 +4,8 @@ This file is generated from `birkin.office.adapters.catalog`. Packages are
 optional or refused candidates; none is bundled or unconditionally selected.
 Operation capability comes from the inventory, not package discovery alone.
 
-Catalog revision: 6
-Inventory SHA-256: `a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`
+Catalog revision: 7
+Inventory SHA-256: `2f98ec90c8d79668cd6605b79cdd1a7b1598fe1435569d9211494fd60cae8864`
 
 ## defusedxml
 
@@ -199,23 +199,23 @@ Inventory SHA-256: `a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a311
 ## ReportLab
 
 - Publication: published
-- Decision: refuse
+- Decision: conditional
 - Integration: optional-python
-- Exact version: not proven
-- Approved range: not proven
+- Exact version: 4.5.1
+- Approved range: >=4.4,<5
 - Repository: https://github.com/MrBitBucket/reportlab-mirror
 - Tag: not proven
 - Commit: not proven
-- Artifact: not proven
-- Artifact SHA-256: not proven
-- License expression: not proven
-- License text SHA-256: not proven
-- Runtime evidence: No approved project dependency or lock artifact.
-- OS evidence: Not evaluated.
-- Install probe: `approval-required:reportlab`
-- Update procedure: Add an approved dependency range and lock artifact, verify license evidence, then regenerate the manifest and notices.
-- Refusal reason: Not present in an approved dependency extra or the lock as a direct package.
-- Role: Refused PDF creation candidate; it does not establish a capability.
+- Artifact: https://files.pythonhosted.org/packages/4d/3f/b3861b7e40c9d66f4a04e018958d681d16b948bfd1963c962d43a8c23f66/reportlab-4.5.1.tar.gz
+- Artifact SHA-256: 9fdf68f4de9171ec66acb4a5feed8f8ca2af43479e707a6fbb0daa75d88e5494
+- License expression: BSD-3-Clause
+- License text SHA-256: ef831761646313921375fc2cb888e8eeaf7da213d0b92852c10c42f3a0b4d138
+- Runtime evidence: CPython >=3.10; package is imported lazily and is not bundled.
+- OS evidence: OS-independent Python package according to the locked wheel.
+- Install probe: `python-import:reportlab`
+- Update procedure: Update the approved range and uv.lock together; verify the locked sdist SHA-256, upstream license expression and license-file SHA-256, then regenerate the manifest and notices.
+- Refusal reason: not proven
+- Role: Approved local PDF authoring backend with caller-supplied embedded TrueType fonts.
 
 ## rfc8785
 

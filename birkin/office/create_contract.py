@@ -11,13 +11,13 @@ from typing import cast
 
 from .artifact_serialization import canonical_integrity_json
 from .business_templates import prepare_business_content
-from .create_content import ParagraphPlan, PresentationPlan, WorkbookPlan, validate_plan
+from .create_content import PdfPlan, ParagraphPlan, PresentationPlan, WorkbookPlan, validate_plan
 from .errors import DocumentError, DocumentErrorCode
 from .export_types import JSONValue
 from .extract_contract import MAX_TEXT_BYTES
 
 FORMAT = "docx"
-FORMATS = ("docx", "xlsx", "pptx", "hwpx")
+FORMATS = ("docx", "xlsx", "pptx", "pdf", "hwpx")
 VERSION = 1
 # C0, DEL, and C1: DOCX text extraction drops every one of them.
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f-\x9f]")
@@ -145,6 +145,9 @@ def parse_creation_content(
             + [cell for row in plan.table for cell in row]
             + list(plan.bullets)
         )
+        _ = parse_paragraphs(expected)
+    elif isinstance(plan, PdfPlan):
+        expected = (*plan.paragraphs, *(cell for row in plan.table for cell in row))
         _ = parse_paragraphs(expected)
     elif isinstance(plan, WorkbookPlan):
         rows: list[str] = []

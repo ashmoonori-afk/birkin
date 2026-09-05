@@ -30,6 +30,14 @@ class ParagraphPlan:
 
 
 @dataclass(frozen=True)
+class PdfPlan:
+    paragraphs: tuple[str, ...]
+    table: tuple[tuple[str, ...], ...]
+    font_uri: str | None
+    font_sha256: str | None
+
+
+@dataclass(frozen=True)
 class SheetPlan:
     name: str
     rows: tuple[tuple[CellValue, ...], ...]
@@ -51,7 +59,7 @@ class PresentationPlan:
     slides: tuple[SlidePlan, ...]
 
 
-CreatePlan = ParagraphPlan | WorkbookPlan | PresentationPlan
+CreatePlan = ParagraphPlan | PdfPlan | WorkbookPlan | PresentationPlan
 
 
 def invalid_content(message: str) -> DocumentError:
@@ -123,6 +131,40 @@ def _paragraph_plan(content: Content, label: str) -> ParagraphPlan:
     return ParagraphPlan(paragraphs, title, tuple(table), bullets)
 
 
+def _pdf_plan(content: Content) -> PdfPlan:
+    _reject_unknown(content, frozenset({"paragraphs", "table", "font"}), "pdf content")
+    paragraphs = tuple(
+        _text(value, "pdf paragraph")
+        for value in _entries(content.get("paragraphs"), "pdf paragraphs", _MAX_PARAGRAPHS)
+    )
+    table_value = content.get("table", [])
+    if not isinstance(table_value, Sequence) or isinstance(table_value, (str, bytes)):
+        raise invalid_content("pdf table must be a list")
+    table: list[tuple[str, ...]] = []
+    width: int | None = None
+    for raw_row in table_value:
+        if not isinstance(raw_row, Sequence) or isinstance(raw_row, (str, bytes)):
+            raise invalid_content("pdf table row must be a list")
+        row = tuple(_text(cell, "pdf table cell") for cell in raw_row)
+        if not row or (width is not None and len(row) != width):
+            raise invalid_content("pdf table rows must be non-empty and have equal width")
+        width = len(row)
+        table.append(row)
+    font_value = content.get("font")
+    if font_value is None:
+        font_uri = font_sha256 = None
+    else:
+        font = as_content(font_value, "pdf font")
+        _reject_unknown(font, frozenset({"uri", "content_hash"}), "pdf font")
+        font_uri = _text(font.get("uri"), "pdf font uri")
+        font_sha256 = _text(font.get("content_hash"), "pdf font content_hash").lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", font_sha256):
+            raise invalid_content("pdf font content_hash must be a SHA-256 hex digest")
+    if (table or any(not value.isascii() for value in (*paragraphs, *(cell for row in table for cell in row)))) and font_uri is None:
+        raise invalid_content("non-ASCII or table PDF creation requires an approved font artifact")
+    return PdfPlan(paragraphs, tuple(table), font_uri, font_sha256)
+
+
 def _cell(value: object) -> CellValue:
     if value is None or isinstance(value, (str, bool, int)):
         return value
@@ -177,8 +219,10 @@ def _presentation_plan(content: Content) -> PresentationPlan:
 
 def validate_plan(format_name: str, content: Mapping[str, object]) -> CreatePlan:
     normalized = as_content(content, "content")
-    if format_name in {"docx", "pdf", "hwpx"}:
+    if format_name in {"docx", "hwpx"}:
         return _paragraph_plan(normalized, format_name)
+    if format_name == "pdf":
+        return _pdf_plan(normalized)
     if format_name == "xlsx":
         return _workbook_plan(normalized)
     if format_name == "pptx":

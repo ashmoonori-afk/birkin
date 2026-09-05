@@ -91,7 +91,19 @@ class DocumentService:
         output_name: str,
         template: Mapping[str, object] | None = None,
     ) -> CreatedDocument:
-        if format.strip().lower().lstrip(".") != "hwpx" or template is None:
+        normalized = format.strip().lower().lstrip(".")
+        font = content.get("font")
+        if normalized == "pdf" and isinstance(font, Mapping):
+            with self._workspace.artifact_snapshot(font) as snapshot:
+                prepared = {**content, "font": self._snapshot_ref(font, snapshot)}
+                return create_document_operation(
+                    self._workspace,
+                    format_name=format,
+                    content=prepared,
+                    output_name=output_name,
+                    template=template,
+                )
+        if normalized != "hwpx" or template is None:
             return create_document_operation(self._workspace, format_name=format, content=content, output_name=output_name, template=template)
         with self._workspace.artifact_snapshot(template) as snapshot:
             require_hwpx_content(snapshot)

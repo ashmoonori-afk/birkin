@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import zipfile
 from pathlib import Path
 from typing import cast
@@ -324,6 +325,48 @@ def test_non_docx_creation_uses_the_full_approval_and_receipt_path(
     else:
         with zipfile.ZipFile(destination) as archive:
             assert b"42" in archive.read("Contents/section0.xml")
+
+
+@pytest.mark.skipif(
+    not Path("C:/Windows/Fonts/malgun.ttf").exists(),
+    reason="Windows Korean font validation requires Malgun Gothic",
+)
+def test_korean_pdf_creation_uses_full_approval_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    incoming = home / "office" / "artifacts" / "incoming"
+    incoming.mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    font = incoming / "malgun.ttf"
+    _ = shutil.copy2("C:/Windows/Fonts/malgun.ttf", font)
+    destination = caller / "approved.pdf"
+    registry = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:pdf"),
+        include={"documents"},
+    )
+    proposed = registry.execute("office_job_request", {
+        "request": "한글 보고서를 PDF로 만들어 주세요.",
+        "format": "pdf",
+        "content": {
+            "paragraphs": ["한글 보고서 English 42"],
+            "table": [["항목", "값"], ["합계", "42"]],
+            "font": {"uri": str(font), "content_hash": _sha256(font)},
+        },
+        "outcome": "PDF 보고서 작성",
+        "destination": str(destination),
+    })
+    body = cast("dict[str, object]", json.loads(cast("str", proposed.content)))
+    assert proposed.is_error is False, body
+    result = approvals.approve(
+        cast("str", body["id"]),
+        approved_by="human:pdf-reviewer",
+        approved_via="test:pdf",
+    )
+    assert result["ok"] is True, result
+    assert destination.read_bytes().startswith(b"%PDF-")
 
 
 def test_creation_execution_is_denied_outside_the_approval_queue(

@@ -2,9 +2,9 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.370`
-- `catalog_revision: 6`
-- `inventory_sha256: a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`
+- Birkin version: `0.4.371`
+- `catalog_revision: 7`
+- `inventory_sha256: 2f98ec90c8d79668cd6605b79cdd1a7b1598fe1435569d9211494fd60cae8864`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
 - Generated evidence: [`THIRD_PARTY_NOTICES.md`](../birkin/office/adapters/THIRD_PARTY_NOTICES.md)
 
@@ -37,7 +37,7 @@ lower-level capability. Installing a package does not create an agent route.
 | DOCX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
 | XLSX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
 | PPTX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
-| PDF | conditional `extract_document` | not publicly wired | unavailable | structured preview through `render_artifact` | unavailable |
+| PDF | conditional `extract_document` | `office_job_request` | unavailable | structured preview through `render_artifact` | unavailable |
 | HWPX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
 
 ### Format boundaries
@@ -47,7 +47,7 @@ lower-level capability. Installing a package does not create an agent route.
 | DOCX | Paragraph creation plus approved weekly-report, meeting-notes, and work-proposal plans with a title, body, one table, and one bullet list; package inspection/extraction, layered validation/comparison, TXT projection, and atomic multi-paragraph or tagged content-control edits. | No tracked-change synthesis, arbitrary rewrite, or layout proof. Business templates record their definition version/hash and sources but remain visually unverified until rendered. |
 | XLSX | Scalar-row creation, cell extraction, layered validation/comparison, TXT projection, and atomic numeric edits across named existing sheets. | Formulas are preserved but never evaluated or recalculated. |
 | PPTX | Title/body creation, text extraction, layered validation/comparison, TXT projection, and atomic placeholder edits across explicit slide parts. | No master, animation, media, overflow, or layout proof. |
-| PDF | Built-in ASCII text-first creation; optional pypdf inspection/extraction; structural validation and TXT projection. | Non-Latin creation returns a typed refusal. Existing content is read-only: no OCR, form fill, annotation, signing, redaction, or object rewrite. |
+| PDF | Built-in ASCII creation plus optional ReportLab creation with an embedded hash-bound TrueType font; optional pypdf inspection/extraction; structural validation and TXT projection. | Existing content is read-only: no OCR, form fill, annotation, signing, redaction, or object rewrite. Visual layout remains unverified until raster validation. |
 | HWPX | Exact-pinned `python-hwpx==6.1.0` text-first blank authoring, trusted-template field derivation (including the three approved business plans), extraction, validation/comparison, TXT projection, and one section-0 field edit. | Business-plan derivation rejects missing required inputs and any template field left unbound. It records the source template hash and does not claim layout fidelity before rendering. No legacy HWP, application automation, PDF export, or typography proof. |
 
 Trusted Korean and English Office requests are routed before model execution from user intent and supplied artifact names only. DOCX, XLSX, PPTX, PDF, and HWPX select their matching bundled skill, while general Office requests select `office-work-os`. Source formats and the target format are separate route fields; an explicit save format wins over a generic document label, and a default DOCX result is marked as a changeable suggestion. Extracted document text is never routing authority. All routed writes remain copy-on-write.
@@ -71,7 +71,7 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `compare_documents` | `left`, `right` | Returns separate byte, semantic, package, and visual claims. |
 | `render_artifact` | `artifact` | `output_format` is `structured_preview`, `pdf`, `png`, or `thumbnail`; `page` is optional. |
 | `validate_artifact` | `artifact` | Reports package, schema-root, formula, openability, security, and fidelity layers. |
-| `office_job_request` | `request`, `outcome`, `destination`, plus either `format` + `content` or `source` + `operations` | Source-free DOCX/XLSX/PPTX/HWPX creation queues `office_create`; existing-document mutation queues `office_job`. Only canonical approval execution may create, mutate, or export. |
+| `office_job_request` | `request`, `outcome`, `destination`, plus either `format` + `content` or `source` + `operations` | Source-free DOCX/XLSX/PPTX/PDF/HWPX creation queues `office_create`; existing-document mutation queues `office_job`. Only canonical approval execution may create, mutate, or export. |
 | `office_rollback_request` | `job_id` | Queues a second high-risk approval for one HMAC-authenticated, unexpired export receipt. |
 
 The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`. Their machine metadata requires the same nine-tool set.
@@ -136,7 +136,7 @@ python -m pip install ".[office]"
 python -m pip install ".[office-advanced]"
 ```
 
-Missing optional Python backends return typed capability errors with installation evidence. Package discovery never upgrades capability by itself. ReportLab remains a refused provenance record and has no runtime execution or install-hint path; pypdfium2 remains unwired and does not enable visual rendering. Separately installed applications, executables, daemons, runtimes, and subprocess conversion engines are never discovered or launched. Exact package versions, source artifacts, hashes, licenses, probes, and refusal reasons are in the tracked manifest and notice files linked above.
+Missing optional Python backends return typed capability errors with installation evidence. Package discovery never upgrades capability by itself. ReportLab is approved and locked for PDF authoring with caller-supplied embedded TrueType fonts; pypdfium2 remains unwired and does not enable visual rendering. Separately installed applications, executables, daemons, runtimes, and subprocess conversion engines are never discovered or launched. Exact package versions, source artifacts, hashes, licenses, probes, and refusal reasons are in the tracked manifest and notice files linked above.
 
 ## Security and resource boundaries
 

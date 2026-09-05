@@ -11,7 +11,7 @@ from typing import Final
 from .adapters.catalog import supported_formats
 from .business_templates import prepare_business_content
 from .create_backends import write_docx, write_hwpx, write_pptx, write_xlsx
-from .create_content import ParagraphPlan, PresentationPlan, WorkbookPlan, validate_plan
+from .create_content import PdfPlan, ParagraphPlan, PresentationPlan, WorkbookPlan, validate_plan
 from .create_pdf import write_pdf
 from .errors import DocumentError, DocumentErrorCode
 
@@ -20,12 +20,12 @@ SUPPORTED_FORMATS: Final[tuple[str, ...]] = tuple(
 )
 
 
-def _write(format_name: str, plan: ParagraphPlan | WorkbookPlan | PresentationPlan, target: Path) -> None:
+def _write(format_name: str, plan: ParagraphPlan | PdfPlan | WorkbookPlan | PresentationPlan, target: Path) -> None:
     if format_name == "docx" and isinstance(plan, ParagraphPlan):
         write_docx(plan, target)
     elif format_name == "hwpx" and isinstance(plan, ParagraphPlan):
         write_hwpx(plan, target)
-    elif format_name == "pdf" and isinstance(plan, ParagraphPlan):
+    elif format_name == "pdf" and isinstance(plan, PdfPlan):
         write_pdf(plan, target)
     elif format_name == "xlsx" and isinstance(plan, WorkbookPlan):
         write_xlsx(plan, target)

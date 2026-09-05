@@ -23,7 +23,7 @@ _MEDIA = {
     "xlsx": b"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml",
     "pptx": b"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml",
 }
-_SUPPORTED = frozenset({*_ROOTS, "hwpx", "pdf", "txt"})
+_SUPPORTED = frozenset({*_ROOTS, "hwpx", "pdf", "txt", "ttf"})
 _OPC_CONTENT_TYPES = "http://schemas.openxmlformats.org/package/2006/content-types"
 
 
@@ -158,6 +158,9 @@ def verify_descriptor_identity(descriptor: int, path: Path) -> str:
         tail = _read_at(descriptor, min(size, 1024), max(0, size - 1024))
         if not prefix.startswith(b"%PDF-") or b"%%EOF" not in tail:
             raise _mismatch(format_name, "PDF signature or end marker is absent")
+    elif format_name == "ttf":
+        if prefix[:4] not in {b"\x00\x01\x00\x00", b"OTTO"}:
+            raise _mismatch(format_name, "TrueType/OpenType signature is absent")
     elif format_name == "txt":
         payload = _read_at(descriptor, size)
         try:

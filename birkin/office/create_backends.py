@@ -22,8 +22,9 @@ _PACKAGES: Final[dict[str, tuple[str, str]]] = {
     "hwpx": ("python-hwpx", "uv sync --extra office"),
     "xlsx": ("openpyxl", "uv sync --extra office"),
     "pptx": ("python-pptx", "uv sync --extra office"),
+    "pdf": ("reportlab", "uv sync --extra office-advanced"),
 }
-_EXACT_VERSIONS: Final[dict[str, str]] = {"hwpx": "6.1.0"}
+_EXACT_VERSIONS: Final[dict[str, str]] = {"hwpx": "6.1.0", "pdf": "4.5.1"}
 
 
 class _Document(Protocol):

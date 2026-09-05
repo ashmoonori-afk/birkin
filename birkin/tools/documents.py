@@ -257,7 +257,7 @@ def tools() -> list[Tool]:
                 {
                     "request": {"type": "string", "minLength": 1},
                     "source": _ARTIFACT,
-                    "format": {"type": "string", "enum": ["docx", "xlsx", "pptx", "hwpx"]},
+                    "format": {"type": "string", "enum": ["docx", "xlsx", "pptx", "pdf", "hwpx"]},
                     "content": {
                         "oneOf": [
                             _object({"paragraphs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}, ["paragraphs"]),
@@ -269,6 +269,11 @@ def tools() -> list[Tool]:
                             }, ["name", "version", "values"])}, ["business_template"]),
                             _object({"sheets": {"type": "array", "minItems": 1, "items": {"type": "object"}}}, ["sheets"]),
                             _object({"slides": {"type": "array", "minItems": 1, "items": {"type": "object"}}}, ["slides"]),
+                            _object({
+                                "paragraphs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                                "table": {"type": "array", "items": {"type": "array", "minItems": 1, "items": {"type": "string"}}},
+                                "font": _ARTIFACT,
+                            }, ["paragraphs", "font"]),
                         ]
                     },
                     "outcome": {"type": "string", "minLength": 1},

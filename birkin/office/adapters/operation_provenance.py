@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .approved_package_provenance import PYPDF, PYTHON_HWPX
+from .approved_package_provenance import PYPDF, PYTHON_HWPX, REPORTLAB
 from .base import IntegrationMode, OperationState
 from .provenance_models import OperationRecord
 
@@ -160,13 +160,14 @@ PDF_OPERATIONS = (
         "create",
         _operation(
             OperationState.NATIVE,
-            "Internal text-first PDF creation supports ASCII and refuses non-Latin text.",
-            availability="bounded",
+            "Approved ReportLab backend creates PDF with a hash-bound embedded TrueType font.",
+            availability="conditional",
+            mode=IntegrationMode.OPTIONAL_PYTHON,
+            install_probe=REPORTLAB.install_probe,
             fidelity=(
-                "Output is text-first A4 with approximate wrapping; non-Latin output is "
-                "unavailable because no approved backend is registered."
+                "Output is text-first A4; caller supplies the approved font artifact and "
+                "visual layout is not claimed until raster validation runs."
             ),
-            refusal_reason="No approved non-Latin PDF creation backend is registered.",
         ),
     ),
     ("compare", _compare()),

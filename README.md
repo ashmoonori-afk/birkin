@@ -383,9 +383,9 @@ The web workspace sends approval decisions through that bounded authority contra
 `layered` comparison reports byte hashes, bounded normalized semantic text, and ZIP package-entry changes where applicable; it is not byte-only. PDF has no ZIP package layer. `structured-preview` means `render_artifact` succeeds only with `output_format: "structured_preview"`; visual `pdf`, `png`, and `thumbnail` requests return `RENDER_UNAVAILABLE`. Spreadsheet recalculation and general forms remain unavailable.
 
 Catalog capability and agent wiring are separate: `public_entrypoint` is null
-when no registered tool can invoke an operation. DOCX, XLSX, PPTX, and HWPX
-creation share the approval-bound `office_job_request` route. PDF creation is
-not publicly wired, and package installation alone never enables it.
+when no registered tool can invoke an operation. DOCX, XLSX, PPTX, PDF, and
+HWPX creation share the approval-bound `office_job_request` route. Non-ASCII
+PDF content binds a TrueType font artifact by URI and SHA-256.
 
 The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, the evidence-linked XLSX reviewer `analyze_workbook`, `compare_documents`, `render_artifact`, `validate_artifact`, the canonical approval coordinator `office_job_request`, and the separately approval-gated `office_rollback_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
 
@@ -422,11 +422,11 @@ TXT conversion requires the `loss_budget` argument and never claims native or lo
 
 The base install keeps the boundary explicit. All five formats support inspect, validate, and compare. DOCX, XLSX, PPTX, and HWPX also support bounded extraction and explicit-budget TXT conversion. PDF inspection remains available, while PDF extraction and TXT conversion report a typed optional-capability boundary. Base creation covers ASCII PDF and trusted-template HWPX derivation; blank DOCX, XLSX, PPTX, and HWPX authoring returns `CAPABILITY_UNAVAILABLE`.
 
-Optional local Python tiers add fidelity without changing that boundary. Install `office` for conditional DOCX/XLSX/PPTX/HWPX blank authoring and bounded package operations, `office-advanced` for optional PDF extraction/TXT/deep reopen support, and `office-docling` for the separate docling path. Installed packages do not upgrade an unwired capability: pypdfium2 still does not provide visual rendering. The verified contract is **keyless, local-only Python stack; no external Office application/runtime required**. Office production workflows are offline-capable and Python-only: they never discover or launch external applications, executables, daemons, runtimes, or subprocess conversion engines. Built-in PDF creation is ASCII-only; non-Latin requests return a typed capability refusal without executing or suggesting ReportLab. Missing approved optional Python backends return typed errors and never silently select a candidate.
+Optional local Python tiers add fidelity without changing that boundary. Install `office` for conditional DOCX/XLSX/PPTX/HWPX blank authoring and bounded package operations, `office-advanced` for optional PDF extraction/TXT/deep reopen support, and `office-docling` for the separate docling path. Installed packages do not upgrade an unwired capability: pypdfium2 still does not provide visual rendering. The verified contract is **keyless, local-only Python stack; no external Office application/runtime required**. Office production workflows are offline-capable and Python-only: they never discover or launch external applications, executables, daemons, runtimes, or subprocess conversion engines. The base writer remains ASCII-only; `office-advanced` adds approved ReportLab authoring for non-ASCII text and tables when the request binds a TrueType font artifact by URI and SHA-256. Missing approved optional Python backends return typed errors and never silently select a candidate.
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.370`, `catalog_revision: 6`, `inventory_sha256: a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.371`, `catalog_revision: 7`, `inventory_sha256: 2f98ec90c8d79668cd6605b79cdd1a7b1598fe1435569d9211494fd60cae8864`.
 
 ### Doing office work end to end
 
@@ -470,8 +470,8 @@ The contract above says what is allowed; this is the order you actually work in.
    HMAC-authenticated receipt no older than 30 days. A legacy unsigned receipt
    is not rollback authority.
 
-This journey still refuses PDF mutation, non-Latin built-in PDF creation, and
-every path that would launch an external Office application, runtime, or
+This journey still refuses PDF mutation and OCR, plus every path that would
+launch an external Office application, runtime, or
 subprocess conversion engine.
 
 Pull the text out of a Word file:
@@ -488,7 +488,7 @@ Convert the same file to TXT under an explicit loss budget:
 
 In chat you do not call these by name: a trusted Korean or English request routes deterministically to the matching skill (Word to `word-documents`, Excel to `spreadsheets`, PowerPoint to `presentations`, PDF to `pdf-documents`, HWP/HWPX to `korean-hwp-documents`, general office work to `office-work-os`), and conflicting signals route to inspect-first `office-documents`.
 
-What is refused, by design rather than by omission: PDF mutation, built-in PDF creation of anything non-Latin (ASCII only; a non-Latin request returns a typed capability refusal and never suggests ReportLab), and any path that would launch an external Office application, runtime, or subprocess conversion engine. A missing optional Python backend returns a typed error instead of quietly picking a substitute.
+What is refused, by design rather than by omission: PDF mutation, OCR, and any path that would launch an external Office application, runtime, or subprocess conversion engine. A missing optional Python backend returns a typed error instead of quietly picking a substitute.
 
 See the [detailed support contract](./docs/office-support.md#office-work-os-v2) for the full matrix.
 
