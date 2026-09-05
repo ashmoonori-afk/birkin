@@ -45,7 +45,7 @@ def _operation_payload(
             None
             if operation.state.value == "unsupported"
             else "office_job_request"
-            if name == "create" and format_name == "docx"
+            if name == "create" and format_name in {"docx", "xlsx", "pptx", "hwpx"}
             else _PUBLIC_ENTRYPOINTS.get(name)
         ),
     }

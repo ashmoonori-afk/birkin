@@ -185,9 +185,10 @@ def test_catalog_operation_contract_matches_registered_runtime() -> None:
         for capabilities in inventory.values()
     )
     assert all(
-        inventory[format_name]["create"]["public_entrypoint"] is None
-        for format_name in {"xlsx", "pptx", "pdf", "hwpx"}
+        inventory[format_name]["create"]["public_entrypoint"] == "office_job_request"
+        for format_name in {"xlsx", "pptx", "hwpx"}
     )
+    assert inventory["pdf"]["create"]["public_entrypoint"] is None
     assert any(
         "blank authoring uses exact-pinned" in limitation.casefold()
         for limitation in next(

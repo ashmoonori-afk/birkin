@@ -28,7 +28,8 @@ OVERWRITE_QUESTION = "기존 파일을 덮어쓸까요?"
 
 def _creation_payload(payload: Mapping[str, object]) -> dict[str, object]:
     content = required_mapping(payload.get("content"), "creation content")
-    _, paragraphs = parse_creation_content(content)
+    format_name = required_text(payload.get("format", "docx"), "format")
+    _, paragraphs = parse_creation_content(format_name, content)
     destination = Path(required_text(payload.get("destination"), "destination"))
     # The destination reaches the router only through artifact_names: a filename
     # embedded in the request text re-routes names like "notes.xlsx.docx" to a
@@ -42,12 +43,13 @@ def _creation_payload(payload: Mapping[str, object]) -> dict[str, object]:
         )
     ).request(
         OfficeCreationRequest(
-            request_text="Create a new DOCX document",
+            request_text=f"Create a new {format_name.upper()} document",
             paragraphs=paragraphs,
             outcome=required_text(payload.get("outcome"), "outcome"),
             destination=destination,
             overwrite_approved=True,
-            content=content if "business_template" in content else None,
+            content=content,
+            format_name=format_name,
         )
     )
 

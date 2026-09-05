@@ -1,4 +1,4 @@
-"""Prepare approval authority for brand-new DOCX documents."""
+"""Prepare approval authority for brand-new Office documents."""
 
 from __future__ import annotations
 
@@ -7,7 +7,6 @@ from typing import final
 
 from .coordinator_data import canonical_office_home
 from .create_contract import (
-    FORMAT,
     VERSION,
     OfficeCreationCaller,
     OfficeCreationRequest,
@@ -36,25 +35,27 @@ class OfficeCreationCoordinator:
         _ = purge_expired_office_state(self._home)
 
     def request(self, request: OfficeCreationRequest) -> dict[str, object]:
+        format_name = request.format_name.strip().lower().lstrip(".")
         route = route_office_request(
             request.request_text,
             target_name=request.destination.name,
         )
         if route is not None and route.clarification_question is not None:
             raise creation_error(route.clarification_question)
-        if route is None or route.conflict or route.format_name != FORMAT:
+        if route is None or route.conflict or route.format_name != format_name:
             raise creation_error(
-                "creation request must resolve to exactly one DOCX document"
+                "creation request must resolve to exactly the requested format"
             )
         content, _ = parse_creation_content(
-            request.content if request.content is not None else creation_content(parse_paragraphs(request.paragraphs))
+            format_name,
+            request.content if request.content is not None else creation_content(parse_paragraphs(request.paragraphs)),
         )
         # Apply the exact limits execution applies, so nobody approves a
         # document that the creation stage would then reject.
         DocumentWorkspace.enforce_content_limit(content)
         approved_content_sha256 = content_sha256(content)
         job_id = uuid.uuid4().hex
-        operations = creation_operations(approved_content_sha256, job_id)
+        operations = creation_operations(format_name, approved_content_sha256, job_id)
         digest = proposal_digest(
             operations,
             approved_content_sha256,
@@ -76,7 +77,7 @@ class OfficeCreationCoordinator:
             "version": VERSION,
             "job_id": job_id,
             "creation_digest": digest,
-            "format": FORMAT,
+            "format": format_name,
             "content": content,
             "content_sha256": approved_content_sha256,
             "outcome": request.outcome,
@@ -89,7 +90,7 @@ class OfficeCreationCoordinator:
                 approved_content_sha256,
                 export,
             ),
-            "output_name": f"create-{digest[:32]}.docx",
+            "output_name": f"create-{digest[:32]}.{format_name}",
         }
         CreationJobJournal(workspace.home).create(payload)
         return payload

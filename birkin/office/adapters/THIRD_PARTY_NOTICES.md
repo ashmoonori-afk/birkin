@@ -4,8 +4,8 @@ This file is generated from `birkin.office.adapters.catalog`. Packages are
 optional or refused candidates; none is bundled or unconditionally selected.
 Operation capability comes from the inventory, not package discovery alone.
 
-Catalog revision: 5
-Inventory SHA-256: `d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`
+Catalog revision: 6
+Inventory SHA-256: `a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`
 
 ## defusedxml
 

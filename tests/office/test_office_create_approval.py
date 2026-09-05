@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import zipfile
 from pathlib import Path
 from typing import cast
 
 import pytest
 from docx import Document
+from openpyxl import load_workbook
+from pptx import Presentation
 
 from birkin import approvals, store
 from birkin.office import create_execution
@@ -266,6 +269,61 @@ def test_approved_business_template_creation_preserves_reviewed_structure(
     reopened = Document(str(destination))
     assert reopened.paragraphs[0].text == "주간 보고"
     assert reopened.tables[0].cell(1, 1).text == "3"
+
+
+@pytest.mark.parametrize(
+    ("format_name", "content", "request_text"),
+    [
+        ("xlsx", {"sheets": [{"name": "Summary", "rows": [["Metric", "Value"], ["Revenue", 42]]}]}, "매출표를 XLSX로 만들어 주세요."),
+        ("pptx", {"slides": [{"title": "Quarterly", "body": "Revenue 42"}]}, "발표자료를 PPTX로 만들어 주세요."),
+        ("hwpx", {"paragraphs": ["업무 보고", "완료 42"]}, "업무 보고를 HWPX로 만들어 주세요."),
+    ],
+)
+def test_non_docx_creation_uses_the_full_approval_and_receipt_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    format_name: str,
+    content: dict[str, object],
+    request_text: str,
+) -> None:
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    (home / "office").mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    destination = caller / f"approved.{format_name}"
+    registry = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:multi-format"),
+        include={"documents"},
+    )
+    proposed = registry.execute("office_job_request", {
+        "request": request_text,
+        "format": format_name,
+        "content": content,
+        "outcome": f"Create {format_name}",
+        "destination": str(destination),
+    })
+    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
+    assert proposed.is_error is False, body
+    assert not destination.exists()
+
+    result = approvals.approve(
+        cast(str, body["id"]),
+        approved_by="human:format-reviewer",
+        approved_via="test:multi-format",
+    )
+
+    assert result["ok"] is True, result
+    receipt = cast("dict[str, object]", json.loads(cast(str, result["result"])))
+    assert cast("dict[str, object]", receipt["creation"])["format"] == format_name
+    assert cast("dict[str, object]", receipt["export"])["output_sha256"] == _sha256(destination)
+    if format_name == "xlsx":
+        assert load_workbook(destination, read_only=True)["Summary"].cell(2, 2).value == 42
+    elif format_name == "pptx":
+        assert Presentation(str(destination)).slides[0].shapes.title.text == "Quarterly"
+    else:
+        with zipfile.ZipFile(destination) as archive:
+            assert b"42" in archive.read("Contents/section0.xml")
 
 
 def test_creation_execution_is_denied_outside_the_approval_queue(

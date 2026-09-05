@@ -2,9 +2,9 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.366`
-- `catalog_revision: 5`
-- `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`
+- Birkin version: `0.4.367`
+- `catalog_revision: 6`
+- `inventory_sha256: a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
 - Generated evidence: [`THIRD_PARTY_NOTICES.md`](../birkin/office/adapters/THIRD_PARTY_NOTICES.md)
 
@@ -35,10 +35,10 @@ lower-level capability. Installing a package does not create an agent route.
 | Format | Read | Create | Edit | Render | Recalculate |
 |---|---|---|---|---|---|
 | DOCX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
-| XLSX | `extract_document` | not publicly wired | `office_job_request` | structured preview through `render_artifact` | unavailable |
-| PPTX | `extract_document` | not publicly wired | `office_job_request` | structured preview through `render_artifact` | unavailable |
+| XLSX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
+| PPTX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
 | PDF | conditional `extract_document` | not publicly wired | unavailable | structured preview through `render_artifact` | unavailable |
-| HWPX | `extract_document` | not publicly wired | `office_job_request` | structured preview through `render_artifact` | unavailable |
+| HWPX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
 
 ### Format boundaries
 
@@ -70,7 +70,7 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `compare_documents` | `left`, `right` | Returns separate byte, semantic, package, and visual claims. |
 | `render_artifact` | `artifact` | `output_format` is `structured_preview`, `pdf`, `png`, or `thumbnail`; `page` is optional. |
 | `validate_artifact` | `artifact` | Reports package, schema-root, formula, openability, security, and fidelity layers. |
-| `office_job_request` | `request`, `outcome`, `destination`, plus either `format` + `content` or `source` + `operations` | Source-free DOCX creation queues `office_create`; existing-document mutation queues `office_job`. Only canonical approval execution may create, mutate, or export. |
+| `office_job_request` | `request`, `outcome`, `destination`, plus either `format` + `content` or `source` + `operations` | Source-free DOCX/XLSX/PPTX/HWPX creation queues `office_create`; existing-document mutation queues `office_job`. Only canonical approval execution may create, mutate, or export. |
 | `office_rollback_request` | `job_id` | Queues a second high-risk approval for one HMAC-authenticated, unexpired export receipt. |
 
 The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`. Their machine metadata requires the same eight-tool set.

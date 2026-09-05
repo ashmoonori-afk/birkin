@@ -383,9 +383,9 @@ The web workspace sends approval decisions through that bounded authority contra
 `layered` comparison reports byte hashes, bounded normalized semantic text, and ZIP package-entry changes where applicable; it is not byte-only. PDF has no ZIP package layer. `structured-preview` means `render_artifact` succeeds only with `output_format: "structured_preview"`; visual `pdf`, `png`, and `thumbnail` requests return `RENDER_UNAVAILABLE`. Spreadsheet recalculation and general forms remain unavailable.
 
 Catalog capability and agent wiring are separate: `public_entrypoint` is null
-when no registered tool can invoke an operation. DOCX creation is currently the
-only public creation route; installing XLSX, PPTX, PDF, or HWPX backends alone
-does not enable their creation controls.
+when no registered tool can invoke an operation. DOCX, XLSX, PPTX, and HWPX
+creation share the approval-bound `office_job_request` route. PDF creation is
+not publicly wired, and package installation alone never enables it.
 
 The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, the canonical approval coordinator `office_job_request`, and the separately approval-gated `office_rollback_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
 
@@ -426,7 +426,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.366`, `catalog_revision: 5`, `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.367`, `catalog_revision: 6`, `inventory_sha256: a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`.
 
 ### Doing office work end to end
 

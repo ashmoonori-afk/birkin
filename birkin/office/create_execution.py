@@ -1,4 +1,4 @@
-"""Execute one exact approval-bound DOCX creation proposal."""
+"""Execute one exact approval-bound Office creation proposal."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from .artifact_serialization import canonical_integrity_json
 from .coordinator_data import canonical_office_home
 from .create_contract import (
     CATEGORY,
-    FORMAT,
+    FORMATS,
     PAYLOAD_KEYS,
     VERSION,
     content_sha256,
@@ -57,13 +57,15 @@ def _parsed_payload(
     Path,
     ExportRequest,
     str,
+    str,
 ]:
     if set(payload) != PAYLOAD_KEYS:
         raise creation_error("creation approval payload fields changed")
-    if payload.get("version") != VERSION or payload.get("format") != FORMAT:
+    format_name = required_text(payload.get("format"), "format")
+    if payload.get("version") != VERSION or format_name not in FORMATS:
         raise creation_error("creation approval version or format changed")
     raw_content = payload.get("content")
-    content, expected_lines = parse_creation_content(raw_content)
+    content, expected_lines = parse_creation_content(format_name, raw_content)
     approved_content_sha256 = required_text(
         payload.get("content_sha256"),
         "content_sha256",
@@ -72,12 +74,12 @@ def _parsed_payload(
         raise creation_error("creation content changed after approval")
     outcome = required_text(payload.get("outcome"), "outcome")
     job_id = required_text(payload.get("job_id"), "job_id")
-    operations = creation_operations(approved_content_sha256, job_id)
+    operations = creation_operations(format_name, approved_content_sha256, job_id)
     digest = proposal_digest(operations, approved_content_sha256, outcome)
     if digest != required_text(payload.get("creation_digest"), "creation_digest"):
         raise creation_error("creation proposal changed after approval")
     output_name = required_text(payload.get("output_name"), "output_name")
-    if output_name != f"create-{digest[:32]}.docx":
+    if output_name != f"create-{digest[:32]}.{format_name}":
         raise creation_error("creation output identity changed after approval")
     destination = Path(required_text(payload.get("destination"), "destination"))
     allowlist_root = Path(
@@ -114,6 +116,7 @@ def _parsed_payload(
         allowlist_root,
         request,
         approved_content_sha256,
+        format_name,
     )
 
 
@@ -122,7 +125,7 @@ def execute_approved_office_creation(
     *,
     approval_id: str | None,
 ) -> str:
-    """Create, validate, and export the exact approved DOCX proposal."""
+    """Create, validate, and export the exact approved Office proposal."""
     _approval_authorized(payload, approval_id)
     (
         content,
@@ -132,6 +135,7 @@ def execute_approved_office_creation(
         allowlist_root,
         export_request,
         approved_content_sha256,
+        format_name,
     ) = _parsed_payload(payload)
     service = DocumentService(canonical_office_home())
     workspace = DocumentWorkspace(service.home)
@@ -148,7 +152,7 @@ def execute_approved_office_creation(
         )
     else:
         created = service.create_document(
-            format=FORMAT,
+            format=format_name,
             content=content,
             output_name=output_name,
         )
@@ -169,7 +173,7 @@ def execute_approved_office_creation(
         )
     validation = service.validate_artifact(artifact)
     if validation["status"] not in {"ok", "warning"}:
-        raise creation_error("created DOCX failed validation")
+        raise creation_error(f"created {format_name.upper()} failed validation")
     policy = workspace.export_policy(allowlist_root)
     snapshot = workspace.artifact_snapshot(artifact)
     with snapshot:
@@ -178,7 +182,7 @@ def execute_approved_office_creation(
         "job_id": required_text(payload.get("job_id"), "job_id"),
         "state": "exported",
         "creation": {
-            "format": FORMAT,
+            "format": format_name,
             "content_sha256": approved_content_sha256,
             "artifact": artifact,
         },

@@ -1,5 +1,5 @@
 {
-  "catalog_revision": 5,
+  "catalog_revision": 6,
   "inventory": [
     {
       "capabilities": {
@@ -230,7 +230,7 @@
           "fidelity_limits": "Only the named narrow operation is covered; no arbitrary layout rewrite is implied.",
           "install_probe": "python-import:openpyxl",
           "integration_mode": "optional-python",
-          "public_entrypoint": null,
+          "public_entrypoint": "office_job_request",
           "reason": "Text-first creation is wired through an approved lazy Python backend.",
           "refusal_reason": null,
           "security_limits": "Untrusted input is bounded by package preflight; semantic XML is not a sandbox.",
@@ -430,7 +430,7 @@
           "fidelity_limits": "Only the named narrow operation is covered; no arbitrary layout rewrite is implied.",
           "install_probe": "python-import:pptx",
           "integration_mode": "optional-python",
-          "public_entrypoint": null,
+          "public_entrypoint": "office_job_request",
           "reason": "Text-first creation is wired through an approved lazy Python backend.",
           "refusal_reason": null,
           "security_limits": "Untrusted input is bounded by package preflight; semantic XML is not a sandbox.",
@@ -893,7 +893,7 @@
           "fidelity_limits": "Blank authoring uses package defaults; template derivation preserves unmatched package parts.",
           "install_probe": "python-import:hwpx",
           "integration_mode": "optional-python",
-          "public_entrypoint": null,
+          "public_entrypoint": "office_job_request",
           "reason": "Exact-pinned python-hwpx provides local text-first blank authoring; trusted-template derivation remains copy-on-write.",
           "refusal_reason": null,
           "security_limits": "Untrusted input is bounded by package preflight; semantic XML is not a sandbox.",
@@ -1065,6 +1065,6 @@
       "standard_url": "https://tech.hancom.com/hwpxformat/"
     }
   ],
-  "inventory_sha256": "d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e",
+  "inventory_sha256": "a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168",
   "schema": "https://birkin.invalid/schemas/office-adapter-provenance-v1"
 }

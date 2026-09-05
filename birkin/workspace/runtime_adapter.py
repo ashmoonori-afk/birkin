@@ -749,18 +749,31 @@ class RuntimeWorkspaceAdapter:
                 "office_create",
                 "Office creation request, outcome, and destination are required",
             )
-        if payload["format"] != "docx":
+        format_name = payload["format"]
+        if not isinstance(format_name, str) or format_name not in {"docx", "xlsx", "pptx", "hwpx"}:
             raise DocumentError(
                 DocumentErrorCode.UNSUPPORTED_FORMAT,
                 "office_create",
-                "Office creation job request currently supports DOCX only",
+                "Office creation job request supports DOCX, XLSX, PPTX, and HWPX",
             )
         raw_content = payload["content"]
-        if not isinstance(raw_content, dict) or set(raw_content) not in ({"paragraphs"}, {"business_template"}):
+        if not isinstance(raw_content, dict):
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
                 "DOCX creation content fields changed",
+            )
+        allowed_content = {
+            "docx": ({"paragraphs"}, {"business_template"}),
+            "xlsx": ({"sheets"},),
+            "pptx": ({"slides"},),
+            "hwpx": ({"paragraphs"},),
+        }
+        if set(raw_content) not in allowed_content[cast("str", format_name)]:
+            raise DocumentError(
+                DocumentErrorCode.INVALID_INPUT,
+                "office_create",
+                f"{str(format_name).upper()} creation content fields changed",
             )
         raw_paragraphs = cast(object, raw_content.get("paragraphs", ()))
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
@@ -797,10 +810,11 @@ class RuntimeWorkspaceAdapter:
             outcome=outcome,
             destination=Path(destination),
             overwrite_approved=overwrite_approved,
-            content=raw_content if "business_template" in raw_content else None,
+            content=raw_content if format_name != "docx" or "business_template" in raw_content else None,
+            format_name=cast("str", format_name),
         ))
         description = (
-            f"DOCX 문서를 {'업무 양식으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
+            f"{str(format_name).upper()} 문서를 {'구조화된 내용으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
             f"{approval['destination']}."
         )
         queued = approvals.propose(
@@ -854,11 +868,12 @@ class RuntimeWorkspaceAdapter:
                 "office_create",
                 "native Office creation payload fields changed",
             )
-        if payload.get("format") != "docx":
+        format_name = payload.get("format")
+        if not isinstance(format_name, str) or format_name not in {"docx", "xlsx", "pptx", "hwpx"}:
             raise DocumentError(
                 DocumentErrorCode.UNSUPPORTED_FORMAT,
                 "office_create",
-                "native Office creation currently supports DOCX only",
+                "native Office creation supports DOCX, XLSX, PPTX, and HWPX",
             )
         raw_content = payload.get("content")
         if not isinstance(raw_content, dict):
@@ -867,11 +882,17 @@ class RuntimeWorkspaceAdapter:
                 "office_create",
                 "Office creation content must be an object",
             )
-        if set(raw_content) not in ({"paragraphs"}, {"business_template"}):
+        allowed_content = {
+            "docx": ({"paragraphs"}, {"business_template"}),
+            "xlsx": ({"sheets"},),
+            "pptx": ({"slides"},),
+            "hwpx": ({"paragraphs"},),
+        }
+        if set(raw_content) not in allowed_content[cast("str", format_name)]:
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
                 "office_create",
-                "DOCX creation content fields changed",
+                f"{str(format_name).upper()} creation content fields changed",
             )
         raw_paragraphs = cast(object, raw_content.get("paragraphs", ()))
         if not isinstance(raw_paragraphs, Sequence) or isinstance(
@@ -905,14 +926,15 @@ class RuntimeWorkspaceAdapter:
                 actor=f"native:{self._session_id}",
             )
         ).request(OfficeCreationRequest(
-            request_text=f"Create a new DOCX document at {output_name}",
+            request_text=f"Create a new {str(format_name).upper()} document at {output_name}",
             paragraphs=tuple(paragraphs),
             outcome=f"Create {output_name}",
             destination=self._workspace_root / output_name,
-            content=raw_content if "business_template" in raw_content else None,
+            content=raw_content if format_name != "docx" or "business_template" in raw_content else None,
+            format_name=cast("str", format_name),
         ))
         description = (
-            f"DOCX 문서를 {'업무 양식으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
+            f"{str(format_name).upper()} 문서를 {'구조화된 내용으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
             f"{approval['destination']}."
         )
         queued = approvals.propose(

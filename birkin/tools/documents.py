@@ -160,10 +160,12 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                             payload.get("overwrite_approved", False),
                         ),
                         content=raw_content if not paragraphs else None,
+                        format_name=cast("str", payload["format"]),
                     ))
-                    title = f"Office 문서 생성: {payload['outcome']}"
+                    format_name = cast("str", payload["format"])
+                    title = f"Office {format_name.upper()} 생성: {payload['outcome']}"
                     description = (
-                        f"DOCX 문서를 {'업무 양식으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
+                        f"{format_name.upper()} 문서를 {'구조화된 내용으로' if not paragraphs else f'{len(paragraphs)}개 단락으로'} 생성합니다: "
                         f"{approval['destination']}."
                     )
                     approval_category = "office_create"
@@ -241,7 +243,7 @@ def tools() -> list[Tool]:
                 {
                     "request": {"type": "string", "minLength": 1},
                     "source": _ARTIFACT,
-                    "format": {"type": "string", "enum": ["docx"]},
+                    "format": {"type": "string", "enum": ["docx", "xlsx", "pptx", "hwpx"]},
                     "content": {
                         "oneOf": [
                             _object({"paragraphs": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}}, ["paragraphs"]),
@@ -251,6 +253,8 @@ def tools() -> list[Tool]:
                                 "values": {"type": "object"},
                                 "sources": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
                             }, ["name", "version", "values"])}, ["business_template"]),
+                            _object({"sheets": {"type": "array", "minItems": 1, "items": {"type": "object"}}}, ["sheets"]),
+                            _object({"slides": {"type": "array", "minItems": 1, "items": {"type": "object"}}}, ["slides"]),
                         ]
                     },
                     "outcome": {"type": "string", "minLength": 1},
