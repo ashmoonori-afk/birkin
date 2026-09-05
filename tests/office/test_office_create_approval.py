@@ -98,7 +98,7 @@ def test_creation_request_queues_approval_without_writing_docx(
     assert not list((office_home / "artifacts" / "drafts").iterdir())
 
 
-def test_mixed_format_creation_returns_clarification_question(
+def test_source_xlsx_and_target_docx_queue_one_creation_approval(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -129,10 +129,9 @@ def test_mixed_format_creation_returns_clarification_question(
         },
     )
 
-    assert result.is_error is True
-    error = cast("dict[str, object]", json.loads(cast(str, result.content)))
-    details = cast("dict[str, object]", error["error"])
-    assert details["message"] == "어느 포맷으로 저장할까요?"
+    assert result.is_error is False
+    body = cast("dict[str, object]", json.loads(cast(str, result.content)))
+    assert body["category"] == "office_create"
     assert not destination.exists()
 
 

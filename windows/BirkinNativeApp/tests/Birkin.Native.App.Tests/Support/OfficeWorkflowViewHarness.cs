@@ -218,6 +218,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
             "chat.send", "file.import", "approval.answer",
             "chat.interrupt",
             "office.select", "office.open", "office.compare",
+            "office.job_request",
             "office.rollback_request",
         ];
 

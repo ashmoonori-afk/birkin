@@ -80,7 +80,7 @@ public sealed class OfficeViewTests : MainWindowTestBase
     }
 
     [TestMethod]
-    public async Task Save_WhenNoApprovedJobRequest_IsVisiblyDisabledAndSendsNothing()
+    public async Task Draft_WhenRequiredFieldsAreMissing_ShowsGuidanceAndSendsNothing()
     {
         // Given
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -95,14 +95,66 @@ public sealed class OfficeViewTests : MainWindowTestBase
                 "office.new-panel");
             newPanel.IsExpanded = true;
             OfficeWorkflowViewHarness.Layout(view);
-            var save = OfficeWorkflowViewHarness.Find<Button>(view, "office.save-unavailable");
+            var draft = OfficeWorkflowViewHarness.Find<Button>(view, "office.draft");
+            var status = OfficeWorkflowViewHarness.Find<TextBlock>(view, "office.request-status");
 
-            // When / Then
-            Assert.IsFalse(save.IsEnabled);
+            draft.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
             Assert.AreEqual(0, fixture.Connection.Sent.Count);
-            Assert.AreEqual(
-                "변경 작업 승인 후 저장 가능",
-                AutomationProperties.GetName(save));
+            StringAssert.Contains(status.Text, "모두 입력");
+            Assert.AreEqual("새 DOCX 초안 요청", AutomationProperties.GetName(draft));
+        });
+    }
+
+    [TestMethod]
+    public async Task Draft_WhenFormIsComplete_SubmitsReviewableDocxJobRequest()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            var view = new OfficeView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+            OfficeWorkflowViewHarness.Find<Expander>(view, "office.new-panel").IsExpanded = true;
+            OfficeWorkflowViewHarness.Layout(view);
+            OfficeWorkflowViewHarness.Find<TextBox>(view, "office.request").Text = "분기 보고서 작성";
+            OfficeWorkflowViewHarness.Find<TextBox>(view, "office.content").Text = "제목\n본문";
+            OfficeWorkflowViewHarness.Find<TextBox>(view, "office.destination").Text = @"C:\exports\quarter.docx";
+            OfficeWorkflowViewHarness.Find<CheckBox>(view, "office.overwrite").IsChecked = true;
+
+            OfficeWorkflowViewHarness.Find<Button>(view, "office.draft")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            var request = fixture.Connection.Sent.Single();
+            Assert.AreEqual("office.job_request", request.CommandType);
+            Assert.AreEqual("docx", ((NativeJsonString)request.Payload["format"]!).Value);
+            Assert.AreEqual(@"C:\exports\quarter.docx", ((NativeJsonString)request.Payload["destination"]!).Value);
+            Assert.IsTrue(((NativeJsonBoolean)request.Payload["overwrite_approved"]!).Value);
+            var paragraphs = (NativeJsonArray)((NativeJsonObject)request.Payload["content"]!)["paragraphs"]!;
+            Assert.AreEqual(2, paragraphs.Values.Count);
+        });
+    }
+
+    [TestMethod]
+    public async Task EditDraft_WritesPlainLanguageRequestWithoutSubmitting()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            var view = new OfficeView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+            OfficeWorkflowViewHarness.Find<Expander>(view, "office.new-panel").IsExpanded = true;
+            OfficeWorkflowViewHarness.Layout(view);
+            OfficeWorkflowViewHarness.Find<TextBox>(view, "office.request").Text = "표 제목을 바꿔줘";
+
+            OfficeWorkflowViewHarness.Find<Button>(view, "office.edit-draft")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            StringAssert.Contains(fixture.Model.OfficeWorkflow.Draft, "표 제목을 바꿔줘");
+            Assert.AreEqual(0, fixture.Connection.Sent.Count);
         });
     }
 
@@ -170,7 +222,7 @@ public sealed class OfficeViewTests : MainWindowTestBase
             var status = OfficeWorkflowViewHarness.Find<FrameworkElement>(shell, "workspace.status");
             newPanel.IsExpanded = true;
             shell.UpdateLayout();
-            var action = OfficeWorkflowViewHarness.Find<Button>(shell, "office.save-unavailable");
+            var action = OfficeWorkflowViewHarness.Find<Button>(shell, "office.draft");
             action.BringIntoView();
             shell.Dispatcher.Invoke(() => { }, DispatcherPriority.Background);
             var actionTop = action.TransformToAncestor(scroll).Transform(new Point()).Y;
