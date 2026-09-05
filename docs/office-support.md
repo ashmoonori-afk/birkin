@@ -2,9 +2,9 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.364`
-- `catalog_revision: 4`
-- `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`
+- Birkin version: `0.4.365`
+- `catalog_revision: 5`
+- `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
 - Generated evidence: [`THIRD_PARTY_NOTICES.md`](../birkin/office/adapters/THIRD_PARTY_NOTICES.md)
 
@@ -29,11 +29,22 @@ The tracked catalog and these generated package-tree files are the publication a
 | `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 <!-- office-support-matrix:end -->
 
+The machine catalog records `public_entrypoint` separately from the adapter's
+lower-level capability. Installing a package does not create an agent route.
+
+| Format | Read | Create | Edit | Render | Recalculate |
+|---|---|---|---|---|---|
+| DOCX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
+| XLSX | `extract_document` | not publicly wired | `office_job_request` | structured preview through `render_artifact` | unavailable |
+| PPTX | `extract_document` | not publicly wired | `office_job_request` | structured preview through `render_artifact` | unavailable |
+| PDF | conditional `extract_document` | not publicly wired | unavailable | structured preview through `render_artifact` | unavailable |
+| HWPX | `extract_document` | not publicly wired | `office_job_request` | structured preview through `render_artifact` | unavailable |
+
 ### Format boundaries
 
 | Format | Current bounded behavior | Explicit boundary |
 |---|---|---|
-| DOCX | Paragraph creation, package inspection/extraction, layered validation/comparison, TXT projection, and one tagged content-control edit. | No tracked-change synthesis, arbitrary rewrite, or layout proof. |
+| DOCX | Paragraph creation, package inspection/extraction, layered validation/comparison, TXT projection, and one paragraph or tagged content-control edit. | No tracked-change synthesis, arbitrary rewrite, or layout proof. |
 | XLSX | Scalar-row creation, cell extraction, layered validation/comparison, TXT projection, and one existing sheet-1 cell edit. | Formulas are preserved but never evaluated or recalculated. |
 | PPTX | Title/body creation, text extraction, layered validation/comparison, TXT projection, and one slide-1 placeholder edit. | No master, animation, media, overflow, or layout proof. |
 | PDF | Built-in ASCII text-first creation; optional pypdf inspection/extraction; structural validation and TXT projection. | Non-Latin creation returns a typed refusal. Existing content is read-only: no OCR, form fill, annotation, signing, redaction, or object rewrite. |

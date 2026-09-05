@@ -16,7 +16,22 @@ from .provenance_models import (
 )
 
 
-def _operation_payload(operation: OperationRecord) -> CapabilityInventory:
+_PUBLIC_ENTRYPOINTS = {
+    "inspect": "inspect_document",
+    "extract": "extract_document",
+    "compare": "compare_documents",
+    "fill": "office_job_request",
+    "patch": "office_job_request",
+    "render": "render_artifact",
+    "validate": "validate_artifact",
+}
+
+
+def _operation_payload(
+    format_name: str,
+    name: str,
+    operation: OperationRecord,
+) -> CapabilityInventory:
     return {
         "state": operation.state.value,
         "availability": operation.availability,
@@ -26,6 +41,13 @@ def _operation_payload(operation: OperationRecord) -> CapabilityInventory:
         "fidelity_limits": operation.fidelity_limits,
         "install_probe": operation.install_probe,
         "refusal_reason": operation.refusal_reason,
+        "public_entrypoint": (
+            None
+            if operation.state.value == "unsupported"
+            else "office_job_request"
+            if name == "create" and format_name == "docx"
+            else _PUBLIC_ENTRYPOINTS.get(name)
+        ),
     }
 
 
@@ -76,7 +98,7 @@ def adapter_inventory() -> list[AdapterInventory]:
                 "standard_url": record.standard_url,
                 "packages": [_package_payload(package) for package in record.packages],
                 "capabilities": {
-                    name: _operation_payload(operation)
+                    name: _operation_payload(record.format, name, operation)
                     for name, operation in record.capabilities
                 },
                 "security_limits": list(record.security_limits),

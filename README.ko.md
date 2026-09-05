@@ -437,6 +437,11 @@ Native 진행 행은 재연결 뒤에도 정식 Office 단계와 마지막 갱�
 
 `layered` 비교는 byte hash뿐 아니라 범위가 제한된 정규화 semantic text와 가능한 경우 ZIP package entry 변경도 각각 보고합니다. PDF에는 ZIP package 계층이 없습니다. `structured-preview`는 `output_format: "structured_preview"`일 때만 `render_artifact`가 성공한다는 뜻입니다. Visual `pdf`, `png`, `thumbnail` 요청은 `RENDER_UNAVAILABLE`을 반환합니다. Spreadsheet 재계산과 일반 form 처리는 지원하지 않습니다.
 
+Catalog의 하위 기능과 에이전트 연결 여부는 별도입니다. 등록된 tool 경로가
+없으면 `public_entrypoint`는 null입니다. 현재 새 문서 생성의 공용 경로는
+DOCX만 연결되어 있으며 XLSX, PPTX, PDF, HWPX backend 패키지를 설치하는
+것만으로 해당 생성 화면이 활성화되지는 않습니다.
+
 등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, `compare_documents`, `render_artifact`, `validate_artifact`, 정식 승인 코디네이터 `office_job_request`, 그리고 별도 승인을 거치는 `office_rollback_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
 
 문서 입력은 config, vault, session, native bootstrap 파일과 분리된 전용 `BIRKIN_HOME/office` jail 안에 있어야 합니다. `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/office/artifacts/incoming` 아래로 복사하거나 import해야 하며, 다른 위치의 path는 hash가 일치해도 거부됩니다. Durable job은 `BIRKIN_HOME/office/jobs`에 유지되며 generic model file tool은 Office receipt key, job, validated draft, backup, transaction journal, destination lock을 읽거나 나열하거나 다시 쓸 수 없습니다. 결과를 만드는 mutation과 export는 caller가 승인한 allowlist root 아래 destination을 사용하는 `office_job_request`로만 요청합니다. Rollback은 `office_rollback_request`를 통한 두 번째 high-risk 승인이며, export receipt에는 HMAC이 적용되고 30일 뒤 만료됩니다. 만료된 receipt, 활성 backup path, transaction/job journal은 다음 Office request에서 purge됩니다. Legacy unsigned receipt는 rollback authority로 허용되지 않습니다. Check-to-unlink race와 concurrent hard-link race를 피하기 위해 인증된 helper와 backup name은 private `.birkin-retire` directory로 namespace-retire됩니다. POSIX에서는 동시에 추가된 hard link를 보존하면서 해당 inode byte를 안전하게 지울 수 없으므로 격리된 byte가 남을 수 있지만, 이는 active state가 아니며 rollback authority를 부여하지 않습니다.
@@ -476,7 +481,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.364`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.365`, `catalog_revision: 5`, `inventory_sha256: d88f76683eb46a402fdd0735286129038fc9c2159d52cb8a04cb72a11f00968e`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

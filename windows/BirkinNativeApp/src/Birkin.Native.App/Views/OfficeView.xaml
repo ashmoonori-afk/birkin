@@ -10,7 +10,7 @@
                   HorizontalScrollBarVisibility="Disabled"
                   CanContentScroll="False">
     <Grid>
-        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <Grid>
             <ItemsControl automation:AutomationProperties.AutomationId="office.items" ItemsSource="{Binding DocumentRows, RelativeSource={RelativeSource AncestorType=UserControl}}">
                 <ItemsControl.ItemTemplate><DataTemplate>
@@ -33,7 +33,46 @@
             </StackPanel>
         </Grid>
         <ContentControl x:Name="DiffHost" Grid.Row="1" />
-        <Grid Grid.Row="2" Margin="0,4,0,0">
+        <Expander Grid.Row="2"
+                  Header="형식별 지원 상태"
+                  Margin="0,4,0,0"
+                  Foreground="{StaticResource TextBrush}"
+                  automation:AutomationProperties.AutomationId="office.support"
+                  automation:AutomationProperties.Name="Office 형식별 읽기 생성 수정 렌더링 재계산 지원 상태">
+            <ItemsControl Margin="0,6,0,0"
+                          ItemsSource="{Binding SupportRows, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                          automation:AutomationProperties.AutomationId="office.support.items">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
+                            <StackPanel>
+                                <TextBlock Text="{Binding FormatLabel}" FontWeight="SemiBold" />
+                                <ItemsControl ItemsSource="{Binding Operations}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid Margin="0,3,0,0">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="64" />
+                                                    <ColumnDefinition Width="100" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Text="{Binding Label}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Status}" Foreground="{StaticResource AccentBrush}" />
+                                                <StackPanel Grid.Column="2">
+                                                    <TextBlock Text="{Binding AgentPath}" TextWrapping="Wrap" />
+                                                    <TextBlock Text="{Binding InstallCondition}" Style="{StaticResource MutedTextStyle}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Expander>
+        <Grid Grid.Row="3" Margin="0,4,0,0">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Expander Header="새 문서와 수정 요청" automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="새 문서와 수정 요청" Foreground="{StaticResource TextBrush}">
                 <StackPanel Margin="0,6,6,0">

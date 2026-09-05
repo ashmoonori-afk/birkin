@@ -16,6 +16,7 @@ public partial class OfficeView : UserControl, INotifyPropertyChanged
     private readonly ShellCoordinator? _coordinator;
     private readonly Dictionary<string, OfficeDocumentRowPresentation> _canonicalDocuments = new(StringComparer.Ordinal);
     private IReadOnlyList<OfficeDocumentRowPresentation> _documentRows = [];
+    private IReadOnlyList<OfficeFormatSupportPresentation> _supportRows = [];
 
     public OfficeView()
     {
@@ -34,6 +35,7 @@ public partial class OfficeView : UserControl, INotifyPropertyChanged
         model.PropertyChanged += ModelPropertyChanged;
         coordinator.ProjectionStore.CanonicalApplied += CanonicalApplied;
         UpdateRows();
+        UpdateSupportRows();
         Unloaded += ViewUnloaded;
     }
 
@@ -55,6 +57,15 @@ public partial class OfficeView : UserControl, INotifyPropertyChanged
             await _coordinator.SelectOfficeDocumentAsync(
                 new OfficeSelectIntent(artifactId),
                 CancellationToken.None);
+        }
+    }
+    public IReadOnlyList<OfficeFormatSupportPresentation> SupportRows
+    {
+        get => _supportRows;
+        private set
+        {
+            _supportRows = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(SupportRows)));
         }
     }
 
@@ -146,6 +157,12 @@ public partial class OfficeView : UserControl, INotifyPropertyChanged
 
     private void CanonicalApplied(NativeEnvelope envelope)
     {
+        if ((envelope.Kind == NativeMessageKind.SurfaceSnapshot
+                || envelope.Kind == NativeMessageKind.SurfaceEvent)
+            && envelope.Body["surface"] is NativeJsonString { Value: "office" })
+        {
+            _ = Dispatcher.BeginInvoke(UpdateSupportRows);
+        }
         if (OfficeDocumentPresentationMapper.FromCanonical(envelope) is not { } document)
         {
             return;
@@ -157,6 +174,10 @@ public partial class OfficeView : UserControl, INotifyPropertyChanged
             UpdateRows();
         });
     }
+
+    private void UpdateSupportRows() => SupportRows =
+        OfficeSupportPresentationMapper.FromSurface(
+            _coordinator?.ProjectionStore.Surface("office"));
 
     private void UpdateRows()
     {

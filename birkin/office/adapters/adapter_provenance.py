@@ -9,7 +9,7 @@ from typing import TypedDict
 
 from .provenance_models import AdapterInventory, PackageInventory
 
-CATALOG_REVISION = 4
+CATALOG_REVISION = 5
 NOTICE_PATH = Path(__file__).with_name("THIRD_PARTY_NOTICES.md")
 MANIFEST_PATH = Path(__file__).with_name("provenance_manifest.json")
 

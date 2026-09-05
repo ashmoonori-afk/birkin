@@ -177,6 +177,17 @@ def test_catalog_operation_contract_matches_registered_runtime() -> None:
     assert inventory["pdf"]["create"]["availability"] == "bounded"
     assert inventory["hwpx"]["create"]["state"] == "native"
     assert inventory["hwpx"]["create"]["availability"] == "conditional"
+    assert inventory["docx"]["create"]["public_entrypoint"] == "office_job_request"
+    assert all(
+        capabilities["extract"]["public_entrypoint"] == "extract_document"
+        and capabilities["render"]["public_entrypoint"] == "render_artifact"
+        and capabilities["convert"]["public_entrypoint"] is None
+        for capabilities in inventory.values()
+    )
+    assert all(
+        inventory[format_name]["create"]["public_entrypoint"] is None
+        for format_name in {"xlsx", "pptx", "pdf", "hwpx"}
+    )
     assert any(
         "blank authoring uses exact-pinned" in limitation.casefold()
         for limitation in next(
