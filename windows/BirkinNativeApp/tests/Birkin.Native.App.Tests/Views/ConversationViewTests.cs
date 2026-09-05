@@ -361,7 +361,7 @@ public sealed class ConversationViewTests
     }
 
     [TestMethod]
-    public async Task CommandProgress_WhenPending_ShowsKoreanCopyWithoutRequiredAnimation()
+    public async Task CommandProgress_WhenPending_ShowsKoreanCopyAndAnimation()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
@@ -399,7 +399,7 @@ public sealed class ConversationViewTests
                 Assert.AreEqual("명령을 전송하고 있습니다.", label.Text);
                 Assert.IsInstanceOfType<RotateTransform>(
                     spinner.RenderTransform);
-                Assert.IsFalse(spinner.RenderTransform.HasAnimatedProperties);
+                Assert.IsTrue(spinner.RenderTransform.HasAnimatedProperties);
             }
             finally
             {
