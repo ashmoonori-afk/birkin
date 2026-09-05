@@ -260,7 +260,7 @@ internal static class ProviderOfficeJourneyFlow
         var bounds = element.TransformToAncestor(viewport).TransformBounds(
             new Rect(new Point(0, 0), element.RenderSize));
         var visible = new Rect(new Point(0, 0), viewport.RenderSize);
-        return element.IsVisible
+        return element.Visibility == Visibility.Visible
             && bounds.Left >= visible.Left - 1
             && bounds.Top >= visible.Top - 1
             && bounds.Right <= visible.Right + 1
