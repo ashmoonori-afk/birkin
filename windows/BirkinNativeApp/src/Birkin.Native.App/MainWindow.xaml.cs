@@ -12,12 +12,15 @@ namespace Birkin.Native.App;
 public partial class MainWindow : Window
 {
     private readonly ApprovalAttentionTracker _approvalAttention = new();
+    private LayoutStore? _layoutStore;
+    private bool _layoutInitialized;
     private ShellPresentationModel? _attentionModel;
     private WindowsApprovalAttention? _windowsAttention;
 
     public MainWindow(ShellPresentationModel presentationModel)
     {
         InitializeComponent();
+        InitializeLayout();
         SnapshotView.DataContext = presentationModel;
         if (CompositionRoot.CoordinatorFor(presentationModel) is { } coordinator)
         {
@@ -31,6 +34,7 @@ public partial class MainWindow : Window
         IApprovalToast approvalToast)
     {
         InitializeComponent();
+        InitializeLayout();
         SnapshotView.DataContext = presentationModel;
         if (CompositionRoot.CoordinatorFor(presentationModel) is { } coordinator)
         {
@@ -42,6 +46,7 @@ public partial class MainWindow : Window
     public MainWindow(ShellPresentationModel presentationModel, ShellCoordinator coordinator)
     {
         InitializeComponent();
+        InitializeLayout();
         SnapshotView.AttachWorkflow(presentationModel, coordinator);
         AttachAttention(presentationModel, null);
     }
@@ -97,6 +102,8 @@ public partial class MainWindow : Window
             _attentionModel.PropertyChanged -= PresentationChanged;
         }
         _windowsAttention?.Dispose();
+        _layoutStore?.Dispose();
+        _layoutStore = null;
     }
 
     public MainWindow(
@@ -114,9 +121,74 @@ public partial class MainWindow : Window
         IApprovalToast? approvalToast)
     {
         InitializeComponent();
+        InitializeLayout();
         SnapshotView.AttachWorkflow(presentationModel, coordinator);
         SnapshotView.AttachStartupRecovery(presentationModel, startupRecovery);
         AttachAttention(presentationModel, approvalToast);
+    }
+
+    private void InitializeLayout()
+    {
+        if (_layoutInitialized) return;
+        _layoutInitialized = true;
+        _layoutStore = new LayoutStore(Dispatcher);
+        var state = _layoutStore.Load();
+        _layoutStore.Seed(state);
+        Width = state.Window.Width;
+        Height = state.Window.Height;
+        if (state.Window.Left is { } left && state.Window.Top is { } top
+            && IntersectsVirtualScreen(left, top, Width, Height))
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = left;
+            Top = top;
+        }
+        SnapshotView.AttachLayout(state, SaveLayout);
+        Loaded += (_, _) =>
+        {
+            if (state.Window.State == LayoutWindowMode.Maximized) WindowState = WindowState.Maximized;
+            SnapshotView.ApplyAvailableWidth(ActualWidth);
+        };
+        SizeChanged += (_, _) =>
+        {
+            SnapshotView.ApplyAvailableWidth(ActualWidth);
+            SaveWindowDebounced();
+        };
+        LocationChanged += (_, _) => SaveWindowDebounced();
+        StateChanged += (_, _) => SaveWindowDebounced();
+    }
+
+    private void SaveLayout(LayoutState state, bool immediate) =>
+        _layoutStore?.Save(state with { Window = CaptureWindow() }, immediate);
+
+    private void SaveWindowDebounced()
+    {
+        if (!IsLoaded) return;
+        _layoutStore?.Save(SnapshotView.LayoutState with { Window = CaptureWindow() }, windowOnly: true);
+    }
+
+    private LayoutWindowState CaptureWindow()
+    {
+        var bounds = WindowState == WindowState.Maximized ? RestoreBounds : new Rect(Left, Top, ActualWidth, ActualHeight);
+        var width = bounds.Width > 0 ? bounds.Width : Width;
+        var height = bounds.Height > 0 ? bounds.Height : Height;
+        return new LayoutWindowState(
+            Math.Max(MinWidth, width), Math.Max(MinHeight, height),
+            double.IsFinite(bounds.Left) ? bounds.Left : null,
+            double.IsFinite(bounds.Top) ? bounds.Top : null,
+            WindowState == WindowState.Maximized ? LayoutWindowMode.Maximized : LayoutWindowMode.Normal);
+    }
+
+    private static bool IntersectsVirtualScreen(double left, double top, double width, double height)
+    {
+        var screenLeft = SystemParameters.VirtualScreenLeft;
+        var screenTop = SystemParameters.VirtualScreenTop;
+        var screenRight = screenLeft + SystemParameters.VirtualScreenWidth;
+        var screenBottom = screenTop + SystemParameters.VirtualScreenHeight;
+        return left < screenRight
+            && left > screenLeft - width
+            && top < screenBottom
+            && top > screenTop - height;
     }
 
     private void WindowDragEntered(object sender, DragEventArgs eventArgs) =>

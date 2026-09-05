@@ -389,7 +389,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Conflicting format and artifact signals route to inspect-first `office-documents`. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.355`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.356`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`.
 
 ### Doing office work end to end
 
@@ -1146,6 +1146,15 @@ store feeds the shell; Python remains the only policy, execution, approval,
 Office, receipt, and recovery authority. Terminal truthfully reports that it
 is unavailable on Windows, and Browser displays canonical projected state
 without inventing controls or authority.
+
+The workspace layout supports draggable dividers, collapsible Navigation and
+Context panels, a document focus view (`Ctrl+Shift+D`), a conversation focus
+view (`Ctrl+Shift+F`), and keyboard panel shortcuts. Below 1100 device-
+independent pixels it shows one selectable region at a time so the composer and
+approval controls remain reachable at high display scaling. The unavailable
+Windows terminal starts collapsed. Panel widths, visibility, and window bounds
+are stored in `%LOCALAPPDATA%\Birkin\layout.json`; invalid values fall back to
+bounded defaults without changing Python policy or execution authority.
 
 The Windows Office path is deliberately read-only: it can import a jailed
 artifact, select its canonical projection, request a Python-owned comparison,

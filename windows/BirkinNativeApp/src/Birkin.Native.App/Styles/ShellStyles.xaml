@@ -22,6 +22,73 @@
         <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
     </Style>
+    <Style x:Key="PanelSplitterStyle" TargetType="GridSplitter">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Cursor" Value="SizeWE" />
+        <Setter Property="Focusable" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="GridSplitter">
+                    <Grid Background="Transparent">
+                        <Border x:Name="Seam" Width="1" HorizontalAlignment="Center"
+                                Background="{StaticResource BorderBrush}" />
+                        <Rectangle x:Name="FocusRectangle" Margin="-1" Visibility="Collapsed"
+                                   Stroke="{StaticResource AccentBrush}" StrokeThickness="1"
+                                   StrokeDashArray="2,2" />
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <EventTrigger RoutedEvent="MouseEnter">
+                            <BeginStoryboard x:Name="DelayedSplitterHover">
+                                <Storyboard BeginTime="0:0:0.150">
+                                    <DoubleAnimation Storyboard.TargetName="Seam"
+                                                     Storyboard.TargetProperty="Width"
+                                                     To="2" Duration="0" />
+                                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Seam"
+                                                                   Storyboard.TargetProperty="Background">
+                                        <DiscreteObjectKeyFrame KeyTime="0"
+                                                                Value="{StaticResource AccentBrush}" />
+                                    </ObjectAnimationUsingKeyFrames>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                        <EventTrigger RoutedEvent="MouseLeave">
+                            <RemoveStoryboard BeginStoryboardName="DelayedSplitterHover" />
+                        </EventTrigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Seam" Property="Width" Value="2" />
+                            <Setter TargetName="Seam" Property="Background" Value="{StaticResource AccentBrush}" />
+                            <Setter TargetName="FocusRectangle" Property="Visibility" Value="Visible" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+    <Style x:Key="RestoreChipStyle" TargetType="Button">
+        <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="FontSize" Value="11" />
+        <Setter Property="Padding" Value="6,1" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="4"
+                            Padding="{TemplateBinding Padding}">
+                        <ContentPresenter />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
     <Style x:Key="CardStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource CardBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />

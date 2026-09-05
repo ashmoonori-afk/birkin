@@ -154,6 +154,8 @@ internal static class ProviderOfficeJourneyFlow
                 $"approval.approve.{approvalId}");
             Assert.AreEqual(approvalId, approve.Tag as string);
             Assert.IsTrue(approve.IsEnabled);
+            approve.BringIntoView();
+            await RenderBarrierAsync(window);
             Assert.IsTrue(IsInViewport(approve, scroll), "the exact projected approval was not visibly actionable");
             var approval = await ProviderOfficeJourneyActions.ClickAsync(
                 composition.PresentationModel, events, approve, "approval.answer", cancellationToken);

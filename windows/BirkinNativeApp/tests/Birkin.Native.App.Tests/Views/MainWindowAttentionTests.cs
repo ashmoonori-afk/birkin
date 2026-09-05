@@ -9,7 +9,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Birkin.Native.App.Tests.Views;
 
 [TestClass]
-public sealed class MainWindowAttentionTests
+public sealed class MainWindowAttentionTests : MainWindowTestBase
 {
     [TestMethod]
     public async Task Notification_WhenWindowLoadsLate_DefersFlashAndStopsOnClear()

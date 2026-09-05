@@ -1,5 +1,6 @@
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Birkin.Native.App.Startup;
 using Birkin.Native.Shell;
 using Birkin.Native.Shell.Presentation;
@@ -11,7 +12,11 @@ public partial class WorkspaceSnapshotView : UserControl
     private ShellPresentationModel? _presentationModel;
     private IStartupRecovery? _startupRecovery;
 
-    public WorkspaceSnapshotView() => InitializeComponent();
+    public WorkspaceSnapshotView()
+    {
+        InitializeComponent();
+        InitializeLayoutBehavior();
+    }
 
     public WorkspaceSnapshotView(ShellPresentationModel presentationModel)
         : this() => DataContext = presentationModel;
@@ -23,14 +28,17 @@ public partial class WorkspaceSnapshotView : UserControl
         ContextColumnView.AttachWorkflow(presentationModel, coordinator);
     }
 
-    internal Task<bool> ImportDroppedFilesAsync(
-        IReadOnlyList<string> paths) =>
+    internal Task<bool> ImportDroppedFilesAsync(IReadOnlyList<string> paths) =>
         ContextColumnView.ImportDroppedFilesAsync(paths);
 
     internal void ReportImportSelectionError() =>
         ContextColumnView.ReportImportSelectionError();
 
-    public void FocusApprovals() => ContextColumnView.FocusApprovals();
+    public void FocusApprovals()
+    {
+        ShowContextForCurrentWidth();
+        ContextColumnView.FocusApprovals();
+    }
 
     public void AttachStartupRecovery(
         ShellPresentationModel presentationModel,
@@ -40,9 +48,7 @@ public partial class WorkspaceSnapshotView : UserControl
         _startupRecovery = startupRecovery;
     }
 
-    private async void RetryStartupClicked(
-        object sender,
-        RoutedEventArgs eventArgs)
+    private async void RetryStartupClicked(object sender, RoutedEventArgs eventArgs)
     {
         if (_presentationModel is null
             || _startupRecovery is null
@@ -52,19 +58,14 @@ public partial class WorkspaceSnapshotView : UserControl
         }
 
         button.IsEnabled = false;
-        await System.Windows.Threading.Dispatcher.Yield(
-            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         try
         {
             var failure = await _startupRecovery.RetryAsync();
             if (failure is null)
-            {
                 _presentationModel.ClearStartupFailure();
-            }
             else
-            {
                 _presentationModel.PresentStartupFailure(failure);
-            }
         }
         catch (OperationCanceledException)
         {
@@ -76,9 +77,7 @@ public partial class WorkspaceSnapshotView : UserControl
         }
     }
 
-    private async void ConfigureExecutableClicked(
-        object sender,
-        RoutedEventArgs eventArgs)
+    private async void ConfigureExecutableClicked(object sender, RoutedEventArgs eventArgs)
     {
         if (_presentationModel is null
             || _startupRecovery is null
@@ -88,21 +87,14 @@ public partial class WorkspaceSnapshotView : UserControl
         }
 
         button.IsEnabled = false;
-        await System.Windows.Threading.Dispatcher.Yield(
-            System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+        await Dispatcher.Yield(DispatcherPriority.ApplicationIdle);
         try
         {
-            var failure =
-                await _startupRecovery.ConfigureExecutableAndRetryAsync(
-                    ExecutablePathInput.Text);
+            var failure = await _startupRecovery.ConfigureExecutableAndRetryAsync(ExecutablePathInput.Text);
             if (failure is null)
-            {
                 _presentationModel.ClearStartupFailure();
-            }
             else
-            {
                 _presentationModel.PresentStartupFailure(failure);
-            }
         }
         catch (OperationCanceledException)
         {
@@ -119,9 +111,6 @@ public partial class WorkspaceSnapshotView : UserControl
         DependencyPropertyChangedEventArgs eventArgs)
     {
         if (eventArgs.NewValue is true)
-        {
-            _ = Dispatcher.BeginInvoke(
-                new Action(() => StartupFailureTitle.Focus()));
-        }
+            _ = Dispatcher.BeginInvoke(new Action(() => StartupFailureTitle.Focus()));
     }
 }

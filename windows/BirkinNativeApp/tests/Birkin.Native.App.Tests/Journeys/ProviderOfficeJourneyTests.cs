@@ -4,7 +4,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Birkin.Native.App.Tests.Journeys;
 
 [TestClass]
-public sealed class ProviderOfficeJourneyTests
+public sealed class ProviderOfficeJourneyTests : MainWindowTestBase
 {
     [TestMethod]
     [TestCategory("OfficeWorkflow")]

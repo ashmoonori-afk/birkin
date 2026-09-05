@@ -6,8 +6,8 @@
         Title="Windows용 Birkin - 개발 프리뷰"
         Width="1500"
         Height="940"
-        MinWidth="1100"
-        MinHeight="700"
+        MinWidth="640"
+        MinHeight="480"
         AllowDrop="True"
         PreviewDragEnter="WindowDragEntered"
         PreviewDragOver="WindowDragOver"
@@ -20,6 +20,23 @@
         Foreground="{DynamicResource TextBrush}"
         FontFamily="Segoe UI"
         WindowStartupLocation="CenterScreen">
+    <Window.InputBindings>
+        <KeyBinding Key="B" Modifiers="Control"
+                    Command="{x:Static views:WorkspaceSnapshotView.ToggleNavigationCommand}"
+                    CommandTarget="{Binding ElementName=SnapshotView}" />
+        <KeyBinding Key="B" Modifiers="Control+Shift"
+                    Command="{x:Static views:WorkspaceSnapshotView.ToggleContextCommand}"
+                    CommandTarget="{Binding ElementName=SnapshotView}" />
+        <KeyBinding Key="F" Modifiers="Control+Shift"
+                    Command="{x:Static views:WorkspaceSnapshotView.ToggleFocusCommand}"
+                    CommandTarget="{Binding ElementName=SnapshotView}" />
+        <KeyBinding Key="D" Modifiers="Control+Shift"
+                    Command="{x:Static views:WorkspaceSnapshotView.ToggleDocumentFocusCommand}"
+                    CommandTarget="{Binding ElementName=SnapshotView}" />
+        <KeyBinding Key="D0" Modifiers="Control+Shift"
+                    Command="{x:Static views:WorkspaceSnapshotView.ResetLayoutCommand}"
+                    CommandTarget="{Binding ElementName=SnapshotView}" />
+    </Window.InputBindings>
     <Window.Resources>
         <ResourceDictionary Source="Styles/ShellStyles.xaml" />
     </Window.Resources>

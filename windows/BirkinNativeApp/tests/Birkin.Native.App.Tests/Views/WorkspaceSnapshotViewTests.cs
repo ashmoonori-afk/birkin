@@ -14,7 +14,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace Birkin.Native.App.Tests.Views;
 
 [TestClass]
-public sealed class WorkspaceSnapshotViewTests
+public sealed class WorkspaceSnapshotViewTests : MainWindowTestBase
 {
     [TestMethod]
     public async Task ConnectionIndicator_WhenStateChanges_UsesTruthfulBrush()
@@ -191,7 +191,7 @@ public sealed class WorkspaceSnapshotViewTests
         {
             var model = new ShellPresentationModel(SynchronizationContext.Current!);
             var window = new MainWindow(model);
-            var result = (window.Title, window.ResizeMode, window.Focusable);
+            var result = (window.Title, window.ResizeMode, window.Focusable, window.MinWidth, window.MinHeight);
             window.Close();
             return result;
         });
@@ -200,6 +200,8 @@ public sealed class WorkspaceSnapshotViewTests
         Assert.AreEqual("Windows용 Birkin - 개발 프리뷰", properties.Title);
         Assert.AreEqual(ResizeMode.CanResize, properties.ResizeMode);
         Assert.IsTrue(properties.Focusable);
+        Assert.AreEqual(640, properties.MinWidth);
+        Assert.AreEqual(480, properties.MinHeight);
     }
 
     private static string Text(FrameworkElement view, string name) =>

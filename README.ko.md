@@ -448,7 +448,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.355`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.356`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -1212,6 +1212,14 @@ shell에 상태를 제공하며, policy, execution, approval, Office, receipt, r
 유일한 authority는 계속 Python입니다. Terminal은 Windows에서 사용할 수 없음을
 사실대로 표시하고, Browser는 control이나 authority를 만들지 않고 canonical
 projected state만 표시합니다.
+
+작업공간은 드래그 가능한 분할선, 접을 수 있는 업무 목록·상세 패널, 문서 확대
+보기(`Ctrl+Shift+D`), 대화 집중 보기(`Ctrl+Shift+F`)와 키보드 패널 단축키를
+제공합니다. 너비가 1100 DIP보다 좁으면 한 번에 한 영역을 표시해 고배율에서도
+입력창과 승인 동작에 접근할 수 있습니다. 사용할 수 없는 Windows 터미널은 처음에
+접혀 있습니다. 패널 너비·표시 상태·창 위치는
+`%LOCALAPPDATA%\Birkin\layout.json`에 저장되며, 잘못된 값은 Python의 정책이나
+실행 권한을 바꾸지 않고 제한된 기본값으로 복구됩니다.
 
 Windows Office path는 의도적으로 read-only입니다. Jail 안으로 artifact를 import하고,
 canonical projection을 선택하고, Python 소유 comparison을 요청하고, 그 결과인
