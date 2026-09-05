@@ -675,6 +675,12 @@ def calendar_drafts_path() -> Path:
     return birkin_home() / "calendar-drafts.json"
 
 
+def briefings_dir() -> Path:
+    path = birkin_home() / "briefings"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 def companion_dir() -> Path:
     """Commitment / check-in domain state (mutable, outside memory curation)."""
     d = birkin_home() / "companion"

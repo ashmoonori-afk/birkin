@@ -222,6 +222,10 @@ def execute_action(
         from .m365_calendar import execute_approved_event
 
         return execute_approved_event(payload)
+    if category == "briefing_schedule":
+        from .daily_briefing import apply_schedule
+
+        return apply_schedule(payload, configured.on_event)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
         if not isinstance(operation, _OperationExecutor):

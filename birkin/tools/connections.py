@@ -100,6 +100,21 @@ def _meeting_prepare(data: ToolInput, _ctx: ToolContext) -> ToolResult:
     return ToolResult(json.dumps({"event": event, "evidence": evidence["results"], "unknown_attendee_availability": True}, ensure_ascii=False))
 
 
+def _briefing_list(data: ToolInput, _ctx: ToolContext) -> ToolResult:
+    from ..daily_briefing import latest
+
+    return ToolResult(json.dumps({"briefings": latest(int(data.get("limit", 20)))}, ensure_ascii=False))
+
+
+def _briefing_request(data: ToolInput, ctx: ToolContext) -> ToolResult:
+    queued = approvals.propose(
+        category="briefing_schedule", title="일일 브리핑 예약 변경 확인",
+        description=f"일일 브리핑 {data.get('action')} 작업을 앱 내 알림 범위로 반영합니다.",
+        payload=dict(data), cfg={}, origin=ctx.record_source,
+    )
+    return ToolResult(json.dumps({**queued, "category": "briefing_schedule"}, ensure_ascii=False))
+
+
 def tools() -> list[Tool]:
     artifact = {
         "type": "object", "properties": {
@@ -156,4 +171,10 @@ def tools() -> list[Tool]:
         }, "required": ["action", "subject", "start", "end", "timezone", "attendees"], "additionalProperties": False}, _calendar_draft),
         Tool("m365_calendar_event_request", "Request approval for one unchanged event after a final conflict and revision check.", {"type": "object", "properties": {"draft_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "required": ["draft_id", "content_sha256"], "additionalProperties": False}, _calendar_apply),
         Tool("m365_meeting_prepare", "Collect one event and source-located Office evidence for meeting preparation.", {"type": "object", "properties": {"event_id": {"type": "string"}, "sources": {"type": "array", "minItems": 1, "maxItems": 100, "items": {"type": "object"}}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "required": ["event_id", "sources"], "additionalProperties": False}, _meeting_prepare),
+        Tool("list_daily_briefings", "List durable in-app daily briefings and their data basis times.", {"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "additionalProperties": False}, _briefing_list),
+        Tool("daily_briefing_schedule_request", "Request an approved create, pause, resume, or skip change for an in-app briefing schedule.", {"type": "object", "properties": {
+            "action": {"type": "string", "enum": ["create", "pause", "resume", "skip"]}, "job_id": {"type": "string"},
+            "name": {"type": "string"}, "schedule": {"type": "string"}, "timezone_name": {"type": "string"},
+            "missed_policy": {"type": "string", "enum": ["run", "skip"]},
+        }, "required": ["action"], "additionalProperties": False}, _briefing_request),
     ]

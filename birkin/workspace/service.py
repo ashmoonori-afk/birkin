@@ -293,6 +293,16 @@ class WorkspaceService:
             "description": " · ".join(cast("list[str]", connection.get("scopes", []))),
             "status": connection["state"],
         }
+        from ..daily_briefing import latest as latest_briefings
+
+        briefing_rows = tuple({
+            "id": f"briefing:{item['id']}",
+            "kind": "briefing",
+            "summary": "일일 브리핑",
+            "description": f"기준 시각 {item['data_basis_at']}",
+            "status": "확인 필요",
+            "updated_at": item["data_basis_at"],
+        } for item in latest_briefings(5))
         seen: set[str] = set()
         work_rows: list[dict[str, object]] = []
         for group in ("overdue", "today", "needs_confirmation", "recently_completed"):
@@ -323,7 +333,7 @@ class WorkspaceService:
         panels = tuple(
             replace(panel, items=approval_items(panel.items))
             if panel.key == "approvals"
-            else replace(panel, items=tuple(work_rows) + panel.items)
+            else replace(panel, items=briefing_rows + tuple(work_rows) + panel.items)
             if panel.key == "tasks_runs"
             else replace(panel, items=(connection_row,) + panel.items)
             if panel.key == "files_evidence"
