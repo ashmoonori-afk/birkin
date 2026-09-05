@@ -415,6 +415,21 @@ def run(output_dir: Path) -> dict[str, object]:
                 f"legacy {ext} external engine was not permanently refused"
             )
         legacy[ext] = {"identity": preflight.to_dict(), "conversion": receipt.to_dict(), "source_immutable": sha256(source) == preflight.source_sha256}
+    _ = call("list_office_templates", {})
+    template_request = call("office_template_request", {
+        "action": "clone", "base": "weekly_report", "name": "QA weekly report",
+        "scope": "current_work", "preferences": {"tone": "concise"},
+    })
+    template_approved = approve(
+        cast(str, template_request["id"]), approved_by="system:qa", approved_via="qa:script",
+    )
+    if template_approved["ok"] is not True:
+        raise AssertionError(f"office_template_request approval failed: {template_approved}")
+    saved_template = cast(list[dict[str, object]], call("list_office_templates", {})["saved"])[0]
+    _ = call("resolve_office_template", {
+        "template_id": saved_template["id"], "version": saved_template["version"],
+        "values": {"title": "QA", "period": "current", "summary": "passed"},
+    })
     rollback_destination = coordinated / "rollback-probe.docx"
     rollback_source = artifact(paths["docx"])
     shutil.copy2(Path(rollback_source["uri"]), rollback_destination)

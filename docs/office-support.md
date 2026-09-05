@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.382`
+- Birkin version: `0.4.383`
 - `catalog_revision: 8`
 - `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
@@ -61,7 +61,7 @@ format, Birkin routes to `office-documents` and asks exactly
 
 ## Registered tools and arguments
 
-The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
+The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
 
 | Tool | Required arguments | Important optional arguments/behavior |
 |---|---|---|
@@ -75,6 +75,9 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `search_office_sources` | `query`, `sources` | Searches only live, access-granted current-work, selected-folder, or allowed-connection artifacts and returns exact extraction locators and versions. |
 | `list_office_batches` | none | Lists per-file success and failure results without collapsing partial failure. |
 | `office_batch_request` | `items` or `retry_batch_id` | Approval-binds up to 25 unique targets for sequential canonical Office jobs; retry plans include failed files only. |
+| `list_office_templates` | none | Previews verified bases and saved versions visible to this workspace. |
+| `office_template_request` | `action` | Approval-gates clone, rename, structural preference update, and default restore; body text is rejected. |
+| `resolve_office_template` | `template_id`, `version`, `values` | Resolves one exact saved version into a verified built-in business-template input. |
 | `compare_documents` | `left`, `right` | Returns separate byte, semantic, package, and visual claims. |
 | `render_artifact` | `artifact` | `output_format` is `structured_preview`, `pdf`, `png`, or `thumbnail`; `page` is optional. |
 | `validate_artifact` | `artifact` | Reports package, schema-root, formula, openability, security, and fidelity layers. |

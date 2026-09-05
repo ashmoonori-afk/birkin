@@ -675,6 +675,11 @@ def calendar_drafts_path() -> Path:
     return birkin_home() / "calendar-drafts.json"
 
 
+def office_templates_path() -> Path:
+    """User-confirmed Office template profiles; document bodies are excluded."""
+    return birkin_home() / "office-templates.json"
+
+
 def briefings_dir() -> Path:
     path = birkin_home() / "briefings"
     path.mkdir(parents=True, exist_ok=True)

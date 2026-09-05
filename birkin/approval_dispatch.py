@@ -234,6 +234,10 @@ def execute_action(
         from .team_review import execute_share
 
         return execute_share(payload, approval_id=configured.office_approval_id)
+    if category == "office_template":
+        from .office.saved_templates import apply_approved
+
+        return apply_approved(payload)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
         if not isinstance(operation, _OperationExecutor):

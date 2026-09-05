@@ -8,7 +8,7 @@ metadata:
   birkin:
     tags: [productivity, office, pdf, read-only]
     formats: [pdf]
-    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, search_office_sources, list_office_batches, office_batch_request, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
+    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, search_office_sources, list_office_batches, office_batch_request, list_office_templates, office_template_request, resolve_office_template, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
     inspect_first: inspect_document
     write_policy: copy-on-write
     extension_conversion: txt-only
@@ -67,6 +67,9 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `search_office_sources`: required `query` and access-granted scoped `sources`; returns live file, locator, hash, and version evidence without an extraction cache.
 - `list_office_batches`: optional `limit`; reports each batch and per-file result.
 - `office_batch_request`: required `items` or `retry_batch_id`; approval-binds and sequentially runs canonical per-file Office jobs.
+- `list_office_templates`: no arguments; previews verified bases and visible saved versions.
+- `office_template_request`: required `action`; approval-gates clone, rename, preference update, and default restore without storing document bodies.
+- `resolve_office_template`: required `template_id`, `version`, and `values`; resolves one exact saved version to the verified built-in template input.
 - `compare_documents`: required `left` and `right`.
 - `render_artifact`: required `artifact`; `output_format` must be `structured_preview`, `pdf`, `png`, or `thumbnail`, and `page` is optional.
 - `validate_artifact`: required `artifact`.

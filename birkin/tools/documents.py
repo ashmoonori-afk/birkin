@@ -20,6 +20,9 @@ NAMES = (
     "search_office_sources",
     "list_office_batches",
     "office_batch_request",
+    "list_office_templates",
+    "office_template_request",
+    "resolve_office_template",
     "compare_documents",
     "render_artifact",
     "validate_artifact",
@@ -233,6 +236,25 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     payload=batch, cfg={}, origin=ctx.record_source,
                 )
                 result = {**queued, "category": "office_batch", "batch": batch}
+            elif name == "list_office_templates":
+                from ..office.saved_templates import list_templates
+
+                result = list_templates(ctx.cwd)
+            elif name == "office_template_request":
+                template_payload = {**payload, "workspace": str(ctx.cwd.resolve())}
+                queued = approvals.propose(
+                    category="office_template", title="Office 양식 설정 확인",
+                    description="본문을 제외한 양식 이름·범위·표현 선호를 저장합니다.",
+                    payload=template_payload, cfg={}, origin=ctx.record_source,
+                )
+                result = {**queued, "category": "office_template", "preview": template_payload}
+            elif name == "resolve_office_template":
+                from ..office.saved_templates import resolve
+
+                result = resolve(
+                    payload["template_id"], payload["version"], payload["values"],
+                    payload.get("sources", {}), ctx.cwd,
+                )
             elif name == "office_rollback_request":
                 from ..office.rollback_approval import request_rollback
 
@@ -369,6 +391,35 @@ def tools() -> list[Tool]:
             "additionalProperties": False,
             "oneOf": [{"required": ["items"]}, {"required": ["retry_batch_id"]}],
         },
+        "list_office_templates": _object({}),
+        "office_template_request": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["clone", "rename", "update", "restore"]},
+                "base": {"type": "string", "enum": ["weekly_report", "meeting_notes", "work_proposal"]},
+                "template_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "version": {"type": "integer", "minimum": 1},
+                "name": {"type": "string", "minLength": 1},
+                "scope": {"type": "string", "enum": ["current_work", "global"]},
+                "preferences": _object({
+                    "tone": {"type": "string", "enum": ["plain", "concise", "formal"]},
+                    "include_optional": {"type": "boolean"},
+                }),
+            },
+            "required": ["action"], "additionalProperties": False,
+            "allOf": [
+                {"if": {"properties": {"action": {"const": "clone"}}}, "then": {"required": ["base", "name", "scope"]}},
+                {"if": {"properties": {"action": {"enum": ["rename", "update", "restore"]}}}, "then": {"required": ["template_id", "version"]}},
+                {"if": {"properties": {"action": {"const": "rename"}}}, "then": {"required": ["name"]}},
+                {"if": {"properties": {"action": {"const": "update"}}}, "then": {"required": ["preferences"]}},
+            ],
+        },
+        "resolve_office_template": _object({
+            "template_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+            "version": {"type": "integer", "minimum": 1},
+            "values": {"type": "object"},
+            "sources": {"type": "object", "additionalProperties": {"type": "string", "minLength": 1}},
+        }, ["template_id", "version", "values"]),
         "compare_documents": _object({"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]),
         "render_artifact": _object(
             {
