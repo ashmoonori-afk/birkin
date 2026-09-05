@@ -358,6 +358,8 @@ Approved follow-ups become durable all-day `WorkItem` records. `list_work_items`
 
 The first external work connection is limited to Microsoft 365 delegated read access (`User.Read`, `Mail.Read`, `Calendars.Read`, and `Files.Read`). `m365_connection_status` shows the account, granted scopes, MCP server, and distinct connected, expired, revoked, reauthentication, or sync-failure states in the Office surface. `m365_connection_request` approval-gates connection, revocation, and reauthentication. It persists only a secrets-manager environment reference; token bytes never enter connection metadata.
 
+Microsoft 365 mail follows a read → local draft → explicit send sequence. Local new/reply/reply-all/forward drafts bind the sending account, recipients, subject, body, source revision, and attachment hashes. `m365_mail_send_request` exposes that exact snapshot for review; execution rejects changed drafts or attachments, creates a remote draft with an immutable Graph ID, and checks that ID before any retry after an uncertain send response.
+
 `office_job_request` now accepts a source-free DOCX creation proposal with
 `content.paragraphs`. It writes neither a managed draft nor the caller's
 destination until the separate `office_create` approval executes the bound
@@ -434,7 +436,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.377`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.378`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 

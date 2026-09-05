@@ -12,6 +12,7 @@ from . import config, store
 
 SERVICE = "microsoft-365"
 READ_SCOPES = frozenset({"User.Read", "Mail.Read", "Calendars.Read", "Files.Read"})
+MAIL_WRITE_SCOPES = frozenset({"Mail.ReadWrite", "Mail.Send"})
 
 
 def _read() -> dict[str, object]:
@@ -26,12 +27,13 @@ def _write(record: Mapping[str, object]) -> None:
     store._write_json(config.connections_path(), connections)
 
 
-def _scopes(value: object) -> list[str]:
+def _scopes(value: object, *, allow_mail_write: bool = False) -> list[str]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         raise ValueError("scopes must be an array")
     scopes = sorted(set(value))
-    if not scopes or any(not isinstance(scope, str) or scope not in READ_SCOPES for scope in scopes):
-        raise ValueError("only supported delegated read scopes may be requested")
+    allowed = READ_SCOPES | (MAIL_WRITE_SCOPES if allow_mail_write else frozenset())
+    if not scopes or any(not isinstance(scope, str) or scope not in allowed for scope in scopes):
+        raise ValueError("only supported delegated scopes may be requested")
     return scopes
 
 
@@ -65,7 +67,8 @@ def apply_approved(payload: dict[str, Any], _on_event: object = None) -> str:
         elif action == "reauthenticate":
             if not current:
                 raise ValueError("connection was not found")
-            current.update({"revoked": False, "expires_at": payload.get("expires_at"), "last_sync_error": None, "updated_at": now})
+            scopes = _scopes(payload["scopes"], allow_mail_write=True) if "scopes" in payload else current.get("scopes", [])
+            current.update({"revoked": False, "scopes": scopes, "expires_at": payload.get("expires_at"), "last_sync_error": None, "updated_at": now})
         else:
             raise ValueError("unsupported connection action")
         _write(current)
@@ -113,4 +116,4 @@ def record_sync_result(error: str | None) -> None:
         _write(current)
 
 
-__all__ = ["READ_SCOPES", "apply_approved", "record_sync_result", "status"]
+__all__ = ["MAIL_WRITE_SCOPES", "READ_SCOPES", "apply_approved", "record_sync_result", "status"]

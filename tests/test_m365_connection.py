@@ -43,7 +43,7 @@ def test_connection_refuses_write_scope(tmp_path: Path, monkeypatch) -> None:
     try:
         apply_approved({"action": "connect", "account_id": "u", "account_name": "u@example.com", "secret_env": "TOKEN", "scopes": ["Mail.Send"]})
     except ValueError as error:
-        assert "read scopes" in str(error)
+        assert "delegated scopes" in str(error)
     else:
         raise AssertionError("write scope was accepted")
 
