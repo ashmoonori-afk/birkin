@@ -27,25 +27,45 @@ public struct DesktopMenuModel: Equatable, Sendable {
     public init(
         connection: NativeConnectionState,
         sessionID: String?,
-        pendingApprovalCount: Int
+        pendingApprovalCount: Int,
+        locale: Locale = NativeLocalization.currentLocale
     ) {
+        func text(_ key: String) -> String {
+            NativeLocalization.string(key, locale: locale)
+        }
         switch connection {
-        case .ready, .fallback(.ready): connectionTitle = "연결됨"
-        case .replaying: connectionTitle = "상태 복원 중"
-        case .connecting, .negotiating, .fallback: connectionTitle = "연결 중"
-        case .failed: connectionTitle = "연결 실패"
-        case .disconnected: connectionTitle = "연결 끊김"
+        case .ready, .fallback(.ready): connectionTitle = text("Connected")
+        case .replaying: connectionTitle = text("Replaying")
+        case .connecting, .negotiating, .fallback:
+            connectionTitle = text("Connecting")
+        case .failed: connectionTitle = text("Connection failed")
+        case .disconnected: connectionTitle = text("Disconnected")
         }
         var values = [DesktopMenuItem(
-            title: "연결: \(connectionTitle)", destination: .connection
+            title: NativeLocalization.string(
+                "Connection: %@",
+                locale: locale,
+                connectionTitle
+            ),
+            destination: .connection
         )]
         if let sessionID {
             values.append(DesktopMenuItem(
-                title: "업무: \(sessionID)", destination: .session(id: sessionID)
+                title: NativeLocalization.string(
+                    "Session: %@",
+                    locale: locale,
+                    sessionID
+                ),
+                destination: .session(id: sessionID)
             ))
         }
         values.append(DesktopMenuItem(
-            title: "승인 요청 \(max(0, pendingApprovalCount))건", destination: .approvals
+            title: NativeLocalization.string(
+                "Approvals (%lld)",
+                locale: locale,
+                Int64(max(0, pendingApprovalCount))
+            ),
+            destination: .approvals
         ))
         items = values
     }
@@ -68,10 +88,12 @@ public struct DesktopMenuView: View {
             ForEach(model.items) { item in
                 Button(item.title) { navigate(item.destination) }
                     .buttonStyle(.plain)
-                    .accessibilityHint("Birkin의 승인 화면으로 이동하며 결정을 대신 내리지 않습니다")
+                    .accessibilityHint(NativeLocalization.string(
+                        "Navigates in Birkin; does not make a decision"
+                    ))
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityLabel("Birkin 상태 메뉴")
+        .accessibilityLabel(NativeLocalization.string("Birkin status menu"))
     }
 }

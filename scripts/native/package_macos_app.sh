@@ -6,6 +6,10 @@ package_root="$repo_root/macos/BirkinNativeApp"
 output_root="${1:-$repo_root/.omo/evidence/native-shell/phase13/dist}"
 app="$output_root/Birkin.app"
 binary="$package_root/.build/apple/Products/Release/BirkinNativeApp"
+app_binary="$app/Contents/MacOS/BirkinNativeApp"
+icon_source="$repo_root/macos/BirkinNativeApp/Resources/Birkin.svg"
+icon="$app/Contents/Resources/Birkin.icns"
+dsym="$output_root/BirkinNativeApp.dSYM"
 build="${BIRKIN_BUILD_NUMBER:-1}"
 
 cd "$repo_root"
@@ -15,6 +19,20 @@ version="$(awk '
   in_project && /^version = / { gsub(/[\"[:space:]]/, "", $3); print $3; exit }
 ' pyproject.toml)"
 [[ -n "$version" ]] || { echo "Unable to read project version" >&2; exit 1; }
+symbols_manifest="$output_root/Birkin-$version-symbols-manifest.txt"
+symbols_zip="$output_root/Birkin-$version-symbols.zip"
+symbols_checksum="$output_root/Birkin-$version-symbols.zip.sha256"
+
+collect_uuids() {
+  /usr/bin/dwarfdump --uuid "$1" |
+    awk '{
+      architecture=$3
+      gsub(/[()]/, "", architecture)
+      print architecture "=" tolower($2)
+    }' |
+    LC_ALL=C sort
+}
+
 source_revision="$(git rev-parse HEAD)"
 source_state=clean
 if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
@@ -38,15 +56,32 @@ else
 fi
 export BIRKIN_SIGN_IDENTITY="$identity"
 
-rm -rf "$app"
+rm -rf "$app" "$dsym"
+rm -f "$symbols_manifest" "$symbols_zip" "$symbols_checksum"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" "$app/Contents/Helpers"
 
-swift build --package-path "$package_root" -c release --arch arm64 --arch x86_64
-cp "$binary" "$app/Contents/MacOS/BirkinNativeApp"
-chmod 0755 "$app/Contents/MacOS/BirkinNativeApp"
+swift build --package-path "$package_root" -c release \
+  --arch arm64 --arch x86_64 -Xswiftc -g
+cp "$binary" "$app_binary"
+chmod 0755 "$app_binary"
+localization_bundle="$package_root/.build/apple/Products/Release/BirkinNativeApp_BirkinNativeShell.bundle"
+[[ -d "$localization_bundle" ]] || {
+  echo "Swift localization resource bundle is missing" >&2
+  exit 1
+}
+localization_resources="$localization_bundle/Contents/Resources"
+cp -R "$localization_bundle" "$app/Contents/Resources/"
+for localization in en ko; do
+  cp -R \
+    "$localization_resources/$localization.lproj" \
+    "$app/Contents/Resources/"
+done
 scripts/native/build_bridge_helpers.sh "$app/Contents/Helpers"
 scripts/native/build_browser_runtimes.sh \
   "$app/Contents/Resources/BrowserRuntimes"
+bash scripts/native/build_macos_icon.sh "$icon_source" "$icon"
+icon_source_hash="$(shasum -a 256 "$icon_source" | awk '{print $1}')"
+icon_hash="$(shasum -a 256 "$icon" | awk '{print $1}')"
 printf 'APPL????' > "$app/Contents/PkgInfo"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -57,6 +92,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Birkin</string>
   <key>CFBundleExecutable</key><string>BirkinNativeApp</string>
   <key>CFBundleIdentifier</key><string>com.birkin.native</string>
+  <key>CFBundleIconFile</key><string>Birkin.icns</string>
   <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleName</key><string>Birkin</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -68,6 +104,19 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 plutil -lint "$app/Contents/Info.plist"
+[[ "$(plutil -extract CFBundleIconFile raw -o - "$app/Contents/Info.plist")" == "Birkin.icns" ]]
+cat > "$app/Contents/Resources/app-resources.json" <<JSON
+{
+  "schema": 1,
+  "icon": {
+    "file": "Birkin.icns",
+    "source": "macos/BirkinNativeApp/Resources/Birkin.svg",
+    "source_sha256": "$icon_source_hash",
+    "sha256": "$icon_hash"
+  }
+}
+JSON
+resource_manifest_hash="$(shasum -a 256 "$app/Contents/Resources/app-resources.json" | awk '{print $1}')"
 
 arm_helper="$app/Contents/Helpers/arm64/birkin-native-bridge"
 x86_helper="$app/Contents/Helpers/x86_64/birkin-native-bridge"
@@ -122,7 +171,7 @@ JSON
 helper_manifest_hash="$(shasum -a 256 "$app/Contents/Resources/bridge-helper.json" | awk '{print $1}')"
 
 # Sign nested code first, then seal its manifest with the application signature.
-codesign "${sign_args[@]}" "$app/Contents/MacOS/BirkinNativeApp"
+codesign "${sign_args[@]}" "$app_binary"
 codesign "${sign_args[@]}" "$app"
 codesign --verify --strict --verbose=2 "$arm_helper"
 codesign --verify --strict --verbose=2 "$x86_helper"
@@ -130,6 +179,46 @@ for candidate in "${browser_code_paths[@]}"; do
   codesign --verify --strict --verbose=2 "$candidate"
 done
 codesign --verify --deep --strict --verbose=2 "$app"
+
+# Generate and validate private symbols only after the shipped binary is final.
+# The dSYM and its archive remain beside the app, never inside it.
+/usr/bin/dsymutil "$app_binary" -o "$dsym"
+binary_uuids="$(collect_uuids "$app_binary")"
+dsym_uuids="$(collect_uuids "$dsym")"
+grep -q "^arm64=" <<<"$binary_uuids"
+grep -q "^x86_64=" <<<"$binary_uuids"
+[[ "$(wc -l <<<"$binary_uuids" | tr -d ' ')" == "2" ]]
+cmp -s <(printf '%s\n' "$binary_uuids") <(printf '%s\n' "$dsym_uuids") || {
+  echo "Application and dSYM UUIDs do not match" >&2
+  diff -u <(printf '%s\n' "$binary_uuids") <(printf '%s\n' "$dsym_uuids") >&2 || true
+  exit 1
+}
+app_binary_hash="$(shasum -a 256 "$app_binary" | awk '{print $1}')"
+arm64_uuid="$(awk -F= '/^arm64=/{print $2}' <<<"$binary_uuids")"
+x86_64_uuid="$(awk -F= '/^x86_64=/{print $2}' <<<"$binary_uuids")"
+cat > "$symbols_manifest" <<SYMBOLS
+schema=1
+package_version=$version
+source_revision=$source_revision
+app_binary_sha256=$app_binary_hash
+arm64_uuid=$arm64_uuid
+x86_64_uuid=$x86_64_uuid
+SYMBOLS
+symbol_stage="$(mktemp -d "${TMPDIR:-/tmp}/birkin-symbols.XXXXXX")"
+trap 'rm -rf "$symbol_stage"' EXIT
+/usr/bin/ditto "$dsym" "$symbol_stage/BirkinNativeApp.dSYM"
+cp "$symbols_manifest" "$symbol_stage/$(basename "$symbols_manifest")"
+/usr/bin/ditto -c -k --sequesterRsrc "$symbol_stage/" "$symbols_zip"
+/usr/bin/unzip -t "$symbols_zip" >/dev/null
+symbols_zip_hash="$(shasum -a 256 "$symbols_zip" | awk '{print $1}')"
+printf '%s  %s\n' "$symbols_zip_hash" "$(basename "$symbols_zip")" \
+  > "$symbols_checksum"
+rm -rf "$symbol_stage"
+trap - EXIT
+[[ -z "$(find "$app" -name '*.dSYM' -print -quit)" ]] || {
+  echo "Customer application unexpectedly contains a dSYM" >&2
+  exit 1
+}
 
 {
   echo "app=$app"
@@ -156,6 +245,16 @@ codesign --verify --deep --strict --verbose=2 "$app"
   echo "browser_arm64_size_bytes=$arm_browser_size"
   echo "browser_x86_64_sha256=$x86_browser_hash"
   echo "browser_x86_64_size_bytes=$x86_browser_size"
+  echo "icon_file=Birkin.icns"
+  echo "icon_source_sha256=$icon_source_hash"
+  echo "icon_sha256=$icon_hash"
+  echo "resource_manifest_sha256=$resource_manifest_hash"
+  echo "app_binary_sha256=$app_binary_hash"
+  echo "app_arm64_uuid=$arm64_uuid"
+  echo "app_x86_64_uuid=$x86_64_uuid"
+  echo "symbols_manifest=$(basename "$symbols_manifest")"
+  echo "symbols_zip=$(basename "$symbols_zip")"
+  echo "symbols_zip_sha256=$symbols_zip_hash"
   echo "signing_mode=$signing_mode"
   echo "identity=${identity:--}"
   echo "app_sandbox=disabled"

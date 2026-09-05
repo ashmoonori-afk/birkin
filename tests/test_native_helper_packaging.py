@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import TypeGuard, cast
 
@@ -22,6 +23,9 @@ BUILD_SCRIPT = REPOSITORY / "scripts/native/build_bridge_helpers.sh"
 BROWSER_BUILD_SCRIPT = REPOSITORY / "scripts/native/build_browser_runtimes.sh"
 PACKAGE_SCRIPT = REPOSITORY / "scripts/native/package_macos_app.sh"
 DMG_SCRIPT = REPOSITORY / "scripts/native/create_macos_dmg.sh"
+ICON_BUILD_SCRIPT = REPOSITORY / "scripts/native/build_macos_icon.sh"
+ICON_SOURCE = REPOSITORY / "macos/BirkinNativeApp/Resources/Birkin.svg"
+EXTENSION_MARK = REPOSITORY / "vscode-extension/media/birkin.svg"
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 
 
@@ -368,3 +372,123 @@ def test_package_and_dmg_manifests_publish_helper_identity() -> None:
     assert "BrowserRuntimes/arm64" in package_script
     assert "BrowserRuntimes/x86_64" in package_script
     assert 'image_size_kib="$((app_size_kib + 262144))"' in dmg_script
+
+
+def _svg_paths_and_colors(path: Path) -> tuple[set[str], set[str]]:
+    root = ET.fromstring(path.read_text(encoding="utf-8"))
+    paths = {
+        value
+        for element in root.iter()
+        if element.tag.endswith("path")
+        for value in [element.attrib.get("d")]
+        if value is not None
+    }
+    colors = {
+        value.lower()
+        for element in root.iter()
+        for attribute in ("fill", "stroke")
+        for value in [element.attrib.get(attribute)]
+        if value is not None and value.startswith("#")
+    }
+    return paths, colors
+
+
+def test_macos_icon_reuses_owned_bag_mark_and_atelier_colors() -> None:
+    from birkin.ui_tokens import PALETTES
+
+    icon_paths, icon_colors = _svg_paths_and_colors(ICON_SOURCE)
+    extension_paths, _ = _svg_paths_and_colors(EXTENSION_MARK)
+
+    assert icon_paths == extension_paths
+    assert icon_colors
+    assert icon_colors <= {
+        color.lower() for color in PALETTES["atelier"].values()
+    }
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macOS icon tools required")
+def test_macos_icon_builder_emits_complete_valid_iconset(
+    tmp_path: Path,
+) -> None:
+    destination = tmp_path / "Birkin.icns"
+    result = subprocess.run(
+        [
+            _bash_executable(),
+            str(ICON_BUILD_SCRIPT),
+            str(ICON_SOURCE),
+            str(destination),
+        ],
+        cwd=REPOSITORY,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert destination.is_file()
+    assert destination.stat().st_size > 0
+    extracted = tmp_path / "extracted.iconset"
+    _ = subprocess.run(
+        ["iconutil", "-c", "iconset", str(destination), "-o", str(extracted)],
+        check=True,
+    )
+    dimensions = {
+        tuple(
+            int(line.split(":", 1)[1])
+            for line in subprocess.run(
+                ["sips", "-g", "pixelWidth", "-g", "pixelHeight", str(png)],
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout.splitlines()
+            if "pixelWidth:" in line or "pixelHeight:" in line
+        )
+        for png in extracted.glob("*.png")
+    }
+    assert {(16, 16), (32, 32), (128, 128), (256, 256), (512, 512)} <= dimensions
+    assert (1024, 1024) in dimensions
+
+
+def test_macos_package_seals_icon_and_universal_symbols_before_release() -> None:
+    package_script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
+    dmg_script = DMG_SCRIPT.read_text(encoding="utf-8")
+
+    browser_copy = package_script.index(
+        '"$app/Contents/Resources/BrowserRuntimes"'
+    )
+    icon_build = package_script.index("build_macos_icon.sh")
+    app_signing = package_script.index(
+        'codesign "${sign_args[@]}" "$app"'
+    )
+
+    assert browser_copy < icon_build < app_signing
+    assert "<key>CFBundleIconFile</key><string>Birkin.icns</string>" in package_script
+    assert "app-resources.json" in package_script
+    assert 'cp -R "$localization_bundle" "$app/Contents/Resources/"' in package_script
+    assert "icon_source_sha256" in package_script
+    assert "icon_sha256" in package_script
+    assert package_script.index("app-resources.json") < app_signing
+    assert "-Xswiftc -g" in package_script
+    assert '/usr/bin/dsymutil "$app_binary" -o "$dsym"' in package_script
+    assert "collect_uuids" in package_script
+    assert 'grep -q "^arm64="' in package_script
+    assert 'grep -q "^x86_64="' in package_script
+    assert "symbols-manifest.txt" in package_script
+    assert "symbols.zip.sha256" in package_script
+    assert "symbols_zip_sha256=" in package_script
+
+    assert "symbols.zip.sha256" in dmg_script
+    assert "binary_uuids" in dmg_script
+    assert "symbols_uuids" in dmg_script
+    assert "cmp -s" in dmg_script
+    assert "-name '*.dSYM'" in dmg_script
+    assert "mounted_binary" in dmg_script
+    assert "mounted_icon" in dmg_script
+
+
+def test_customer_dmg_input_is_only_the_signed_application() -> None:
+    dmg_script = DMG_SCRIPT.read_text(encoding="utf-8")
+
+    assert '-srcfolder "$app"' in dmg_script
+    assert '-srcfolder "$output_root"' not in dmg_script
+    assert 'find "$app" -name \'*.dSYM\'' in dmg_script

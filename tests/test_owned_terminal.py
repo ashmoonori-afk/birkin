@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import signal
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +26,23 @@ pytestmark = pytest.mark.skipif(
 class EventRecorder:
     def __init__(self) -> None:
         self.events: list[tuple[str, dict[str, object]]] = []
+        self._condition = threading.Condition()
 
     def __call__(self, kind: str, payload: dict[str, object]) -> Any:
-        self.events.append((kind, payload))
+        with self._condition:
+            self.events.append((kind, payload))
+            self._condition.notify_all()
         return payload
+
+    def wait_for_output(self, text: str, *, timeout: float = 2.0) -> None:
+        def observed() -> bool:
+            return any(
+                kind == "terminal.output" and text in str(payload.get("data", ""))
+                for kind, payload in self.events
+            )
+
+        with self._condition:
+            assert self._condition.wait_for(observed, timeout=timeout)
 
 
 def authority(tmp_path: Path, recorder: EventRecorder, cfg: dict[str, Any]) -> TerminalAuthority:
@@ -186,6 +200,75 @@ def test_real_pty_echo_resize_snapshot_signal_and_close(
     assert "terminal.resized" in event_types
     assert "terminal.receipt" in event_types
     assert "terminal.exited" in event_types
+
+
+def test_real_pty_streams_split_utf8_and_delayed_output_without_replacement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    recorder = EventRecorder()
+    terminal = authority(tmp_path, recorder, {"auto_approve": ["shell"]})
+    gate = tmp_path / "output-gate"
+    os.mkfifo(gate, mode=0o600)
+    gate_fd = os.open(gate, os.O_RDWR | os.O_NONBLOCK)
+    opened = terminal.create({"actor_kind": "native_human", "cwd": str(tmp_path)})
+    terminal_id = str(opened["terminal_id"])
+    lease = str(opened["lease"])
+    raw_pid = opened["pid"]
+    assert isinstance(raw_pid, int)
+    pid = raw_pid
+    errors: list[BaseException] = []
+    completed = threading.Event()
+    try:
+        _ = terminal.input({
+            "terminal_id": terminal_id,
+            "lease": lease,
+            "sequence": 1,
+            "data": "stty -echo\n",
+        })
+
+        def drive() -> None:
+            try:
+                _ = terminal.input({
+                    "terminal_id": terminal_id,
+                    "lease": lease,
+                    "sequence": 2,
+                    "data": (
+                        "printf '\\355\\225\\234\\342\\202\\254"
+                        "\\360\\237\\230\\200'; "
+                        f"read gate < {gate}; "
+                        "printf 'delayed-sentinel\\n'\n"
+                    ),
+                })
+            except BaseException as exc:
+                errors.append(exc)
+            finally:
+                completed.set()
+
+        driver = threading.Thread(target=drive, name="terminal-test-driver")
+        driver.start()
+        recorder.wait_for_output("한€😀")
+        assert os.write(gate_fd, b"continue\n") == len(b"continue\n")
+        assert completed.wait(timeout=2.0)
+        driver.join()
+        recorder.wait_for_output("delayed-sentinel")
+
+        output = "".join(
+            str(payload["data"])
+            for kind, payload in recorder.events
+            if kind == "terminal.output"
+        )
+        assert "한€😀" in output
+        assert "delayed-sentinel" in output
+        assert "\ufffd" not in output
+        assert errors == []
+    finally:
+        terminal.close_all()
+        os.close(gate_fd)
+
+    assert terminal.active_process_ids == ()
+    with pytest.raises(ProcessLookupError):
+        os.kill(pid, 0)
 
 
 def test_lease_expiry_revokes_input_and_process_tree(tmp_path: Path) -> None:

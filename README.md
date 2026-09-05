@@ -123,9 +123,13 @@ the security and PATH details. The current default Morpheus run time is
 Birkin requires Python 3.10 or newer. Install from a provided Birkin directory
 as shown below, or use the [Windows PowerShell installer](#windows-powershell).
 Git is not required for a source-directory install, and `birkin_mnemosyne` is
-included in the package. Birkin defaults to a locally authenticated Codex CLI;
-`birkin setup` verifies that executable and can select Claude CLI or an
-API-backed provider instead.
+included in the package. Birkin defaults to a locally authenticated Codex CLI.
+On a first run `birkin setup` probes the local `codex` and `claude`
+executables, prints which ones it found, and pre-selects the first usable one
+(Codex first, then Claude) as the engine; you can still arrow to Claude CLI or
+an API-backed provider. A re-run keeps the provider already saved in config.
+When neither CLI is found, the wizard falls back to the manual provider menu
+with the Codex install guidance.
 
 ```bash
 python -m pip install .
@@ -450,7 +454,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.386`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.387`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
@@ -1093,6 +1097,32 @@ points return `Tool` objects consumed by the existing native tool registry.
 
 Architecture, protocol, and security contracts: [`docs/native-app/`](./docs/native-app/README.md).
 
+Current macOS parity hardening includes:
+
+- adaptive user-resizable Navigation and Context columns, with Cmd+1/2/3
+  navigation and Cmd+Shift+A approval focus;
+- a canonical bounded terminal byte stream kept separately from rendered
+  presentation, incremental UTF-8 decoding, continuous PTY output delivery,
+  failure-atomic teardown, and successful foreground-process cleanup;
+- authenticated bridge ownership transfer, bounded crash recovery, typed
+  first-run Retry guidance, and loopback fallback only for endpoint
+  unavailability—authentication, identity, version, protocol, malformed-data,
+  and permission failures never downgrade;
+- passive nonprompting TCC guidance and strict Computer Use evidence modes:
+  hosted runners record deterministic availability, while
+  `permissioned-required` must prove an owned visible effect, focus
+  preservation/restoration, no other-target mutation, and clean teardown;
+- English-default and Korean native chrome/accessibility resources with
+  unsupported locales falling back to English; machine identifiers, protocol
+  values, paths, and authority data are never translated;
+- source-stable OAuth refresh, private atomic credential publication,
+  child-specific managed-secret environments, and bounded authenticated Office
+  retirement receipts that explicitly do not claim physical secure erasure;
+- private-masked Unified Logging in normal launches, QA-only redacted stdout,
+  Time Machine exclusion limited to the rebuildable browser runtime cache, a
+  sealed project-owned app icon, and UUID-matched private dSYM archives kept
+  outside the customer DMG.
+
 ### Build and verify the packaged app
 
 Build the universal ad-hoc-signed app, create its DMG, and drive the built app
@@ -1158,15 +1188,21 @@ The shipped boundary is deliberate:
   not advertise the Native Terminal command set.
 - **Bridge lifecycle:** the app starts its own Python bridge with the shipped
   `birkin native-bridge serve` command, waits for the endpoint that command
-  announces, restarts it at most five times in sixty seconds, and terminates it
-  on exit. Setting `BIRKIN_NATIVE_SOCKET` attaches an already running,
-  user-managed bridge instead, which the app never terminates.
+  announces, validates that readiness belongs to the process it launched,
+  drains private diagnostics for the helper lifetime, and restarts it at most
+  five times in sixty seconds. Authenticated transferable ownership lets a
+  relaunched app reclaim one live helper without signalling an announced PID;
+  abandoned helpers self-retire. Setting `BIRKIN_NATIVE_SOCKET` attaches an
+  already running, user-managed bridge instead, which the app never terminates.
 - **Recovery:** cursor replay, full snapshots after gaps or instance changes,
   capability renewal, and bounded app-owned bridge restart recover local state
   without treating stale projections as authority.
 - **Workspace:** the shell presents sessions, streaming conversation, Working
   Memory merge/clear, owned Terminal, approvals, Activity, Browser Aside,
-  Computer Use status/consent, and Office create/open projections.
+  Computer Use status/consent, and Office create/open projections. Navigation
+  and Context columns are pointer-resizable within safe clamps and reflow to
+  panel navigation at accessibility sizes; the Primary conversation remains
+  visible.
 - **Desktop integration:** navigation-only menus, redacted notifications and
   deep links, jailed file import, optional voice gating, keyboard and VoiceOver
   paths, and visual accessibility settings retain Python's refusal boundaries.
@@ -1182,7 +1218,12 @@ The shipped boundary is deliberate:
   Browser Aside copies the sealed runtime into one private, architecture-bound,
   content-addressed cache under `BIRKIN_HOME`, verifies the copy again, rejects
   links, retains caches with live process leases, and prunes inactive prior
-  architecture caches before execution.
+  architecture caches before execution. The rebuildable cache parent alone is
+  marked as excluded from Time Machine backup. The package seals the
+  project-owned Birkin icon and English/Korean resources before signing,
+  generates a UUID-matched universal dSYM, and stores its checksum and manifest
+  in a separate private symbol ZIP; neither the dSYM nor symbol ZIP enters the
+  customer DMG.
 - **Release QA:** the disabled-by-default `BIRKIN_NATIVE_JOURNEY=1` seam drives
   the same controls as the packaged UI, with no test transport or direct wire
   client. Under an empty `HOME`, sanitized `PATH`, and absent bridge overrides,
@@ -1210,12 +1251,15 @@ without inventing controls or authority.
 
 The workspace layout supports draggable dividers, collapsible Navigation and
 Context panels, a document focus view (`Ctrl+Shift+D`), a conversation focus
-view (`Ctrl+Shift+F`), and keyboard panel shortcuts. Below 1100 device-
-independent pixels it shows one selectable region at a time so the composer and
-approval controls remain reachable at high display scaling. The unavailable
-Windows terminal starts collapsed. Panel widths, visibility, and window bounds
-are stored in `%LOCALAPPDATA%\Birkin\layout.json`; invalid values fall back to
-bounded defaults without changing Python policy or execution authority.
+view (`Ctrl+Shift+F`), and keyboard shortcuts for Navigation (`Ctrl+B`),
+Context (`Ctrl+Shift+B`), and default layout restore (`Ctrl+Shift+0`). Hidden
+panels remain recoverable from status-bar buttons and edge controls. Below 1100
+device-independent pixels it shows one selectable region at a time so the
+composer and approval controls remain reachable at high display scaling. The
+unavailable Windows terminal starts collapsed. Panel widths, visibility, and
+window bounds are stored in `%LOCALAPPDATA%\Birkin\layout.json`; missing,
+malformed, or out-of-range values fall back to bounded defaults without changing
+Python policy or execution authority.
 
 The Windows Office path is deliberately read-only: it can import a jailed
 artifact, select its canonical projection, request a Python-owned comparison,

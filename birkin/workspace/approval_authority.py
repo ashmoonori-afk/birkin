@@ -18,6 +18,7 @@ def decide(
 ) -> dict[str, object]:
     """Resolve once and normalize a multi-surface losing answer."""
 
+    before = store.get_pending(aid)
     if decision == "approve":
         result: dict[str, object] = approvals.approve(
             aid,
@@ -53,7 +54,14 @@ def decide(
             "question": str(result.get("error") or ""),
         }
     current: dict[str, object] | None = store.get_pending(aid)
-    if current is not None and current.get("status") != "pending":
+    was_already_resolved = before is not None and before.get("status") != "pending"
+    lost_pending_race = result.get("error") == "not found or already resolved"
+    rejected_after_race = decision == "reject" and "error" not in result
+    if (
+        current is not None
+        and current.get("status") != "pending"
+        and (was_already_resolved or lost_pending_race or rejected_after_race)
+    ):
         return {"outcome": "answered_elsewhere", "approval_id": aid}
     return {
         "outcome": "rejected_by_authority",

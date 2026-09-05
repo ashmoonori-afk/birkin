@@ -28,9 +28,13 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Protocol
 
 ANTHROPIC_VERSION = "2023-06-01"
+
+
+class AbortSignal(Protocol):
+    def is_set(self) -> bool: ...
 
 # When authenticating with a Claude subscription OAuth token, Anthropic routes
 # the request as Claude Code. Custom tools follow the Claude Code / MCP naming
@@ -182,6 +186,7 @@ class LLMClient:
                  cli_timeout: int = 300, oauth: bool = False,
                  cli_network_access: bool = False,
                  egress_enforced: bool = False,
+                 cli_secret_env: list[str] | None = None,
                  transport: str = ""):
         self.provider = provider
         self.model = model
@@ -209,6 +214,9 @@ class LLMClient:
         self.egress_enforced = bool(egress_enforced)
         # argv for the generic "local-cli" provider.
         self.cli_command = list(cli_command or [])
+        # Managed secrets are denied to agent subprocesses unless their exact
+        # environment names are explicitly required by this provider.
+        self.cli_secret_env: tuple[str, ...] = tuple(cli_secret_env or ())
         # Hard cap on a single CLI-agent call (seconds). Kept modest so a hung
         # subprocess (e.g. a blocking Claude Code hook) surfaces fast instead of
         # looking dead for many minutes. Tune via config "cli_timeout".
@@ -300,6 +308,8 @@ class LLMClient:
         import threading
 
         from .proc import kill_tree, popen_tree_kwargs
+        if env is None:
+            env = self._local_cli_environment()
         proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True, encoding="utf-8",
                                 errors="replace", env=env,
@@ -355,6 +365,16 @@ class LLMClient:
         for t in threads:
             t.join(timeout=1)
         return "".join(chunks["out"]), "".join(chunks["err"]), timed_out, aborted
+
+    def _local_cli_environment(
+        self, base: dict[str, str] | None = None
+    ) -> dict[str, str]:
+        from .secrets import local_cli_environment
+
+        return local_cli_environment(
+            self.cli_secret_env,
+            environ=os.environ if base is None else base,
+        )
 
     def _run_claude(self, prompt: str, model: Optional[str], abort=None,
                     on_text: StreamCallback = None) -> tuple[str, bool]:
@@ -432,7 +452,8 @@ class LLMClient:
 
         try:
             stdout, stderr, timed_out, aborted = self._run_cli_capture(
-                cli_argv(parts), prompt, abort, env=claude_child_env(),
+                cli_argv(parts), prompt, abort,
+                env=self._local_cli_environment(claude_child_env()),
                 on_line=_on_line)
         except FileNotFoundError:
             return "[birkin] command not found: claude", False
@@ -534,7 +555,9 @@ class LLMClient:
         err = (stderr or "").strip() or (stdout or "").strip()
         return f"[birkin] Codex produced no message. {err[:400]}"
 
-    def _run_local_cli(self, prompt: str, abort=None) -> str:
+    def _run_local_cli(
+        self, prompt: str, abort: AbortSignal | None = None
+    ) -> str:
         # Generic configured CLI runner: argv from config.cli_command, prompt on
         # stdin, stdout is the reply. Lets any local agent/model be a backend.
         from .proc import cli_argv
@@ -1036,6 +1059,7 @@ def _plain_client(cfg: dict[str, Any], api_key: str) -> LLMClient:
         egress_enforced=egress_enforced,
         cli_command=cfg.get("cli_command", []),
         cli_timeout=int(cfg.get("cli_timeout", 300)),
+        cli_secret_env=cfg.get("cli_secret_env", []),
         oauth=provider in OAUTH_PROVIDERS,
         transport=transport,
     )

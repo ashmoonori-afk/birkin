@@ -43,11 +43,21 @@ class TerminalSessionOwner:
     def emit(self, kind: str, payload: dict[str, object]) -> None:
         _ = self._emit(kind, payload)
 
-    def capture_output(self, session: TerminalSession, *, timeout: float) -> bytes:
-        output = session.read_output(timeout=timeout)
-        if output:
-            self.emit("terminal.output", session.record_output(output))
-        return output
+    def capture_output(self, session: TerminalSession, *, timeout: float) -> str:
+        pieces: list[str] = []
+
+        def consume(output: bytes, final: bool) -> None:
+            projected = session.record_output(output, final=final)
+            data = projected["data"]
+            if isinstance(data, str) and data:
+                pieces.append(data)
+                self.emit("terminal.output", projected)
+
+        _output, _reached_eof = session.pump_output(
+            timeout=timeout,
+            consume=consume,
+        )
+        return "".join(pieces)
 
     def live_session(
         self,
@@ -57,6 +67,8 @@ class TerminalSessionOwner:
     ) -> TerminalSession:
         session = self.session(payload["terminal_id"])
         if session.process.poll() is not None:
+            if not session.released:
+                _ = self.capture_output(session, timeout=0.0)
             self.emit_exit_if_needed(session)
             raise TerminalLeaseRequired("terminal process has exited")
         if require_lease:
@@ -104,9 +116,14 @@ class TerminalSessionOwner:
         try:
             session.terminate_process()
             if emit_exit:
+                _ = self.capture_output(session, timeout=0.0)
                 self.emit_exit_if_needed(session, reason=reason)
         finally:
             session.release()
+
+    def backend_failed(self, session: TerminalSession) -> None:
+        """Failure-atomically tear down a terminal after an OS mutation error."""
+        self.terminate(session, reason="backend_failure")
 
     def emit_exit_if_needed(
         self,
@@ -118,14 +135,17 @@ class TerminalSessionOwner:
         if status is None or session.exited_emitted:
             return
         session.exited_emitted = True
-        self.emit(
-            "terminal.exited",
-            {
-                "terminal_id": session.terminal_id,
-                "exit_status": status,
-                "reason": reason,
-            },
-        )
+        try:
+            self.emit(
+                "terminal.exited",
+                {
+                    "terminal_id": session.terminal_id,
+                    "exit_status": status,
+                    "reason": reason,
+                },
+            )
+        finally:
+            session.release()
 
 
 def validate_keys(

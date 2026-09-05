@@ -59,12 +59,34 @@ public struct BrowserAsidePresentation: Equatable, Sendable {
     }
 }
 
+public struct ComputerUseGuidancePresentation: Equatable, Identifiable, Sendable {
+    public let id: String
+    public let permission: String
+    public let responsibleProcess: String
+    public let settingsPath: String
+
+    init?(_ raw: NativeJSONObject) {
+        guard let capability = raw.surfaceString("capability"), !capability.isEmpty,
+              let permission = raw.surfaceString("permission"), !permission.isEmpty,
+              let responsibleProcess = raw.surfaceString("responsible_process"),
+              !responsibleProcess.isEmpty,
+              let settingsPath = raw.surfaceString("settings_path"), !settingsPath.isEmpty else {
+            return nil
+        }
+        id = capability
+        self.permission = permission
+        self.responsibleProcess = responsibleProcess
+        self.settingsPath = settingsPath
+    }
+}
+
 public struct ComputerUsePresentation: Equatable, Sendable {
     public let permissionPrompted: Bool
     public let accessibilityStatus: String
     public let screenRecordingStatus: String
     public let backendStatus: String
     public let bindingStatus: String
+    public let guidance: [ComputerUseGuidancePresentation]
     public let grantID: String?
     public let consentState: String?
     public let oneShot: Bool
@@ -85,6 +107,8 @@ public struct ComputerUsePresentation: Equatable, Sendable {
         screenRecordingStatus = permissions?.surfaceString("screen_capture") ?? "unknown"
         backendStatus = status.surfaceObject("backend")?.surfaceString("state") ?? "unknown"
         bindingStatus = status.surfaceObject("binding")?.surfaceString("state") ?? "unknown"
+        guidance = (status.surfaceObjectArray("guidance") ?? [])
+            .compactMap(ComputerUseGuidancePresentation.init)
         receipts = surface.payload.surfaceObjectArray("receipts") ?? []
         guard let consent = surface.payload.surfaceObject("consent") else {
             grantID = nil; consentState = nil; oneShot = false; action = nil

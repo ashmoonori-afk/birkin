@@ -3,30 +3,35 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
-from birkin import store
 from birkin.native import bootstrap
 
 
 def test_write_record_retries_a_transient_permission_error(
-    tmp_path,
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Given: a client holds endpoint.json open, so os.replace fails twice.
     real_replace = os.replace
     calls: list[int] = []
 
-    def _flaky(src, dst):  # noqa: ANN001, ANN202 - mirrors os.replace
+    def _flaky(src: str | Path, dst: str | Path) -> None:
         calls.append(1)
         if len(calls) <= 2:
             raise PermissionError(13, "sharing violation")
-        return real_replace(src, dst)
+        real_replace(src, dst)
 
     monkeypatch.setattr(os, "replace", _flaky)
-    monkeypatch.setattr(store.time, "sleep", lambda _seconds: None)
+
+    def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(time, "sleep", no_sleep)
     path = tmp_path / "endpoint.json"
     record = bootstrap.new_record(
         datetime.now(timezone.utc),

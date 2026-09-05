@@ -183,8 +183,12 @@ Birkin은 Python 3.10 이상이 필요합니다. 아래처럼 제공된 Birkin
 디렉터리에서 설치하거나 [Windows PowerShell 설치](#windows-powershell)를
 사용하십시오. Source directory 설치에는 Git이 필요 없고
 `birkin_mnemosyne`은 패키지에 포함되어 있습니다. 기본값은 로컬에서
-인증한 Codex CLI이며, `birkin setup`이 실행 파일을 확인하고 Claude CLI나
-API provider를 선택할 수 있게 합니다.
+인증한 Codex CLI입니다. 처음 실행하는 `birkin setup`은 로컬의 `codex`와
+`claude` 실행 파일을 자동으로 찾아 발견한 엔진을 표시하고, 사용 가능한 첫
+엔진(Codex 우선, 다음 Claude)을 기본 엔진으로 미리 선택합니다. 화살표로
+Claude CLI나 API provider로 바꿀 수 있고, 다시 실행하면 이미 저장된
+provider를 유지합니다. 두 CLI를 모두 찾지 못하면 Codex 설치 안내와 함께
+수동 provider 메뉴로 돌아갑니다.
 
 ```bash
 python -m pip install .
@@ -266,7 +270,8 @@ birkin chat
 Source archive에서 설치하므로 Git은 필요하지 않습니다.
 Python probe를 실행하므로 동작하지 않는
 `Microsoft\WindowsApps\python.exe` Store shim을 설치 완료로 오판하지
-않습니다. `birkin setup`은 `codex --version`을 실행합니다. Codex가 없거나
+않습니다. `birkin setup`은 `codex --version`과 `claude --version`을 실행해
+설치된 엔진을 자동 감지합니다. Codex가 없거나
 동작하지 않는 shim이면 OpenAI의 platform installer를 표시하고 setup
 처음으로 돌아가지 않은 채 다시 확인할 수 있습니다.
 설치 도구의 bin directory는 현재 process와 user `PATH`에 `setx` 없이
@@ -507,7 +512,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.386`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.387`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -1157,6 +1162,32 @@ registry에 연결됩니다.
 
 Architecture, protocol, security contract: [`docs/native-app/`](./docs/native-app/README.md).
 
+현재 macOS parity hardening에는 다음 내용이 포함됩니다.
+
+- 사용자가 조절할 수 있는 adaptive Navigation/Context 열과 Cmd+1/2/3
+  탐색, Cmd+Shift+A 승인 포커스
+- 렌더링 결과와 분리된 제한 크기 canonical terminal byte stream,
+  incremental UTF-8 decoding, 연속 PTY output 전달, 실패 시 atomic teardown,
+  성공한 foreground process 정리
+- 인증된 bridge ownership 이전, 제한된 crash recovery, typed first-run
+  Retry 안내, endpoint unavailable일 때만 허용되는 loopback fallback
+  (authentication, identity, version, protocol, malformed data, permission
+  failure는 downgrade하지 않음)
+- prompt를 띄우지 않는 passive TCC 안내와 엄격한 Computer Use evidence
+  mode: hosted runner는 deterministic availability를 기록하고,
+  `permissioned-required`는 소유한 visible effect, focus 보존/복원,
+  다른 target을 변경하지 않았음, clean teardown을 모두 증명
+- English default와 Korean native chrome/accessibility resource 및
+  unsupported locale의 English fallback; machine identifier, protocol value,
+  path, authority data는 번역하지 않음
+- source-stable OAuth refresh, private atomic credential publication,
+  child-specific managed-secret environment, physical secure erasure를
+  주장하지 않는 bounded authenticated Office retirement receipt
+- 일반 실행의 private-masked Unified Logging, QA 전용 redacted stdout,
+  rebuild 가능한 browser runtime cache에만 적용되는 Time Machine 제외,
+  signing 전에 봉인하는 project-owned app icon, customer DMG 밖에 보관하는
+  UUID 일치 private dSYM archive
+
 ### 패키지 앱 build와 검증
 
 Universal ad-hoc signed app을 build하고 DMG를 만든 뒤 production packaged
@@ -1220,8 +1251,11 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   소유권 밖으로 이동할 수 없습니다.
   Non-Darwin bridge는 Native Terminal command set을 광고하지 않습니다.
 - **Bridge lifecycle:** App은 배포된 `birkin native-bridge serve` 명령으로
-  자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint를 기다리며,
-  60초 안에 최대 다섯 번까지 재시작하고, 종료할 때 함께 정리합니다.
+  자체 Python bridge를 시작하고, 그 명령이 알리는 endpoint와 시작한 process
+  identity가 일치하는지 검증하며, helper lifetime 동안 private diagnostic을
+  drain하고, 60초 안에 최대 다섯 번까지 재시작합니다. 인증된 transferable
+  ownership으로 재실행한 app이 announced PID에 signal을 보내지 않고 하나의
+  live helper를 reclaim할 수 있으며 abandoned helper는 self-retire합니다.
   `BIRKIN_NATIVE_SOCKET`을 설정하면 이미 실행 중인 사용자 관리 bridge에
   연결하며, 이 경우 app은 그 bridge를 종료하지 않습니다.
 - **복구:** Cursor replay, gap 또는 instance 변경 뒤 full snapshot,
@@ -1229,7 +1263,9 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   권한으로 취급하지 않고 local state를 복구합니다.
 - **Workspace:** Shell은 session, streaming conversation, Working Memory
   merge/clear, owned Terminal, approval, Activity, Browser Aside, Computer Use
-  상태/동의, Office create/open projection을 표시합니다.
+  상태/동의, Office create/open projection을 표시합니다. Navigation과 Context
+  열은 안전한 범위 안에서 pointer로 조절할 수 있고 accessibility 크기에서는
+  panel navigation으로 reflow하며 Primary conversation은 계속 표시됩니다.
 - **Desktop integration:** Navigation-only menu, redacted notification과 deep
   link, jailed file import, 선택적 voice gate, keyboard와 VoiceOver path,
   visual accessibility setting이 Python의 refusal boundary를 유지합니다.
@@ -1246,7 +1282,11 @@ socket과 peer-UID 검사를 쓸 수 없으므로 인증된 `127.0.0.1` loopback
   `BIRKIN_HOME` 아래 private architecture-bound content-addressed cache
   하나로 복사하고, 복사본을 다시 검증하며, link를 거부합니다. Live process
   lease가 있는 cache는 유지하고 실행 전에 inactive 이전 architecture
-  cache를 정리합니다.
+  cache를 정리합니다. Rebuild 가능한 cache parent만 Time Machine backup
+  대상에서 제외합니다. Package는 signing 전에 project-owned Birkin icon과
+  English/Korean resource를 봉인하고 UUID가 일치하는 universal dSYM을 만든 뒤
+  checksum과 manifest를 별도 private symbol ZIP으로 보관합니다. dSYM과 symbol
+  ZIP은 customer DMG에 포함되지 않습니다.
 - **Release QA:** 기본으로 비활성화된 `BIRKIN_NATIVE_JOURNEY=1` seam은 test
   transport나 direct wire client 없이 packaged UI와 같은 control을
   구동합니다. 빈 `HOME`, 정리된 `PATH`, bridge override가 없는 환경에서 실제
@@ -1274,11 +1314,13 @@ projected state만 표시합니다.
 
 작업공간은 드래그 가능한 분할선, 접을 수 있는 업무 목록·상세 패널, 문서 확대
 보기(`Ctrl+Shift+D`), 대화 집중 보기(`Ctrl+Shift+F`)와 키보드 패널 단축키를
-제공합니다. 너비가 1100 DIP보다 좁으면 한 번에 한 영역을 표시해 고배율에서도
-입력창과 승인 동작에 접근할 수 있습니다. 사용할 수 없는 Windows 터미널은 처음에
-접혀 있습니다. 패널 너비·표시 상태·창 위치는
-`%LOCALAPPDATA%\Birkin\layout.json`에 저장되며, 잘못된 값은 Python의 정책이나
-실행 권한을 바꾸지 않고 제한된 기본값으로 복구됩니다.
+제공합니다. Navigation(`Ctrl+B`), 상세 패널(`Ctrl+Shift+B`), 기본 레이아웃
+복원(`Ctrl+Shift+0`)도 키보드로 실행할 수 있고, 숨긴 패널은 상태 표시줄 버튼과
+가장자리 컨트롤로 다시 표시할 수 있습니다. 너비가 1100 DIP보다 좁으면 한 번에
+한 영역을 표시해 고배율에서도 입력창과 승인 동작에 접근할 수 있습니다. 사용할 수
+없는 Windows 터미널은 처음에 접혀 있습니다. 패널 너비·표시 상태·창 위치는
+`%LOCALAPPDATA%\Birkin\layout.json`에 저장되며, 파일이 없거나 잘못된 값은
+Python의 정책이나 실행 권한을 바꾸지 않고 제한된 기본값으로 복구됩니다.
 
 Windows Office path는 의도적으로 read-only입니다. Jail 안으로 artifact를 import하고,
 canonical projection을 선택하고, Python 소유 comparison을 요청하고, 그 결과인

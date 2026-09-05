@@ -21,6 +21,40 @@ struct BirkinApplicationOwnedBridgeTests {
     }
 
     @MainActor
+    @Test("a typed first-run helper failure is visible and Retry reconnects after restore")
+    func firstRunFailureRetry() async throws {
+        let root = URL(fileURLWithPath: "/private/tmp/bk-retry-\(UUID().uuidString)")
+        let events = RuntimeEventRecorder()
+        var restored = false
+        let runtime = BirkinApplicationRuntime(
+            socketPath: nil,
+            ownedBridge: nil,
+            ownedBridgeFailure: OwnedBridgeDiscoveryError(.helperMissing),
+            ownedBridgeResolver: { restored ? Self.configuration(root: root) : nil },
+            emit: { events.record($0) }
+        )
+        defer {
+            runtime.stop()
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        await runtime.start()
+        guard case .failed(let reason) = runtime.connectionState else {
+            Issue.record("missing helper failure was not visible")
+            return
+        }
+        #expect(reason.hasPrefix("code=embedded_helper_missing"))
+        #expect(ConnectionPresentation(state: runtime.connectionState).actionLabel == "Retry")
+
+        restored = true
+        let connected = Task { try await events.wait(for: "connected transport=uds") }
+        await runtime.retryBridge()
+        try await withTimeout("retry connects") { try await connected.value }
+        #expect(runtime.store.projection?.sessionID == "owned-bridge-session")
+        print("B4 RETRY code=embedded_helper_missing restored=true connected=uds")
+    }
+
+    @MainActor
     @Test("the application starts, uses, restarts, and stops its own bridge")
     func ownsItsBridgeLifecycle() async throws {
         // A Unix socket path is platform bounded, so this root stays short.

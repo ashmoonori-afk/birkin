@@ -95,6 +95,87 @@ final class NativeProductSurfaceViewTests: XCTestCase {
         try snapshot(view, named: "office-new-open-refusal.png")
     }
 
+    func testDeniedGuidanceRendersWithoutOverlapOrClippingAtAccessibleSizes() throws {
+        let store = NativeProjectionStore()
+        try store.apply(surface: envelope("computer_use", payload: [
+            "status": .object([
+                "permission_prompted": .bool(false),
+                "permissions": .object([
+                    "accessibility": .string("denied"), "screen_capture": .string("denied"),
+                ]),
+                "backend": .object(["state": .string("available")]),
+                "binding": .object(["state": .string("bound")]),
+                "guidance": .array([.object([
+                    "capability": .string("capture_ax"),
+                    "permission": .string("accessibility"),
+                    "responsible_process": .string("org.example.BirkinQA"),
+                    "settings_path": .string("System Settings > Privacy & Security > Accessibility"),
+                ]), .object([
+                    "capability": .string("capture_vision"),
+                    "permission": .string("screen_capture"),
+                    "responsible_process": .string("org.example.BirkinQA"),
+                    "settings_path": .string("System Settings > Privacy & Security > Screen Recording"),
+                ])]),
+            ]),
+            "consent": .null,
+            "receipts": .array([]),
+        ]))
+
+        let presentation = try XCTUnwrap(ComputerUsePresentation(store: store))
+        let view = ComputerUseStatusView(presentation: presentation, canDecide: false)
+        XCTAssertFalse(presentation.permissionPrompted)
+        XCTAssertEqual(
+            view.guidanceSemantics.map(\.id),
+            ["computer-use.guidance.capture_ax", "computer-use.guidance.capture_vision"]
+        )
+        XCTAssertEqual(view.guidanceSemantics.map(\.role), [.staticText, .staticText])
+        XCTAssertTrue(view.guidanceSemantics.allSatisfy {
+            !$0.settingsPath.isEmpty && $0.actions.isEmpty
+        })
+
+        try writeVoiceOverEvidence(
+            view.guidanceSemantics,
+            named: "computer-use-denied-guidance-voiceover.log"
+        )
+        let normalSize = try fittedSnapshot(
+            view, dynamicTypeSize: .large,
+            named: "computer-use-denied-guidance.png"
+        )
+        let accessibilitySize = try fittedSnapshot(
+            view, dynamicTypeSize: .accessibility5,
+            named: "computer-use-denied-guidance-accessibility.png"
+        )
+
+        let renderedLineCount = CGFloat(3 + view.guidanceSemantics.count * 2 + 2)
+        let minimumContentHeight = renderedLineCount * NSFont.systemFontSize + 50
+        XCTAssertGreaterThanOrEqual(normalSize.height - 48, minimumContentHeight)
+        XCTAssertGreaterThanOrEqual(accessibilitySize.height, normalSize.height)
+        XCTAssertEqual(normalSize.width, 520)
+        XCTAssertEqual(accessibilitySize.width, 520)
+    }
+
+    func testGrantedStatusHasNoGuidanceSemantics() throws {
+        let store = NativeProjectionStore()
+        try store.apply(surface: envelope("computer_use", payload: [
+            "status": .object([
+                "permission_prompted": .bool(false),
+                "permissions": .object([
+                    "accessibility": .string("granted"), "screen_capture": .string("granted"),
+                ]),
+                "backend": .object(["state": .string("available")]),
+                "binding": .object(["state": .string("bound")]),
+                "guidance": .array([]),
+            ]),
+            "consent": .null,
+            "receipts": .array([]),
+        ]))
+
+        let presentation = try XCTUnwrap(ComputerUsePresentation(store: store))
+        let view = ComputerUseStatusView(presentation: presentation, canDecide: false)
+        XCTAssertTrue(presentation.guidance.isEmpty)
+        XCTAssertTrue(view.guidanceSemantics.isEmpty)
+    }
+
     func testConsentCountdownActionsProduceEvidence() throws {
         let store = NativeProjectionStore()
         try store.apply(surface: envelope("computer_use", payload: [
@@ -138,6 +219,58 @@ final class NativeProductSurfaceViewTests: XCTestCase {
             kind: .surfaceSnapshot, id: "surface-\(surface)",
             body: ["surface": .string(surface), "revision": .int(1), "payload": .object(payload)]
         )
+    }
+
+    private func writeVoiceOverEvidence(
+        _ semantics: [ComputerUseGuidanceSemantic],
+        named: String
+    ) throws {
+        let lines = semantics.map {
+            "id:\($0.id)|role:\($0.role.rawValue)|responsible_process:\($0.responsibleProcess)|settings_path:\($0.settingsPath)|actions:\($0.actions.joined(separator: ","))"
+        }
+        try evidenceURL(named).writeText(lines.joined(separator: "\n") + "\n")
+    }
+
+    private func fittedSnapshot<V: View>(
+        _ view: V,
+        dynamicTypeSize: DynamicTypeSize,
+        named: String
+    ) throws -> NSSize {
+        let content = view
+            .padding(24)
+            .frame(width: 520, alignment: .topLeading)
+            .fixedSize(horizontal: false, vertical: true)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .font(dynamicTypeSize.isAccessibilitySize ? .system(size: 26) : .body)
+            .environment(\.dynamicTypeSize, dynamicTypeSize)
+            .environment(
+                \.sizeCategory,
+                dynamicTypeSize.isAccessibilitySize
+                    ? .accessibilityExtraExtraExtraLarge : .large
+            )
+            .environment(\.colorScheme, .dark)
+        let hosting = NSHostingView(rootView: content)
+        let requiredSize = hosting.fittingSize
+        hosting.frame = NSRect(origin: .zero, size: requiredSize)
+        hosting.layoutSubtreeIfNeeded()
+        guard let bitmap = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) else {
+            XCTFail("could not allocate fitted screenshot")
+            return .zero
+        }
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
+        guard let png = bitmap.representation(using: .png, properties: [:]) else {
+            XCTFail("could not encode fitted screenshot")
+            return .zero
+        }
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsWide), requiredSize.width)
+        XCTAssertGreaterThanOrEqual(CGFloat(bitmap.pixelsHigh), requiredSize.height)
+        XCTAssertEqual(
+            CGFloat(bitmap.pixelsWide) / CGFloat(bitmap.pixelsHigh),
+            requiredSize.width / requiredSize.height,
+            accuracy: 0.01
+        )
+        try png.write(to: evidenceURL(named), options: .atomic)
+        return requiredSize
     }
 
     private func snapshot<V: View>(_ view: V, named: String) throws {

@@ -35,7 +35,7 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def _replace_with_retry(tmp: Path, path: Path) -> None:
+def replace_with_retry(tmp: Path, path: Path) -> None:
     """``os.replace`` with a short bounded retry on a sharing violation.
 
     CPython opens files without FILE_SHARE_DELETE, so on Windows a concurrent
@@ -64,7 +64,7 @@ def _write_json(path: Path, obj: Any) -> None:
             handle.write(json.dumps(obj, indent=2, ensure_ascii=False))
             handle.flush()
             os.fsync(handle.fileno())
-        _replace_with_retry(tmp, path)
+        replace_with_retry(tmp, path)
     except OSError:
         try:  # don't leave a partial .tmp behind on a failed write
             tmp.unlink()

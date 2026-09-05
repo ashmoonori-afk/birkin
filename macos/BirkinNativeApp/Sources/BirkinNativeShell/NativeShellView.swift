@@ -1,3 +1,4 @@
+import AppKit
 import BirkinNativeProtocol
 import SwiftUI
 import UniformTypeIdentifiers
@@ -12,6 +13,7 @@ public struct NativeShellView: View {
     private let templateCommandAction: (NativeCommandRequest) -> Void
     private let productSurfaceAction: (ProductSurfaceControl) -> Void
     private let voiceInputAction: () -> Void
+    private let columnWidthAction: (ShellColumnID, CGFloat) -> Void
     private let evidenceSpecimens: [String]
     @ObservedObject private var presentationModel: ShellPresentationModel
 
@@ -38,6 +40,7 @@ public struct NativeShellView: View {
         templateCommandAction: @escaping (NativeCommandRequest) -> Void = { _ in },
         productSurfaceAction: @escaping (ProductSurfaceControl) -> Void = { _ in },
         voiceInputAction: @escaping () -> Void = {},
+        columnWidthAction: @escaping (ShellColumnID, CGFloat) -> Void = { _, _ in },
         evidenceSpecimens: [String] = [],
         jailedDrop: JailedDropModel = JailedDropModel(),
         presentationModel: ShellPresentationModel = ShellPresentationModel(),
@@ -52,6 +55,7 @@ public struct NativeShellView: View {
         self.templateCommandAction = templateCommandAction
         self.productSurfaceAction = productSurfaceAction
         self.voiceInputAction = voiceInputAction
+        self.columnWidthAction = columnWidthAction
         self.evidenceSpecimens = evidenceSpecimens
         self.presentationModel = presentationModel
         _selectedColumn = State(
@@ -83,10 +87,15 @@ public struct NativeShellView: View {
                 Button {
                     showsCommandPalette = true
                 } label: {
-                    Label("명령", systemImage: "command")
+                    Label(
+                        NativeLocalization.string("Commands"),
+                        systemImage: "command"
+                    )
                 }
                 .keyboardShortcut("k", modifiers: .command)
-                .accessibilityLabel("명령 팔레트 열기")
+                .accessibilityLabel(NativeLocalization.string(
+                    "Open command palette"
+                ))
             }
             .padding(12)
             .overlay {
@@ -107,7 +116,7 @@ public struct NativeShellView: View {
                     .lineLimit(3)
                     .padding(.horizontal, 12)
                     .padding(.bottom, 8)
-                    .accessibilityLabel("명령 오류: \(commandError)")
+                    .accessibilityLabel("Command error: \(commandError)")
             }
             Divider()
             GeometryReader { geometry in
@@ -127,6 +136,7 @@ public struct NativeShellView: View {
             }
         }
         .background(Color(nsColor: .windowBackgroundColor))
+        .background { shortcutBindings }
         .contrast(visualSettings.increasedContrast ? 1.25 : 1)
         .transaction { transaction in
             if visualSettings.reduceMotion { transaction.disablesAnimations = true }
@@ -169,19 +179,35 @@ public struct NativeShellView: View {
         layout: ShellLayoutPlan,
         availability: MutationAvailability
     ) -> some View {
-        HStack(alignment: .top, spacing: 0) {
-            ForEach(Array(structure.columns.enumerated()), id: \.element.id) { index, column in
+        HSplitView {
+            ForEach(structure.columns, id: \.id) { column in
                 let width = layout.width(for: column.id)
                 columnView(column, availability: availability)
                     .frame(
                         minWidth: width.minimum,
                         idealWidth: width.ideal,
-                        maxWidth: .infinity,
+                        maxWidth: width.maximum,
                         maxHeight: .infinity,
                         alignment: .top
                     )
                     .layoutPriority(width.layoutPriority)
-                if index < structure.columns.count - 1 { Divider() }
+                    .overlay {
+                        Rectangle()
+                            .stroke(
+                                selectedColumn == column.id ? Color.accentColor : .clear,
+                                lineWidth: visualSettings.increasedContrast ? 3 : 2
+                            )
+                            .allowsHitTesting(false)
+                    }
+                    .accessibilityAddTraits(
+                        selectedColumn == column.id ? .isSelected : []
+                    )
+                    .accessibilityIdentifier("shell-column-\(column.id.rawValue)")
+                    .background {
+                        ShellColumnWidthProbe {
+                            columnWidthAction(column.id, $0)
+                        }
+                    }
             }
         }
     }
@@ -204,14 +230,42 @@ public struct NativeShellView: View {
     }
 
     @ViewBuilder
+    private var shortcutBindings: some View {
+        Group {
+            Button(NativeLocalization.string("Show Navigation Panel")) {
+                focusColumn(.navigation)
+            }
+            .keyboardShortcut("1", modifiers: .command)
+            Button(NativeLocalization.string("Show Conversation Panel")) {
+                focusColumn(.primary)
+            }
+            .keyboardShortcut("2", modifiers: .command)
+            Button(NativeLocalization.string("Show Context Panel")) {
+                focusColumn(.context)
+            }
+            .keyboardShortcut("3", modifiers: .command)
+            Button(NativeLocalization.string("Show Oldest Approval")) {
+                focusApprovals()
+            }
+            .keyboardShortcut("a", modifiers: [.command, .shift])
+        }
+        .frame(width: 0, height: 0)
+        .clipped()
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
     private var panelSelector: some View {
-        Text("패널")
+        Text(NativeLocalization.string("Panel"))
             .font(.headline)
             .fixedSize(horizontal: false, vertical: true)
         ForEach(ShellColumnID.allCases, id: \.self) { column in
-            Button(column.title) { selectedColumn = column }
+            Button(column.title) { focusColumn(column) }
                 .buttonStyle(.plain)
-                .accessibilityLabel("\(column.title) 패널 보기")
+                .accessibilityLabel(NativeLocalization.string(
+                    "Show %@ panel",
+                    column.title
+                ))
                 .accessibilityAddTraits(selectedColumn == column ? .isSelected : [])
                 .fontWeight(selectedColumn == column ? .bold : .regular)
                 .padding(.horizontal, 8)
@@ -249,7 +303,10 @@ public struct NativeShellView: View {
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("\(column.id.title) column")
+        .accessibilityLabel(NativeLocalization.string(
+            "%@ column",
+            column.id.title
+        ))
         .accessibilitySortPriority(column.id.accessibilitySortPriority)
     }
 
@@ -341,7 +398,10 @@ public struct NativeShellView: View {
                     if let reference = jailedDrop.reference {
                         ImportedReferenceChip(reference: reference)
                     } else {
-                        Label("가져올 파일을 놓으세요", systemImage: "tray.and.arrow.down")
+                        Label(
+                            NativeLocalization.string("Drop a file to import"),
+                            systemImage: "tray.and.arrow.down"
+                        )
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -358,11 +418,16 @@ public struct NativeShellView: View {
                     Button {
                         showsAttachmentPicker = true
                     } label: {
-                        Label("파일 첨부", systemImage: "paperclip")
+                        Label(
+                            NativeLocalization.string("Attach File"),
+                            systemImage: "paperclip"
+                        )
                     }
                     .disabled(!availability.isEnabled || !isFileImportAdvertised)
                     .keyboardShortcut("o", modifiers: [.command, .shift])
-                    .accessibilityLabel("안전한 작업공간으로 가져올 파일 선택")
+                    .accessibilityLabel(NativeLocalization.string(
+                        "Choose a file to import into the workspace jail"
+                    ))
                     JailedDropZone(model: jailedDrop) { urls in
                         importDroppedURLs(urls, availability: availability)
                     }
@@ -382,9 +447,13 @@ public struct NativeShellView: View {
                 }
             }
             if section.id == .terminal, store.projection?.terminals.isEmpty != false {
-                Button("새 터미널") { requestTerminal(availability: availability) }
+                Button(NativeLocalization.string("New Terminal")) {
+                    requestTerminal(availability: availability)
+                }
                     .disabled(!availability.isEnabled || !terminalCreateAdvertised)
-                    .accessibilityLabel("새 Python 터미널 요청")
+                    .accessibilityLabel(NativeLocalization.string(
+                        "Request new Python terminal"
+                    ))
             }
             if let control = mutationControl(for: section.id) {
                 let surfaceEnabled = isAdvertised(control)
@@ -393,7 +462,12 @@ public struct NativeShellView: View {
                     .keyboardShortcut("n", modifiers: .command)
                     .accessibilityLabel(controlTitle(control))
                 if !availability.isEnabled || !surfaceEnabled {
-                    Text(availability.disabledReason ?? "Not advertised by Python.")
+                    Text(
+                        availability.disabledReason
+                            ?? NativeLocalization.string(
+                                "Not advertised by Python."
+                            )
+                    )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -425,12 +499,49 @@ public struct NativeShellView: View {
             switch state {
             case .unavailable(let reason): Text(reason)
             case .empty(let message): Text(message)
-            case .content(let count): Text("\(count) canonical item\(count == 1 ? "" : "s")")
+            case .content(let count):
+                Text(NativeLocalization.string(
+                    count == 1
+                        ? "%lld canonical item"
+                        : "%lld canonical items",
+                    Int64(count)
+                ))
             }
         }
         .font(.subheadline)
         .foregroundStyle(.secondary)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func focusColumn(_ column: ShellColumnID) {
+        selectedColumn = column
+        let target: ShellSectionID = switch column {
+        case .navigation: .sessions
+        case .primary: .conversation
+        case .context: .approvals
+        }
+        presentationModel.focus(.section(target))
+        announce(NativeLocalization.string(
+            "%@ panel focused",
+            column.title
+        ))
+    }
+
+    private func focusApprovals() {
+        selectedColumn = .context
+        presentationModel.focus(.section(.approvals))
+        announce(NativeLocalization.string("Oldest approval focused"))
+    }
+
+    private func announce(_ message: String) {
+        NSAccessibility.post(
+            element: NSApp as Any,
+            notification: .announcementRequested,
+            userInfo: [
+                .announcement: message,
+                .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ]
+        )
     }
 
     private func selectPaletteCommand(_ commandType: String) {
@@ -469,7 +580,10 @@ public struct NativeShellView: View {
                 }
             }
             .disabled(!availability.isEnabled || !isSessionCreateAdvertised)
-            .accessibilityLabel("\(preset.name) 템플릿 시작")
+            .accessibilityLabel(NativeLocalization.string(
+                "Launch %@ template",
+                preset.name
+            ))
         }
     }
 
@@ -482,7 +596,9 @@ public struct NativeShellView: View {
         let items = store.projection?.panels.first(where: { $0.key == "approvals" })?.items ?? []
         let cards = items.compactMap(ApprovalCardPresentation.init)
         if cards.isEmpty {
-            Text("대기 중인 승인 요청이 없습니다.").font(.subheadline).foregroundStyle(.secondary)
+            Text(NativeLocalization.string("No approvals yet."))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         } else {
             ForEach(cards) { card in
                 ApprovalCardView(
@@ -688,7 +804,32 @@ public struct NativeShellView: View {
 
     private func controlTitle(_ control: ShellMutationControl) -> String {
         switch control {
-        case .newSession: "New Session"
+        case .newSession: NativeLocalization.string("New Session")
         }
+    }
+}
+
+@MainActor
+private final class ShellColumnWidthView: NSView {
+    var report: (CGFloat) -> Void = { _ in }
+
+    override func layout() {
+        super.layout()
+        report(bounds.width)
+    }
+}
+
+private struct ShellColumnWidthProbe: NSViewRepresentable {
+    let report: (CGFloat) -> Void
+
+    func makeNSView(context _: Context) -> ShellColumnWidthView {
+        let view = ShellColumnWidthView()
+        view.report = report
+        return view
+    }
+
+    func updateNSView(_ view: ShellColumnWidthView, context _: Context) {
+        view.report = report
+        view.needsLayout = true
     }
 }

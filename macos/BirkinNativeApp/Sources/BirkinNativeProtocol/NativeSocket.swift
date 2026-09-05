@@ -88,7 +88,18 @@ final class NativeSocket: @unchecked Sendable {
                     )
                 }
             }
-            guard result == 0 else { throw systemError("connect Unix socket") }
+            guard result == 0 else {
+                let code = errno
+                let category: NativeTransportError.Code = switch code {
+                case ENOENT, ECONNREFUSED, ENOTSOCK: .endpointUnavailable
+                case EACCES, EPERM: .permissionDenied
+                default: .other
+                }
+                throw NativeTransportError(
+                    "connect Unix socket failed: \(String(cString: strerror(code)))",
+                    code: category
+                )
+            }
             return socket
         } catch {
             socket.close()

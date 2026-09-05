@@ -285,7 +285,10 @@ def test_workflow_button_acknowledges_then_resumes_same_chat(
         offset,
         workflow_id=None,
         sender_id=None,
+        *,
+        offset_ack: threading.Event | None = None,
     ) -> None:
+        del offset_ack
         resumed.append((chat_id, text, offset, sender_id))
         started.set()
         assert release.wait(timeout=2)

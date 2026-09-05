@@ -10,6 +10,10 @@ from .export_open_descriptor import open_export_descriptor
 from .export_quarantine_retire import retire_bound_path
 from .path_identity import descriptor_identity
 from .path_security import hash_descriptor
+from .retirement_sweep import (
+    authenticate_retired_file,
+    sweep_retirement_quarantine,
+)
 
 
 def retire_authenticated_file(
@@ -20,6 +24,8 @@ def retire_authenticated_file(
     protected_identity: tuple[int, int] | None = None,
     required: bool = True,
 ) -> bool:
+    # Startup recovery: bound authenticated residue left by an earlier crash.
+    _ = sweep_retirement_quarantine(path.parent)
     try:
         descriptor = open_export_descriptor(
             path,
@@ -46,7 +52,13 @@ def retire_authenticated_file(
                     "export helper changed before retirement"
                 )
             return False
+        if os.name != "nt":
+            os.fchmod(descriptor, 0o600)
         retire_bound_path(path, descriptor, identity)
+        if os.name != "nt":
+            authenticate_retired_file(path.parent, identity, expected_sha256)
+            # Post-retention sweep enforces caps after this payload is visible.
+            _ = sweep_retirement_quarantine(path.parent)
         return True
     finally:
         os.close(descriptor)

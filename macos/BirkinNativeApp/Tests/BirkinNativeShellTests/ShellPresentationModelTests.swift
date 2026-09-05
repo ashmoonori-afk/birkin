@@ -90,6 +90,29 @@ struct ShellPresentationModelTests {
     }
 
     @MainActor
+    @Test("a superseded visible token cannot execute capture work")
+    func supersededVisibleTokenCannotCapture() {
+        let model = ShellPresentationModel()
+        let generation = model.focus(.section(.activity))
+        model.reportVisible(
+            target: .section(.activity),
+            generation: generation
+        )
+        _ = model.focus(.section(.browserAside))
+        var captured = false
+
+        #expect(throws: ShellPresentationError.self) {
+            try model.withCurrentVisibility(
+                target: .section(.activity),
+                generation: generation
+            ) {
+                captured = true
+            }
+        }
+        #expect(!captured)
+    }
+
+    @MainActor
     @Test("an already-mounted connection header focus is realized")
     func mountedConnectionFocusIsRealized() async throws {
         let now = Date(timeIntervalSince1970: 1_787_238_000)

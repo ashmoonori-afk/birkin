@@ -126,7 +126,7 @@ struct NativeTerminalRoundTripIntegrationTests {
             to: evidenceDirectory().appendingPathComponent("terminal-round-trip.png"),
             options: .atomic
         )
-        print("SWIFT TERMINAL TRANSCRIPT \(transcript.debugDescription)")
+        print("SWIFT TERMINAL RENDERED \(terminal.screen.debugDescription)")
 
         socket.close()
         print("SWIFT TERMINAL CLEANUP \(try harness.finish()) root_removed=true")

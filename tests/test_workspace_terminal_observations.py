@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import importlib.util
 from pathlib import Path
 
 import pytest
 
-# The QA terminal drivers import pexpect at module scope; skip rather than break
-# collection where the dev extra is absent.
-_ = pytest.importorskip("pexpect")
+if importlib.util.find_spec("pexpect") is None:
+    pytest.skip("pexpect is not installed", allow_module_level=True)
 
 from script.qa.workspace_terminal_evidence import (  # noqa: E402
     EvidenceInputs,

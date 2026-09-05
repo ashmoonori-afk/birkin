@@ -94,6 +94,22 @@ public final class ShellPresentationModel: ObservableObject {
         continuations.forEach { $0.resume(returning: ()) }
     }
 
+    public func withCurrentVisibility<T>(
+        target: ShellFocusTarget,
+        generation: UInt64,
+        perform: () throws -> T
+    ) throws -> T {
+        guard self.target == target,
+              requestGeneration == generation,
+              visibleGeneration == generation else {
+            throw ShellPresentationError.superseded(
+                generation: generation,
+                by: requestGeneration
+            )
+        }
+        return try perform()
+    }
+
     public func waitUntilVisible(
         generation: UInt64,
         timeout: Duration = .seconds(10)

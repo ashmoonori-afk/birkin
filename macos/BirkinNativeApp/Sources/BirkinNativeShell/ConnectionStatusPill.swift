@@ -27,7 +27,7 @@ public struct ConnectionStatusPill: View {
                 .strokeBorder(tint.opacity(0.7), lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("연결 상태")
+        .accessibilityLabel(NativeLocalization.string("Connection status"))
         .accessibilityValue(
             "\(presentation.title), \(presentation.transportLabel), \(presentation.detail)"
         )
@@ -57,11 +57,23 @@ public struct ConnectionStatusPill: View {
         }
         .fixedSize(horizontal: false, vertical: true)
         Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 0 : 8)
-        Button(presentation.diagnosticsLabel, action: diagnosticsAction)
+        Button(presentation.actionLabel, action: diagnosticsAction)
             .buttonStyle(DiagnosticsButtonStyle())
             .fixedSize(horizontal: false, vertical: true)
-            .accessibilityLabel("연결 세부 정보 보기")
-            .accessibilityHint("제한된 연결 진단 정보를 엽니다")
+            .accessibilityLabel(
+                presentation.identifier.hasPrefix("failed-embedded_")
+                    ? NativeLocalization.string("Retry bridge connection")
+                    : NativeLocalization.string("Show connection diagnostics")
+            )
+            .accessibilityHint(
+                presentation.identifier.hasPrefix("failed-embedded_")
+                    ? NativeLocalization.string(
+                        "Retries verified embedded helper discovery"
+                    )
+                    : NativeLocalization.string(
+                        "Opens bounded connection diagnostics"
+                    )
+            )
     }
 
     private var tint: Color {

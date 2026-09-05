@@ -18,7 +18,7 @@ def test_tests_workflow_covers_supported_operating_systems() -> None:
     assert "ubuntu-latest" in workflow
     assert "macos-latest" in workflow
     assert "windows-latest" in workflow
-    assert workflow.count("python -m pytest") == 4
+    assert workflow.count("python -m pytest") == 5
     assert "Native local protocol foundation" in workflow
     assert "tests/test_native_bridge_server.py" in workflow
     assert "tests/test_native_bridge_errors.py" in workflow

@@ -11,6 +11,7 @@ namespace Birkin.Native.App.Views;
 
 public partial class ApprovalView : UserControl, INotifyPropertyChanged
 {
+    private readonly ViewCommandLifetime _commandLifetime = new();
     private readonly ShellPresentationModel? _model;
     private readonly ShellCoordinator? _coordinator;
     private IReadOnlyList<PanelItemPresentation> _approvalRows = [];
@@ -102,9 +103,10 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
             && sender is Button { DataContext: PanelItemPresentation card }
             && card.ReceiptRef is { Length: > 0 } receiptRef)
         {
-            await _coordinator.RequestOfficeRollbackAsync(
-                new OfficeRollbackRequestIntent(receiptRef),
-                CancellationToken.None);
+            await _commandLifetime.RunAsync(token =>
+                _coordinator.RequestOfficeRollbackAsync(
+                    new OfficeRollbackRequestIntent(receiptRef),
+                    token));
         }
     }
 
@@ -133,9 +135,10 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
             DecisionStatus.Visibility = Visibility.Visible;
             try
             {
-                await _coordinator.AnswerApprovalAsync(
-                    new ApprovalAnswerIntent(approvalId, decision),
-                    CancellationToken.None);
+                await _commandLifetime.RunAsync(token =>
+                    _coordinator.AnswerApprovalAsync(
+                        new ApprovalAnswerIntent(approvalId, decision),
+                        token));
             }
             finally
             {
@@ -199,6 +202,7 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
 
     private void ViewUnloaded(object sender, RoutedEventArgs eventArgs)
     {
+        _commandLifetime.Dispose();
         if (_model is not null)
         {
             _model.PropertyChanged -= ModelPropertyChanged;

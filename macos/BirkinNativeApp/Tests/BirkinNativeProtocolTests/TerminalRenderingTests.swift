@@ -67,17 +67,79 @@ struct TerminalRenderingTests {
         #expect(renderer.screen.hasSuffix("한한한"))
     }
 
-    @Test("terminal projection sanitizes snapshots and incrementally assigned output")
+    @Test("terminal projection separates canonical VT from rendered presentation")
     func projectionIntegration() {
-        var terminal = NativeTerminalProjection(
-            terminalID: "terminal", cwd: ".", screen: "start\u{1B}[31m red\u{1B}[0m",
+        let raw = "start\u{1B}[31m red\u{1B}[0m\u{1B}[2DOK"
+        let terminal = NativeTerminalProjection(
+            terminalID: "terminal", cwd: ".", screen: raw,
             outputSequence: 0, state: "running", exitStatus: nil,
             columns: 80, rows: 24, lease: "lease", readOnly: false
         )
-        terminal.screen = terminal.screen + "\u{1B}["
-        terminal.screen = terminal.screen + "2DOK"
 
         #expect(terminal.screen == "start rOK")
+        #expect(terminal.canonicalJSON["screen"] == .string(raw))
         #expect(!terminal.screen.contains("\u{1B}"))
+    }
+
+    @Test("canonical bounds are UTF-8 scalar safe and never exceed the byte cap")
+    func scalarSafeCanonicalBound() {
+        let raw = "한🙂" + String(
+            repeating: "a", count: NativeTerminalRenderer.maximumScreenBytes - 2
+        )
+        let terminal = NativeTerminalProjection(
+            terminalID: "terminal", cwd: ".", screen: raw,
+            outputSequence: 0, state: "running", exitStatus: nil,
+            columns: 80, rows: 24, lease: nil, readOnly: true
+        )
+        guard case .string(let canonical) = terminal.canonicalJSON["screen"] else {
+            Issue.record("canonical terminal screen is missing")
+            return
+        }
+
+        #expect(canonical.utf8.count <= NativeTerminalRenderer.maximumScreenBytes)
+        #expect(!canonical.contains("\u{FFFD}"))
+        #expect(canonical == String(
+            repeating: "a", count: NativeTerminalRenderer.maximumScreenBytes - 2
+        ))
+    }
+
+    @Test("canonical bounds do not reconnect in the middle of a VT sequence")
+    func parserSafeCanonicalBound() {
+        let visible = String(
+            repeating: "a", count: NativeTerminalRenderer.maximumScreenBytes - 2
+        )
+        let terminal = NativeTerminalProjection(
+            terminalID: "terminal", cwd: ".", screen: "\u{1B}[31m" + visible,
+            outputSequence: 0, state: "running", exitStatus: nil,
+            columns: 80, rows: 24, lease: nil, readOnly: true
+        )
+
+        #expect(terminal.canonicalJSON["screen"] == .string(visible))
+        #expect(!terminal.screen.isEmpty)
+        #expect(!terminal.screen.hasPrefix("1m"))
+        #expect(Set(terminal.screen) == ["a"])
+    }
+
+    @Test("canonical terminal state recreates the same rendered reconnect state")
+    func reconnectRoundTrip() throws {
+        let live = NativeTerminalProjection(
+            terminalID: "terminal", cwd: ".",
+            screen: "prompt> work\rDONE\u{1B}[31m!\u{1B}[0m",
+            outputSequence: 2, state: "running", exitStatus: nil,
+            columns: 80, rows: 24, lease: nil, readOnly: true
+        )
+        guard case .string(let raw) = live.canonicalJSON["screen"] else {
+            Issue.record("canonical terminal screen is missing")
+            return
+        }
+        let reconnected = NativeTerminalProjection(
+            terminalID: live.terminalID, cwd: live.cwd, screen: raw,
+            outputSequence: live.outputSequence, state: live.state,
+            exitStatus: live.exitStatus, columns: live.columns, rows: live.rows,
+            lease: live.lease, readOnly: live.readOnly
+        )
+
+        #expect(reconnected == live)
+        #expect(reconnected.screen == "DONE!t> work")
     }
 }

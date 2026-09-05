@@ -63,13 +63,20 @@ struct JourneyEventLogTests {
         "refresh_token":"refresh-secret"} Authorization: Bearer bearer-secret
         """
         let log = JourneyEventLog()
+        let outputCapture = JourneyOutputCapture()
+        let diagnostics = NativeDiagnosticsLogger(
+            isJourneyMode: true,
+            journeyOutput: { outputCapture.write($0) }
+        )
         log.record(raw)
+        diagnostics.emit(raw)
 
         #expect(log.recorded() == [raw])
         let output = String(
-            decoding: BirkinApplicationRuntime.standardEventData(raw),
+            decoding: outputCapture.data(),
             as: UTF8.self
         )
+        #expect(output.hasPrefix("BIRKIN_APP_EVENT command-error "))
         for secret in [
             "owner-secret", "approval-secret", "capability-secret",
             "refresh-secret", "bearer-secret",
@@ -79,6 +86,22 @@ struct JourneyEventLogTests {
         #expect(output.contains("owner=[REDACTED]"))
         #expect(output.contains("session_capability=[REDACTED]"))
         #expect(output.contains("refresh_token=[REDACTED]"))
+    }
+
+    @Test("normal mode never writes event payloads to stdout")
+    func productionStdoutIsSilent() {
+        let outputCapture = JourneyOutputCapture()
+        let diagnostics = NativeDiagnosticsLogger(
+            isJourneyMode: false,
+            journeyOutput: { outputCapture.write($0) }
+        )
+        diagnostics.emit(
+            "connect-failed pid=4312 "
+                + "executable=/Users/example/private/bin/birkin "
+                + "reason=raw transport error owner=owner-secret"
+        )
+
+        #expect(outputCapture.data().isEmpty)
     }
 
     @Test("credential forms are completely redacted without suffix leaks")
@@ -102,7 +125,7 @@ struct JourneyEventLogTests {
         let token = "owner-secret"
         let digest = BirkinApplicationRuntime.ownershipCorrelationDigest(token)
         let output = String(
-            decoding: BirkinApplicationRuntime.standardEventData(
+            decoding: NativeDiagnosticsLogger.journeyEventData(
                 "bridge-started kind=owned pid=123 owner_sha256=\(digest)"
             ),
             as: UTF8.self
@@ -204,5 +227,18 @@ struct JourneyEventLogTests {
                 log.record("receipt:two")
             })
         }
+    }
+}
+
+private final class JourneyOutputCapture: @unchecked Sendable {
+    private let lock = NSLock()
+    private var bytes = Data()
+
+    func write(_ data: Data) {
+        lock.withLock { bytes.append(data) }
+    }
+
+    func data() -> Data {
+        lock.withLock { bytes }
     }
 }

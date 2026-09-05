@@ -19,6 +19,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
@@ -41,6 +42,7 @@ _WINDOWS_ACCESS_DENIED = 5
 _WINDOWS_NATIVE_EXTENSIONS = (".com", ".exe", ".bat", ".cmd")
 _WINDOWS_NATIVE_PATH_METACHARS = frozenset("%!&|<>^()")
 _POSIX_KILL_SIGNAL = getattr(signal, "SIGKILL", signal.SIGTERM)
+_POSIX_TERMINATE_GRACE_SECONDS = 1.0
 _SHELL_ENVIRONMENT = frozenset({
     "COLORTERM",
     "ComSpec",
@@ -350,9 +352,12 @@ def _run_shell_attempt(
                 process.kill()
                 _ = process.communicate(timeout=10)
             raise
+        returncode = process.wait()
+        if os.name != "nt":
+            terminate_posix_process_group(process.pid)
         return subprocess.CompletedProcess(
             argv,
-            process.wait(),
+            returncode,
             stdout,
             stderr,
         )
@@ -529,15 +534,26 @@ def popen_detached(
         return subprocess.Popen(argv, creationflags=group, **kwargs)
 
 
-def kill_process_group(pid: int) -> bool:
-    try:
-        group = pid
-        if group == os.getpgrp():
-            return False
-        os.killpg(group, _POSIX_KILL_SIGNAL)
-        return True
-    except (OSError, ProcessLookupError):
+def _signal_posix_process_group(group: int, signum: int) -> bool:
+    if group == os.getpgrp():
         return False
+    try:
+        os.killpg(group, signum)
+        return True
+    except OSError:
+        return False
+
+
+def terminate_posix_process_group(group: int) -> None:
+    """Gracefully stop members left in one owned foreground process group."""
+    if not _signal_posix_process_group(group, signal.SIGTERM):
+        return
+    _ = threading.Event().wait(_POSIX_TERMINATE_GRACE_SECONDS)
+    _ = _signal_posix_process_group(group, _POSIX_KILL_SIGNAL)
+
+
+def kill_process_group(pid: int) -> bool:
+    return _signal_posix_process_group(pid, _POSIX_KILL_SIGNAL)
 
 
 def kill_tree(proc: ProcessHandle | None) -> None:

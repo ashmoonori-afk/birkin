@@ -124,7 +124,7 @@ public struct ImportedReferenceChip: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .background(.quaternary, in: Capsule())
-            .accessibilityLabel("가져온 파일 \(reference.displayName)")
+            .accessibilityLabel("Imported file \(reference.displayName)")
     }
 }
 
@@ -167,16 +167,16 @@ public struct JailedDropZone: View {
             }
             return true
         }
-        .accessibilityLabel("안전한 작업공간으로 파일 가져오기")
+        .accessibilityLabel("Import file into workspace jail")
     }
 
     private var label: String {
         switch model.state {
-        case .idle: "가져올 파일을 놓으세요"
-        case .hovering: "작업공간에 복사하려면 놓으세요"
-        case .importing(let name): "\(name) 가져오는 중"
-        case .imported: "가져오기 완료"
-        case .refused: "가져오기 거부됨"
+        case .idle: NativeLocalization.string("Drop a file to import")
+        case .hovering: "Release to copy into workspace"
+        case .importing(let name): "Importing \(name)"
+        case .imported: "Imported"
+        case .refused: "Import refused"
         }
     }
 }

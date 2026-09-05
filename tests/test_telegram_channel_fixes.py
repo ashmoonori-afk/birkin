@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import inspect
 import threading
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -76,9 +77,8 @@ def test_build_channels_warns_about_open_group(
 class _RestartingGateway:
     pending_hard_restart = True
 
-    def __init__(self, order: list[str], restarted: threading.Event) -> None:
+    def __init__(self, order: list[str]) -> None:
         self._order = order
-        self.restarted = restarted
 
     def handle(
         self,
@@ -94,7 +94,7 @@ class _RestartingGateway:
 
     def do_hard_restart(self) -> None:
         self._order.append("restart")
-        self.restarted.set()
+        raise SystemExit
 
     def interrupt(self, channel: str, chat_id: str) -> bool:
         return False
@@ -106,82 +106,64 @@ class _RestartingGateway:
         return []
 
 
-class _AckEvent(threading.Event):
-    """The offset-ack event, recording who acked and who waited."""
-
-    def __init__(self, order: list[str], waiting: threading.Event) -> None:
-        super().__init__()
-        self._order = order
-        self._waiting = waiting
-
-    def set(self) -> None:
-        self._order.append("ack")
-        super().set()
-
-    def wait(self, timeout: float | None = None) -> bool:
-        self._order.append("wait")
-        self._waiting.set()
-        return super().wait(timeout)
-
-
 def test_hard_restart_waits_for_the_poll_loops_offset_ack(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The worker must not re-exec until the poll loop has issued the
-    getUpdates carrying the advanced offset — and must never poll itself."""
+    """Each worker awaits the acknowledgment for its own dispatched batch."""
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     order: list[str] = []
-    worker_waiting = threading.Event()
-    restarted = threading.Event()
-    gateway = _RestartingGateway(order, restarted)
+    gateway = _RestartingGateway(order)
     channel = TelegramChannel("tok", allowed_chat_ids=["42"], stream=False)
-    channel._poll_acked = _AckEvent(order, worker_waiting)
     polls: list[tuple[int, object]] = []
+    targets: list[partial[None]] = []
     main_thread = threading.get_ident()
 
     def fake_call(method: str, params: dict[str, object], *a: object, **k: object):
         if method != "getUpdates":
             return {"ok": True}
         polls.append((threading.get_ident(), params.get("offset")))
-        if len(polls) == 1:
+        if len(polls) <= 2:
             return {
                 "ok": True,
                 "result": [
                     {
-                        "update_id": 1,
+                        "update_id": len(polls),
                         "message": {
                             "chat": {"id": "42", "type": "private"},
                             "from": {"id": "42"},
-                            "text": "/hard-restart",
+                            "text": "/hard-restart" if len(polls) == 1 else "later",
                         },
                     }
                 ],
             }
-        assert restarted.wait(5), "the acked worker never restarted"
-        raise SystemExit
+        raise AssertionError("the acknowledged worker did not restart")
 
-    start_worker = channel._start_public_worker
-
-    def gated_start(*args: object, **kwargs: object) -> object:
-        worker = start_worker(*args, **kwargs)  # pyright: ignore[reportCallIssue]
-        # Hold the poll loop between dispatching the batch and its next
-        # getUpdates, so a worker that skipped the wait would restart first.
-        assert worker_waiting.wait(5), "the worker restarted without the ack"
-        return worker
+    def controlled_start(
+        _registry: dict[str, threading.Thread],
+        _key: str,
+        target: partial[None],
+        _args: tuple[object, ...] = (),
+    ) -> None:
+        targets.append(target)
+        if len(targets) == 2:
+            first_ack = targets[0].keywords.get("offset_ack")
+            assert isinstance(first_ack, threading.Event), (
+                "the worker was not armed with its exact batch acknowledgment"
+            )
+            assert first_ack.is_set(), "the first batch's acknowledgment was lost"
+            targets[0]()
 
     monkeypatch.setattr(channel, "_call", fake_call)
-    monkeypatch.setattr(channel, "_start_public_worker", gated_start)
+    monkeypatch.setattr(channel, "_start_public_worker", controlled_start)
     monkeypatch.setattr(channel, "_keep_typing", lambda *_a, **_k: None)
     monkeypatch.setattr(channel, "_deliver_reply", lambda *_a, **_k: True)
 
     with pytest.raises(SystemExit):
         channel.start(gateway)
 
-    assert order == ["ack", "wait", "ack", "restart"]
-    # Both polls on the poll loop's own thread: a second getUpdates from the
-    # worker would make Telegram 409 against ourselves.
+    assert order == ["restart"]
     assert [ident for ident, _ in polls] == [main_thread, main_thread]
-    assert polls[1][1] == 2, "the ack must carry the advanced offset"
+    assert [offset for _, offset in polls] == [0, 2]
 
 
 # ---------------- 3. one policy string, honest protocol ----------------

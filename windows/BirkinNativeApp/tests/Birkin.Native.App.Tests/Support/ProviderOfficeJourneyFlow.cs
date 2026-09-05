@@ -21,7 +21,7 @@ internal static class ProviderOfficeJourneyFlow
         ProviderOfficeEvidence evidence,
         string evidenceRoot,
         bool invokeProvider,
-        CancellationToken cancellationToken)
+        CancellationToken setupCancellationToken)
     {
         var fixtureRoot = Path.Combine(repositoryRoot,
             "windows", "BirkinNativeApp", "tests", "Birkin.Native.App.Tests", "Fixtures", "Office");
@@ -44,7 +44,7 @@ internal static class ProviderOfficeJourneyFlow
         try
         {
             var artifacts = await ImportFixturesAsync(
-                fixtureRoot, composition, window, events, evidence, cancellationToken);
+                fixtureRoot, composition, window, events, evidence, setupCancellationToken);
             var draftBox = OfficeWorkflowViewHarness.Find<TextBox>(window, "conversation.draft");
             var send = OfficeWorkflowViewHarness.Find<Button>(window, "conversation.send");
             Assert.IsTrue(draftBox.IsVisible, "the visible Conversation composer was not reachable");
@@ -52,10 +52,13 @@ internal static class ProviderOfficeJourneyFlow
             ProviderOfficeCommandTrace? chat = null;
             if (invokeProvider)
             {
+                using var providerDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(180));
                 chat = await ProviderOfficeProviderTurn.SendAsync(
-                    composition, window, events, evidence, cancellationToken);
+                    composition, window, events, evidence, providerDeadline.Token);
             }
 
+            using var officeDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(40));
+            var officeCancellationToken = officeDeadline.Token;
             var compare = await ProviderOfficeJourneyActions.SubmitAsync(
                 composition.PresentationModel,
                 events,
@@ -64,9 +67,9 @@ internal static class ProviderOfficeJourneyFlow
                     new OfficeCompareIntent(
                         String(artifacts["baseline.xlsx"], "artifact_id"),
                         String(artifacts["candidate.xlsx"], "artifact_id")),
-                    cancellationToken),
-                cancellationToken);
-            var diffEvent = await events.WaitAsync("office.diff_ready", compare.CommandId, cancellationToken);
+                    officeCancellationToken),
+                officeCancellationToken);
+            var diffEvent = await events.WaitAsync("office.diff_ready", compare.CommandId, officeCancellationToken);
             var diff = Object(Object(Payload(diffEvent), "result"), "diff");
             var diffId = String(diff, "diff_id");
             ProviderOfficeJourneyAssertions.AssertDeterministicDiff(artifacts, diff, diffId);
@@ -115,9 +118,9 @@ internal static class ProviderOfficeJourneyFlow
                         "Create a new provider comparison report",
                         outputPath,
                         false),
-                    cancellationToken),
-                cancellationToken);
-            var requested = await events.WaitAsync("approval.requested", draft.CommandId, cancellationToken);
+                    officeCancellationToken),
+                officeCancellationToken);
+            var requested = await events.WaitAsync("approval.requested", draft.CommandId, officeCancellationToken);
             var requestedPayload = Payload(requested);
             var approvalId = String(requestedPayload, "approval_id");
             var jobId = String(requestedPayload, "job_id");
@@ -158,9 +161,9 @@ internal static class ProviderOfficeJourneyFlow
             await RenderBarrierAsync(window);
             Assert.IsTrue(IsInViewport(approve, scroll), "the exact projected approval was not visibly actionable");
             var approval = await ProviderOfficeJourneyActions.ClickAsync(
-                composition.PresentationModel, events, approve, "approval.answer", cancellationToken);
+                composition.PresentationModel, events, approve, "approval.answer", officeCancellationToken);
             var answeredEvent = await events.WaitAsync(
-                "approval.answered", approval.CommandId, cancellationToken);
+                "approval.answered", approval.CommandId, officeCancellationToken);
             Assert.AreEqual("approve", String(Payload(answeredEvent), "decision"));
             Assert.IsTrue(File.Exists(outputPath), "approved DOCX was not exported");
             ProviderOfficePackageAssertions.AssertReport(outputPath);

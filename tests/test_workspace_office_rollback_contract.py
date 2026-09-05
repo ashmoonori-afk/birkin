@@ -16,6 +16,9 @@ def _event(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
         cursor=1,
         event_id="event-1",
         type=event_type,
+        timestamp="2026-09-05T00:00:00Z",
+        actor_id="actor-1",
+        command_id="command-1",
         payload=payload,
     )
 

@@ -37,7 +37,7 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
     private readonly TaskCompletionSource<string> _listening;
     private readonly BridgeStandardErrorCapture _standardError;
 
-    private BridgeProcessHarness(
+    internal BridgeProcessHarness(
         IOwnedBridgeProcess process,
         string temporaryRoot,
         TaskCompletionSource<string> listening,
@@ -68,24 +68,7 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         Directory.CreateDirectory(bridgeRoot);
         var listening = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var standardError = new BridgeStandardErrorCapture();
-        var start = new ProcessStartInfo
-        {
-            FileName = "uv",
-            WorkingDirectory = FindRepositoryRoot(),
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true,
-        };
-        start.ArgumentList.Add("run");
-        start.ArgumentList.Add("--frozen");
-        start.ArgumentList.Add("birkin");
-        start.ArgumentList.Add("native-bridge");
-        start.ArgumentList.Add("serve");
-        start.ArgumentList.Add("--transport");
-        start.ArgumentList.Add("loopback");
-        start.ArgumentList.Add("--root");
-        start.ArgumentList.Add(bridgeRoot);
+        var start = CreateStartInfo(bridgeRoot);
 
         var process = new Process { StartInfo = start, EnableRaisingEvents = true };
         process.OutputDataReceived += (_, eventArgs) =>
@@ -136,6 +119,17 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         await StopOwnedProcessAsync(_process);
         OwnedProcessExited = _process.HasExited;
         _process.Dispose();
+        foreach (var file in Directory.EnumerateFiles(
+            TemporaryRoot,
+            "*",
+            new EnumerationOptions
+            {
+                RecurseSubdirectories = true,
+                AttributesToSkip = FileAttributes.ReparsePoint,
+            }))
+        {
+            File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);
+        }
         Directory.Delete(TemporaryRoot, recursive: true);
         TemporaryRootDeleted = !Directory.Exists(TemporaryRoot);
     }
@@ -156,6 +150,39 @@ internal sealed class BridgeProcessHarness : IAsyncDisposable
         }
 
         await process.WaitForExitAsync();
+    }
+
+    internal static ProcessStartInfo CreateStartInfo(string bridgeRoot)
+    {
+        Directory.CreateDirectory(Path.Combine(
+            bridgeRoot,
+            "workspace",
+            "native-app",
+            "receipts"));
+        var repositoryRoot = FindRepositoryRoot();
+        var python = Path.Combine(repositoryRoot, ".venv", "Scripts", "python.exe");
+        var start = new ProcessStartInfo
+        {
+            FileName = File.Exists(python)
+                ? python
+                : throw new InvalidOperationException($"locked repository Python was not found: {python}"),
+            WorkingDirectory = repositoryRoot,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true,
+        };
+        start.Environment["BIRKIN_HOME"] = Path.Combine(
+            Path.GetDirectoryName(bridgeRoot)
+            ?? throw new InvalidOperationException("bridge root has no parent directory"),
+            "home");
+        start.ArgumentList.Add("-m");
+        start.ArgumentList.Add("birkin.native.serve");
+        start.ArgumentList.Add("--transport");
+        start.ArgumentList.Add("loopback");
+        start.ArgumentList.Add("--root");
+        start.ArgumentList.Add(bridgeRoot);
+        return start;
     }
 
     private static string FindRepositoryRoot()

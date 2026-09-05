@@ -16,13 +16,13 @@ internal static class ProviderOfficeJourney
         var evidenceRoot = Path.Combine(
             repositoryRoot, ".omo", "evidence", "native-windows-20260824", "remediation", "w6");
         var evidence = new ProviderOfficeEvidence(evidenceRoot);
-        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(240));
-        var bridge = await BridgeProcessHarness.StartAsync(deadline.Token);
+        using var setupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var bridge = await BridgeProcessHarness.StartAsync(setupDeadline.Token);
         await using (bridge)
         {
-            var announcementJson = await bridge.WaitForListeningAsync(deadline.Token);
+            var announcementJson = await bridge.WaitForListeningAsync(setupDeadline.Token);
             var announcementFile = Path.Combine(bridge.TemporaryRoot, "announcement.jsonl");
-            await File.WriteAllTextAsync(announcementFile, announcementJson + Environment.NewLine, deadline.Token);
+            await File.WriteAllTextAsync(announcementFile, announcementJson + Environment.NewLine, setupDeadline.Token);
             var options = AppOptions.Parse(["--bridge-announcement-file", announcementFile]);
             var announcement = BridgeAnnouncement.Parse(options.BridgeAnnouncementJson);
             evidence.Record("bridge-listening", new Dictionary<string, object?>
@@ -32,9 +32,10 @@ internal static class ProviderOfficeJourney
                 ["instance_id"] = announcement.InstanceId,
             });
 
-            await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+            await using var sta = await StaDispatcherHarness.StartAsync(CancellationToken.None);
             var journey = sta.InvokeAsync(async () =>
             {
+                using var sessionLifetime = new CancellationTokenSource();
                 await using var composition = CompositionRoot.Create(
                     SynchronizationContext.Current
                     ?? throw new InvalidOperationException("WPF dispatcher synchronization context is unavailable"));
@@ -42,8 +43,8 @@ internal static class ProviderOfficeJourney
                 composition.Coordinator.SnapshotApplied += InitialApplied;
                 try
                 {
-                    await composition.Runner.RunAsync(options, deadline.Token);
-                    var ready = await initial.Task.WaitAsync(deadline.Token);
+                    await composition.Runner.RunAsync(options, sessionLifetime.Token);
+                    var ready = await initial.Task.WaitAsync(setupDeadline.Token);
                     Assert.AreEqual(ConnectionState.Ready, composition.PresentationModel.Connection.State);
                     Assert.IsTrue(composition.Session.OwnsReceiveLoop);
                     Assert.AreEqual(1, composition.Session.MaximumConcurrentReceives);
@@ -65,7 +66,7 @@ internal static class ProviderOfficeJourney
                         evidence,
                         evidenceRoot,
                         invokeProvider: true,
-                        deadline.Token);
+                        setupDeadline.Token);
                     Assert.AreEqual(1, result.ProviderInvocations);
                     evidence.Record("provider-invoked", new Dictionary<string, object?>
                     {
@@ -76,6 +77,7 @@ internal static class ProviderOfficeJourney
                 finally
                 {
                     composition.Coordinator.SnapshotApplied -= InitialApplied;
+                    sessionLifetime.Cancel();
                 }
 
                 void InitialApplied(WorkspaceSnapshotPresentation snapshot) => initial.TrySetResult(snapshot);
@@ -83,7 +85,7 @@ internal static class ProviderOfficeJourney
 
             try
             {
-                await journey.WaitAsync(deadline.Token);
+                await journey;
                 evidence.CaptureWorkspace(bridge.TemporaryRoot);
             }
             catch

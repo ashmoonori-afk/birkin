@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from threading import Lock
@@ -17,6 +19,12 @@ class RuntimeCacheError(RuntimeError):
 RuntimeVerifier = Callable[[Path], None]
 _RUNTIME_LEASES: dict[Path, BinaryIO] = {}
 _RUNTIME_LEASES_LOCK = Lock()
+_LOG = logging.getLogger(__name__)
+_BACKUP_EXCLUSION_XATTR = b"com.apple.metadata:com_apple_backup_excludeItem"
+_BACKUP_EXCLUSION_VALUE = bytes.fromhex(
+    "62706c69737430305f1011636f6d2e6170706c652e6261636b7570640800000000000000010100000000000000010000000000000000000000000000001c"
+)
+_XATTR_NOFOLLOW = 0x0001
 
 
 class _VolumeStatus(Protocol):
@@ -45,6 +53,7 @@ def select_browser_runtime(
     try:
         parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         parent.chmod(0o700)
+        _exclude_from_backups(parent)
     except OSError as error:
         raise RuntimeCacheError from error
     target = parent / f"{architecture}-{sha256}"
@@ -70,6 +79,53 @@ def select_browser_runtime(
             lease.close()
     _prune_stale(parent, target, architecture)
     return target
+
+
+def _exclude_from_backups(path: Path) -> None:
+    if not _running_on_darwin():
+        return
+    try:
+        _set_backup_exclusion_xattr(path)
+    except OSError as error:
+        error_number = error.errno if error.errno is not None else 0
+        _LOG.warning(
+            "Browser runtime cache backup exclusion unavailable (errno %d).",
+            error_number,
+        )
+
+
+def _running_on_darwin() -> bool:
+    return sys.platform == "darwin"
+
+
+def _set_backup_exclusion_xattr(path: Path) -> None:
+    import ctypes
+
+    setxattr = ctypes.CDLL(None, use_errno=True).setxattr
+    setxattr.argtypes = (
+        ctypes.c_char_p,
+        ctypes.c_char_p,
+        ctypes.c_void_p,
+        ctypes.c_size_t,
+        ctypes.c_uint32,
+        ctypes.c_int,
+    )
+    setxattr.restype = ctypes.c_int
+    value = ctypes.create_string_buffer(_BACKUP_EXCLUSION_VALUE)
+    result = cast(
+        int,
+        setxattr(
+            os.fsencode(path),
+            _BACKUP_EXCLUSION_XATTR,
+            ctypes.byref(value),
+            len(_BACKUP_EXCLUSION_VALUE),
+            0,
+            _XATTR_NOFOLLOW,
+        ),
+    )
+    if result != 0:
+        error_number = ctypes.get_errno()
+        raise OSError(error_number, os.strerror(error_number))
 
 
 def _retain_runtime_lease(
