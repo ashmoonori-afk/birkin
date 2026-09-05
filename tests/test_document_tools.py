@@ -29,6 +29,7 @@ NAMES = {
     "inspect_document",
     "extract_document",
     "analyze_workbook",
+    "review_meeting_actions",
     "compare_documents",
     "render_artifact",
     "validate_artifact",

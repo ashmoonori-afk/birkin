@@ -14,6 +14,7 @@ NAMES = (
     "inspect_document",
     "extract_document",
     "analyze_workbook",
+    "review_meeting_actions",
     "compare_documents",
     "render_artifact",
     "validate_artifact",
@@ -195,6 +196,7 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     "inspect_document": service.inspect_document,
                     "extract_document": service.extract_document,
                     "analyze_workbook": service.analyze_workbook,
+                    "review_meeting_actions": service.review_meeting_actions,
                     "compare_documents": service.compare_documents,
                     "validate_artifact": service.validate_artifact,
                 }
@@ -241,6 +243,23 @@ def tools() -> list[Tool]:
                 "include_hidden_rows": {"type": "boolean"},
             },
             ["source", "sheet", "cell_range"],
+        ),
+        "review_meeting_actions": _object(
+            {
+                "notes": {"type": "string", "minLength": 1, "maxLength": 100_000},
+                "candidates": {
+                    "type": "array",
+                    "maxItems": 500,
+                    "items": _object({
+                        "action": {"type": "string", "minLength": 1},
+                        "evidence": {"type": "string", "minLength": 1},
+                        "assignee": {"type": "string", "minLength": 1},
+                        "due_date": {"type": "string", "format": "date"},
+                        "suggested_due_date": {"type": "string", "format": "date"},
+                    }, ["action", "evidence"]),
+                },
+            },
+            ["notes", "candidates"],
         ),
         "compare_documents": _object({"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]),
         "render_artifact": _object(

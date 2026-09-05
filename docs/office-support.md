@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.373`
+- Birkin version: `0.4.374`
 - `catalog_revision: 8`
 - `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
@@ -61,7 +61,7 @@ format, Birkin routes to `office-documents` and asks exactly
 
 ## Registered tools and arguments
 
-The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
+The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
 
 | Tool | Required arguments | Important optional arguments/behavior |
 |---|---|---|
@@ -69,6 +69,7 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `inspect_document` | `source` | Existing artifacts must be inspected first. |
 | `extract_document` | `source` | `projection`, `max_spans`, `max_nodes`, `max_text_bytes`. |
 | `analyze_workbook` | `source`, `sheet`, `cell_range` | Optional `group_by`, `value_column`, `compare_by`, and `include_hidden_rows`; returns type/blank/duplicate checks, cell-linked aggregates, formula-cache status, and DOCX-ready report content without recalculation. |
+| `review_meeting_actions` | `notes`, `candidates` | Requires exact source evidence, preserves unknown owner/due date, separates suggested dates, deduplicates, and returns an unpersisted confirmation draft. |
 | `compare_documents` | `left`, `right` | Returns separate byte, semantic, package, and visual claims. |
 | `render_artifact` | `artifact` | `output_format` is `structured_preview`, `pdf`, `png`, or `thumbnail`; `page` is optional. |
 | `validate_artifact` | `artifact` | Reports package, schema-root, formula, openability, security, and fidelity layers. |

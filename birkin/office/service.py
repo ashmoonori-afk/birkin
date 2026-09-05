@@ -27,6 +27,7 @@ from .extract_contract import (
     build_extraction,
 )
 from .inspect_contract import build_inspection, verify_identity
+from .meeting_actions import review_meeting_actions
 from .render_contract import render_document
 from .service_create import convert_document as convert_document_operation
 from .service_create import create_document as create_document_operation
@@ -272,6 +273,10 @@ class DocumentService:
                 group_by=group_by, value_column=value_column, compare_by=compare_by,
                 include_hidden_rows=include_hidden_rows,
             )
+
+    @staticmethod
+    def review_meeting_actions(*, notes: object, candidates: object) -> dict[str, object]:
+        return review_meeting_actions(notes, candidates)
 
     def validate_artifact(self, artifact: Mapping[str, object]) -> ValidationResult:
         with self._workspace.artifact_snapshot(artifact) as path:

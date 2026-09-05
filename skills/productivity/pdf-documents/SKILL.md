@@ -8,7 +8,7 @@ metadata:
   birkin:
     tags: [productivity, office, pdf, read-only]
     formats: [pdf]
-    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
+    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
     inspect_first: inspect_document
     write_policy: copy-on-write
     extension_conversion: txt-only
@@ -61,6 +61,7 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `inspect_document`: required `source`.
 - `extract_document`: required `source`; optional `projection`, `max_spans`, `max_nodes`, and `max_text_bytes`.
 - `analyze_workbook`: required `source`, `sheet`, and `cell_range`; optional `group_by`, `value_column`, `compare_by`, and `include_hidden_rows`.
+- `review_meeting_actions`: required `notes` and evidence-bound `candidates`; returns a deduplicated draft and never persists unconfirmed actions.
 - `compare_documents`: required `left` and `right`.
 - `render_artifact`: required `artifact`; `output_format` must be `structured_preview`, `pdf`, `png`, or `thumbnail`, and `page` is optional.
 - `validate_artifact`: required `artifact`.

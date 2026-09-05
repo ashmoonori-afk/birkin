@@ -25,6 +25,7 @@ REQUIRED_ARGUMENTS = {
     "inspect_document": ["source"],
     "extract_document": ["source"],
     "analyze_workbook": ["source", "sheet", "cell_range"],
+    "review_meeting_actions": ["notes", "candidates"],
     "compare_documents": ["left", "right"],
     "render_artifact": ["artifact"],
     "validate_artifact": ["artifact"],

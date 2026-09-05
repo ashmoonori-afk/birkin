@@ -213,6 +213,14 @@ def run(output_dir: Path) -> dict[str, object]:
     expected_refusals: list[dict[str, object]] = []
 
     inventory = cast(list[dict[str, object]], call("list_document_adapters", {})["adapters"])
+    _ = call("review_meeting_actions", {
+        "notes": "민지는 견적을 확인한다. 기한은 정하지 않았다.",
+        "candidates": [{
+            "action": "견적 확인",
+            "evidence": "민지는 견적을 확인한다.",
+            "assignee": "민지",
+        }],
+    })
     adapter_by_format = {str(item["format"]): item for item in inventory}
     template_plan = service.fill_template(
         artifact(paths["hwpx"]),
