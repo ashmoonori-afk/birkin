@@ -143,6 +143,8 @@ internal static class ProviderOfficeJourneyFlow
             var targetOffset = Math.Max(0, contentCenter - scroll.ViewportHeight / 2);
             scroll.ScrollToVerticalOffset(targetOffset);
             await RenderBarrierAsync(window);
+            scroll.ScrollToHome();
+            scroll.UpdateLayout();
             scroll.ScrollToVerticalOffset(targetOffset);
             scroll.UpdateLayout();
             oldBounds = oldValue.TransformToAncestor(scroll).TransformBounds(
