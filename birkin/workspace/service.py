@@ -282,6 +282,17 @@ class WorkspaceService:
             panel.items for panel in snapshot.panels if panel.key == "files_evidence"
         )
         work_groups = grouped_work_items()
+        from ..m365_connection import status as connection_status
+
+        connection = connection_status()
+        account = cast("dict[str, object] | None", connection.get("account"))
+        connection_row = {
+            "id": "connection:microsoft-365",
+            "kind": "connection",
+            "summary": f"Microsoft 365 · {account.get('name') if account else '연결되지 않음'}",
+            "description": " · ".join(cast("list[str]", connection.get("scopes", []))),
+            "status": connection["state"],
+        }
         seen: set[str] = set()
         work_rows: list[dict[str, object]] = []
         for group in ("overdue", "today", "needs_confirmation", "recently_completed"):
@@ -314,6 +325,8 @@ class WorkspaceService:
             if panel.key == "approvals"
             else replace(panel, items=tuple(work_rows) + panel.items)
             if panel.key == "tasks_runs"
+            else replace(panel, items=(connection_row,) + panel.items)
+            if panel.key == "files_evidence"
             else panel
             for panel in snapshot.panels
         )

@@ -658,6 +658,11 @@ def work_items_path() -> Path:
     return birkin_home() / "work-items.json"
 
 
+def connections_path() -> Path:
+    """Persisted connection metadata; credentials stay in the secrets source."""
+    return birkin_home() / "connections.json"
+
+
 def companion_dir() -> Path:
     """Commitment / check-in domain state (mutable, outside memory curation)."""
     d = birkin_home() / "companion"

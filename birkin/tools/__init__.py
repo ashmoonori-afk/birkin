@@ -226,6 +226,7 @@ def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
     from . import (
         citations,
         computer_use,
+        connections,
         desktop,
         documents,
         egress,
@@ -247,6 +248,7 @@ def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
         "browser": browser.tools(),
         "egress": egress.tools(),
         "documents": documents.tools(),
+        "connections": connections.tools(),
     }
     from ..plugin_install import plugin_trust_policy
     from ..plugin_runtime import load_agent_tools, registry_roots

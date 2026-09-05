@@ -210,6 +210,10 @@ def execute_action(
         from .work_items import apply_approved
 
         return apply_approved(payload, configured.on_event)
+    if category == "connection":
+        from .m365_connection import apply_approved
+
+        return apply_approved(payload, configured.on_event)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
         if not isinstance(operation, _OperationExecutor):
