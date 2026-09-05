@@ -182,7 +182,8 @@ internal static class NativeProjectionReducer
             "rejection_result", "related_evidence", "risk", "issued_at", "expires_at",
             "receipt_ref", "snapshot_ref", "effect", "refusal_code", "session_id",
             "name", "destination", "source_filename", "authority_digest",
-            "office_phase", "job_id",
+            "office_phase", "job_id", "validation_summary",
+            "visual_validation_summary",
         })
         {
             if (OptionalString(payload, field) is { Length: > 0 } value)
@@ -195,7 +196,7 @@ internal static class NativeProjectionReducer
             foreach (var field in new[]
             {
                 "approval_id", "artifact_id", "draft_id", "diff_id",
-                "job_id", "request_command_id", "approval_command_id",
+                "request_command_id", "approval_command_id",
             })
             {
                 if (OptionalString(payload, field) is { Length: > 0 } value)
@@ -283,6 +284,8 @@ internal static class NativeProjectionReducer
                     "issued_at",
                     "expires_at",
                     "backup_exists",
+                    "validation_summary",
+                    "visual_validation_summary",
                     "effect",
                     "refusal_code",
                 ]);

@@ -454,6 +454,8 @@ def test_native_office_job_request_queues_current_canonical_proposal(
         "issued_at": export["issued_at"],
         "expires_at": export["expires_at"],
         "backup_exists": export.get("destination_existed") is True,
+        "validation_summary": "등록된 구조 검증 통과",
+        "visual_validation_summary": "시각 검증 미실행",
     }
     approval_panel = next(
         panel for panel in service.snapshot().panels if panel.key == "approvals"

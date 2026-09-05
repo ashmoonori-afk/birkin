@@ -1000,6 +1000,8 @@ class RuntimeWorkspaceAdapter:
                 "issued_at",
                 "expires_at",
                 "backup_exists",
+                "validation_summary",
+                "visual_validation_summary",
             ):
                 event_payload[field] = projected_payload[field]
             result["receipt_ref"] = receipt_projection.receipt_ref

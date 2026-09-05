@@ -58,6 +58,8 @@ public sealed record PanelItemPresentation(
     string? ExpiresAt = null,
     string? ReceiptRef = null,
     bool BackupExists = false,
+    string? ValidationSummary = null,
+    string? VisualValidationSummary = null,
     string? Status = null)
 {
     public bool HasSourceFilename => !string.IsNullOrWhiteSpace(SourceFilename);
@@ -113,6 +115,10 @@ public sealed record PanelItemPresentation(
     public string OutcomeAutomationId => AutomationId("outcome");
     public string ReceiptReferenceAutomationId =>
         AutomationId("receipt-reference");
+    public string ValidationAutomationId => AutomationId("receipt.validation");
+    public string VisualValidationAutomationId =>
+        AutomationId("receipt.visual-validation");
+    public string FollowUpAutomationId => AutomationId("receipt.follow-up");
     public string OverwriteLabel =>
         KoreanDecisionText.ApprovalOverwrite(OverwriteApproved);
 

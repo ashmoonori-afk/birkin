@@ -136,6 +136,8 @@ internal static class WorkspaceProjectionMapper
                 Text(item, "expires_at"),
                 Text(item, "receipt_ref"),
                 Flag(item, "backup_exists"),
+                Text(item, "validation_summary"),
+                Text(item, "visual_validation_summary"),
                 Text(item, "status"))));
     }
 
