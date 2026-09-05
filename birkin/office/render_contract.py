@@ -22,45 +22,47 @@ MAX_RENDER_PAGES = 200
 def _pdf_fonts(path: Path, page_index: int) -> list[str]:
     from pypdf import PdfReader
 
-    page = PdfReader(Path(str(path)), strict=True).pages[page_index]
-    fonts = page["/Resources"].get("/Font", {})
-    return sorted({
-        str(font.get_object().get("/BaseFont", "unknown"))
-        for font in fonts.values()
-    })
+    with path.open("rb") as source:
+        page = PdfReader(source, strict=True).pages[page_index]
+        fonts = page["/Resources"].get("/Font", {})
+        return sorted({
+            str(font.get_object().get("/BaseFont", "unknown"))
+            for font in fonts.values()
+        })
 
 
 def _render_pdf(path: Path, target: Path, output_format: str, page: int | None) -> dict[str, object]:
     import pypdfium2
     from PIL import Image, ImageChops
 
-    document = pypdfium2.PdfDocument(Path(str(path)))
-    try:
-        page_count = len(document)
-        wanted = 1 if page is None else page
-        if page_count > MAX_RENDER_PAGES or wanted < 1 or wanted > page_count:
-            raise DocumentError(
-                DocumentErrorCode.LIMIT_EXCEEDED,
-                "render",
-                "PDF page is outside the bounded render range",
-                details={"page": wanted, "page_count": page_count, "maximum_pages": MAX_RENDER_PAGES},
-            )
-        scale = 1.5 if output_format == "png" else 0.5
-        pdf_page = document[wanted - 1]
+    with path.open("rb") as source:
+        document = pypdfium2.PdfDocument(source)
         try:
-            bitmap = pdf_page.render(scale=scale)
+            page_count = len(document)
+            wanted = 1 if page is None else page
+            if page_count > MAX_RENDER_PAGES or wanted < 1 or wanted > page_count:
+                raise DocumentError(
+                    DocumentErrorCode.LIMIT_EXCEEDED,
+                    "render",
+                    "PDF page is outside the bounded render range",
+                    details={"page": wanted, "page_count": page_count, "maximum_pages": MAX_RENDER_PAGES},
+                )
+            scale = 1.5 if output_format == "png" else 0.5
+            pdf_page = document[wanted - 1]
             try:
-                image = bitmap.to_pil().convert("RGB")
-                bounds = ImageChops.difference(
-                    image, Image.new("RGB", image.size, "white")
-                ).getbbox()
-                image.save(target, format="PNG")
+                bitmap = pdf_page.render(scale=scale)
+                try:
+                    image = bitmap.to_pil().convert("RGB")
+                    bounds = ImageChops.difference(
+                        image, Image.new("RGB", image.size, "white")
+                    ).getbbox()
+                    image.save(target, format="PNG")
+                finally:
+                    bitmap.close()
             finally:
-                bitmap.close()
+                pdf_page.close()
         finally:
-            pdf_page.close()
-    finally:
-        document.close()
+            document.close()
     return {
         "page": wanted,
         "page_count": page_count,

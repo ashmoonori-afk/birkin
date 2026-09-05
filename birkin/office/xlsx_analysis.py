@@ -66,8 +66,10 @@ def analyze_xlsx(
         raise _invalid("cell_range must be a valid XLSX range") from exc
     if (max_col - min_col + 1) * (max_row - min_row + 1) > _MAX_CELLS:
         raise _invalid(f"selected range exceeds the {_MAX_CELLS} cell limit")
-    workbook = load_workbook(path, read_only=False, data_only=False, keep_links=False)
-    cached_workbook = load_workbook(path, read_only=False, data_only=True, keep_links=False)
+    with path.open("rb") as source:
+        workbook = load_workbook(source, read_only=False, data_only=False, keep_links=False)
+    with path.open("rb") as source:
+        cached_workbook = load_workbook(source, read_only=False, data_only=True, keep_links=False)
     try:
         if sheet not in workbook.sheetnames:
             raise _invalid("worksheet was not found")
