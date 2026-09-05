@@ -66,6 +66,8 @@
                     </Ellipse>
                     <TextBlock x:Name="ConnectionStatusText"
                                automation:AutomationProperties.AutomationId="ConnectionStatusText"
+                               automation:AutomationProperties.Name="로컬 브리지 연결 상태"
+                               automation:AutomationProperties.LiveSetting="Polite"
                                Text="{Binding Connection.StatusText}"
                                Foreground="{StaticResource TextBrush}"
                                FontSize="13" FontWeight="SemiBold" />

@@ -6,7 +6,8 @@
         <ResourceDictionary Source="../Styles/ShellStyles.xaml" />
     </UserControl.Resources>
     <Grid x:Name="NavigationColumn"
-          automation:AutomationProperties.AutomationId="navigation.column">
+          automation:AutomationProperties.AutomationId="navigation.column"
+          automation:AutomationProperties.Name="업무 목록과 작업 기억">
         <Grid.RowDefinitions>
             <RowDefinition Height="3*" />
             <RowDefinition Height="5" />
@@ -15,6 +16,7 @@
 
         <Border x:Name="SessionsRegion"
                 automation:AutomationProperties.AutomationId="navigation.sessions"
+                automation:AutomationProperties.Name="업무 목록"
                 Style="{StaticResource CardStyle}">
             <Grid>
                 <Grid.RowDefinitions>
@@ -64,7 +66,7 @@
                                         <TextBlock Text="{Binding SessionId}"
                                                    Foreground="{StaticResource MutedBrush}"
                                                    FontFamily="Consolas"
-                                                   FontSize="10"
+                                                   FontSize="12"
                                                    TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                 </Button>
@@ -97,6 +99,7 @@
         <Border x:Name="WorkingMemoryRegion"
                 Grid.Row="2"
                 automation:AutomationProperties.AutomationId="working-memory.landmark"
+                automation:AutomationProperties.Name="현재 업무의 작업 기억"
                 Style="{StaticResource CardStyle}">
             <Grid>
                 <Grid.RowDefinitions>

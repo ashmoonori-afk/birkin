@@ -206,6 +206,11 @@ WPF 개발 프리뷰는 로컬 bridge 연결 전에 창을 먼저 표시합니�
 뿐입니다. 활동 보기는 현재 투영된 기록 페이지를 표시하고 이전 항목은 영속
 journal에 계속 보관합니다.
 
+개발 프리뷰는 모니터별 V2 DPI 배율을 선언하고, 한국어 UI Automation 이름과
+상태 알림 텍스트를 제공합니다. 주요 고대비 화면은 시스템 색상을 사용하고
+애니메이션 없이도 진행 상태를 이해할 수 있습니다. Windows와 웹 입력 모두
+한글 IME 조합 중에는 Ctrl+Enter 전송을 실행하지 않습니다.
+
 가져온 파일은 Windows 대화 초안 위에 선택 가능한 첨부로 표시됩니다. 선택을
 해제해도 가져온 원본은 유지되며, 전송할 때는 선택한 참조만 bridge에서 같은
 세션·해시·파일 상태 검증을 거칩니다.
@@ -471,7 +476,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.363`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.364`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

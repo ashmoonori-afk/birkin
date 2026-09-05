@@ -263,6 +263,11 @@ def test_web_workspace_keeps_localized_controls_accessible() -> None:
     assert "textarea::placeholder" in source
     assert "summary:focus-visible" in source
     assert ".panel-more {\n    display: grid;" in source
+    assert "input:focus-visible, select:focus-visible" in source
+    assert "animation-iteration-count: 1" in source
+    assert "!event.isComposing && event.keyCode !== 229" in source
+    assert 'panelTabs.addEventListener("keydown"' in source
+    assert 'entry.tabIndex = selected ? 0 : -1' in source
 
 
 def test_checkpoint_restore_success_is_not_reclassified_by_panel_refresh() -> None:

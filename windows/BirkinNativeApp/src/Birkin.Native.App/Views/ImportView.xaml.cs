@@ -2,6 +2,8 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Threading;
 using System.Windows.Media;
 using Birkin.Native.Shell;
 using Birkin.Native.Shell.Commands;
@@ -41,14 +43,24 @@ public partial class ImportView : UserControl
 
     private void BrowseClicked(object sender, RoutedEventArgs eventArgs)
     {
-        if (_picker.SelectOfficeFiles(Window.GetWindow(this)) is { Count: > 0 } selected)
+        var returnFocus = Keyboard.FocusedElement;
+        try
         {
-            _selectedPaths = selected;
-            PathBox.Text = selected.Count == 1
-                ? selected[0]
-                : $"{selected.Count}개 파일 선택됨";
-            _importPending = false;
-            HideStatus();
+            if (_picker.SelectOfficeFiles(Window.GetWindow(this)) is { Count: > 0 } selected)
+            {
+                _selectedPaths = selected;
+                PathBox.Text = selected.Count == 1
+                    ? selected[0]
+                    : $"{selected.Count}개 파일 선택됨";
+                _importPending = false;
+                HideStatus();
+            }
+        }
+        finally
+        {
+            _ = Dispatcher.BeginInvoke(
+                DispatcherPriority.Input,
+                new Action(() => _ = returnFocus?.Focus()));
         }
     }
 

@@ -95,17 +95,33 @@
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="10" />
         <Setter Property="Padding" Value="14" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Source={x:Static SystemParameters.HighContrast}}" Value="True">
+                <Setter Property="Background" Value="{DynamicResource {x:Static SystemColors.WindowBrushKey}}" />
+                <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="SectionTitleStyle" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
         <Setter Property="FontSize" Value="17" />
         <Setter Property="FontWeight" Value="SemiBold" />
         <Setter Property="VerticalAlignment" Value="Center" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Source={x:Static SystemParameters.HighContrast}}" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.WindowTextBrushKey}}" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="MutedTextStyle" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
         <Setter Property="FontSize" Value="12" />
         <Setter Property="TextWrapping" Value="Wrap" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Source={x:Static SystemParameters.HighContrast}}" Value="True">
+                <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.GrayTextBrushKey}}" />
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
     <Style x:Key="GlyphStyle" TargetType="TextBlock">
         <Setter Property="Foreground" Value="{StaticResource FaintBrush}" />
@@ -188,6 +204,11 @@
                                     Property="BorderThickness"
                                     Value="2" />
                         </Trigger>
+                        <DataTrigger Binding="{Binding Source={x:Static SystemParameters.HighContrast}}" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+                            <Setter TargetName="ActionChrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" />
+                            <Setter TargetName="ActionChrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>
@@ -246,6 +267,11 @@
                                     Property="BorderThickness"
                                     Value="2" />
                         </Trigger>
+                        <DataTrigger Binding="{Binding Source={x:Static SystemParameters.HighContrast}}" Value="True">
+                            <Setter Property="Foreground" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+                            <Setter TargetName="Chrome" Property="Background" Value="{DynamicResource {x:Static SystemColors.ControlBrushKey}}" />
+                            <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ControlTextBrushKey}}" />
+                        </DataTrigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

@@ -6,7 +6,8 @@
         <ResourceDictionary Source="../Styles/ShellStyles.xaml" />
     </UserControl.Resources>
     <Grid x:Name="PrimaryColumn"
-          automation:AutomationProperties.AutomationId="primary.column">
+          automation:AutomationProperties.AutomationId="primary.column"
+          automation:AutomationProperties.Name="대화 작업 영역">
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
@@ -14,6 +15,7 @@
 
         <Border x:Name="ConversationRegion"
                 automation:AutomationProperties.AutomationId="conversation.stream"
+                automation:AutomationProperties.Name="대화와 메시지 입력"
                 Style="{StaticResource CardStyle}">
             <ContentControl x:Name="ConversationHost" />
         </Border>

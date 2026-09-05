@@ -45,18 +45,6 @@
                     <Path.RenderTransform>
                         <RotateTransform />
                     </Path.RenderTransform>
-                    <Path.Triggers>
-                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                            <BeginStoryboard>
-                                <Storyboard RepeatBehavior="Forever">
-                                    <DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)"
-                                                     From="0"
-                                                     To="360"
-                                                     Duration="0:0:0.8" />
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </EventTrigger>
-                    </Path.Triggers>
                 </Path>
                 <TextBlock Text="{Binding OfficeWorkflow.CommandProgressText}"
                            Foreground="{StaticResource AccentBrush}"

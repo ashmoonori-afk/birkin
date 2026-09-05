@@ -51,6 +51,8 @@
 
         <Border x:Name="ActivityRegion" Grid.Row="2"
                 Height="220"
+                Focusable="True"
+                automation:AutomationProperties.Name="업무 진행 상황과 최근 결과"
                 automation:AutomationProperties.AutomationId="activity.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
@@ -77,8 +79,8 @@
                                     <StackPanel>
                                         <TextBlock automation:AutomationProperties.AutomationId="activity.summary" Text="{Binding Summary}" TextWrapping="Wrap" />
                                         <DockPanel Margin="0,4,0,0">
-                                            <TextBlock DockPanel.Dock="Right" Text="{Binding LastUpdatedLabel}" Style="{StaticResource MutedTextStyle}" FontSize="10" />
-                                            <TextBlock Text="{Binding OfficePhaseLabel}" Foreground="{StaticResource AccentBrush}" FontSize="10" />
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding LastUpdatedLabel}" Style="{StaticResource MutedTextStyle}" />
+                                            <TextBlock Text="{Binding OfficePhaseLabel}" Foreground="{StaticResource AccentBrush}" FontSize="12" />
                                         </DockPanel>
                                     </StackPanel>
                                 </Border>
