@@ -153,7 +153,7 @@ struct WorkingMemoryTests {
             code: "E_WORKING_MEMORY_BUDGET", message: longMessage
         )
         #expect(error.message.count == 300)
-        #expect(error.accessibilityLabel.contains("20,000-character render budget"))
+        #expect(error.accessibilityLabel.contains("20,000자 표시 제한"))
         try writeEvidence(
             WorkingMemoryClearConfirmationView(presentation: clear)
                 .frame(width: 440, height: 240),
