@@ -128,6 +128,10 @@ def _location(node: _SourceNode) -> str:
         if isinstance(sheet, str) and sheet:
             return f"{sheet}!{cell}"
         return cell
+    slide_part = node.locator.get("slide_part")
+    placeholder = node.locator.get("placeholder_idx")
+    if isinstance(slide_part, str) and isinstance(placeholder, int):
+        return f"{slide_part} placeholder {placeholder}"
     format_name = node.locator.get("format")
     index = node.locator.get("index")
     if isinstance(format_name, str) and format_name and isinstance(index, int):

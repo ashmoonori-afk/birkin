@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.367`
+- Birkin version: `0.4.368`
 - `catalog_revision: 6`
 - `inventory_sha256: a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
@@ -44,9 +44,9 @@ lower-level capability. Installing a package does not create an agent route.
 
 | Format | Current bounded behavior | Explicit boundary |
 |---|---|---|
-| DOCX | Paragraph creation plus approved weekly-report, meeting-notes, and work-proposal plans with a title, body, one table, and one bullet list; package inspection/extraction, layered validation/comparison, TXT projection, and one paragraph or tagged content-control edit. | No tracked-change synthesis, arbitrary rewrite, or layout proof. Business templates record their definition version/hash and sources but remain visually unverified until rendered. |
-| XLSX | Scalar-row creation, cell extraction, layered validation/comparison, TXT projection, and one existing sheet-1 cell edit. | Formulas are preserved but never evaluated or recalculated. |
-| PPTX | Title/body creation, text extraction, layered validation/comparison, TXT projection, and one slide-1 placeholder edit. | No master, animation, media, overflow, or layout proof. |
+| DOCX | Paragraph creation plus approved weekly-report, meeting-notes, and work-proposal plans with a title, body, one table, and one bullet list; package inspection/extraction, layered validation/comparison, TXT projection, and atomic multi-paragraph or tagged content-control edits. | No tracked-change synthesis, arbitrary rewrite, or layout proof. Business templates record their definition version/hash and sources but remain visually unverified until rendered. |
+| XLSX | Scalar-row creation, cell extraction, layered validation/comparison, TXT projection, and atomic numeric edits across named existing sheets. | Formulas are preserved but never evaluated or recalculated. |
+| PPTX | Title/body creation, text extraction, layered validation/comparison, TXT projection, and atomic placeholder edits across explicit slide parts. | No master, animation, media, overflow, or layout proof. |
 | PDF | Built-in ASCII text-first creation; optional pypdf inspection/extraction; structural validation and TXT projection. | Non-Latin creation returns a typed refusal. Existing content is read-only: no OCR, form fill, annotation, signing, redaction, or object rewrite. |
 | HWPX | Exact-pinned `python-hwpx==6.1.0` text-first blank authoring, trusted-template field derivation (including the three approved business plans), extraction, validation/comparison, TXT projection, and one section-0 field edit. | Business-plan derivation rejects missing required inputs and any template field left unbound. It records the source template hash and does not claim layout fidelity before rendering. No legacy HWP, application automation, PDF export, or typography proof. |
 

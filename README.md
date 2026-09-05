@@ -346,7 +346,7 @@ Raw screenshots are content-addressed under `BIRKIN_HOME/computer-use/artifacts`
 
 ## Office Work OS v2
 
-Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and narrow copy-on-write package edits. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
+Birkin registers a bounded workflow for DOCX, XLSX, PPTX, PDF, and HWPX. It supports text extraction, text-first creation, layered validation and comparison, explicit-budget TXT conversion, semantic structured previews, and atomic copy-on-write edit sets across DOCX paragraphs, named XLSX sheets, and explicit PPTX slide parts. PDF mutation remains refused. HWPX blank authoring uses exact-pinned `python-hwpx==6.1.0` from the `office` extra; trusted-template derivation remains available.
 
 DOCX and trusted-template HWPX creation also accept three versioned business plans: weekly report, meeting notes, and work proposal. DOCX emits a title, body, one table, and one bullet list through `python-docx`; HWPX reuses native field bindings. Missing required values and unbound HWPX fields fail before output. Results record source labels, the business-plan version/hash, and the source template hash, with layout marked unverified until a visual render succeeds.
 
@@ -426,7 +426,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.367`, `catalog_revision: 6`, `inventory_sha256: a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.368`, `catalog_revision: 6`, `inventory_sha256: a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`.
 
 ### Doing office work end to end
 

@@ -261,6 +261,7 @@ def tools() -> list[Tool]:
                     "operations": {
                         "type": "array",
                         "minItems": 1,
+                        "maxItems": 1000,
                         "items": PATCH_OPERATION_SCHEMA,
                     },
                     "destination": {"type": "string", "minLength": 1},

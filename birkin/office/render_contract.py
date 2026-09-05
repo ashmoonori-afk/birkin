@@ -10,6 +10,7 @@ from .adapters.catalog import adapter_inventory
 from .errors import DocumentError, DocumentErrorCode
 from .extract import extract_items
 from .extract_contract import build_extraction
+from .extract_package import extract_xlsx_cell_items
 
 MAX_PREVIEW_SPANS = 100
 MAX_PREVIEW_NODES = 100
@@ -59,7 +60,7 @@ def render_document(
             },
         )
     extraction = build_extraction(
-        extract_items(path, format_name),
+        extract_xlsx_cell_items(path) if format_name == "xlsx" else extract_items(path, format_name),
         format_name,
         source_sha256,
         projection="text",

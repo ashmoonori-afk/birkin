@@ -8,6 +8,7 @@ from typing import cast
 
 import pytest
 from docx import Document
+from openpyxl import Workbook, load_workbook
 
 from birkin import approvals, config, store
 from birkin.approval_execution_journal import ExecutionJournal
@@ -142,6 +143,56 @@ def test_docx_paragraph_request_executes_through_registry_and_approval(
     assert _sha256(source) == source_sha256
 
 
+def test_multi_sheet_request_is_reviewed_and_exported_as_one_approval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    office_home = home / "office"
+    office_home.mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    source = office_home / "months.xlsx"
+    workbook = Workbook()
+    january = workbook.active
+    january.title = "January"
+    january["A1"] = 1
+    february = workbook.create_sheet("February")
+    february["A1"] = 2
+    workbook.save(source)
+    source_sha256 = _sha256(source)
+    destination = caller / "approved.xlsx"
+    request = {
+        "request": "Update two cells in this XLSX workbook",
+        "source": {"content_hash": source_sha256, "uri": str(source)},
+        "outcome": "Update January and February totals",
+        "operations": [
+            {"locator": {"sheet": "January", "cell": "A1"}, "value": 10},
+            {"locator": {"sheet": "February", "cell": "A1"}, "value": 20},
+        ],
+        "destination": str(destination),
+    }
+    proposed = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:multi-sheet"),
+        include={"documents"},
+    ).execute("office_job_request", request)
+    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
+    assert proposed.is_error is False, body
+    approval = cast("dict[str, object]", body["approval"])
+    assert len(cast("list[object]", approval["semantic_summaries"])) == 2
+    assert isinstance(approval["proposal_digest"], str)
+
+    result = approvals.approve(
+        cast(str, body["id"]), approved_by="human:multi", approved_via="test:multi-sheet"
+    )
+
+    assert result["ok"] is True, result
+    reopened = load_workbook(destination, read_only=True)
+    assert reopened["January"]["A1"].value == 10
+    assert reopened["February"]["A1"].value == 20
+    assert _sha256(source) == source_sha256
+
+
 def test_request_queues_bound_approval_without_mutating_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -179,9 +230,9 @@ def test_request_queues_bound_approval_without_mutating_files(
     assert card["source_filename"] == payload["source_filename"]
     assert card["rejection_result"] == payload["rejection_result"]
     summaries = cast("list[dict[str, str]]", payload["semantic_summaries"])
-    assert summaries == [{"location": "A1", "before": "7", "after": "9"}]
+    assert summaries == [{"location": "Revenue!A1", "before": "7", "after": "9"}]
     assert record["title"] == "Office 변경: Set Revenue A1 to 9"
-    assert record["description"] == "A1 변경: 7 → 9"
+    assert record["description"] == "Revenue!A1 변경: 7 → 9"
     assert _sha256(source) == source_sha256
     assert not destination.exists()
 
