@@ -35,6 +35,7 @@ CATEGORY_RISK: dict[str, str] = {
     "work_item": "medium",
     "connection": "medium",
     "mail_send": "high",
+    "calendar_event": "high",
     # A workflow spends tokens and time but writes nothing by itself;
     # its agents are text-only and every consequential act inside one
     # still hits its own gate.

@@ -12,7 +12,7 @@ from . import config, store
 
 SERVICE = "microsoft-365"
 READ_SCOPES = frozenset({"User.Read", "Mail.Read", "Calendars.Read", "Files.Read"})
-MAIL_WRITE_SCOPES = frozenset({"Mail.ReadWrite", "Mail.Send"})
+WRITE_SCOPES = frozenset({"Mail.ReadWrite", "Mail.Send", "Calendars.ReadWrite"})
 
 
 def _read() -> dict[str, object]:
@@ -31,7 +31,7 @@ def _scopes(value: object, *, allow_mail_write: bool = False) -> list[str]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         raise ValueError("scopes must be an array")
     scopes = sorted(set(value))
-    allowed = READ_SCOPES | (MAIL_WRITE_SCOPES if allow_mail_write else frozenset())
+    allowed = READ_SCOPES | (WRITE_SCOPES if allow_mail_write else frozenset())
     if not scopes or any(not isinstance(scope, str) or scope not in allowed for scope in scopes):
         raise ValueError("only supported delegated scopes may be requested")
     return scopes
@@ -116,4 +116,4 @@ def record_sync_result(error: str | None) -> None:
         _write(current)
 
 
-__all__ = ["MAIL_WRITE_SCOPES", "READ_SCOPES", "apply_approved", "record_sync_result", "status"]
+__all__ = ["READ_SCOPES", "WRITE_SCOPES", "apply_approved", "record_sync_result", "status"]

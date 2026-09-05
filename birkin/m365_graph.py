@@ -29,20 +29,22 @@ class GraphClient:
         self._token = token
         self._timeout = timeout
 
-    def request(self, method: str, path: str, body: Mapping[str, object] | None = None) -> dict[str, Any]:
+    def request(self, method: str, path: str, body: Mapping[str, object] | None = None, *, headers: Mapping[str, str] | None = None) -> dict[str, Any]:
         if not path.startswith("/") or path.startswith("//"):
             raise ValueError("Graph path must be origin-relative")
         data = json.dumps(body).encode("utf-8") if body is not None else None
+        request_headers = {
+            "Authorization": f"Bearer {self._token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Prefer": 'IdType="ImmutableId", outlook.body-content-type="text"',
+        }
+        request_headers.update(headers or {})
         request = urllib.request.Request(
             ORIGIN + path,
             data=data,
             method=method,
-            headers={
-                "Authorization": f"Bearer {self._token}",
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-                "Prefer": 'IdType="ImmutableId", outlook.body-content-type="text"',
-            },
+            headers=request_headers,
         )
         try:
             with urllib.request.urlopen(request, timeout=self._timeout) as response:

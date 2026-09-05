@@ -218,6 +218,10 @@ def execute_action(
         from .m365_mail import execute_approved_send
 
         return execute_approved_send(payload)
+    if category == "calendar_event":
+        from .m365_calendar import execute_approved_event
+
+        return execute_approved_event(payload)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
         if not isinstance(operation, _OperationExecutor):

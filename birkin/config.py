@@ -671,6 +671,10 @@ def mail_receipts_path() -> Path:
     return birkin_home() / "mail-send-receipts.json"
 
 
+def calendar_drafts_path() -> Path:
+    return birkin_home() / "calendar-drafts.json"
+
+
 def companion_dir() -> Path:
     """Commitment / check-in domain state (mutable, outside memory curation)."""
     d = birkin_home() / "companion"
