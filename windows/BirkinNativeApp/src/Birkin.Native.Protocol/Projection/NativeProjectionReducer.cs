@@ -174,6 +174,7 @@ internal static class NativeProjectionReducer
             new("status", new NativeJsonString(status)),
             new("cursor", new NativeJsonInteger(cursor)),
             new("kind", new NativeJsonString(kind)),
+            new("updated_at", body["timestamp"]!),
             new("ui_state", new NativeJsonString(uiState)),
         };
         foreach (var field in new[]

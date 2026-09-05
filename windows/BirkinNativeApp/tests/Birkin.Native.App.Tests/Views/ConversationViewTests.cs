@@ -288,6 +288,36 @@ public sealed class ConversationViewTests
     }
 
     [TestMethod]
+    public async Task Retry_WhenConversationRefusalIsRetryable_ResubmitsPreservedDraft()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Coordinator.SetConversationDraft("보고서 다시 작성");
+            var refusal = fixture.Model.OfficeWorkflow
+                .Begin("retry-1", "chat.send")
+                .Refuse("retry-1", "E_BUSY", "busy", true, null);
+            var view = new ConversationView(fixture.Model, fixture.Coordinator);
+            fixture.Model.PresentOfficeWorkflow(refusal);
+            OfficeWorkflowViewHarness.Layout(view);
+
+            var retry = OfficeWorkflowViewHarness.Find<Button>(
+                view,
+                "conversation.retry");
+            Assert.AreEqual(Visibility.Visible, retry.Visibility);
+            retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.AreEqual(1, fixture.Connection.Sent.Count);
+            Assert.AreEqual("chat.send", fixture.Connection.Sent[0].CommandType);
+            Assert.AreEqual(
+                "보고서 다시 작성",
+                ((NativeJsonString)fixture.Connection.Sent[0].Payload["text"]!).Value);
+        });
+    }
+
+    [TestMethod]
     public async Task CommandProgress_WhenPending_ShowsKoreanCopyAndAnimatedSpinner()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));

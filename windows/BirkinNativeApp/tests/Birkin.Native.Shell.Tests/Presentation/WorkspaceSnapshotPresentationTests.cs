@@ -203,6 +203,21 @@ public sealed class WorkspaceSnapshotPresentationTests
         Assert.AreEqual("예상 변경", row.Label);
     }
 
+    [TestMethod]
+    public void Activity_WhenOfficeProgressIsProjected_ShowsStageAndLastUpdate()
+    {
+        var row = new PanelItemPresentation(
+            "progress-1",
+            "activity",
+            "초안 검증을 완료했습니다.",
+            Status: "working",
+            OfficePhase: "validation",
+            UpdatedAt: "2026-09-05T04:21:59Z");
+
+        Assert.AreEqual("검증", row.OfficePhaseLabel);
+        StringAssert.StartsWith(row.LastUpdatedLabel, "마지막 갱신 ");
+    }
+
     private static NativeProjectionState ReceiptProjection()
     {
         const string instanceId = "0123456789abcdef0123456789abcdef";

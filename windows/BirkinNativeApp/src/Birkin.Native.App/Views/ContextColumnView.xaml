@@ -74,7 +74,13 @@
                         <ItemsControl automation:AutomationProperties.AutomationId="activity.items" ItemsSource="{Binding Workspace.Activity}">
                             <ItemsControl.ItemTemplate><DataTemplate>
                                 <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
-                                    <TextBlock automation:AutomationProperties.AutomationId="activity.summary" Text="{Binding Summary}" TextWrapping="Wrap" />
+                                    <StackPanel>
+                                        <TextBlock automation:AutomationProperties.AutomationId="activity.summary" Text="{Binding Summary}" TextWrapping="Wrap" />
+                                        <DockPanel Margin="0,4,0,0">
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding LastUpdatedLabel}" Style="{StaticResource MutedTextStyle}" FontSize="10" />
+                                            <TextBlock Text="{Binding OfficePhaseLabel}" Foreground="{StaticResource AccentBrush}" FontSize="10" />
+                                        </DockPanel>
+                                    </StackPanel>
                                 </Border>
                             </DataTemplate></ItemsControl.ItemTemplate>
                         </ItemsControl>

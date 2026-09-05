@@ -103,6 +103,9 @@ public sealed class NativeProjectionEventTests
         Assert.AreEqual(
             "pending",
             ((NativeJsonString)item["ui_state"]!).Value);
+        Assert.AreEqual(
+            "2026-08-29T00:00:00Z",
+            ((NativeJsonString)item["updated_at"]!).Value);
     }
 
     private static NativeJsonObject StateJson(NativeProjectionState state) => new([

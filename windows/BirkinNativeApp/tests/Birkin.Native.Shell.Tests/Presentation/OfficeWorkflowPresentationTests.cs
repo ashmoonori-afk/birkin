@@ -232,6 +232,33 @@ public sealed class OfficeWorkflowPresentationTests
     }
 
     [TestMethod]
+    public void Workflow_WhenInterruptIsPending_DoesNotClaimCancellationCompleted()
+    {
+        var pending = OfficeWorkflowPresentation.Empty.Begin("stop-1", "chat.interrupt");
+        var accepted = pending.Accept("stop-1", 12);
+
+        Assert.AreEqual("중지 요청을 전송하고 있습니다.", pending.CommandProgressText);
+        Assert.AreEqual("중지 요청을 처리하고 있습니다.", accepted.CommandProgressText);
+    }
+
+    [TestMethod]
+    public void Workflow_WhenRetryableConversationFails_AllowsOnlyThatDraftToRetry()
+    {
+        var available = OfficeWorkflowPresentation.Empty.Availability with
+        {
+            ConversationSend = new MutationAvailability(true, null),
+        };
+        var retryable = (OfficeWorkflowPresentation.Empty with { Availability = available })
+            .WithDraft("보고서 다시 작성")
+            .Begin("retry-1", "chat.send")
+            .Refuse("retry-1", "E_BUSY", "busy", true, null);
+
+        Assert.IsTrue(retryable.CanRetryConversation);
+        Assert.IsFalse((retryable with { CommandType = "office.job_request" }).CanRetryConversation);
+        Assert.IsFalse((retryable with { RefusalRetryable = false }).CanRetryConversation);
+    }
+
+    [TestMethod]
     public void Workflow_WhenAuthorityClears_PreservesDraftAndClearsPending()
     {
         // Given

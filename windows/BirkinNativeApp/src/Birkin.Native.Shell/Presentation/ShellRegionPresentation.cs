@@ -60,7 +60,9 @@ public sealed record PanelItemPresentation(
     bool BackupExists = false,
     string? ValidationSummary = null,
     string? VisualValidationSummary = null,
-    string? Status = null)
+    string? Status = null,
+    string? OfficePhase = null,
+    string? UpdatedAt = null)
 {
     public bool HasSourceFilename => !string.IsNullOrWhiteSpace(SourceFilename);
     public bool HasDestination => !string.IsNullOrWhiteSpace(Destination);
@@ -119,6 +121,19 @@ public sealed record PanelItemPresentation(
     public string VisualValidationAutomationId =>
         AutomationId("receipt.visual-validation");
     public string FollowUpAutomationId => AutomationId("receipt.follow-up");
+    public string OfficePhaseLabel => OfficePhase switch
+    {
+        "inspection" => "자료 확인",
+        "comparison" => "변경 내용 확인",
+        "draft" => "내용 작성",
+        "validation" => "검증",
+        "export" => "저장 완료",
+        _ => string.Empty,
+    };
+    public string LastUpdatedLabel =>
+        DateTimeOffset.TryParse(UpdatedAt, out var updated)
+            ? $"마지막 갱신 {updated.ToLocalTime():MM-dd HH:mm:ss}"
+            : string.Empty;
     public string OverwriteLabel =>
         KoreanDecisionText.ApprovalOverwrite(OverwriteApproved);
 

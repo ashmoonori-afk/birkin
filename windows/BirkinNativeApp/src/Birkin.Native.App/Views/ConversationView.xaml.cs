@@ -69,6 +69,16 @@ public partial class ConversationView : UserControl
         }
     }
 
+    private async void RetryClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (_coordinator is not null)
+        {
+            _restoreDraftFocus = true;
+            await _coordinator.SendConversationAsync(CancellationToken.None);
+            ScheduleDraftFocusRestore();
+        }
+    }
+
     private void AttachmentToggled(object sender, RoutedEventArgs eventArgs)
     {
         if (sender is CheckBox { Tag: string importId, IsChecked: bool isSelected })

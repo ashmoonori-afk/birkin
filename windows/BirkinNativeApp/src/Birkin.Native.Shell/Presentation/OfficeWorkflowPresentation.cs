@@ -67,6 +67,10 @@ public sealed record OfficeWorkflowPresentation(
 
     public string CommandProgressText => CommandState switch
     {
+        WorkflowCommandState.PendingReceipt when CommandType == "chat.interrupt" =>
+            "중지 요청을 전송하고 있습니다.",
+        WorkflowCommandState.AcceptedPendingProjection when CommandType == "chat.interrupt" =>
+            "중지 요청을 처리하고 있습니다.",
         WorkflowCommandState.PendingReceipt => "명령을 전송하고 있습니다.",
         WorkflowCommandState.AcceptedPendingProjection => "결과를 화면에 반영하고 있습니다.",
         _ => string.Empty,
@@ -92,6 +96,13 @@ public sealed record OfficeWorkflowPresentation(
                 RefusalRetryable,
                 CurrentCursor).DiagnosticDetail
             : null;
+
+    public bool CanRetryConversation =>
+        CommandState == WorkflowCommandState.Refused
+        && RefusalRetryable is true
+        && string.Equals(CommandType, "chat.send", StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(Draft)
+        && Availability.ConversationSend.IsEnabled;
 
     public OfficeWorkflowPresentation WithDraft(string draft) => this with { Draft = draft };
 

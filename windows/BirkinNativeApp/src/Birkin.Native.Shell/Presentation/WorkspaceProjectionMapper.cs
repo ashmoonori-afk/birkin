@@ -138,7 +138,9 @@ internal static class WorkspaceProjectionMapper
                 Flag(item, "backup_exists"),
                 Text(item, "validation_summary"),
                 Text(item, "visual_validation_summary"),
-                Text(item, "status"))));
+                Text(item, "status"),
+                Text(item, "office_phase"),
+                Text(item, "updated_at"))));
     }
 
     private static IEnumerable<string> Values(NativeJsonObject value, string key) =>
