@@ -240,6 +240,11 @@ def run(output_dir: Path) -> dict[str, object]:
             expected_refusals.append({"format": fmt, "operation": "create", **create_error})
         inspection = call("inspect_document", {"source": source})
         extraction = call("extract_document", {"source": source})
+        if fmt == "xlsx":
+            _ = call(
+                "analyze_workbook",
+                {"source": source, "sheet": "Data", "cell_range": "A1:B4"},
+            )
         validation = call("validate_artifact", {"artifact": source})
         comparison = call("compare_documents", {"left": source, "right": source})
         preview = call("render_artifact", {"artifact": source, "output_format": "structured_preview"})

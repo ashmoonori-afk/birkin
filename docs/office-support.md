@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.369`
+- Birkin version: `0.4.370`
 - `catalog_revision: 6`
 - `inventory_sha256: a9a8459320ffa05cbd7e93ecbee414e65574f057ff9703eb3e727020a3112168`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
