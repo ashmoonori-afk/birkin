@@ -428,6 +428,8 @@ Microsoft 365 메일은 읽기→로컬 초안→명시적 발송 순서로 동�
 
 팀 검토 인계는 Microsoft 365 drive item 초대를 사용하며 로그인을 요구하고 이름이 지정된 검토자에게 읽기/쓰기 권한을 부여합니다. 로컬 검토 기록은 제안자·검토자·승인 실행자·원본 `etag`·권한·의견을 연결합니다. 공유와 새 의견은 drive item을 다시 읽고 버전이 바뀌면 중단하며, 제안자와 지정 검토자만 조회·의견 추가가 가능합니다. 실시간 공동 편집은 이 단계에 포함하지 않습니다.
 
+`data_control_status`는 연결 계정, Office 검색 폴더, 공급자 전달 범위, 기억 위치, 인증된 복구 만료 시점과 원본·업무 복사본·기억·백업의 서로 다른 삭제 의미를 표시합니다. `data_work_copy_delete_request`는 승인과 정확한 hash를 요구하고 Birkin이 소유한 가져오기 복사본만 물리적으로 삭제합니다. 사용자 원본은 이 동작의 대상이 아니며, 기억은 복구 가능한 논리적 보관을 사용하고 Office 백업은 인증된 복구 기간이 끝난 뒤에만 물리적으로 폐기됩니다. Office 검색 결과 cache는 없으므로 철회되거나 삭제된 자료는 다음 검색에서 즉시 제외됩니다.
+
 `office_job_request`는 이제 `content.paragraphs`를 사용하는 source 없는 DOCX
 생성 proposal도 받습니다. 별도 `office_create` approval이 결합된 proposal을
 실행하기 전에는 managed draft와 호출자 destination 모두에 파일을 쓰지
@@ -503,7 +505,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.384`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.385`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

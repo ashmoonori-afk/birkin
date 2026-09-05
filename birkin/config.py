@@ -680,6 +680,10 @@ def office_templates_path() -> Path:
     return birkin_home() / "office-templates.json"
 
 
+def data_deletions_path() -> Path:
+    return birkin_home() / "data-deletions.json"
+
+
 def briefings_dir() -> Path:
     path = birkin_home() / "briefings"
     path.mkdir(parents=True, exist_ok=True)

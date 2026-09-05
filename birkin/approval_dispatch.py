@@ -238,6 +238,10 @@ def execute_action(
         from .office.saved_templates import apply_approved
 
         return apply_approved(payload)
+    if category == "data_delete":
+        from .data_controls import delete_work_copy
+
+        return delete_work_copy(payload)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
         if not isinstance(operation, _OperationExecutor):

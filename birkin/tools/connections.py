@@ -145,6 +145,21 @@ def _review_list(data: ToolInput, _ctx: ToolContext) -> ToolResult:
     return ToolResult(json.dumps(list_review(data.get("review_id"), data.get("actor")), ensure_ascii=False))
 
 
+def _data_status(_data: ToolInput, ctx: ToolContext) -> ToolResult:
+    from ..data_controls import status as data_status
+
+    return ToolResult(json.dumps(data_status(dict(ctx.cfg)), ensure_ascii=False))
+
+
+def _data_delete(data: ToolInput, ctx: ToolContext) -> ToolResult:
+    queued = approvals.propose(
+        category="data_delete", title=f"업무 복사본 영구 삭제 확인: {data.get('name')}",
+        description="원본과 기억은 유지하고 hash가 일치하는 Birkin 업무 복사본만 물리적으로 삭제합니다.",
+        payload=dict(data), cfg={}, origin=ctx.record_source,
+    )
+    return ToolResult(json.dumps({**queued, "category": "data_delete"}, ensure_ascii=False))
+
+
 def tools() -> list[Tool]:
     artifact = {
         "type": "object", "properties": {
@@ -215,4 +230,9 @@ def tools() -> list[Tool]:
         Tool("m365_review_share_request", "Request approval to share one unchanged drive item with named reviewers.", {"type": "object", "properties": {"review_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "required": ["review_id", "content_sha256"], "additionalProperties": False}, _review_share),
         Tool("m365_review_comment", "Add a local review comment bound to the current drive item version.", {"type": "object", "properties": {"review_id": {"type": "string"}, "actor": {"type": "string"}, "text": {"type": "string", "minLength": 1}}, "required": ["review_id", "actor", "text"], "additionalProperties": False}, _review_comment),
         Tool("m365_review_get", "Read a review only as its proposer or named reviewer.", {"type": "object", "properties": {"review_id": {"type": "string"}, "actor": {"type": "string"}}, "required": ["review_id", "actor"], "additionalProperties": False}, _review_list),
+        Tool("data_control_status", "Show connected account, search folders, provider transfer, memory, retention, deletion, and cache boundaries.", {"type": "object", "properties": {}, "additionalProperties": False}, _data_status),
+        Tool("data_work_copy_delete_request", "Request permanent deletion of one unchanged Birkin-owned imported work copy.", {"type": "object", "properties": {
+            "name": {"type": "string", "minLength": 1}, "uri": {"type": "string", "minLength": 1},
+            "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        }, "required": ["name", "uri", "content_hash"], "additionalProperties": False}, _data_delete),
     ]
