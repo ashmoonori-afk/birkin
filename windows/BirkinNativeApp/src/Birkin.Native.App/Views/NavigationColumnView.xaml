@@ -8,9 +8,9 @@
     <Grid x:Name="NavigationColumn"
           automation:AutomationProperties.AutomationId="navigation.column">
         <Grid.RowDefinitions>
-            <RowDefinition Height="2*" />
-            <RowDefinition Height="5" />
             <RowDefinition Height="3*" />
+            <RowDefinition Height="5" />
+            <RowDefinition Height="2*" />
         </Grid.RowDefinitions>
 
         <Border x:Name="SessionsRegion"
@@ -20,48 +20,77 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <DockPanel Margin="0,0,0,12">
                     <Button DockPanel.Dock="Right"
-                            Style="{StaticResource DisabledActionStyle}"
+                            Click="CreateSessionClicked"
+                            IsEnabled="{Binding OfficeWorkflow.Availability.SessionCreate.IsEnabled}"
                             Content="+"
                             Width="34"
                             automation:AutomationProperties.AutomationId="sessions.new"
-                            automation:AutomationProperties.Name="새 업무 만들기는 아직 사용할 수 없음" />
+                            automation:AutomationProperties.Name="새 업무 만들기" />
                     <TextBlock Text="업무" Style="{StaticResource SectionTitleStyle}" />
                 </DockPanel>
-                <Border Grid.Row="1"
-                        Background="{StaticResource RaisedBrush}"
-                        BorderBrush="{StaticResource AccentBrush}"
-                        BorderThickness="1"
-                        CornerRadius="7"
-                        Padding="12">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <TextBlock Text="&#xE8BD;"
-                                   FontFamily="Segoe MDL2 Assets"
-                                   Foreground="{StaticResource MutedBrush}"
-                                   FontSize="17"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,10,0" />
-                        <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                            <TextBlock Text="현재 업무" Foreground="{StaticResource MutedBrush}" FontSize="11" />
-                            <TextBlock Text="{Binding Workspace.SessionId}"
-                                       Foreground="{StaticResource TextBrush}"
-                                       FontFamily="Consolas"
-                                       TextTrimming="CharacterEllipsis" />
-                        </StackPanel>
-                        <Ellipse Grid.Column="2"
-                                 Width="14" Height="14"
-                                 Stroke="{StaticResource AccentBrush}"
-                                 StrokeThickness="2"
-                                 Fill="{StaticResource CardBrush}" />
-                    </Grid>
-                </Border>
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Workspace.Sessions}"
+                                  automation:AutomationProperties.AutomationId="sessions.items">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Tag="{Binding SessionId}"
+                                        Click="SelectSessionClicked"
+                                        HorizontalContentAlignment="Stretch"
+                                        Margin="0,0,0,6"
+                                        Padding="10,8"
+                                        automation:AutomationProperties.Name="{Binding SessionDisplayName}">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Background" Value="{StaticResource RaisedBrush}" />
+                                            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding IsSelectedSession}" Value="True">
+                                                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}" />
+                                                    <Setter Property="BorderThickness" Value="2" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding SessionDisplayName}"
+                                                   Foreground="{StaticResource TextBrush}"
+                                                   FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{Binding SessionId}"
+                                                   Foreground="{StaticResource MutedBrush}"
+                                                   FontFamily="Consolas"
+                                                   FontSize="10"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </StackPanel>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <DockPanel Grid.Row="2" Margin="0,6,0,6">
+                    <Button DockPanel.Dock="Right"
+                            Content="이름 변경"
+                            Click="RenameSessionClicked"
+                            IsEnabled="{Binding OfficeWorkflow.Availability.SessionRename.IsEnabled}"
+                            Padding="8,4"
+                            automation:AutomationProperties.AutomationId="sessions.rename" />
+                    <TextBox x:Name="SessionNameInput"
+                             Margin="0,0,6,0"
+                             Padding="7,4"
+                             automation:AutomationProperties.Name="현재 업무의 새 이름" />
+                </DockPanel>
+                <Button Grid.Row="3"
+                        HorizontalContentAlignment="Left"
+                        Click="ShowHistoryClicked"
+                        IsEnabled="{Binding OfficeWorkflow.Availability.SessionSelect.IsEnabled}"
+                        Padding="8,5"
+                        Content="{Binding Workspace.RecentResults.Count, StringFormat=최근 결과 {0}개 · 활동 기록 보기}"
+                        automation:AutomationProperties.AutomationId="sessions.history" />
             </Grid>
         </Border>
 

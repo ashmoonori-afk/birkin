@@ -103,6 +103,7 @@ class BridgeProcess:
             handler_factory=self._session_handlers,
         )
         _session, _created = self._hub.create(options.session_id)
+        self._hub.restore_existing()
         self._capabilities = BootstrapSecretStore(options.root / "native")
         self._socket_path = options.root / "bridge.sock"
         self._bridge = NativeBridgeServer(

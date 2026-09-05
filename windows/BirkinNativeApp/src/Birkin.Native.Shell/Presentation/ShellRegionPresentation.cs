@@ -62,7 +62,9 @@ public sealed record PanelItemPresentation(
     string? VisualValidationSummary = null,
     string? Status = null,
     string? OfficePhase = null,
-    string? UpdatedAt = null)
+    string? UpdatedAt = null,
+    string? SessionId = null,
+    string? Name = null)
 {
     public bool HasSourceFilename => !string.IsNullOrWhiteSpace(SourceFilename);
     public bool HasDestination => !string.IsNullOrWhiteSpace(Destination);
@@ -134,6 +136,8 @@ public sealed record PanelItemPresentation(
         DateTimeOffset.TryParse(UpdatedAt, out var updated)
             ? $"마지막 갱신 {updated.ToLocalTime():MM-dd HH:mm:ss}"
             : string.Empty;
+    public string SessionDisplayName => Name ?? Summary ?? SessionId ?? "이름 없는 업무";
+    public bool IsSelectedSession => string.Equals(Status, "selected", StringComparison.Ordinal);
     public string OverwriteLabel =>
         KoreanDecisionText.ApprovalOverwrite(OverwriteApproved);
 

@@ -18,12 +18,18 @@ public sealed record MutationAvailabilitySet(
     MutationAvailability OfficeOpen,
     MutationAvailability OfficeCompare,
     MutationAvailability OfficeDraft,
-    MutationAvailability OfficeConvert)
+    MutationAvailability OfficeConvert,
+    MutationAvailability SessionCreate,
+    MutationAvailability SessionSelect,
+    MutationAvailability SessionRename)
 {
     private static readonly MutationAvailability Disabled = new(false, "E_CONNECTION_NOT_READY");
 
     public static MutationAvailabilitySet None { get; } =
         new(
+            Disabled,
+            Disabled,
+            Disabled,
             Disabled,
             Disabled,
             Disabled,

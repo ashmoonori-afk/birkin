@@ -91,6 +91,26 @@ public sealed partial class NativeClientConnection : INativeClientConnection
 
     public async ValueTask DisposeAsync() => await DisconnectAsync().ConfigureAwait(false);
 
+    internal async ValueTask SwitchSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        var current = _session
+            ?? throw new NativeProtocolError("E_STATE", "connection session is unavailable");
+        var transport = _transport
+            ?? throw new NativeProtocolError("E_STATE", "connection is not active");
+        var switched = current with
+        {
+            Identity = current.Identity with { SessionId = sessionId },
+        };
+        _session = switched;
+        IsProjectionCurrent = false;
+        SnapshotInFlight?.Invoke(switched.Identity);
+        var subscribe = NativeHandshake.CreateSubscribe(switched, NextId());
+        Claim(subscribe.Id);
+        await transport.SendAsync(subscribe, cancellationToken).ConfigureAwait(false);
+    }
+
     public static TimeSpan ReconnectDelay(int attempt, double jitter)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(attempt);

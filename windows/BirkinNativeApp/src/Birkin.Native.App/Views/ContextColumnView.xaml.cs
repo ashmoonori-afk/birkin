@@ -31,4 +31,10 @@ public partial class ContextColumnView : UserControl
         ContextScroll.ScrollToTop();
         _ = ApprovalsRegion.Focus();
     }
+
+    public void FocusActivity()
+    {
+        _ = ActivityRegion.Focus();
+        ActivityRegion.BringIntoView();
+    }
 }

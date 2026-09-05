@@ -24,6 +24,7 @@ public partial class WorkspaceSnapshotView : UserControl
     public void AttachWorkflow(ShellPresentationModel presentationModel, ShellCoordinator coordinator)
     {
         DataContext = presentationModel;
+        NavigationColumnView.AttachWorkflow(presentationModel, coordinator, FocusActivity);
         PrimaryColumnView.AttachWorkflow(presentationModel, coordinator);
         ContextColumnView.AttachWorkflow(presentationModel, coordinator);
     }
@@ -38,6 +39,12 @@ public partial class WorkspaceSnapshotView : UserControl
     {
         ShowContextForCurrentWidth();
         ContextColumnView.FocusApprovals();
+    }
+
+    private void FocusActivity()
+    {
+        ShowContextForCurrentWidth();
+        ContextColumnView.FocusActivity();
     }
 
     public void AttachStartupRecovery(

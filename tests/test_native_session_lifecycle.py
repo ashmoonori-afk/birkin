@@ -264,6 +264,22 @@ def test_session_select_over_socket_emits_event_and_changes_projection(
         assert receipt.body["state"] == "completed"
         assert event.body["payload"] == {"session_id": "second"}
         assert hub.snapshot().session_id == "second"
+        client.sendall(
+            encode_frame(
+                envelope(
+                    "subscribe",
+                    frame_id="subscribe-second",
+                    body={
+                        "session_id": "second",
+                        "after_cursor": 0,
+                        "known_instance_id": None,
+                        "session_capability": token,
+                        "surfaces": {},
+                    },
+                )
+            )
+        )
+        assert receive_kind(client, "snapshot").body["session_id"] == "second"
     finally:
         client.close()
         thread.join(timeout=2)  # type: ignore[union-attr]

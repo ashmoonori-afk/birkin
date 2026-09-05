@@ -200,6 +200,12 @@ WPF 개발 프리뷰는 로컬 bridge 연결 전에 창을 먼저 표시합니�
 `BIRKIN_EXECUTABLE`에 전체 실행 파일 경로를 저장하는 입력란을 표시합니다.
 연결 상태 점은 bridge가 준비된 경우에만 초록색입니다.
 
+왼쪽 업무 목록은 영속 세션과 저장된 업무명을 복원하고, 정식 세션 명령으로
+업무를 만들고 이름을 바꾸거나 전환합니다. 전환할 때는 선택한 업무의 스냅샷을
+받은 뒤 해당 초안과 첨부를 표시합니다. 최근 결과 개수는 화면 표시용 바로가기일
+뿐입니다. 활동 보기는 현재 투영된 기록 페이지를 표시하고 이전 항목은 영속
+journal에 계속 보관합니다.
+
 가져온 파일은 Windows 대화 초안 위에 선택 가능한 첨부로 표시됩니다. 선택을
 해제해도 가져온 원본은 유지되며, 전송할 때는 선택한 참조만 bridge에서 같은
 세션·해시·파일 상태 검증을 거칩니다.
@@ -465,7 +471,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.362`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.363`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

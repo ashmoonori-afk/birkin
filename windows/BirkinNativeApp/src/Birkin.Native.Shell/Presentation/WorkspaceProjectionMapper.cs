@@ -36,7 +36,20 @@ internal static class WorkspaceProjectionMapper
             PanelItems(state.Panels, "browser_aside", "browser", "computer_use"),
             PanelItems(state.Panels, "office", "files_evidence"),
             new TerminalPresentation(false, state.Terminals.Values.Count),
-            MutationAvailabilityPresentation.PhaseOne);
+            MutationAvailabilityPresentation.PhaseOne,
+            Sessions(state));
+
+    private static IReadOnlyList<PanelItemPresentation> Sessions(NativeProjectionState state) =>
+        ReadOnly(PanelItems(state.Panels, "sessions_history")
+            .Where(item => !string.IsNullOrWhiteSpace(item.SessionId ?? item.Id))
+            .GroupBy(item => item.SessionId ?? item.Id!, StringComparer.Ordinal)
+            .Select(group => group.Last() with
+            {
+                SessionId = group.Key,
+                Status = string.Equals(group.Key, state.SessionId, StringComparison.Ordinal)
+                    ? "selected"
+                    : "available",
+            }));
 
     private static IReadOnlyList<ConversationRowPresentation> Conversation(NativeJsonArray values) =>
         ReadOnly(values.Values.OfType<NativeJsonObject>().Select(item =>
@@ -140,7 +153,9 @@ internal static class WorkspaceProjectionMapper
                 Text(item, "visual_validation_summary"),
                 Text(item, "status"),
                 Text(item, "office_phase"),
-                Text(item, "updated_at"))));
+                Text(item, "updated_at"),
+                Text(item, "session_id"),
+                Text(item, "name"))));
     }
 
     private static IEnumerable<string> Values(NativeJsonObject value, string key) =>
