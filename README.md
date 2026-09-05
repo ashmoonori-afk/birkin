@@ -446,7 +446,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.383`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.384`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
@@ -1230,9 +1230,7 @@ and executes that authority. Approve and reject actions pass through an explicit
 confirmation state, then surface the decision as in flight until canonical
 projection catches up.
 
-There is no Windows installer or MSI, packaged app, or customer-ready release.
-Installer and updater delivery, production
-signing, and provider-backed production delivery remain future work. A shared cross-platform shell remains
+The Windows packaging workflow now produces a bundled per-user development package with a self-contained native app and Python runtime. Its installer verifies file hashes and the product-version handshake, retains the previous version, and restores it after a failed update. Unsigned artifacts are labeled development-only and require an explicit install flag. A customer release candidate is produced only when the package catalog is signed and the clean-runner install/restart/recovery checks pass; this repository does not claim that a signed customer artifact has been issued. Provider-backed production delivery remains future work. A shared cross-platform shell remains
 a separate future platform decision. The native-shell mockup above remains a
 roadmap, not a claim that every pictured Windows capability is active.
 
