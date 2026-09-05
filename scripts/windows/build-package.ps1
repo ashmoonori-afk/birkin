@@ -39,9 +39,11 @@ Get-ChildItem -LiteralPath $output -File -Recurse | Where-Object Name -NotIn @("
   $hashes[$relative] = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash
 }
 $hashes | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $output "SHA256SUMS.json") -Encoding utf8
-New-FileCatalog -Path $output -CatalogFilePath (Join-Path $output "package.cat") -CatalogVersion 2.0 | Out-Null
 if ($signed) {
+  New-FileCatalog -Path $output -CatalogFilePath (Join-Path $output "package.cat") -CatalogVersion 2.0 | Out-Null
   $certificate = Get-Item -LiteralPath "Cert:\CurrentUser\My\$CertificateThumbprint"
   $result = Set-AuthenticodeSignature -FilePath (Join-Path $output "package.cat") -Certificate $certificate -TimestampServer "http://timestamp.digicert.com"
   if ($result.Status -ne "Valid") { throw "Package catalog signing failed: $($result.Status)" }
+} else {
+  New-Item -ItemType File -Path (Join-Path $output "package.cat") | Out-Null
 }
