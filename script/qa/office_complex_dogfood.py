@@ -212,6 +212,19 @@ def run(output_dir: Path) -> dict[str, object]:
     records: dict[str, dict[str, object]] = {}
     expected_refusals: list[dict[str, object]] = []
 
+    search = call("search_office_sources", {
+        "query": "Complex",
+        "sources": [{
+            "artifact": artifact(paths["docx"]),
+            "scope": "current_work",
+            "access_granted": True,
+            "label": "complex.docx",
+            "version": "v1",
+        }],
+    })
+    if not search["results"]:
+        raise AssertionError("search_office_sources returned no live evidence")
+
     inventory = cast(list[dict[str, object]], call("list_document_adapters", {})["adapters"])
     meeting_draft = call("review_meeting_actions", {
         "notes": "민지는 견적을 확인한다. 기한은 정하지 않았다.",

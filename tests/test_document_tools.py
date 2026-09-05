@@ -32,6 +32,7 @@ NAMES = {
     "review_meeting_actions",
     "list_work_items",
     "work_item_request",
+    "search_office_sources",
     "compare_documents",
     "render_artifact",
     "validate_artifact",

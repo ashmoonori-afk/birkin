@@ -8,7 +8,7 @@ metadata:
   birkin:
     tags: [productivity, office, word, docx]
     formats: [docx]
-    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
+    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, search_office_sources, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
     inspect_first: inspect_document
     write_policy: copy-on-write
     extension_conversion: txt-only
@@ -74,6 +74,7 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `review_meeting_actions`: required `notes` and evidence-bound `candidates`; returns a deduplicated draft and never persists unconfirmed actions.
 - `list_work_items`: optional `timezone_name`; returns today, overdue, needs-confirmation, and recent-completion groups.
 - `work_item_request`: approval-gated create, meeting confirmation, update, or completion; preserves session and source references.
+- `search_office_sources`: required `query` and access-granted scoped `sources`; returns live file, locator, hash, and version evidence without an extraction cache.
 - `compare_documents`: required `left` and `right`.
 - `render_artifact`: required `artifact`; `output_format` must be `structured_preview`, `pdf`, `png`, or `thumbnail`, and `page` is optional.
 - `validate_artifact`: required `artifact`.

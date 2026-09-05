@@ -28,6 +28,7 @@ REQUIRED_ARGUMENTS = {
     "review_meeting_actions": ["notes", "candidates"],
     "list_work_items": [],
     "work_item_request": ["action"],
+    "search_office_sources": ["query", "sources"],
     "compare_documents": ["left", "right"],
     "render_artifact": ["artifact"],
     "validate_artifact": ["artifact"],

@@ -17,6 +17,7 @@ NAMES = (
     "review_meeting_actions",
     "list_work_items",
     "work_item_request",
+    "search_office_sources",
     "compare_documents",
     "render_artifact",
     "validate_artifact",
@@ -203,6 +204,14 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     ),
                     "category": "work_item",
                 }
+            elif name == "search_office_sources":
+                from ..office.search import search_sources
+
+                result = search_sources(
+                    payload["query"], payload["sources"],
+                    extract=service.extract_document,
+                    limit=payload.get("limit", 20),
+                )
             elif name == "office_rollback_request":
                 from ..office.rollback_approval import request_rollback
 
@@ -306,6 +315,24 @@ def tools() -> list[Tool]:
                 {"if": {"properties": {"action": {"enum": ["update", "complete"]}}}, "then": {"required": ["id"]}},
             ],
         },
+        "search_office_sources": _object(
+            {
+                "query": {"type": "string", "minLength": 1},
+                "sources": {
+                    "type": "array", "minItems": 1, "maxItems": 100,
+                    "items": _object({
+                        "artifact": _ARTIFACT,
+                        "scope": {"type": "string", "enum": ["current_work", "selected_folder", "allowed_connection"]},
+                        "access_granted": {"type": "boolean"},
+                        "label": {"type": "string", "minLength": 1},
+                        "version": {"type": "string", "minLength": 1},
+                        "current_version": {"type": "string", "minLength": 1},
+                    }, ["artifact", "scope", "access_granted", "version"]),
+                },
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            ["query", "sources"],
+        ),
         "compare_documents": _object({"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]),
         "render_artifact": _object(
             {
