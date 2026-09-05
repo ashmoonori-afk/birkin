@@ -4,8 +4,8 @@ This file is generated from `birkin.office.adapters.catalog`. Packages are
 optional or refused candidates; none is bundled or unconditionally selected.
 Operation capability comes from the inventory, not package discovery alone.
 
-Catalog revision: 7
-Inventory SHA-256: `2f98ec90c8d79668cd6605b79cdd1a7b1598fe1435569d9211494fd60cae8864`
+Catalog revision: 8
+Inventory SHA-256: `54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`
 
 ## defusedxml
 
@@ -131,7 +131,7 @@ Inventory SHA-256: `2f98ec90c8d79668cd6605b79cdd1a7b1598fe1435569d9211494fd60cae
 - Install probe: `python-import:pypdfium2`
 - Update procedure: Update the approved range and uv.lock together; verify the locked sdist SHA-256, upstream license expression and license-file SHA-256, then regenerate the manifest and notices.
 - Refusal reason: not proven
-- Role: Approved optional PDF rasterization candidate; not wired as a capability.
+- Role: Approved optional PDF page rasterizer wired to PNG and thumbnail previews.
 
 ## python-docx
 

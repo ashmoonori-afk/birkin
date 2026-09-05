@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .approved_package_provenance import PYPDF, PYTHON_HWPX, REPORTLAB
+from .approved_package_provenance import PYPDF, PYPDFIUM2, PYTHON_HWPX, REPORTLAB
 from .base import IntegrationMode, OperationState
 from .provenance_models import OperationRecord
 
@@ -66,6 +66,21 @@ def _render() -> OperationRecord:
         fidelity=(
             "A structured preview is semantic extraction, not a visual render or visual proof."
         ),
+    )
+
+
+def _pdf_render() -> OperationRecord:
+    return _operation(
+        OperationState.READ_ONLY,
+        "Approved pypdfium2 renders one bounded PDF page to PNG or thumbnail output.",
+        availability="conditional",
+        mode=IntegrationMode.OPTIONAL_PYTHON,
+        install_probe=PYPDFIUM2.install_probe,
+        fidelity=(
+            "The receipt binds source hash, renderer version, fonts, page count, and settings; "
+            "it proves only the requested PDF page render."
+        ),
+        refusal_reason="PDF output conversion remains unavailable.",
     )
 
 
@@ -173,7 +188,7 @@ PDF_OPERATIONS = (
     ("compare", _compare()),
     ("fill", _unsupported("PDF form filling is not implemented.", "No approved lossless PDF form implementation.")),
     ("patch", _unsupported("General PDF rewriting is refused.", "PDF object rewriting cannot meet the lossless-surgical contract.")),
-    ("render", _render()),
+    ("render", _pdf_render()),
     ("validate", _validate()),
     ("convert", _convert(pdf=True)),
 )

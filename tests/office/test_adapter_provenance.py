@@ -177,7 +177,9 @@ def test_catalog_operation_contract_matches_registered_runtime() -> None:
         assert capabilities["validate"]["state"] == "read-only", format_name
         assert capabilities["convert"]["state"] == "conversion-only", format_name
         assert capabilities["render"]["state"] == "read-only", format_name
-        assert capabilities["render"]["availability"] == "structured-preview-only"
+        assert capabilities["render"]["availability"] == (
+            "conditional" if format_name == "pdf" else "structured-preview-only"
+        )
 
     assert inventory["pdf"]["create"]["state"] == "native"
     assert inventory["pdf"]["create"]["availability"] == "conditional"

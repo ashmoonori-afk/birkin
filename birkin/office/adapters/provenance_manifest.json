@@ -1,5 +1,5 @@
 {
-  "catalog_revision": 7,
+  "catalog_revision": 8,
   "inventory": [
     {
       "capabilities": {
@@ -723,13 +723,13 @@
           "state": "unsupported"
         },
         "render": {
-          "availability": "structured-preview-only",
-          "fidelity_limits": "A structured preview is semantic extraction, not a visual render or visual proof.",
-          "install_probe": null,
-          "integration_mode": "internal-stdlib",
+          "availability": "conditional",
+          "fidelity_limits": "The receipt binds source hash, renderer version, fonts, page count, and settings; it proves only the requested PDF page render.",
+          "install_probe": "python-import:pypdfium2",
+          "integration_mode": "optional-python",
           "public_entrypoint": "render_artifact",
-          "reason": "Internal bounded extraction provides a deterministic structured preview.",
-          "refusal_reason": "PDF, PNG, and thumbnail requests return RENDER_UNAVAILABLE.",
+          "reason": "Approved pypdfium2 renders one bounded PDF page to PNG or thumbnail output.",
+          "refusal_reason": "PDF output conversion remains unavailable.",
           "security_limits": "Untrusted input is bounded by package preflight; semantic XML is not a sandbox.",
           "state": "read-only"
         },
@@ -787,7 +787,7 @@
           "publication_status": "published",
           "refusal_reason": null,
           "repository_url": "https://github.com/pypdfium2-team/pypdfium2",
-          "role": "Approved optional PDF rasterization candidate; not wired as a capability.",
+          "role": "Approved optional PDF page rasterizer wired to PNG and thumbnail previews.",
           "runtime_evidence": "CPython >=3.10; package is imported lazily and is not bundled.",
           "selection": "conditional",
           "tag": null,
@@ -1065,6 +1065,6 @@
       "standard_url": "https://tech.hancom.com/hwpxformat/"
     }
   ],
-  "inventory_sha256": "2f98ec90c8d79668cd6605b79cdd1a7b1598fe1435569d9211494fd60cae8864",
+  "inventory_sha256": "54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8",
   "schema": "https://birkin.invalid/schemas/office-adapter-provenance-v1"
 }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import stat
+import uuid
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol, cast
@@ -317,10 +318,26 @@ class DocumentService:
         with self._workspace.artifact_snapshot(artifact) as path:
             fmt = self._format(path)
             self._require_content(path, fmt)
-            return render_document(
-                path, fmt, self._workspace.hash_file(path),
-                output_format=output_format, page=page,
-            )
+            digest = self._workspace.hash_file(path)
+            if fmt == "pdf" and output_format in {"png", "thumbnail"}:
+                wanted = 1 if page is None else page
+                output = self._workspace.output_path(
+                    f"render-{digest[:16]}-p{wanted}-{uuid.uuid4().hex[:8]}.png",
+                    ".png",
+                )
+                rendered: dict[str, object] = {}
+                self._workspace.atomic_publish(
+                    output,
+                    lambda target: rendered.update(render_document(
+                        path, fmt, digest, output_format=output_format, page=page,
+                        output_path=target,
+                    )),
+                )
+                output_artifact = self._workspace.artifact(output, artifact)
+                rendered["output_artifact"] = output_artifact
+                cast("dict[str, object]", rendered["receipt"])["output_artifact"] = output_artifact
+                return rendered
+            return render_document(path, fmt, digest, output_format=output_format, page=page)
 
     def fill_template(
         self,

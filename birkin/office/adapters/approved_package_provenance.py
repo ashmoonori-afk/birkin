@@ -212,6 +212,6 @@ PYPDFIUM2 = _published_package(
     artifact_sha256="48b5b7e5566665bc1015b9d69c1ebabe21f6aee468b509531c3c8318eeee2e16",
     license_name="(Apache-2.0 OR BSD-3-Clause) AND LicenseRef-PdfiumThirdParty",
     import_name="pypdfium2",
-    role="Approved optional PDF rasterization candidate; not wired as a capability.",
+    role="Approved optional PDF page rasterizer wired to PNG and thumbnail previews.",
     os_evidence="Platform-specific PDFium wheels; runtime support varies by OS/architecture.",
 )

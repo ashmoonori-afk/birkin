@@ -62,7 +62,7 @@ EXPECTED_MATRIX = {
         "layered",
         "conditional",
         "refused",
-        "structured-preview",
+        "conditional-page-image",
     ),
     "hwpx": (
         "bounded",

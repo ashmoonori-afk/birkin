@@ -99,7 +99,7 @@ def test_diff_keeps_byte_semantic_package_and_visual_claims_distinct(tmp_path: P
     assert limits["max_nodes_per_side"] == 1_000
 
 
-@pytest.mark.parametrize("refusal", ["pdf", "png", "thumbnail"])
+@pytest.mark.parametrize("refusal", ["pdf"])
 def test_render_is_bounded_semantic_preview_and_refuses_visual_outputs(
     tmp_path: Path, refusal: str
 ) -> None:
@@ -125,6 +125,25 @@ def test_render_is_bounded_semantic_preview_and_refuses_visual_outputs(
         _ = service.render_artifact(artifact, output_format=refusal)
     assert unavailable.value.code is DocumentErrorCode.RENDER_UNAVAILABLE
     assert unavailable.value.artifact_sha256 == artifact["content_hash"]
+
+
+@pytest.mark.parametrize("output_format", ["png", "thumbnail"])
+def test_pdf_page_render_returns_a_hash_bound_png_artifact(
+    tmp_path: Path, output_format: str
+) -> None:
+    service = DocumentService(tmp_path)
+    artifact = _documents(service, tmp_path)["pdf"]
+    result = service.render_artifact(artifact, output_format=output_format, page=1)
+    output = cast("dict[str, object]", result["output_artifact"])
+    renderer = cast("dict[str, object]", result["renderer"])
+    quality = cast("dict[str, object]", result["quality_checks"])
+    assert Path(cast("str", output["uri"])).read_bytes().startswith(b"\x89PNG\r\n\x1a\n")
+    assert result["visual_proof"] is True
+    assert result["page_count"] == 1
+    assert result["fonts"]
+    assert quality["blank_page"] is False
+    assert quality["edge_contact"] is False
+    assert renderer == {"used": True, "name": "pypdfium2", "version": "4.30.0"}
 
 
 def test_registered_tools_return_preview_and_structured_visual_refusal(

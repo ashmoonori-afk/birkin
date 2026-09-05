@@ -2,9 +2,9 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.371`
-- `catalog_revision: 7`
-- `inventory_sha256: 2f98ec90c8d79668cd6605b79cdd1a7b1598fe1435569d9211494fd60cae8864`
+- Birkin version: `0.4.372`
+- `catalog_revision: 8`
+- `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
 - Generated evidence: [`THIRD_PARTY_NOTICES.md`](../birkin/office/adapters/THIRD_PARTY_NOTICES.md)
 
@@ -17,7 +17,8 @@ The tracked catalog and these generated package-tree files are the publication a
 - `conditional`: an exact-pinned, local Python backend may be required.
 - `structural`: validation reports independent layers and incomplete checks.
 - `layered`: comparison independently reports byte, bounded semantic, package, and visual status.
-- `structured-preview`: semantic preview succeeds; visual rendering remains unavailable.
+- `structured-preview`: semantic preview succeeds without claiming visual proof.
+- `conditional-page-image`: PDF alone can render one bounded page to PNG or thumbnail.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
@@ -25,7 +26,7 @@ The tracked catalog and these generated package-tree files are the publication a
 | `docx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `xlsx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 | `pptx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
-| `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | structured-preview |
+| `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | conditional-page-image |
 | `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 <!-- office-support-matrix:end -->
 
@@ -37,7 +38,7 @@ lower-level capability. Installing a package does not create an agent route.
 | DOCX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
 | XLSX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
 | PPTX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
-| PDF | conditional `extract_document` | `office_job_request` | unavailable | structured preview through `render_artifact` | unavailable |
+| PDF | conditional `extract_document` | `office_job_request` | unavailable | structured preview plus conditional PNG/thumbnail through `render_artifact` | unavailable |
 | HWPX | `extract_document` | `office_job_request` | `office_job_request` | structured preview through `render_artifact` | unavailable |
 
 ### Format boundaries
@@ -125,7 +126,7 @@ render_artifact
 {"artifact":{"content_hash":"<sha256>","uri":"/workspace/.birkin/office/artifacts/incoming/source.docx"},"output_format":"structured_preview"}
 ```
 
-The result has `render_kind: "structured_preview"`, `evidence_class: "semantic_preview"`, and `visual_proof: false`. Requests for `pdf`, `png`, or `thumbnail` return `RENDER_UNAVAILABLE`; this visual refusal must not be reported for a successful structured preview.
+The semantic result has `render_kind: "structured_preview"`, `evidence_class: "semantic_preview"`, and `visual_proof: false`. For PDF only, PNG and thumbnail requests return one managed page image with source hash, renderer version, font resources, page count, render settings, blank-page status, and edge-contact evidence. PDF output and other formats' visual requests return `RENDER_UNAVAILABLE`.
 
 ## Dependencies and provenance
 
@@ -136,7 +137,7 @@ python -m pip install ".[office]"
 python -m pip install ".[office-advanced]"
 ```
 
-Missing optional Python backends return typed capability errors with installation evidence. Package discovery never upgrades capability by itself. ReportLab is approved and locked for PDF authoring with caller-supplied embedded TrueType fonts; pypdfium2 remains unwired and does not enable visual rendering. Separately installed applications, executables, daemons, runtimes, and subprocess conversion engines are never discovered or launched. Exact package versions, source artifacts, hashes, licenses, probes, and refusal reasons are in the tracked manifest and notice files linked above.
+Missing optional Python backends return typed capability errors with installation evidence. Package discovery never upgrades capability by itself. ReportLab is approved and locked for PDF authoring with caller-supplied embedded TrueType fonts; pypdfium2 is approved for bounded PDF page images only. Separately installed applications, executables, daemons, runtimes, and subprocess conversion engines are never discovered or launched. Exact package versions, source artifacts, hashes, licenses, probes, and refusal reasons are in the tracked manifest and notice files linked above.
 
 ## Security and resource boundaries
 
