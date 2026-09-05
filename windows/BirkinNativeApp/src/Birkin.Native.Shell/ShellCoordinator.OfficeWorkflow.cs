@@ -27,9 +27,23 @@ public sealed partial class ShellCoordinator
 
     public Task<bool> SendConversationAsync(CancellationToken cancellationToken) =>
         SubmitAsync(
-            (draft, context) => ConversationCommands.Send(draft, context),
+            (draft, context) => ConversationCommands.Send(
+                draft,
+                context,
+                _workflow.Imports.Where(imported => imported.IsSelected)),
             conversationProjectionRequired: true,
             cancellationToken);
+
+    public void SetImportSelected(string importId, bool isSelected)
+    {
+        bool drain;
+        lock (_stateLock)
+        {
+            _workflow = _workflow.WithImportSelection(importId, isSelected);
+            drain = EnqueuePresentationLocked(new(null, null, _workflow));
+        }
+        DrainPresentations(drain);
+    }
 
     public Task<bool> InterruptConversationAsync(
         CancellationToken cancellationToken) =>

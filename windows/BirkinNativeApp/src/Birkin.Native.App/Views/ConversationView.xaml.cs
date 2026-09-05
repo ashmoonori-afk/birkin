@@ -69,6 +69,14 @@ public partial class ConversationView : UserControl
         }
     }
 
+    private void AttachmentToggled(object sender, RoutedEventArgs eventArgs)
+    {
+        if (sender is CheckBox { Tag: string importId, IsChecked: bool isSelected })
+        {
+            _coordinator?.SetImportSelected(importId, isSelected);
+        }
+    }
+
     private async void DraftPreviewKeyDown(
         object sender,
         KeyEventArgs eventArgs)

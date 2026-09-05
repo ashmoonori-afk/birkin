@@ -110,6 +110,15 @@ public sealed record OfficeWorkflowPresentation(
             .ToArray(),
     };
 
+    public OfficeWorkflowPresentation WithImportSelection(string importId, bool isSelected) => this with
+    {
+        Imports = Imports
+            .Select(item => string.Equals(item.ImportId, importId, StringComparison.Ordinal)
+                ? item with { IsSelected = isSelected }
+                : item)
+            .ToArray(),
+    };
+
     public OfficeWorkflowPresentation Begin(string commandId, string commandType) => this with
     {
         CommandId = commandId,
@@ -177,7 +186,6 @@ public sealed record OfficeWorkflowPresentation(
         AcceptedCursor = null,
         CurrentCursor = null,
         RefusalCode = null,
-        Imports = [],
         RefusalMessage = null,
         RefusalRetryable = null,
     };

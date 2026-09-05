@@ -258,10 +258,28 @@ public sealed class OfficeWorkflowPresentationTests
         Assert.AreEqual("draft", cleared.Draft);
         Assert.IsNull(cleared.CommandId);
         Assert.AreEqual(WorkflowCommandState.Idle, cleared.CommandState);
-        Assert.AreEqual(0, cleared.Imports.Count);
+        Assert.AreEqual(1, cleared.Imports.Count);
+        Assert.IsTrue(cleared.Imports.Single().IsSelected);
         Assert.IsNull(cleared.RefusalCode);
         Assert.IsNull(cleared.RefusalMessage);
         Assert.IsNull(cleared.RefusalRetryable);
         Assert.IsNull(cleared.CurrentCursor);
+    }
+
+    [TestMethod]
+    public void Workflow_WhenImportIsDeselected_PreservesReferenceWithoutSelectingIt()
+    {
+        var workflow = OfficeWorkflowPresentation.Empty.WithImport(
+            new ImportedFilePresentation(
+                "import-1",
+                "first-report.xlsx",
+                "import-1.xlsx",
+                new string('a', 64),
+                1200));
+
+        var changed = workflow.WithImportSelection("import-1", false);
+
+        Assert.AreEqual(1, changed.Imports.Count);
+        Assert.IsFalse(changed.Imports.Single().IsSelected);
     }
 }
