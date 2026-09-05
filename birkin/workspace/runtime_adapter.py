@@ -18,6 +18,7 @@ from ..computer_use.reducer import ComputerState, reduce_event
 from ..computer_use.runtime import default_backend
 from ..native.jailed_import import JailedImportAuthority
 from ..llm import LLMError, LLMStatus
+from ..office.adapters.catalog import supported_formats
 from ..office.coordinator_data import canonical_office_home
 from ..office.presentation import format_preview_replacements
 from ..office.preview_semantics import PreviewSummary
@@ -37,6 +38,10 @@ from .working_memory import memory_write_handler
 from .service import CommandHandler
 
 EventSink = Callable[[str, dict[str, object]], WorkspaceEvent]
+
+_REGISTERED_IMPORT_SUFFIXES = {
+    f".{format_name}" for format_name in supported_formats()
+} | {".txt"}
 
 _EXTERNAL_PANEL_SOURCES = {
     "tasks_runs": "agents",
@@ -576,7 +581,7 @@ class RuntimeWorkspaceAdapter:
             if isinstance(display_name, str)
             else ""
         )
-        if suffix not in {".docx", ".xlsx", ".pptx", ".hwpx", ".pdf", ".txt"}:
+        if suffix not in _REGISTERED_IMPORT_SUFFIXES:
             return imported
         _attachment, source = self._jailed_import.validate_attachment(reference)
         registered = self.surface_authority.office.register_import(reference, source)

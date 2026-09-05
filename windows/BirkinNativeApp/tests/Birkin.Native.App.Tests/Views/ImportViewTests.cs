@@ -14,16 +14,22 @@ namespace Birkin.Native.App.Tests.Views;
 public sealed class ImportViewTests
 {
     [TestMethod]
-    public void PickerFilterOffersOnlyFirstReportFormats()
+    public void PickerFilterMatchesSupportedImportFormats()
     {
         Assert.AreEqual(
-            "Excel and Word documents|*.xlsx;*.docx"
-                + "|Excel workbooks|*.xlsx"
-                + "|Word documents|*.docx",
+            "지원 문서|*.docx;*.xlsx;*.pptx;*.pdf;*.hwpx;*.txt"
+                + "|Word 문서|*.docx"
+                + "|Excel 통합 문서|*.xlsx"
+                + "|PowerPoint 프레젠테이션|*.pptx"
+                + "|PDF 문서|*.pdf"
+                + "|한글 HWPX 문서|*.hwpx"
+                + "|텍스트 문서|*.txt",
             OfficeFilePicker.FileFilter);
         Assert.AreEqual(
-            "가져올 Excel 또는 Word 파일 선택",
+            "가져올 업무 문서 선택",
             OfficeFilePicker.DialogTitle);
+        Assert.IsTrue(OfficeFileSelection.IsSupported(@"C:\report.HWPX"));
+        Assert.IsFalse(OfficeFileSelection.IsSupported(@"C:\legacy.hwp"));
     }
 
     [TestMethod]
@@ -78,13 +84,19 @@ public sealed class ImportViewTests
     }
 
     [TestMethod]
-    public async Task Drop_WhenSeveralPathsAreSelected_ShowsInlineStatusAndSendsNothing()
+    public async Task Drop_WhenOneOfSeveralPathsIsUnsupported_PreservesSuccessAndNamesFailure()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
         await sta.InvokeAsync(async () =>
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Connection.NextImportReference = new ImportedFilePresentation(
+                "import-1",
+                "baseline.xlsx",
+                "import-1.xlsx",
+                new string('a', 64),
+                1200);
             var view = new ImportView(fixture.Model, fixture.Coordinator);
             OfficeWorkflowViewHarness.Layout(view);
             var status = OfficeWorkflowViewHarness.Find<TextBlock>(
@@ -94,13 +106,14 @@ public sealed class ImportViewTests
             var submitted = await view.ImportDroppedFilesAsync(
                 [
                     @"C:\fixtures\baseline.xlsx",
-                    @"C:\fixtures\candidate.xlsx",
+                    @"C:\fixtures\legacy.hwp",
                 ]);
 
-            Assert.IsFalse(submitted);
-            Assert.AreEqual(0, fixture.Connection.Sent.Count);
+            Assert.IsTrue(submitted);
+            Assert.AreEqual(1, fixture.Connection.Sent.Count);
+            Assert.AreEqual(1, fixture.Model.OfficeWorkflow.Imports.Count);
             Assert.AreEqual(System.Windows.Visibility.Visible, status.Visibility);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(status.Text));
+            StringAssert.Contains(status.Text, "legacy.hwp");
             Assert.AreEqual(
                 AutomationLiveSetting.Assertive,
                 AutomationProperties.GetLiveSetting(status));
@@ -173,6 +186,6 @@ public sealed class ImportViewTests
     private sealed class StubOfficeFilePicker(string selectedPath)
         : IOfficeFilePicker
     {
-        public string? SelectOfficeFile(Window? owner) => selectedPath;
+        public IReadOnlyList<string> SelectOfficeFiles(Window? owner) => [selectedPath];
     }
 }

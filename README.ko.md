@@ -204,6 +204,12 @@ WPF 개발 프리뷰는 로컬 bridge 연결 전에 창을 먼저 표시합니�
 해제해도 가져온 원본은 유지되며, 전송할 때는 선택한 참조만 bridge에서 같은
 세션·해시·파일 상태 검증을 거칩니다.
 
+선택창과 전체 창 드롭 영역은 DOCX, XLSX, PPTX, PDF, HWPX, TXT를 같은
+정책으로 받아 여러 파일을 순서대로 가져옵니다. PDF 내용 기능에는
+`office-advanced` 추가 설치가 필요할 수 있으며 기존 바이너리 HWP를 HWPX
+지원으로 안내하지 않습니다. 실패한 파일은 이름별로 알리고 성공한 항목은
+유지합니다.
+
 Windows 빌드·실행·`PATH`·실행 파일 경로·문제 해결·테스트 방법은
 [`windows/BirkinNativeApp/README.md`](windows/BirkinNativeApp/README.md)를
 참조하십시오.
@@ -452,7 +458,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. Format intent와 artifact 신호가 충돌하면 inspect-first `office-documents`로 route합니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.357`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.358`, `catalog_revision: 4`, `inventory_sha256: a49ab813ee4cdea3d6f87e0e2bd063b1dde54058e5c8dd0af0cf32bec74cae95`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

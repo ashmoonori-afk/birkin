@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -13,6 +14,7 @@ public partial class ImportView : UserControl
     private readonly ShellCoordinator? _coordinator;
     private readonly ShellPresentationModel? _model;
     private readonly IOfficeFilePicker _picker;
+    private IReadOnlyList<string> _selectedPaths = [];
     private bool _importPending;
     private bool _subscribed;
 
@@ -39,9 +41,12 @@ public partial class ImportView : UserControl
 
     private void BrowseClicked(object sender, RoutedEventArgs eventArgs)
     {
-        if (_picker.SelectOfficeFile(Window.GetWindow(this)) is { } selected)
+        if (_picker.SelectOfficeFiles(Window.GetWindow(this)) is { Count: > 0 } selected)
         {
-            PathBox.Text = selected;
+            _selectedPaths = selected;
+            PathBox.Text = selected.Count == 1
+                ? selected[0]
+                : $"{selected.Count}개 파일 선택됨";
             _importPending = false;
             HideStatus();
         }
@@ -55,38 +60,69 @@ public partial class ImportView : UserControl
     internal async Task<bool> ImportDroppedFilesAsync(
         IReadOnlyList<string> paths)
     {
-        if (OfficeFileSelection.Select(paths) is not { } selected)
+        if (paths.Count == 0)
         {
-            ShowStatus(
-                "한 번에 파일 하나만 가져올 수 있습니다.",
-                "DangerBrush");
+            ReportImportSelectionError();
             return false;
         }
-        PathBox.Text = selected;
+        _selectedPaths = paths;
+        PathBox.Text = paths.Count == 1 ? paths[0] : $"{paths.Count}개 파일 선택됨";
         return await ImportSelectedAsync();
     }
 
     internal void ReportImportSelectionError() =>
         ShowStatus(
-            "파일 하나를 창으로 끌어오거나 Browse에서 선택하세요.",
+            "지원하는 파일을 창으로 끌어오거나 찾아보기에서 선택하세요.",
             "DangerBrush");
 
     private async Task<bool> ImportSelectedAsync()
     {
-        if (_coordinator is null || PathBox.Text.Length == 0)
+        var paths = _selectedPaths.Count > 0
+            ? _selectedPaths
+            : PathBox.Text.Length > 0
+                ? [PathBox.Text]
+                : [];
+        if (_coordinator is null || paths.Count == 0)
         {
             ReportImportSelectionError();
             return false;
         }
-        ShowStatus(
-            "파일을 안전한 작업공간으로 가져오는 중입니다.",
-            "MutedBrush");
-        _importPending = true;
-        var submitted = await _coordinator.ImportAsync(
-            new FileImportIntent(PathBox.Text),
-            CancellationToken.None);
+        var succeeded = 0;
+        var failed = new List<string>();
+        foreach (var path in paths)
+        {
+            if (!OfficeFileSelection.IsSupported(path))
+            {
+                failed.Add(Path.GetFileName(path));
+                continue;
+            }
+            PathBox.Text = path;
+            ShowStatus("파일을 안전한 작업공간으로 가져오는 중입니다.", "MutedBrush");
+            _importPending = true;
+            if (await _coordinator.ImportAsync(
+                    new FileImportIntent(path),
+                    CancellationToken.None))
+            {
+                succeeded++;
+            }
+            else
+            {
+                failed.Add(Path.GetFileName(path));
+            }
+        }
+        _selectedPaths = [];
         PresentWorkflow();
-        return submitted;
+        if (failed.Count > 0)
+        {
+            ShowStatus(
+                $"{succeeded}개를 가져왔습니다. 실패: {string.Join(", ", failed)}",
+                "DangerBrush");
+        }
+        else if (succeeded > 1)
+        {
+            ShowStatus($"파일 {succeeded}개를 가져왔습니다.", "SuccessBrush");
+        }
+        return succeeded > 0;
     }
 
     private void ModelPropertyChanged(

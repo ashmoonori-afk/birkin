@@ -15,6 +15,7 @@ from birkin.computer_use.capability_types import (
 )
 from birkin.computer_use.runtime import UnavailableBackend
 from birkin.llm import LLMError, LLMStatus
+from birkin.office.adapters.catalog import supported_formats
 from birkin.workspace import approval_authority
 from birkin.runtime import Session
 from birkin.workspace import WorkspaceEvent, runtime_adapter
@@ -307,6 +308,12 @@ def test_computer_use_surface_projects_an_unavailable_backend(
     permissions = cast(dict[str, object], status["permissions"])
     assert permissions["accessibility"] == "unknown"
     assert status["permission_prompted"] is False
+
+
+def test_runtime_import_formats_follow_office_catalog() -> None:
+    assert runtime_adapter._REGISTERED_IMPORT_SUFFIXES == {
+        f".{format_name}" for format_name in supported_formats()
+    } | {".txt"}
 
 
 def test_runtime_adapter_advertises_and_executes_jailed_file_import(

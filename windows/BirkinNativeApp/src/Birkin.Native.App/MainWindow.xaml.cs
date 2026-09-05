@@ -219,10 +219,11 @@ public partial class MainWindow : Window
     private void PresentDrag(DragEventArgs eventArgs)
     {
         var paths = DroppedPaths(eventArgs.Data);
-        var eligible = OfficeFileSelection.Select(paths) is not null;
+        var eligible = paths.Count > 0
+            && paths.All(OfficeFileSelection.IsSupported);
         DropOverlayText.Text = eligible
-            ? "파일 하나를 안전한 작업공간으로 가져오세요"
-            : "파일을 하나만 선택하세요";
+            ? $"파일 {paths.Count}개를 안전한 작업공간으로 가져오세요"
+            : "DOCX·XLSX·PPTX·PDF·HWPX·TXT 파일만 가져올 수 있습니다";
         DropOverlay.Visibility = Visibility.Visible;
         eventArgs.Effects = eligible
             ? DragDropEffects.Copy

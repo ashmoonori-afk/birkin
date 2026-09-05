@@ -1,42 +1,49 @@
 using Microsoft.Win32;
+using System.IO;
 using System.Windows;
 
 namespace Birkin.Native.App.Views;
 
 internal interface IOfficeFilePicker
 {
-    string? SelectOfficeFile(Window? owner);
+    IReadOnlyList<string> SelectOfficeFiles(Window? owner);
 }
 
 internal sealed class OfficeFilePicker : IOfficeFilePicker
 {
     internal const string FileFilter =
-        "Excel and Word documents|*.xlsx;*.docx"
-        + "|Excel workbooks|*.xlsx"
-        + "|Word documents|*.docx";
-    internal const string DialogTitle = "가져올 Excel 또는 Word 파일 선택";
+        "지원 문서|*.docx;*.xlsx;*.pptx;*.pdf;*.hwpx;*.txt"
+        + "|Word 문서|*.docx"
+        + "|Excel 통합 문서|*.xlsx"
+        + "|PowerPoint 프레젠테이션|*.pptx"
+        + "|PDF 문서|*.pdf"
+        + "|한글 HWPX 문서|*.hwpx"
+        + "|텍스트 문서|*.txt";
+    internal const string DialogTitle = "가져올 업무 문서 선택";
 
-    public string? SelectOfficeFile(Window? owner)
+    public IReadOnlyList<string> SelectOfficeFiles(Window? owner)
     {
         var dialog = new OpenFileDialog
         {
             CheckFileExists = true,
             Filter = FileFilter,
-            Multiselect = false,
+            Multiselect = true,
             Title = DialogTitle,
         };
-        return dialog.ShowDialog(owner) is true
-            ? dialog.FileName
-            : null;
+        return dialog.ShowDialog(owner) is true ? dialog.FileNames : [];
     }
 }
 
 internal static class OfficeFileSelection
 {
-    public static string? Select(IReadOnlyList<string> paths) =>
-        paths.Count == 1 && !string.IsNullOrWhiteSpace(paths[0])
-            ? paths[0]
-            : null;
+    private static readonly IReadOnlySet<string> SupportedExtensions =
+        new HashSet<string>(
+            [".docx", ".xlsx", ".pptx", ".pdf", ".hwpx", ".txt"],
+            StringComparer.OrdinalIgnoreCase);
+
+    public static bool IsSupported(string path) =>
+        !string.IsNullOrWhiteSpace(path)
+        && SupportedExtensions.Contains(Path.GetExtension(path));
 }
 
 internal static class ImportRefusalText
