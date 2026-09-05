@@ -30,7 +30,8 @@ def test_search_returns_live_locator_version_and_drops_revoked_source(tmp_path: 
     assert hit["source_sha256"] == first["content_hash"]
     assert hit["source_locator"]["document"].startswith("sha256:")
     assert len(hit["source_locator"]) > 1
-    assert "99" not in str(result)
+    assert all(item["file"] != "secret.docx" for item in result["results"])
+    assert all("비공개 매출" not in item["snippet"] for item in result["results"])
 
     Path(first["uri"]).unlink()
     after_delete = search_sources(
