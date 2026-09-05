@@ -111,6 +111,9 @@ public sealed class LayoutStateViewTests
                     if (!immediate && state.Navigation.Width > initial.Navigation.Width)
                         persisted.TrySetResult(state);
                 });
+                Assert.AreSame(
+                    view.NavigationSplitter,
+                    Keyboard.Focus(view.NavigationSplitter));
                 var source = PresentationSource.FromVisual(view.NavigationSplitter)!;
 
                 for (var index = 0; index < 15; index++)

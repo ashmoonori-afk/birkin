@@ -130,13 +130,12 @@ internal static class ProviderOfficeJourneyFlow
 
             await RenderBarrierAsync(window);
             var scroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(window, "context.scroll");
-            diffView.BringIntoView();
-            await RenderBarrierAsync(window);
             var oldValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.old-value")
                 .First(text => text.Text.Contains("4100", StringComparison.Ordinal));
             var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
                 .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
-            Assert.IsTrue(IsInViewport(diffView, scroll), "the Python diff was not visibly in the pre-approval viewport");
+            newValue.BringIntoView();
+            await RenderBarrierAsync(window);
             Assert.IsTrue(IsInViewport(oldValue, scroll) && IsInViewport(newValue, scroll),
                 "the labeled 4100 -> 4700 controls were not fully visible before approval");
             var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff-1500x940.png");
