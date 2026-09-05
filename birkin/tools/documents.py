@@ -15,6 +15,8 @@ NAMES = (
     "extract_document",
     "analyze_workbook",
     "review_meeting_actions",
+    "list_work_items",
+    "work_item_request",
     "compare_documents",
     "render_artifact",
     "validate_artifact",
@@ -184,6 +186,23 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     "category": approval_category,
                     "approval": approval,
                 }
+            elif name == "list_work_items":
+                from ..work_items import grouped
+
+                result = grouped(**payload)
+            elif name == "work_item_request":
+                action = cast("str", payload["action"])
+                result = {
+                    **approvals.propose(
+                        category="work_item",
+                        title="후속 업무 변경 확인",
+                        description=f"{action} 작업을 확인한 뒤 오늘 업무에 반영합니다.",
+                        payload=payload,
+                        cfg={},
+                        origin=ctx.record_source,
+                    ),
+                    "category": "work_item",
+                }
             elif name == "office_rollback_request":
                 from ..office.rollback_approval import request_rollback
 
@@ -261,6 +280,32 @@ def tools() -> list[Tool]:
             },
             ["notes", "candidates"],
         ),
+        "list_work_items": _object(
+            {"timezone_name": {"type": "string", "minLength": 1}},
+        ),
+        "work_item_request": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["create", "confirm_meeting", "update", "complete"]},
+                "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+                "title": {"type": ["string", "null"]},
+                "assignee": {"type": ["string", "null"]},
+                "due_date": {"type": ["string", "null"], "format": "date"},
+                "session_id": {"type": ["string", "null"]},
+                "source": {"type": "object", "additionalProperties": {"type": "string"}},
+                "evidence": {"type": ["string", "null"]},
+                "draft_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "items": {"type": "array", "maxItems": 500, "items": {"type": "object"}},
+                "selected": {"type": "array", "uniqueItems": True, "items": {"type": "integer", "minimum": 0}},
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+            "allOf": [
+                {"if": {"properties": {"action": {"const": "create"}}}, "then": {"required": ["title"]}},
+                {"if": {"properties": {"action": {"const": "confirm_meeting"}}}, "then": {"required": ["draft_sha256", "items", "selected"]}},
+                {"if": {"properties": {"action": {"enum": ["update", "complete"]}}}, "then": {"required": ["id"]}},
+            ],
+        },
         "compare_documents": _object({"left": _ARTIFACT, "right": _ARTIFACT}, ["left", "right"]),
         "render_artifact": _object(
             {

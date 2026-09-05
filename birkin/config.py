@@ -653,6 +653,11 @@ def goals_dir() -> Path:
     return d
 
 
+def work_items_path() -> Path:
+    """Persisted user-confirmed follow-up work."""
+    return birkin_home() / "work-items.json"
+
+
 def companion_dir() -> Path:
     """Commitment / check-in domain state (mutable, outside memory curation)."""
     d = birkin_home() / "companion"

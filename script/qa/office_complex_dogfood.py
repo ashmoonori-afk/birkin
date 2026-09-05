@@ -213,7 +213,7 @@ def run(output_dir: Path) -> dict[str, object]:
     expected_refusals: list[dict[str, object]] = []
 
     inventory = cast(list[dict[str, object]], call("list_document_adapters", {})["adapters"])
-    _ = call("review_meeting_actions", {
+    meeting_draft = call("review_meeting_actions", {
         "notes": "민지는 견적을 확인한다. 기한은 정하지 않았다.",
         "candidates": [{
             "action": "견적 확인",
@@ -221,6 +221,21 @@ def run(output_dir: Path) -> dict[str, object]:
             "assignee": "민지",
         }],
     })
+    work_request = call("work_item_request", {
+        "action": "confirm_meeting",
+        "draft_sha256": meeting_draft["draft_sha256"],
+        "items": meeting_draft["items"],
+        "selected": [0],
+        "session_id": "complex-dogfood",
+    })
+    work_approved = approve(
+        cast(str, work_request["id"]),
+        approved_by="system:qa",
+        approved_via="qa:script",
+    )
+    if work_approved["ok"] is not True:
+        raise AssertionError(f"work item approval failed: {work_approved}")
+    _ = call("list_work_items", {})
     adapter_by_format = {str(item["format"]): item for item in inventory}
     template_plan = service.fill_template(
         artifact(paths["hwpx"]),

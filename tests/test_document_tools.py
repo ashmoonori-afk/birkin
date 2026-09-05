@@ -30,6 +30,8 @@ NAMES = {
     "extract_document",
     "analyze_workbook",
     "review_meeting_actions",
+    "list_work_items",
+    "work_item_request",
     "compare_documents",
     "render_artifact",
     "validate_artifact",

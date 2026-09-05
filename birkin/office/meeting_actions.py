@@ -14,6 +14,14 @@ MAX_NOTES_CHARS = 100_000
 MAX_ACTIONS = 500
 
 
+def meeting_draft_sha256(items: object) -> str:
+    if not isinstance(items, list):
+        raise invalid_content("meeting draft items must be a list")
+    return hashlib.sha256(
+        json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
 def _text(value: object, label: str, *, optional: bool = False) -> str | None:
     if value is None and optional:
         return None
@@ -63,9 +71,7 @@ def review_meeting_actions(notes: object, candidates: object) -> dict[str, objec
             "suggested_due_date": suggested,
             "status": "needs_confirmation",
         })
-    digest = hashlib.sha256(
-        json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    digest = meeting_draft_sha256(items)
     return {
         "status": "draft",
         "draft_sha256": digest,
@@ -75,4 +81,4 @@ def review_meeting_actions(notes: object, candidates: object) -> dict[str, objec
     }
 
 
-__all__ = ["review_meeting_actions"]
+__all__ = ["meeting_draft_sha256", "review_meeting_actions"]

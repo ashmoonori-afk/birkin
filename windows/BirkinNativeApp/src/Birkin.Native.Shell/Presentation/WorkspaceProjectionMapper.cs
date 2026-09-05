@@ -37,7 +37,8 @@ internal static class WorkspaceProjectionMapper
             PanelItems(state.Panels, "office", "files_evidence"),
             new TerminalPresentation(false, state.Terminals.Values.Count),
             MutationAvailabilityPresentation.PhaseOne,
-            Sessions(state));
+            Sessions(state),
+            PanelItems(state.Panels, "tasks_runs"));
 
     private static IReadOnlyList<PanelItemPresentation> Sessions(NativeProjectionState state) =>
         ReadOnly(PanelItems(state.Panels, "sessions_history")

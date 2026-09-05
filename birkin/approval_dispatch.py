@@ -206,6 +206,10 @@ def execute_action(
             if isinstance(value, str):
                 approval_id = SealedApprovalId(value)
         return execute_approved_rollback(payload, approval_id=approval_id)
+    if category == "work_item":
+        from .work_items import apply_approved
+
+        return apply_approved(payload, configured.on_event)
     if category == "operation":
         operation = importlib.import_module("birkin.operation_approval")
         if not isinstance(operation, _OperationExecutor):

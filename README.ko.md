@@ -410,6 +410,8 @@ DOCX와 신뢰된 template 기반 HWPX 생성은 버전이 고정된 주간보�
 
 `review_meeting_actions`는 각 후속 업무 후보의 근거 문장이 원문에 정확히 있는지 확인하고, 담당자·기한 미정을 유지하며 제안 기한을 분리하고, 중복을 제거한 뒤 저장하지 않은 확인 초안을 반환합니다.
 
+확정된 후속 업무는 종일 기한을 가진 `WorkItem`으로 저장됩니다. `list_work_items`는 명시한 시간대 기준으로 오늘·지연·담당자/기한 확인 필요·최근 완료를 묶고, `work_item_request`는 생성·수정·완료·회의 초안 확정을 승인받은 뒤 원래 대화·문서·goal·Office job 연결과 함께 반영합니다.
+
 `office_job_request`는 이제 `content.paragraphs`를 사용하는 source 없는 DOCX
 생성 proposal도 받습니다. 별도 `office_create` approval이 결합된 proposal을
 실행하기 전에는 managed draft와 호출자 destination 모두에 파일을 쓰지
@@ -446,7 +448,7 @@ Catalog의 하위 기능과 에이전트 연결 여부는 별도입니다. 등�
 승인 결합 `office_job_request` 경로를 공유합니다. 비ASCII PDF content는
 TrueType font artifact의 URI와 SHA-256을 승인 내용에 포함합니다.
 
-등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, 셀 근거를 포함하는 XLSX 검토용 `analyze_workbook`, `review_meeting_actions`, `compare_documents`, `render_artifact`, `validate_artifact`, 정식 승인 코디네이터 `office_job_request`, 그리고 별도 승인을 거치는 `office_rollback_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
+등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, 셀 근거를 포함하는 XLSX 검토용 `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `compare_documents`, `render_artifact`, `validate_artifact`, 정식 승인 코디네이터 `office_job_request`, 그리고 별도 승인을 거치는 `office_rollback_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
 
 문서 입력은 config, vault, session, native bootstrap 파일과 분리된 전용 `BIRKIN_HOME/office` jail 안에 있어야 합니다. `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/office/artifacts/incoming` 아래로 복사하거나 import해야 하며, 다른 위치의 path는 hash가 일치해도 거부됩니다. Durable job은 `BIRKIN_HOME/office/jobs`에 유지되며 generic model file tool은 Office receipt key, job, validated draft, backup, transaction journal, destination lock을 읽거나 나열하거나 다시 쓸 수 없습니다. 결과를 만드는 mutation과 export는 caller가 승인한 allowlist root 아래 destination을 사용하는 `office_job_request`로만 요청합니다. Rollback은 `office_rollback_request`를 통한 두 번째 high-risk 승인이며, export receipt에는 HMAC이 적용되고 30일 뒤 만료됩니다. 만료된 receipt, 활성 backup path, transaction/job journal은 다음 Office request에서 purge됩니다. Legacy unsigned receipt는 rollback authority로 허용되지 않습니다. Check-to-unlink race와 concurrent hard-link race를 피하기 위해 인증된 helper와 backup name은 private `.birkin-retire` directory로 namespace-retire됩니다. POSIX에서는 동시에 추가된 hard link를 보존하면서 해당 inode byte를 안전하게 지울 수 없으므로 격리된 byte가 남을 수 있지만, 이는 active state가 아니며 rollback authority를 부여하지 않습니다.
 
@@ -485,7 +487,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.374`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.375`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

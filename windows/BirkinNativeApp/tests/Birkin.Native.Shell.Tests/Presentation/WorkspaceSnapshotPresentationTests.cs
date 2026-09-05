@@ -76,6 +76,9 @@ public sealed class WorkspaceSnapshotPresentationTests
             "원본은 백업되었으며 9월 28일까지 되돌리기 가능",
             row.RollbackAvailabilityLabel);
         Assert.IsTrue(row.CanRollback);
+        var workItem = presentation.WorkItems.Single();
+        Assert.AreEqual("견적 확인", workItem.Summary);
+        Assert.AreEqual("오늘", workItem.Status);
     }
 
     [TestMethod]
@@ -240,6 +243,18 @@ public sealed class WorkspaceSnapshotPresentationTests
                             new("expires_at", new NativeJsonString("2099-09-28T12:00:00+00:00")),
                             new("receipt_ref", new NativeJsonString("office:job-7")),
                             new("backup_exists", new NativeJsonBoolean(true)),
+                        ]),
+                    ])),
+                ]),
+                new NativeJsonObject([
+                    new("key", new NativeJsonString("tasks_runs")),
+                    new("items", new NativeJsonArray([
+                        new NativeJsonObject([
+                            new("id", new NativeJsonString("work-1")),
+                            new("kind", new NativeJsonString("work_item")),
+                            new("summary", new NativeJsonString("견적 확인")),
+                            new("description", new NativeJsonString("민지 · 2026-09-05")),
+                            new("status", new NativeJsonString("오늘")),
                         ]),
                     ])),
                 ]),

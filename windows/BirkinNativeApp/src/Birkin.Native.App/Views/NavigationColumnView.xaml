@@ -9,7 +9,9 @@
           automation:AutomationProperties.AutomationId="navigation.column"
           automation:AutomationProperties.Name="업무 목록과 작업 기억">
         <Grid.RowDefinitions>
-            <RowDefinition Height="3*" />
+            <RowDefinition Height="2*" />
+            <RowDefinition Height="5" />
+            <RowDefinition Height="2*" />
             <RowDefinition Height="5" />
             <RowDefinition Height="2*" />
         </Grid.RowDefinitions>
@@ -192,6 +194,35 @@
                     <TextBlock Text="이 기기에만 저장됨"
                                Foreground="{StaticResource AccentBrush}" FontSize="11" />
                 </StackPanel>
+            </Grid>
+        </Border>
+
+        <GridSplitter Grid.Row="3" Height="5" HorizontalAlignment="Stretch" />
+        <Border Grid.Row="4"
+                Style="{StaticResource CardStyle}"
+                automation:AutomationProperties.AutomationId="work-items.today"
+                automation:AutomationProperties.Name="오늘과 후속 업무">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <TextBlock Text="오늘과 후속 업무" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,8" />
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding Workspace.WorkItems}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="10,8" Margin="0,0,0,6">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Summary}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Description}" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding Status}" Foreground="{StaticResource AccentBrush}" FontSize="11" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
             </Grid>
         </Border>
     </Grid>

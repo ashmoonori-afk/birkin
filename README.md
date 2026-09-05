@@ -352,6 +352,8 @@ DOCX and trusted-template HWPX creation also accept three versioned business pla
 
 `review_meeting_actions` validates every proposed follow-up against an exact source sentence, preserves unknown owners and due dates, separates suggested dates, deduplicates candidates, and returns an unpersisted confirmation draft.
 
+Approved follow-ups become durable all-day `WorkItem` records. `list_work_items` groups them by today, overdue, missing owner/date, and recent completion in an explicit time zone; `work_item_request` approval-gates creation, edits, completion, and meeting-draft confirmation while retaining links to the original conversation, document, goal, or Office job.
+
 `office_job_request` now accepts a source-free DOCX creation proposal with
 `content.paragraphs`. It writes neither a managed draft nor the caller's
 destination until the separate `office_create` approval executes the bound
@@ -389,7 +391,7 @@ when no registered tool can invoke an operation. DOCX, XLSX, PPTX, PDF, and
 HWPX creation share the approval-bound `office_job_request` route. Non-ASCII
 PDF content binds a TrueType font artifact by URI and SHA-256.
 
-The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, the evidence-linked XLSX reviewer `analyze_workbook`, `review_meeting_actions`, `compare_documents`, `render_artifact`, `validate_artifact`, the canonical approval coordinator `office_job_request`, and the separately approval-gated `office_rollback_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
+The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, the evidence-linked XLSX reviewer `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `compare_documents`, `render_artifact`, `validate_artifact`, the canonical approval coordinator `office_job_request`, and the separately approval-gated `office_rollback_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
 
 Document inputs are jailed to the dedicated `BIRKIN_HOME/office` tree, separate from configuration, vault, session, and native bootstrap files. With `BIRKIN_HOME=/workspace/.birkin`, copy or import sources under `/workspace/.birkin/office/artifacts/incoming`; a correctly hashed path elsewhere is still rejected. Durable jobs remain under `BIRKIN_HOME/office/jobs`, and generic model file tools cannot read, list, or rewrite Office receipt keys, jobs, validated drafts, backups, transaction journals, or destination locks. Consequential mutation and export use only `office_job_request`, whose destination must resolve beneath the caller's approved allowlisted root. Rollback is a second high-risk approval through `office_rollback_request`; export receipts are HMAC-authenticated, expire after 30 days, and expired receipts, active backup paths, and transaction/job journals are purged on the next Office request. Legacy unsigned receipts cannot authorize rollback. To avoid check-to-unlink and concurrent-hard-link races, authenticated helper and backup names are namespace-retired into a private `.birkin-retire` directory. POSIX cannot safely erase those inode bytes while also preserving a concurrently added hard link, so quarantined bytes may remain; they are not active state and cannot authorize rollback.
 
@@ -428,7 +430,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.374`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.375`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
