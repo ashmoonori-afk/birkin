@@ -372,6 +372,8 @@ Team review handoff uses the Microsoft 365 drive-item invite operation with sign
 
 `data_control_status` reports the connected account, searched Office folders, provider-transfer boundary, memory location, authenticated recovery expiry, and separate original/work-copy/memory/backup deletion semantics. `data_work_copy_delete_request` requires approval and an exact hash, then physically removes only a Birkin-owned imported copy. User originals remain outside this action; memory uses recoverable logical archive, and Office backups are physically purged only after their authenticated recovery window expires. Office search has no result cache, so a revoked or deleted source disappears on the next search.
 
+`script/qa/office_agent_journeys.py` completes five release journeys: first DOCX report, existing XLSX edit, PDF-to-DOCX summary, meeting-to-tasks, and mail-draft review. It checks artifact existence, reopened content, source hashes or locators, exact approval identity where a consequential action occurs, and two induced failure recoveries. Its separate metrics contain only a fixed journey identifier, time to first result, unnecessary-question count, manual-edit count, and recovery counts/rate; document and message bodies are excluded. The Office CI runs this suite on Windows, macOS, and Linux.
+
 `office_job_request` now accepts a source-free DOCX creation proposal with
 `content.paragraphs`. It writes neither a managed draft nor the caller's
 destination until the separate `office_create` approval executes the bound
@@ -448,7 +450,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.385`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.386`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
