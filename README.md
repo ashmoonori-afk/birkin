@@ -458,7 +458,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.411`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.412`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
@@ -541,7 +541,7 @@ Windows WPF render with synthetic review data; this image does not represent a l
 - Themes: Studio Dark, Paper Light, and High Contrast share semantic roles with terminal truecolor/ANSI-256 rendering. `NO_COLOR=1` keeps the terminal usable without color.
 - Responsive behavior: desktop keeps the selected work and review context connected; narrow layouts show one primary area at a time, keep hidden areas recoverable, and preserve access to the composer and current decision.
 
-This redesigned navigation and review flow is implemented in the current Web and WPF source and is undergoing local render checks. Separately, an earlier Windows representative DOCX journey passed from a natural-language request through approval, save, and receipt; that run does not validate the new BI layout, and live Microsoft 365 account acceptance remains outstanding. The macOS source follows the same four-area contract, but this redesign has not yet been confirmed on CI or a physical Mac.
+The redesigned navigation and review flow has been checked in representative Web and WPF renders with synthetic data, including narrow screens and keyboard return paths. Separately, an earlier Windows representative DOCX journey passed from a natural-language request through approval, save, and receipt; that run does not validate the new BI layout, and live Microsoft 365 account acceptance remains outstanding. The macOS source follows the same four-area contract, but its new CI build and render checks and physical Mac acceptance remain outstanding.
 
 The workspace remains loopback-only and preserves Host validation, capability checks, approval authority, filesystem jail, network egress, and audit records. Deprecated UI paths `/legacy-dashboard`, `/dashboard`, and `/workbench` return a permanent `308` redirect to `/` with deprecation metadata; existing backend APIs remain available.
 

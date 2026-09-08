@@ -516,7 +516,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.411`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.412`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -603,7 +603,7 @@ chat에서는 이 이름들을 직접 부르지 않습니다. 신뢰된 한국�
 - Theme: Studio Dark, Paper Light, High Contrast는 terminal truecolor/ANSI-256 rendering과 semantic role을 공유합니다. `NO_COLOR=1`에서도 terminal 기능은 유지됩니다.
 - Responsive behavior: desktop은 선택한 업무와 검토 context를 이어 보여줍니다. 좁은 화면은 주요 영역 하나를 표시하고 숨긴 영역을 다시 열 수 있게 하며 composer와 현재 결정에 계속 접근할 수 있게 합니다.
 
-새 navigation과 검토 흐름은 현재 Web과 WPF 소스에 구현되어 로컬 렌더 검증을 진행 중입니다. 이와 별도로 과거 Windows 대표 DOCX 여정은 자연어 요청부터 승인, 저장, 영수증까지 통과했지만 그 실행이 새 BI layout을 검증한 것은 아니며 실제 Microsoft 365 계정 인수도 남아 있습니다. macOS 소스는 같은 네 영역 계약을 따르지만 이번 재설계는 CI와 실제 Mac에서 아직 확인하지 않았습니다.
+새 navigation과 검토 흐름은 합성 데이터를 사용한 Web·WPF 대표 렌더에서 좁은 화면과 키보드 복귀 경로까지 확인했습니다. 이와 별도로 과거 Windows 대표 DOCX 여정은 자연어 요청부터 승인, 저장, 영수증까지 통과했지만 그 실행이 새 BI layout을 검증한 것은 아니며 실제 Microsoft 365 계정 인수도 남아 있습니다. macOS 소스는 같은 네 영역 계약을 따르지만 새 CI 빌드·렌더와 실제 Mac 인수는 남아 있습니다.
 
 Workspace는 loopback 전용이며 Host validation, capability check, approval authority, filesystem jail, network egress, audit record를 그대로 보존합니다. Deprecated UI path `/legacy-dashboard`, `/dashboard`, `/workbench`는 deprecation metadata와 함께 `/`로 permanent `308` redirect하고 기존 backend API는 계속 제공됩니다.
 

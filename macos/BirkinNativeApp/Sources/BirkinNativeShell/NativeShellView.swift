@@ -34,11 +34,16 @@ public enum WorkspaceRoute: String, CaseIterable, Identifiable, Sendable {
         if let navigationIntent { return navigationIntent }
         guard case .section(let section) = target else { return nil }
         switch section {
-        case .conversation, .composer, .terminal: .conversation
-        case .office: .documents
-        case .approvals: .approvals
-        case .browserAside: .research
-        default: nil
+        case .conversation, .composer, .terminal:
+            return WorkspaceRoute.conversation
+        case .office:
+            return WorkspaceRoute.documents
+        case .approvals:
+            return WorkspaceRoute.approvals
+        case .browserAside:
+            return WorkspaceRoute.research
+        default:
+            return nil
         }
     }
 }
