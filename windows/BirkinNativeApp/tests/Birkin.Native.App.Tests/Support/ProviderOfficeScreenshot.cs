@@ -36,7 +36,6 @@ internal static class ProviderOfficeScreenshot
             prepare?.Invoke();
             window.UpdateLayout();
             window.Dispatcher.Invoke(() => { }, DispatcherPriority.Render);
-            validate?.Invoke();
             var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
             bitmap.Render(rendered);
             var encoder = new PngBitmapEncoder();
@@ -44,6 +43,7 @@ internal static class ProviderOfficeScreenshot
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             using var output = File.Create(path);
             encoder.Save(output);
+            validate?.Invoke();
         }
         finally
         {

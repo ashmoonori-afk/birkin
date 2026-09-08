@@ -302,11 +302,8 @@ def main(m):
         )
         known_axes = {str(axis["id"]): axis for axis in axes}
         native_lanes = {axis_id: [] for axis_id in known_axes}
-        pending_urls = {
-            str(lead) for _, lead in pending
-            if str(lead).startswith("https://")
-        }
-        native_seen = set(attempted_urls) | pending_urls
+        native_seen = set(attempted_urls)
+        promoted_urls = set()
         for candidate in (discovery or {}).get("candidates", []):
             if not isinstance(candidate, dict):
                 continue
@@ -319,13 +316,15 @@ def main(m):
                     and parsed.hostname and parsed.username is None
                     and parsed.password is None and url not in native_seen):
                 native_seen.add(url)
+                promoted_urls.add(url)
                 native_lanes[axis_id].append(url)
                 native_expansion_urls.add((axis_id, url))
         native_pending = _round_robin([
             [(known_axes[axis_id], url) for url in native_lanes[axis_id]]
             for axis_id in known_axes
         ])
-        pending = [*native_pending, *pending]
+        pending = [*native_pending, *((axis, lead) for axis, lead in pending
+                                      if str(lead).strip() not in promoted_urls)]
     for wave in range(2, MAX_WAVES + 1):
         selected, pending = _schedule_leads(pending, findings, seen_leads, limit=4)
         if not selected:

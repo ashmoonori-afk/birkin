@@ -131,10 +131,6 @@ struct Phase12VisualReferenceTests {
         let content = view.padding(20).frame(width: size.width, height: size.height)
             .background(Color(nsColor: .windowBackgroundColor))
             .environment(\.colorScheme, .light)
-            .environment(
-                \.shellVisualSettings,
-                ShellVisualSettings(snapshotRendering: true)
-            )
         let hosting = NSHostingView(rootView: content)
         hosting.frame = NSRect(origin: .zero, size: size)
         hosting.layoutSubtreeIfNeeded()

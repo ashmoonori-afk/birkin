@@ -18,7 +18,7 @@
                             <TextBlock Text="{Binding Label}" Foreground="{StaticResource MutedBrush}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" />
                             <Grid Margin="0,4,0,0">
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="34" />
+                                    <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
@@ -26,10 +26,10 @@
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                 </Grid.RowDefinitions>
-                                <TextBlock Text="변경 전" Foreground="{StaticResource FaintBrush}" FontSize="12" />
+                                <TextBlock Text="변경 전" Foreground="{StaticResource FaintBrush}" FontSize="12" Margin="0,0,8,0" />
                                 <TextBlock Grid.Column="1" automation:AutomationProperties.AutomationId="diff.old-value" Text="{Binding OldValue}" FontFamily="Consolas" FontWeight="SemiBold" TextWrapping="Wrap" />
                                 <TextBlock Grid.Row="1" Grid.Column="1" Text="->" Foreground="{StaticResource AccentBrush}" FontFamily="Consolas" FontWeight="Bold" Margin="0,2" />
-                                <TextBlock Grid.Row="2" Text="변경 후" Foreground="{StaticResource FaintBrush}" FontSize="12" />
+                                <TextBlock Grid.Row="2" Text="변경 후" Foreground="{StaticResource FaintBrush}" FontSize="12" Margin="0,0,8,0" />
                                 <TextBlock Grid.Row="2" Grid.Column="1" automation:AutomationProperties.AutomationId="diff.new-value" Text="{Binding NewValue}" FontFamily="Consolas" FontWeight="SemiBold" TextWrapping="Wrap" />
                             </Grid>
                         </StackPanel>

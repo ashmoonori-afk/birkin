@@ -79,7 +79,7 @@ struct SnapshotEvidenceContentTests {
         #expect(terminalText.contains("TERMINAL OUTPUT VISIBLE"), "OCR: \(terminalText)")
         let terminalLines = try recognizedLines(terminalURL)
         let terminalHeading = try #require(terminalLines.first {
-            $0.text.contains("OWNED TERMINAL")
+            $0.text.contains("소유 터미널")
         })
         #expect(
             terminalHeading.bounds.minY >= 0.15,

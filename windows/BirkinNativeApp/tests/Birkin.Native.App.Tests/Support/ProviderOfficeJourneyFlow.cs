@@ -136,6 +136,9 @@ internal static class ProviderOfficeJourneyFlow
             var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
                 .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
             Assert.IsTrue(draftBox.Focus(), "the conversation composer did not regain keyboard focus");
+            OfficeWorkflowViewHarness.Find<Button>(window, "route.documents")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await RenderBarrierAsync(window);
             var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff-1500x940.png");
             var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940,
                 prepare: () =>
@@ -154,8 +157,12 @@ internal static class ProviderOfficeJourneyFlow
                             + contentCenter - workflowScroll.ViewportHeight / 2));
                 },
                 validate: () =>
+                {
+                    var geometry = VisibilityGeometry(oldValue, newValue, workflowScroll);
+                    Console.WriteLine($"DIFF_VISIBILITY={geometry}");
                     Assert.IsTrue(IsFullyVisible(oldValue, workflowScroll) && IsFullyVisible(newValue, workflowScroll),
-                        $"the labeled 4100 -> 4700 controls were not fully visible in the captured layout; viewport={workflowScroll.RenderSize}; offset={workflowScroll.VerticalOffset}"));
+                        $"the labeled 4100 -> 4700 controls were not fully visible in the captured layout; {geometry}");
+                });
             evidence.Record("pre-approval-screenshot", new Dictionary<string, object?>
             {
                 ["diff_id"] = diffId,
@@ -165,7 +172,8 @@ internal static class ProviderOfficeJourneyFlow
                 ["height"] = before.Height,
             });
 
-            scroll.ScrollToHome();
+            OfficeWorkflowViewHarness.Find<Button>(window, "route.approvals")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await RenderBarrierAsync(window);
             var approve = OfficeWorkflowViewHarness.Find<Button>(
                 window,
@@ -295,6 +303,22 @@ internal static class ProviderOfficeJourneyFlow
             && bounds.Top >= visible.Top - 1
             && bounds.Right <= visible.Right + 1
             && bounds.Bottom <= visible.Bottom + 1;
+    }
+
+    private static string VisibilityGeometry(
+        FrameworkElement oldValue,
+        FrameworkElement newValue,
+        ScrollViewer viewport)
+    {
+        var oldBounds = oldValue.TransformToAncestor(viewport).TransformBounds(
+            new Rect(new Point(), oldValue.RenderSize));
+        var newBounds = newValue.TransformToAncestor(viewport).TransformBounds(
+            new Rect(new Point(), newValue.RenderSize));
+        return $"viewport={viewport.RenderSize}; actual_width={viewport.ActualWidth:F2}; "
+            + $"extent={viewport.ExtentWidth:F2}x{viewport.ExtentHeight:F2}; "
+            + $"offset={viewport.HorizontalOffset:F2},{viewport.VerticalOffset:F2}; "
+            + $"old={oldBounds}; new={newBounds}; "
+            + $"parent={((FrameworkElement?)viewport.Parent)?.RenderSize}";
     }
 
     private static OfficeArtifact Artifact(NativeJsonObject value) => new(

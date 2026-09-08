@@ -248,8 +248,12 @@ def test_expansion_uses_searched_lead_urls_without_following_page_links(
     assert "javascript:alert(1)" not in fetched
 
 
+@pytest.mark.parametrize("worker_url", [
+    "https://docs.example.org/good",
+    " https://docs.example.org/good ",
+])
 def test_worker_leads_use_native_discovery_once_and_preserve_exact_provenance(
-    script, monkeypatch,
+    script, monkeypatch, worker_url,
 ):
     initial = "https://example.org/overview"
     native_good = "https://docs.example.org/good"
@@ -257,10 +261,11 @@ def test_worker_leads_use_native_discovery_once_and_preserve_exact_provenance(
     backend_fallback = "https://search.example.org/fallback"
     userinfo = "https://user:secret@example.org/private"
     unknown = "https://docs.example.org/unknown"
-    calls = {"native": 0, "fetch": []}
+    calls = {"native": 0, "fetch": [], "search": []}
 
     def search(query, count, ctx):
         del count, ctx
+        calls["search"].append(query)
         results = {
             "alpha": [initial], "beta": [initial],
             native_good: [native_good],
@@ -295,6 +300,7 @@ def test_worker_leads_use_native_discovery_once_and_preserve_exact_provenance(
                 "candidates": [
                     {"axis_id": "a", "url": "https://[", "title": "bad"},
                     {"axis_id": "a", "url": userinfo, "title": "private"},
+                    {"axis_id": "a", "url": initial, "title": "attempted"},
                     {"axis_id": "unknown", "url": unknown, "title": "unknown"},
                     {"axis_id": "a", "url": native_good, "title": "good"},
                     {"axis_id": "b", "url": native_good, "title": "duplicate"},
@@ -311,11 +317,12 @@ def test_worker_leads_use_native_discovery_once_and_preserve_exact_provenance(
         if "확장 리드" in prompt:
             return json.dumps({"findings": [], "leads": []})
         if "위 source_id만" in prompt:
-            lead = "find alpha evidence" if "축: 정의" in prompt else "find beta evidence"
+            leads = (["find alpha evidence", "find more alpha", worker_url]
+                     if "축: 정의" in prompt else ["find beta evidence"])
             return json.dumps({"findings": [{
                 "claim_id": "C1", "claim": "Overview exists",
                 "supports": [{"source_id": "S1", "excerpt": "Overview evidence."}],
-            }], "leads": [lead]})
+            }], "leads": leads})
         if "지원과 반증을 구분" in prompt:
             return json.dumps({"verdict": "supported", "reason": "checked",
                                "supports": [{"source_id": "S1",
@@ -329,6 +336,9 @@ def test_worker_leads_use_native_discovery_once_and_preserve_exact_provenance(
     ledger = {row["final_url"]: row for row in result["source_ledger"]}
 
     assert calls["native"] == 1
+    assert calls["search"].count(native_good) == 1
+    assert calls["search"].index(native_good) < calls["search"].index(
+        "find alpha evidence")
     assert ledger[native_good]["discovery_method"] == (
         "model_discovered_after_web_search")
     assert "discovery_method" not in ledger[backend_fallback]
