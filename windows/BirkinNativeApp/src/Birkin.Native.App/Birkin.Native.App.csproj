@@ -13,5 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" />
     <ProjectReference Include="..\Birkin.Native.Shell\Birkin.Native.Shell.csproj" />
+    <Resource Include="..\..\..\..\docs\assets\birkin-brand-mark.png"
+              Link="Assets\birkin-brand-mark.png" />
   </ItemGroup>
 </Project>

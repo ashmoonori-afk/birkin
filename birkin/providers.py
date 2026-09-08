@@ -289,11 +289,24 @@ def codex_web_discovery(prompt: str, *, model: str = "",
             if event.get("type") in {"turn.completed", "turn.failed"}
         ]
         action = searches[0][1].get("action") if len(searches) == 1 else None
-        observed_query = (
-            action.get("query") if isinstance(action, dict)
-            and action.get("type") == "search" else None
+        raw_query = action.get("query") if isinstance(action, dict) else None
+        raw_queries = action.get("queries") if isinstance(action, dict) else None
+        query_value = raw_query.strip() if isinstance(raw_query, str) else None
+        queries_value = (
+            raw_queries[0].strip()
+            if isinstance(raw_queries, list) and len(raw_queries) == 1
+            and isinstance(raw_queries[0], str)
+            else None
         )
-        query = observed_query.strip() if isinstance(observed_query, str) else ""
+        query_shape_valid = raw_query is None or bool(query_value)
+        queries_shape_valid = raw_queries is None or bool(queries_value)
+        query = query_value or queries_value or ""
+        query_valid = (
+            isinstance(action, dict)
+            and action.get("type") == "search"
+            and query_shape_valid and queries_shape_valid
+            and not (query_value and queries_value and query_value != queries_value)
+        )
         reason = None
         if len(started) != 1 or len(searches) != 1:
             reason = "search_count"
@@ -312,7 +325,7 @@ def codex_web_discovery(prompt: str, *, model: str = "",
         elif not (started[0][0] < searches[0][0]
                   < messages[0][0] < terminals[0][0]):
             reason = "order"
-        elif not query:
+        elif not query_valid or not query:
             reason = "query"
         elif len(query) > 500:
             reason = "query_length"

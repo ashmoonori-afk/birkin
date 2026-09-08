@@ -23,7 +23,10 @@ SCHEMA = {
 }
 
 
-def _events(*, other_tool: bool = False, query: str = "SQLite WAL docs") -> str:
+def _events(*, other_tool: bool = False,
+            query: object = "SQLite WAL docs",
+            queries: object = None) -> str:
+    action = {"type": "search", "query": query, "queries": queries}
     items = [
         {"type": "turn.started"},
         {"type": "item.started", "item": {
@@ -32,7 +35,7 @@ def _events(*, other_tool: bool = False, query: str = "SQLite WAL docs") -> str:
         {
         "type": "item.completed", "item": {
             "id": "search-1", "type": "web_search",
-            "action": {"type": "search", "query": query},
+            "action": {key: value for key, value in action.items() if value is not None},
         },
     }]
     if other_tool:
@@ -82,6 +85,39 @@ def test_codex_native_web_uses_ephemeral_isolation_and_observed_trace(
     assert result["web_search_count"] == 1
     assert result["observed_query"] == "SQLite WAL docs"
     assert result["provenance"] == "model_discovered_after_web_search"
+
+
+def test_codex_native_web_accepts_single_queries_action(monkeypatch) -> None:
+    monkeypatch.setattr(providers.shutil, "which", lambda name: "codex")
+    monkeypatch.setattr(
+        providers, "_run", lambda *args, **kwargs: (
+            _events(query=None, queries=["SQLite WAL docs"]), "secret", 0,
+        ),
+    )
+
+    result = json.loads(providers.codex_web_discovery("safe", schema=SCHEMA))
+
+    assert result["observed_query"] == "SQLite WAL docs"
+
+
+def test_codex_native_web_rejects_ambiguous_query_shapes(monkeypatch) -> None:
+    monkeypatch.setattr(providers.shutil, "which", lambda name: "codex")
+    cases = [
+        {"query": "first", "queries": ["second"]},
+        {"query": None, "queries": []},
+        {"query": None, "queries": ["first", "second"]},
+        {"query": None, "queries": [7]},
+        {"query": 7, "queries": None},
+    ]
+    for case in cases:
+        monkeypatch.setattr(
+            providers, "_run", lambda *args, case=case, **kwargs: (
+                _events(**case), "secret", 0,
+            ),
+        )
+        assert providers.codex_web_discovery("safe", schema=SCHEMA) == (
+            "[provider-error] codex native web: invalid tool trace (query)"
+        )
 
 
 def test_codex_native_web_rejects_other_tool_without_reflecting_output(

@@ -591,6 +591,59 @@ def test_failed_inference_synthesis_keeps_the_run_partial(script, monkeypatch):
     assert "최종 추론 생성에 실패했습니다" in result["reasons"]
 
 
+def test_final_coverage_replaces_stale_synthesis_gap_with_reviewed_gap(
+    script, monkeypatch,
+):
+    _web(monkeypatch)
+    base = _spawn(numeric=True)
+    stale = "짧은 인용과 URL은 원장에 없다"
+    actual = "실제 환경별 동작은 검증되지 않았다"
+
+    def spawn(prompt, binding, opts, cfg, *, timeout=900.0):
+        if "검증된 직접 사실 원장" in prompt:
+            assert "https://one.example/a" in prompt
+            assert "Alpha causes 2 documented outcomes." in prompt
+            return json.dumps({"inferences": [],
+                               "unanswered_questions": [stale]}, ensure_ascii=False)
+        if "최종 감사 원장" in prompt:
+            assert stale in prompt
+            assert "https://one.example/a" in prompt
+            return json.dumps({"complete": False,
+                               "missing_questions": [actual],
+                               "reason": "최종 원장 재평가"}, ensure_ascii=False)
+        return base(prompt, binding, opts, cfg, timeout=timeout)
+
+    result = moirai.run_script(
+        script, cfg={}, args={"question": "q"}, spawn=spawn,
+    )["result"]
+
+    assert result["final_coverage"]["unanswered_questions"] == [actual]
+    assert stale not in result["answer"]
+    assert actual in result["answer"]
+
+
+def test_failed_final_coverage_preserves_synthesis_gap(script, monkeypatch):
+    _web(monkeypatch)
+    base = _spawn(numeric=True)
+    initial = "초기 단계에서 확인하지 못한 조건"
+
+    def spawn(prompt, binding, opts, cfg, *, timeout=900.0):
+        if "검증된 직접 사실 원장" in prompt:
+            return json.dumps({"inferences": [],
+                               "unanswered_questions": [initial]}, ensure_ascii=False)
+        if "최종 감사 원장" in prompt:
+            raise RuntimeError("final review unavailable")
+        return base(prompt, binding, opts, cfg, timeout=timeout)
+
+    result = moirai.run_script(
+        script, cfg={}, args={"question": "q"}, spawn=spawn,
+    )["result"]
+
+    assert result["final_coverage"]["status"] == "assessment_failed"
+    assert result["final_coverage"]["unanswered_questions"] == [initial]
+    assert initial in result["answer"]
+
+
 def test_incomplete_plan_gets_one_bounded_repair(script, monkeypatch):
     _web(monkeypatch)
     base = _spawn(numeric=True)
@@ -694,13 +747,53 @@ def test_inference_repair_keeps_canonical_premises_and_assumptions():
     assert "별도 완료 알림이 없다" in auditor.prompt
 
 
+def test_proposal_repair_uses_exact_evidence_without_becoming_a_fact():
+    from birkin.moirai.patterns.deep_research import (
+        _audited_inferences, _validated_audit,
+    )
+
+    excerpt = "There is no universal strategy for every downstream consumer."
+    sources = {"S1": {"source_id": "S1", "text": excerpt}}
+    fact = {"claim_id": "C1", "claim": "보편적 전략은 없다",
+            "audit_supports": [{"source_id": "S1", "excerpt": excerpt}]}
+    inference = {
+        "claim_id": "I1", "claim": "소비자별 인수 테스트를 제안한다",
+        "claim_type": "inference", "premise_claim_ids": ["C1"],
+        "assumptions": ["대상 소비자를 사전에 고정한다"],
+        "assumptions_provided": True, "supports": [], "axis_id": "synthesis",
+    }
+
+    class Auditor:
+        prompt = ""
+
+        def agent(self, prompt, **kwargs):
+            self.prompt = prompt
+            return {"verdict": "supported", "reason": "범위 제한 권고와 부합",
+                    "supports": [{"source_id": "S1", "excerpt": excerpt}]}
+
+    auditor = Auditor()
+    repaired = _validated_audit(
+        auditor, inference["claim"],
+        {"verdict": "supported", "reason": "잘못된 인용",
+         "supports": [{"source_id": "S1", "excerpt": "invented"}]},
+        sources, "전제 C1과 공개 가정", "repair",
+    )
+    rows = _audited_inferences([inference], [repaired], [fact])
+
+    assert "범위 제한 권고" in auditor.prompt
+    assert "무조건 제안을 통과시키지 마세요" in auditor.prompt
+    assert repaired[2] == "repaired"
+    assert rows[0]["status"] == "inference_supported"
+    assert rows[0]["status"] != "source_supported"
+
+
 def test_fact_qualifiers_and_final_assumptions_remain_in_model_context():
-    from birkin.moirai.patterns.deep_research import _fact_context, _final_claim_context
+    from birkin.moirai.patterns.deep_research import _final_claim_context
 
     fact = {"claim_id": "C1", "claim": "일부 클라이언트는 재시도한다",
             "status": "source_supported", "reason": "일부 구현에 한정",
             "audit_reason": "위험을 감수하는 일부 클라이언트 사례"}
-    assert "일부 구현에 한정" in str(_fact_context([fact]))
+    assert "일부 구현에 한정" in str(_final_claim_context([fact]))
     inference = {"claim_id": "I1", "claim": "조건부 결론",
                  "claim_type": "inference", "status": "inference_supported",
                  "premise_claim_ids": ["C1"], "assumptions": ["서버 중복 제거 없음"],

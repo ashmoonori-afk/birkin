@@ -83,4 +83,37 @@ public sealed class ProviderOfficeScreenshotTests
             }
         });
     }
+
+    [TestMethod]
+    public async Task CaptureRedacted_RunsPrepareAfterEvidenceResize()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            var conversation = new ItemsControl();
+            AutomationProperties.SetAutomationId(conversation, "conversation.items");
+            var root = new Grid();
+            root.Children.Add(conversation);
+            var window = new Window { Content = root, Width = 800, Height = 600 };
+            var path = Path.Combine(Path.GetTempPath(), $"birkin-screenshot-{Guid.NewGuid():N}.png");
+            Size preparedSize = default;
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+
+                ProviderOfficeScreenshot.CaptureRedacted(
+                    window, path, 1500, 940, prepare: () => preparedSize = root.RenderSize);
+
+                Assert.AreEqual(new Size(1500, 940), preparedSize);
+                await Task.CompletedTask;
+            }
+            finally
+            {
+                window.Close();
+                File.Delete(path);
+            }
+        });
+    }
 }

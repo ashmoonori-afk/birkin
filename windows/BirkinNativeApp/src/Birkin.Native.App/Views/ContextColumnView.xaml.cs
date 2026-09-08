@@ -37,4 +37,32 @@ public partial class ContextColumnView : UserControl
         _ = ActivityRegion.Focus();
         ActivityRegion.BringIntoView();
     }
+
+    public void ShowReviewRail()
+    {
+        ApprovalsRegion.Visibility = System.Windows.Visibility.Visible;
+        ActivityRegion.Visibility = System.Windows.Visibility.Visible;
+        BrowserRegion.Visibility = System.Windows.Visibility.Visible;
+        OfficeRegion.Visibility = System.Windows.Visibility.Visible;
+        OfficeRegion.Height = double.NaN;
+    }
+
+    public void ShowDocumentsWorkspace()
+    {
+        ApprovalsRegion.Visibility = System.Windows.Visibility.Collapsed;
+        ActivityRegion.Visibility = System.Windows.Visibility.Collapsed;
+        BrowserRegion.Visibility = System.Windows.Visibility.Collapsed;
+        OfficeRegion.Visibility = System.Windows.Visibility.Visible;
+        OfficeRegion.Height = double.NaN;
+        _ = OfficeRegion.Focus();
+    }
+
+    public void ShowApprovalsWorkspace()
+    {
+        ActivityRegion.Visibility = System.Windows.Visibility.Collapsed;
+        BrowserRegion.Visibility = System.Windows.Visibility.Collapsed;
+        OfficeRegion.Visibility = System.Windows.Visibility.Collapsed;
+        ApprovalsRegion.Visibility = System.Windows.Visibility.Visible;
+        _ = ApprovalsRegion.Focus();
+    }
 }

@@ -418,6 +418,8 @@ def test_successful_facts_cannot_hide_explicitly_unanswered_user_question(tmp_pa
         tmp_path, monkeypatch,
         supports=[{"source_id": "S1", "excerpt": "The service accepts requests for later processing."}],
         unanswered=[missing],
+        final_review={"complete": False, "missing_questions": [missing],
+                      "reason": "최종 감사에서도 원격 완료 확인 근거가 없습니다"},
     )
     result = outcome["result"]
     assert result["claim_ledger"][0]["status"] == "source_supported"
@@ -545,7 +547,7 @@ def test_auditor_scope_is_preserved_in_synthesis_and_user_output():
     fact = {"claim_id": "C1", "claim": "클라이언트는 재시도할 수 있다.",
             "claim_type": "fact", "status": "source_supported", "supports": [],
             "reason": limitation, "audit_reason": limitation, "audit_supports": []}
-    assert limitation in json.dumps(deep_research._fact_context([fact]), ensure_ascii=False)
+    assert limitation in json.dumps(deep_research._final_claim_context([fact]), ensure_ascii=False)
     assert limitation in deep_research._render_answer([fact], {})
     assumption = "중복 제거 계약은 제공되지 않는다."
     inference = {**fact, "claim_id": "I1", "claim_type": "inference",

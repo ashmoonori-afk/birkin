@@ -5,7 +5,7 @@ import PackageDescription
 
 let package = Package(
     name: "BirkinNativeApp",
-    defaultLocalization: "en",
+    defaultLocalization: "ko",
     platforms: [.macOS(.v13)],
     products: [
         .library(name: "BirkinNativeProtocol", targets: ["BirkinNativeProtocol"]),

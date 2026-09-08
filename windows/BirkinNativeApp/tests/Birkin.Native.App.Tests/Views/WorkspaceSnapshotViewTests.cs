@@ -154,6 +154,9 @@ public sealed class WorkspaceSnapshotViewTests : MainWindowTestBase
                         .StartsWith(
                             "startup.failure.",
                             StringComparison.Ordinal))
+                    .Where(button => !AutomationProperties
+                        .GetAutomationId(button)
+                        .StartsWith("route.", StringComparison.Ordinal))
                     .Select(button => button.IsEnabled)
                     .ToArray(),
                 FindByAutomationId<TextBox>(view, "conversation.draft").IsEnabled,

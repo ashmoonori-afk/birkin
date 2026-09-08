@@ -17,6 +17,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 # The core install stays deliberately small. Mnemosyne is bundled in the Birkin
 # wheel, so installing core never requires a VCS client or source checkout.
 _CORE_DEPENDENCIES = [
+    "httpx>=0.28,<1",
     "pydantic>=2,<3",
     "psutil>=6",
     "tzdata>=2025,<2027; sys_platform == 'win32'",

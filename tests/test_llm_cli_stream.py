@@ -197,7 +197,10 @@ def test_codex_cli_is_ephemeral_for_every_access_mode(monkeypatch, cli_access):
 
 
 def test_codex_cli_separates_system_instructions_from_user_prompt(monkeypatch):
-    import tomllib
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # py3.10
+        import tomli as tomllib
 
     seen = {}
 

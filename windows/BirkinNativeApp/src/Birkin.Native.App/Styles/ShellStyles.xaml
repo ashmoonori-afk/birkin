@@ -4,19 +4,20 @@
         <ResourceDictionary Source="KoreanStrings.xaml" />
     </ResourceDictionary.MergedDictionaries>
 
-    <SolidColorBrush x:Key="CanvasBrush" Color="#0B0D0E" />
-    <SolidColorBrush x:Key="CardBrush" Color="#121415" />
-    <SolidColorBrush x:Key="RaisedBrush" Color="#1A1C1D" />
-    <SolidColorBrush x:Key="TerminalBrush" Color="#090A0A" />
-    <SolidColorBrush x:Key="BorderBrush" Color="#343638" />
-    <SolidColorBrush x:Key="TextBrush" Color="#E7E2D8" />
-    <SolidColorBrush x:Key="MutedBrush" Color="#99968F" />
-    <SolidColorBrush x:Key="FaintBrush" Color="#6F706D" />
-    <SolidColorBrush x:Key="AccentBrush" Color="#E2A44F" />
-    <SolidColorBrush x:Key="SuccessBrush" Color="#55C96D" />
-    <SolidColorBrush x:Key="DangerBrush" Color="#F05C61" />
-    <SolidColorBrush x:Key="CriticalBrush" Color="#B986F2" />
-    <SolidColorBrush x:Key="DropOverlayBrush" Color="#E60B0D0E" />
+    <SolidColorBrush x:Key="CanvasBrush" Color="#F4F6F8" />
+    <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
+    <SolidColorBrush x:Key="RaisedBrush" Color="#EEF2F5" />
+    <SolidColorBrush x:Key="TerminalBrush" Color="#17212B" />
+    <SolidColorBrush x:Key="BorderBrush" Color="#D6DEE5" />
+    <SolidColorBrush x:Key="TextBrush" Color="#17212B" />
+    <SolidColorBrush x:Key="MutedBrush" Color="#536171" />
+    <SolidColorBrush x:Key="FaintBrush" Color="#758392" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#116A61" />
+    <SolidColorBrush x:Key="SelectedBrush" Color="#E1F2EE" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="#247A52" />
+    <SolidColorBrush x:Key="DangerBrush" Color="#B42318" />
+    <SolidColorBrush x:Key="CriticalBrush" Color="#7A3E9D" />
+    <SolidColorBrush x:Key="DropOverlayBrush" Color="#E6F4F6F8" />
 
     <Style TargetType="ToolTip">
         <Setter Property="Background" Value="{StaticResource RaisedBrush}" />

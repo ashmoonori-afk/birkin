@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="./docs/assets/birkin-hero-courier.png" alt="전령을 앞지르는 구조화된 로컬 에이전트 Birkin" width="820" />
+<img src="./docs/assets/birkin-brand-mark.png" alt="Birkin 브랜드 마크" width="136" />
 
 # birkin
 
-### 로컬 메모리. 결정적 제어. 사람의 권한.
+### 로컬 사무 작업과 리서치, 중요한 실행은 모두 사람의 승인 아래.
 
 필수 의존성이 적은 Python agent로, 메모리와 실행, 자기개선 과정을 내 컴퓨터에서 직접 확인할 수 있습니다.
 
@@ -96,6 +96,8 @@ Birkin: 원본을 읽기 전용으로 검사하고 보고서 초안을 준비하
 Birkin 핵심 런타임에는 네 가지 공통 외부 의존성이 있습니다. `pydantic`은 데이터 모델 검증, `psutil`은 프로세스 식별, `typing-extensions`는 실행 계약 타입, `httpx`는 중단 가능한 공급자 HTTP 요청을 담당합니다. Windows에서는 `tzdata`가 로컬 일정에 필요한 IANA 시간대 데이터베이스를 제공합니다. `birkin_mnemosyne`은 Birkin에 번들되며 별도로 설치하지 않습니다. 선택적 추가 기능으로 음성, 네이티브 데스크톱 Computer Use, 브라우저, Office 파일 지원을 사용할 수 있습니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
 
 작업공간 전용 `research_run` 도구는 사용자가 제공한 HTTP(S) 출처 URL을 최대 18개까지 받아 제한된 심층 조사를 실행합니다. 보고서에는 출처를 최대 18개까지 남기며, 초기 본문 수집은 최대 36회이고 후속·반증 탐색에는 별도 제한이 적용됩니다. Codex를 사용할 수 있고 enforced egress가 꺼져 있으면 한 번의 격리된 임시 웹 검색으로 후보 URL을 찾을 수 있지만, 후보는 Birkin이 본문을 가져와 검증하기 전까지 근거가 아닙니다. 보고서는 출처가 뒷받침하는 사실, 전제와 가정을 표시한 추론, 반박된 주장, 미확정 주장을 구분합니다. 인용의 존재는 코드가 확인하고 의미와 추론의 타당성은 모델 검토 결과로 표시합니다.
+
+고난도 CSV와 Excel 입력에 대한 답변의 전체 인수 기준은 아직 충족하지 못했습니다. native-web이 찾은 후보도 검증된 수집과 감사 경로가 받아들이기 전까지는 근거가 아닌 탐색 단서이며, [남은 Office·리서치 인수 기준](./docs/office-agent-review.md)에서 범위를 확인할 수 있습니다.
 
 ## 메모리
 
@@ -514,7 +516,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.410`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.411`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -590,10 +592,18 @@ chat에서는 이 이름들을 직접 부르지 않습니다. 신뢰된 한국�
 
 두 surface는 같은 순서 보장 command/event protocol과 durable journal을 사용합니다. Conversation message, task/run, approval, evidence, session, activity, cron, memory/skill, checkpoint, status는 별도 dashboard state가 아니라 canonical snapshot panel입니다. Surface가 기존 session ID로 다시 연결되면 journal이 conversation, panel data, command cursor를 replay합니다.
 
+현재 [작업공간 정보 구조](./docs/ui-redesign-spec.md)는 네 영역입니다. **대화**는 요청과 진행 상황, **리서치**는 결론·근거·미확정 주장, **문서**는 가져오기·미리보기·변경 제안, **승인**은 정확한 대상·영향·권한·실행 결과를 보여줍니다. 선택한 업무는 중앙에 유지하고 관련 근거·변경·결정은 검토 영역에서 이어 보며, 좁은 화면에서는 다시 열 수 있는 주요 영역 하나를 표시합니다.
+
+![Birkin BI를 적용한 Windows 리서치 작업 화면](./docs/assets/birkin-workspace-windows.png)
+
+합성 검토 데이터를 사용한 Windows WPF 렌더입니다. 실제 계정이나 리서치 실행 완료를 보여주는 이미지는 아닙니다.
+
 - Terminal: 입력 후 Enter로 전송하고 Esc로 중단합니다. `/work`(alias `/workbench`)는 통합된 task/run workbench에 focus합니다. 기존 `/dash` 명령은 제거되었습니다.
-- Web: Ctrl+Enter로 전송하고 Esc로 중단합니다. Context button으로 9개 canonical panel을 열며 requester, target, impact, rejection result, risk, expiry, evidence를 검토한 뒤 명시적인 승인/거부 action을 사용합니다.
+- Web: Ctrl+Enter로 전송하고 Esc로 중단합니다. 주요 업무 영역과 이름이 표시된 더보기 항목 사이를 이동하고, 검토 패널에서 requester, target, impact, rejection result, risk, expiry, evidence를 확인한 뒤 명시적인 승인/거부 action을 사용합니다.
 - Theme: Studio Dark, Paper Light, High Contrast는 terminal truecolor/ANSI-256 rendering과 semantic role을 공유합니다. `NO_COLOR=1`에서도 terminal 기능은 유지됩니다.
-- Responsive behavior: desktop은 conversation과 context를 나란히 유지합니다. Mobile은 composer를 계속 보이는 상태로 두고 그 위에 opaque sheet를 열며 touch-size control과 명시적인 back action을 제공합니다.
+- Responsive behavior: desktop은 선택한 업무와 검토 context를 이어 보여줍니다. 좁은 화면은 주요 영역 하나를 표시하고 숨긴 영역을 다시 열 수 있게 하며 composer와 현재 결정에 계속 접근할 수 있게 합니다.
+
+새 navigation과 검토 흐름은 현재 Web과 WPF 소스에 구현되어 로컬 렌더 검증을 진행 중입니다. 이와 별도로 과거 Windows 대표 DOCX 여정은 자연어 요청부터 승인, 저장, 영수증까지 통과했지만 그 실행이 새 BI layout을 검증한 것은 아니며 실제 Microsoft 365 계정 인수도 남아 있습니다. macOS 소스는 같은 네 영역 계약을 따르지만 이번 재설계는 CI와 실제 Mac에서 아직 확인하지 않았습니다.
 
 Workspace는 loopback 전용이며 Host validation, capability check, approval authority, filesystem jail, network egress, audit record를 그대로 보존합니다. Deprecated UI path `/legacy-dashboard`, `/dashboard`, `/workbench`는 deprecation metadata와 함께 `/`로 permanent `308` redirect하고 기존 backend API는 계속 제공됩니다.
 
@@ -1156,9 +1166,10 @@ registry에 연결됩니다.
 
 ## 네이티브 macOS control shell
 
-> **이 저장소에 구현되어 있습니다.** Birkin은 이제 네이티브 macOS
-> SwiftUI client와 universal signed `Birkin.app` build pipeline을
-> 포함합니다. 이 앱은 별도의 local control surface이며 CLI, WebUI, VS Code
+> **이 저장소에 구현되어 있습니다.** Birkin은 네이티브 macOS SwiftUI
+> client와 universal signed `Birkin.app` build pipeline을 포함합니다. 이번
+> UI 재설계는 CI와 실제 Mac에서 아직 확인하지 않았습니다. 이 앱은 별도의
+> local control surface이며 CLI, WebUI, VS Code
 > extension을 대체하지 않습니다. Credential 없이 만든 app은 ad-hoc signed
 > development artifact이지 notarized public download가 아닙니다.
 

@@ -136,25 +136,25 @@ internal static class ProviderOfficeJourneyFlow
             var newValue = OfficeWorkflowViewHarness.FindAll<TextBlock>(window, "diff.new-value")
                 .First(text => text.Text.Contains("4700", StringComparison.Ordinal));
             Assert.IsTrue(draftBox.Focus(), "the conversation composer did not regain keyboard focus");
-            scroll.ScrollToEnd();
-            workflowScroll.ScrollToHome();
-            await RenderBarrierAsync(window);
-            var oldBounds = oldValue.TransformToAncestor(workflowScroll).TransformBounds(
-                new Rect(new Point(), oldValue.RenderSize));
-            var newBounds = newValue.TransformToAncestor(workflowScroll).TransformBounds(
-                new Rect(new Point(), newValue.RenderSize));
-            var contentCenter = (Math.Min(oldBounds.Top, newBounds.Top)
-                + Math.Max(oldBounds.Bottom, newBounds.Bottom)) / 2;
-            workflowScroll.ScrollToVerticalOffset(Math.Max(0, contentCenter - workflowScroll.ViewportHeight / 2));
-            await RenderBarrierAsync(window);
-            oldBounds = oldValue.TransformToAncestor(workflowScroll).TransformBounds(
-                new Rect(new Point(), oldValue.RenderSize));
-            newBounds = newValue.TransformToAncestor(workflowScroll).TransformBounds(
-                new Rect(new Point(), newValue.RenderSize));
             var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff-1500x940.png");
-            var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940, validate: () =>
-                Assert.IsTrue(IsFullyVisible(oldValue, workflowScroll) && IsFullyVisible(newValue, workflowScroll),
-                    $"the labeled 4100 -> 4700 controls were not fully visible in the captured layout; viewport={workflowScroll.RenderSize}; offset={workflowScroll.VerticalOffset}"));
+            var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940,
+                prepare: () =>
+                {
+                    scroll.ScrollToEnd();
+                    workflowScroll.ScrollToHome();
+                    window.UpdateLayout();
+                    var oldBounds = oldValue.TransformToAncestor(workflowScroll).TransformBounds(
+                        new Rect(new Point(), oldValue.RenderSize));
+                    var newBounds = newValue.TransformToAncestor(workflowScroll).TransformBounds(
+                        new Rect(new Point(), newValue.RenderSize));
+                    var contentCenter = (Math.Min(oldBounds.Top, newBounds.Top)
+                        + Math.Max(oldBounds.Bottom, newBounds.Bottom)) / 2;
+                    workflowScroll.ScrollToVerticalOffset(
+                        Math.Max(0, contentCenter - workflowScroll.ViewportHeight / 2));
+                },
+                validate: () =>
+                    Assert.IsTrue(IsFullyVisible(oldValue, workflowScroll) && IsFullyVisible(newValue, workflowScroll),
+                        $"the labeled 4100 -> 4700 controls were not fully visible in the captured layout; viewport={workflowScroll.RenderSize}; offset={workflowScroll.VerticalOffset}"));
             evidence.Record("pre-approval-screenshot", new Dictionary<string, object?>
             {
                 ["diff_id"] = diffId,

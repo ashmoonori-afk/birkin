@@ -10,13 +10,24 @@
     </UserControl.Resources>
     <Grid Margin="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="48" />
+            <RowDefinition Height="64" />
             <RowDefinition Height="*" />
             <RowDefinition Height="32" />
         </Grid.RowDefinitions>
 
         <Grid>
-            <Menu HorizontalAlignment="Left" VerticalAlignment="Top"
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
+                <Image Source="/Birkin.Native.App;component/Assets/birkin-brand-mark.png"
+                       Width="40" Height="40" Stretch="Uniform"
+                       Margin="0,0,10,0"
+                       automation:AutomationProperties.Name="Birkin 로고" />
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="Birkin" FontSize="24" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextBrush}" />
+                    <TextBlock Text="내 업무 공간" Style="{StaticResource MutedTextStyle}" />
+                </StackPanel>
+            </StackPanel>
+            <Menu HorizontalAlignment="Right" VerticalAlignment="Top"
                   Background="Transparent" Foreground="{StaticResource TextBrush}">
                 <MenuItem Header="보기(_V)">
                     <MenuItem x:Name="NavigationMenuItem" Header="업무 목록 패널(_N)"
@@ -41,6 +52,13 @@
                               automation:AutomationProperties.AutomationId="menu.view.reset" />
                 </MenuItem>
             </Menu>
+            <Button x:Name="BackToConversationButton"
+                    Content="← 대화로 돌아가기"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    Visibility="Collapsed" Padding="10,4"
+                    Click="ConversationRouteClicked"
+                    automation:AutomationProperties.AutomationId="route.back-to-conversation"
+                    automation:AutomationProperties.Name="대화 작업 영역으로 돌아가기" />
             <Border HorizontalAlignment="Center"
                     VerticalAlignment="Top"
                     Background="{StaticResource CardBrush}"
@@ -93,7 +111,29 @@
                 <ColumnDefinition x:Name="ContextSplitterColumn" Width="6" />
                 <ColumnDefinition x:Name="ContextColumn" Width="340" MinWidth="300" MaxWidth="600" />
             </Grid.ColumnDefinitions>
-            <views:NavigationColumnView x:Name="NavigationColumnView" Grid.Column="0" />
+            <Grid Grid.Column="0" Margin="0,0,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <Border Style="{StaticResource CardStyle}" Margin="0,0,0,8">
+                    <UniformGrid Columns="2" Rows="2">
+                        <Button x:Name="ConversationRouteButton" Content="대화" Margin="0,0,4,4"
+                                MinHeight="40" Click="ConversationRouteClicked"
+                                automation:AutomationProperties.AutomationId="route.conversation" />
+                        <Button x:Name="ResearchRouteButton" Content="리서치" Margin="4,0,0,4"
+                                MinHeight="40" Click="ResearchRouteClicked"
+                                automation:AutomationProperties.AutomationId="route.research" />
+                        <Button x:Name="DocumentsRouteButton" Content="문서" Margin="0,4,4,0"
+                                MinHeight="40" Click="DocumentsRouteClicked"
+                                automation:AutomationProperties.AutomationId="route.documents" />
+                        <Button x:Name="ApprovalsRouteButton" Content="승인" Margin="4,4,0,0"
+                                MinHeight="40" Click="ApprovalsRouteClicked"
+                                automation:AutomationProperties.AutomationId="route.approvals" />
+                    </UniformGrid>
+                </Border>
+                <views:NavigationColumnView x:Name="NavigationColumnView" Grid.Row="1" />
+            </Grid>
             <GridSplitter x:Name="NavigationSplitter" Grid.Column="1"
                           Style="{StaticResource PanelSplitterStyle}"
                           ResizeBehavior="PreviousAndNext" ResizeDirection="Columns"

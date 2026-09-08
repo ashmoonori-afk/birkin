@@ -49,22 +49,22 @@ public enum ShellSectionID: String, CaseIterable, Equatable, Sendable {
         locale: Locale = NativeLocalization.currentLocale
     ) -> String {
         switch self {
-        case .sessions: NativeLocalization.string("Sessions", locale: locale)
+        case .sessions: "최근 업무"
         case .templates: NativeLocalization.string("Templates", locale: locale)
         case .workingMemory:
-            NativeLocalization.string("Working Memory", locale: locale)
+            "업무 메모"
         case .conversation:
             NativeLocalization.string("Conversation", locale: locale)
-        case .composer: NativeLocalization.string("Composer", locale: locale)
+        case .composer: "메시지"
         case .terminal:
             NativeLocalization.string("Owned Terminal", locale: locale)
         case .approvals: NativeLocalization.string("Approvals", locale: locale)
-        case .activity: NativeLocalization.string("Activity", locale: locale)
+        case .activity: "진행 및 결과"
         case .browserAside:
-            NativeLocalization.string("Browser Aside", locale: locale)
+            "리서치 근거"
         case .office: NativeLocalization.string("Office", locale: locale)
         case .computerUse:
-            NativeLocalization.string("Computer Use", locale: locale)
+            "화면 작업"
         }
     }
 }
@@ -93,7 +93,6 @@ public struct ShellStructure: Equatable, Sendable {
         columns = [
             ShellColumn(id: .navigation, sections: [
                 Self.panel(.sessions, key: "sessions_history", projection: projection),
-                Self.unavailable(.templates, projection: projection),
                 Self.workingMemory(projection),
             ]),
             ShellColumn(id: .primary, sections: [
@@ -104,8 +103,8 @@ public struct ShellStructure: Equatable, Sendable {
             ShellColumn(id: .context, sections: [
                 Self.panel(.approvals, key: "approvals", projection: projection),
                 Self.panel(.activity, key: "activity_logs", projection: projection),
-                Self.surface(.browserAside, name: "browser_aside", store: store),
                 Self.surface(.office, name: "office", store: store),
+                Self.surface(.browserAside, name: "browser_aside", store: store),
                 Self.surface(.computerUse, name: "computer_use", store: store),
             ]),
         ]

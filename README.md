@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="./docs/assets/birkin-hero-courier.png" alt="Birkin: a structured local agent overtaking a courier" width="820" />
+<img src="./docs/assets/birkin-brand-mark.png" alt="Birkin brand mark" width="136" />
 
 # birkin
 
-### Local memory. Deterministic control. Human authority.
+### Local office work and research, with every consequential action under human approval.
 
 A dependency-light Python agent that keeps memory, execution, and self-improvement inspectable on your machine.
 
@@ -36,6 +36,8 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 Birkin's core runtime has four cross-platform external dependencies: `pydantic` for validated data models, `psutil` for process identity, `typing-extensions` for typed runtime contracts, and `httpx` for cancellable provider HTTP requests. On Windows, `tzdata` supplies the IANA time-zone database used by local scheduling. `birkin_mnemosyne` is bundled with Birkin and is not installed separately. Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
 
 The workspace-only `research_run` tool runs Birkin's bounded deep-research workflow with up to 18 supplied HTTP(S) source URLs. A report retains at most 18 sources; initial collection allows up to 36 fetch attempts, while follow-up and counter-evidence searches have separate bounds. When a Codex binding is available and enforced egress is off, a run may use one isolated, ephemeral native-web search to discover candidate URLs; those candidates do not become evidence until Birkin fetches and validates them. Reports distinguish source-backed findings, audited inferences with their premises and assumptions, refuted claims, and unresolved claims. Citation existence is checked in code, while meaning and inference support remain model-audited rather than presented as deterministic verification.
+
+End-to-end acceptance for answers over difficult CSV and Excel inputs has not yet met the full criteria. Native-web discovery candidates remain leads rather than evidence until the validated fetch and audit path accepts them; see the [remaining Office and research acceptance criteria](./docs/office-agent-review.md).
 
 ## Memory
 
@@ -456,7 +458,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.410`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.411`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
@@ -528,10 +530,18 @@ See the [detailed support contract](./docs/office-support.md#office-work-os-v2) 
 
 Both surfaces consume the same ordered command/event protocol and durable journal. Conversation messages, tasks and runs, approvals, evidence, sessions, activity, cron, memory and skills, checkpoints, and status are canonical snapshot panels rather than separate dashboard state. When a surface reconnects with an existing session ID, the journal replays its conversation, panel data, and command cursor.
 
+The current [workspace information architecture](./docs/ui-redesign-spec.md) centers four primary areas: **Conversation** for requests and progress, **Research** for conclusions, evidence, and unresolved claims, **Documents** for import, preview, and proposed changes, and **Approvals** for the exact target, impact, authority, and execution result. The selected work stays central while its evidence, changes, and decisions remain connected in the review area; narrow layouts show one recoverable primary area at a time.
+
+![Windows research workspace with the Birkin brand mark](./docs/assets/birkin-workspace-windows.png)
+
+Windows WPF render with synthetic review data; this image does not represent a live account or a completed research run.
+
 - Terminal: type and press Enter to send, press Esc to interrupt, and use `/work` (alias `/workbench`) to focus the unified tasks/runs workbench. The former `/dash` command has been removed.
-- Web: press Ctrl+Enter to send, press Esc to interrupt, use the context button for the nine canonical panels, and use the explicit approve/reject actions after reviewing requester, target, impact, rejection result, risk, expiry, and evidence.
+- Web: press Ctrl+Enter to send, press Esc to interrupt, move among the primary work areas and named More destinations, and use the review panel's explicit approve/reject actions after checking requester, target, impact, rejection result, risk, expiry, and evidence.
 - Themes: Studio Dark, Paper Light, and High Contrast share semantic roles with terminal truecolor/ANSI-256 rendering. `NO_COLOR=1` keeps the terminal usable without color.
-- Responsive behavior: desktop keeps conversation and context side by side; mobile uses an opaque sheet above a composer that remains visible, with touch-sized controls and an explicit back action.
+- Responsive behavior: desktop keeps the selected work and review context connected; narrow layouts show one primary area at a time, keep hidden areas recoverable, and preserve access to the composer and current decision.
+
+This redesigned navigation and review flow is implemented in the current Web and WPF source and is undergoing local render checks. Separately, an earlier Windows representative DOCX journey passed from a natural-language request through approval, save, and receipt; that run does not validate the new BI layout, and live Microsoft 365 account acceptance remains outstanding. The macOS source follows the same four-area contract, but this redesign has not yet been confirmed on CI or a physical Mac.
 
 The workspace remains loopback-only and preserves Host validation, capability checks, approval authority, filesystem jail, network egress, and audit records. Deprecated UI paths `/legacy-dashboard`, `/dashboard`, and `/workbench` return a permanent `308` redirect to `/` with deprecation metadata; existing backend APIs remain available.
 
@@ -1091,8 +1101,9 @@ points return `Tool` objects consumed by the existing native tool registry.
 
 ## Native macOS control shell
 
-> **Shipped in this repository.** Birkin now includes a native macOS SwiftUI
-> client and a build pipeline for a universal signed `Birkin.app`. The app is a
+> **Implemented in this repository.** Birkin includes a native macOS SwiftUI
+> client and a build pipeline for a universal signed `Birkin.app`. This UI
+> redesign has not yet been confirmed on CI or a physical Mac. The app is a
 > separate local control surface; it does not replace the CLI, WebUI, or VS Code
 > extension. Credential-free builds are ad-hoc signed development artifacts,
 > not notarized public downloads.

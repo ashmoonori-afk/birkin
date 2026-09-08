@@ -9,21 +9,34 @@
           automation:AutomationProperties.AutomationId="primary.column"
           automation:AutomationProperties.Name="대화 작업 영역">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
+        <StackPanel Margin="4,0,4,12">
+            <TextBlock x:Name="WorkspaceTitle" Text="대화" FontSize="24" FontWeight="SemiBold"
+                       Foreground="{StaticResource TextBrush}"
+                       automation:AutomationProperties.AutomationId="workspace.route.title" />
+            <TextBlock x:Name="WorkspaceDescription" Text="현재 업무의 대화와 요청을 이어갑니다."
+                       Style="{StaticResource MutedTextStyle}" />
+        </StackPanel>
+
         <Border x:Name="ConversationRegion"
+                Grid.Row="1"
                 automation:AutomationProperties.AutomationId="conversation.stream"
                 automation:AutomationProperties.Name="대화와 메시지 입력"
                 Style="{StaticResource CardStyle}">
-            <ContentControl x:Name="ConversationHost" />
+            <Grid>
+                <ContentControl x:Name="ConversationHost" />
+                <ContentControl x:Name="ResearchHost" Visibility="Collapsed" />
+            </Grid>
         </Border>
 
         <Expander x:Name="TerminalRegion"
-                  Grid.Row="1"
+                  Grid.Row="2"
                   Header="터미널"
-                  IsExpanded="False"
+                  IsExpanded="False" Visibility="Collapsed"
                   Margin="0,5,0,0"
                   Foreground="{StaticResource TextBrush}"
                   automation:AutomationProperties.AutomationId="terminal.landmark"

@@ -135,6 +135,7 @@ def test_native_import_descriptor_reaches_mcp_inspect_and_pending(
             "sensitivity", "acl_fingerprint",
         )
     }
+    office_source["media_type"] = "application/octet-stream"
     adapter.surface_authority.office.open({"artifact": office_source})
     for index in range(MAX_OFFICE_SNAPSHOT_ITEMS):
         adapter.surface_authority.office._retain(
@@ -157,7 +158,10 @@ def test_native_import_descriptor_reaches_mcp_inspect_and_pending(
         if line.startswith('{"display_name_untrusted"'))
     descriptor = json.loads(descriptor_line)["office_source"]
 
-    assert descriptor == office_source
+    assert descriptor == {
+        **office_source,
+        "media_type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
     assert str(source) not in prompts[0]
     tools = mcp_server._build_tools()
     inspected, inspect_error = tools["inspect_document"]["handler"]({

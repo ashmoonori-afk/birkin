@@ -96,6 +96,7 @@
     backdrop-filter: blur(18px);
   }
   .brand { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+  .brand-mark { width: 40px; height: 40px; border-radius: 11px; object-fit: cover; align-self: center; }
   .brand strong { letter-spacing: .035em; }
   .brand span { color: var(--dim); font-size: .78rem; white-space: nowrap; }
   .topbar-spacer { flex: 1; }
@@ -507,13 +508,108 @@
       animation-iteration-count: 1;
     }
   }
+
+  /* Workspace redesign: navigation, focused work, and review stay distinct. */
+  .layout { grid-template-columns: 224px minmax(0, 1fr) minmax(300px, 25vw); gap: 16px; }
+  .work-nav {
+    min-width: 0; overflow: auto; padding: 18px 12px;
+    border: 1px solid var(--border-muted); border-radius: var(--radius);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+  }
+  .work-nav h2, .work-nav h3 { margin: 0 8px 10px; }
+  .work-nav h2 { font-size: 1rem; }
+  .work-nav h3 { margin-top: 24px; color: var(--dim); font-size: .76rem; }
+  .work-nav-list { display: grid; gap: 4px; }
+  .work-nav-button {
+    min-height: 42px; padding: 0 12px; border: 0; border-radius: 10px;
+    background: transparent; color: var(--muted); text-align: left; cursor: pointer;
+  }
+  .work-nav-button[aria-current="page"] {
+    background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    color: var(--text); font-weight: 650;
+  }
+  .recent-work { display: grid; gap: 5px; }
+  .recent-work .empty { margin: 8px; text-align: left; font-size: .8rem; }
+  .conversation { grid-template-rows: auto minmax(0, 1fr) auto; }
+  .workspace-heading {
+    padding: 18px 24px 14px; border-bottom: 1px solid var(--border-muted);
+  }
+  .workspace-heading h1 { margin: 0; font-size: clamp(1.35rem, 2vw, 1.6rem); }
+  .workspace-heading p { margin: 5px 0 0; color: var(--muted); font-size: .82rem; }
+  .message-content { display: block; }
+  .message-content > :first-child { margin-top: 0; }
+  .message-content > :last-child { margin-bottom: 0; }
+  .message-content h1, .message-content h2, .message-content h3 {
+    margin: 1.15em 0 .45em; line-height: 1.3;
+  }
+  .message-content h1 { font-size: 1.25rem; }
+  .message-content h2 { font-size: 1.1rem; }
+  .message-content h3 { font-size: 1rem; }
+  .message-content p, .message-content ul, .message-content ol { margin: .55em 0; }
+  .message-content pre { overflow: auto; padding: 12px; border-radius: 9px; background: var(--background); }
+  .message-content code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .message-content a { color: var(--info); text-underline-offset: 3px; }
+  .report-table-wrap { max-width: 100%; overflow-x: auto; margin: .75em 0; }
+  .report-table { width: 100%; border-collapse: collapse; font-size: .86rem; }
+  .report-table th, .report-table td {
+    padding: 8px 10px; border: 1px solid var(--border-muted); text-align: left;
+  }
+  .report-table th { background: var(--surface-raised); }
+  .context-panel { box-shadow: none; }
+  .panel-navigation { align-items: center; }
+  .panel-tabs { flex-wrap: wrap; overflow: visible; }
+  .panel-tabs .panel-tab:nth-of-type(n+4) { display: none; }
+  .panel-tabs[data-expanded="true"] .panel-tab { display: inline-flex; }
+  .panel-more { font-size: 0; }
+  .panel-more::after { content: "더보기"; font-size: .76rem; }
+  .stream-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .workspace[data-work-view="documents"] .conversation,
+  .workspace[data-work-view="approvals"] .conversation { display: none; }
+  .workspace[data-work-view="documents"] .context-panel,
+  .workspace[data-work-view="approvals"] .context-panel {
+    position: relative; inset: auto; grid-column: 2 / 4; width: auto; height: auto;
+    transform: none; box-shadow: 0 18px 60px color-mix(in srgb, var(--background) 76%, transparent);
+  }
+
+  @media (max-width: 1100px) {
+    .layout { grid-template-columns: 190px minmax(0, 1fr); }
+    .context-panel {
+      position: fixed; inset: 72px 12px 12px auto; z-index: 20;
+      width: min(440px, calc(100vw - 24px)); height: auto;
+      background: var(--surface); transform: translateX(calc(100% + 24px));
+      transition: transform 170ms ease;
+    }
+    .workspace[data-panel-open="true"] .context-panel { transform: translateX(0); }
+    .workspace[data-work-view="documents"] .context-panel,
+    .workspace[data-work-view="approvals"] .context-panel {
+      position: relative; inset: auto; grid-column: 2; width: auto; height: auto; transform: none;
+    }
+  }
+  @media (max-width: 720px) {
+    .topbar { flex-wrap: wrap; }
+    .layout { grid-template-columns: minmax(0, 1fr); padding: 8px; }
+    .work-nav {
+      display: flex; align-items: center; overflow-x: auto; padding: 6px;
+      border-radius: 11px;
+    }
+    .work-nav h2, .work-nav h3, .recent-work { display: none; }
+    .work-nav-list { display: flex; min-width: max-content; }
+    .work-nav-button { min-width: 76px; text-align: center; }
+    .workspace-heading { padding: 14px 16px 12px; }
+    .context-panel { inset: auto 8px 8px; width: auto; height: min(72dvh, 620px); transform: translateY(calc(100% + 16px)); }
+    .workspace[data-panel-open="true"] .context-panel { transform: translateY(0); }
+    .workspace[data-work-view="documents"] .context-panel,
+    .workspace[data-work-view="approvals"] .context-panel { grid-column: 1; }
+  }
+  .workspace[data-work-view="research"] .composer { display: none; }
 </style>
 </head>
 <body>
 <div class="app">
-<div id="workspace-shell" class="workspace" data-testid="workspace-shell" data-panel-open="false">
+<div id="workspace-shell" class="workspace" data-testid="workspace-shell"
+     data-panel-open="false" data-work-view="conversation">
   <header class="topbar">
-    <div class="brand"><strong>Birkin</strong><span>통합 에이전트 작업 공간</span></div>
+    <div class="brand"><img class="brand-mark" src="data:image/webp;base64,UklGRjQDAABXRUJQVlA4ICgDAAAQEQCdASpAAFAAPjkWiEMiIqEdm0wAKAOEsgBnNgnEBLC8yR7Hz/EA6bXPL9Ed1G/PlezJ+4Hoq3PKu/31ZYtcPbbpk3kb+Y/YG/V8R0glJrsIU0d6+ptLUPtNW5iF3yL5I7nr6XSGEbQNWxr3/EkiPVk1OaFxLDeih/PH6iN3gu94fF3X+yJGf3EE8+WrKsAAAP7/UAB51VbbGY1KNfXqwRQdDLJMo6u//FrRierV34Znu8rPMxtSQMPeKUwYT8KL9RstdtfYA3ReONDJvGtL8jLfmxMIB2czm375ax60voTzWyfbZmveTPVtU6Auexb8HUhOz4M+b/jvgIgPgco/qQNCczEBdBNXOMpPAVH/Ydd/O1+1n01CAALL8Lc1VEziO6z2NN+Y1O0WH5gqq4id5aTUPFxFc+W9oHRftC59q7QeOH+qRDrh1GIRxJgcc/Ir+Tz6qI3Showt6K5s/kmfz8Kla2hNg1m6Ujg7V0cUCfEcee0kVr6mxlWYpq1d7QqCSHKEn7g7TGWji06MksaypdDVBD3DZQ/78hUyy7B9ZAJZswTBh/3ExzchHFaU9571s1s/JlNERF2gwFrGbSlm0cUWfNlbLrbiji0ofLi5Vv3Ev5/Gvkvx9vk7JmDlbWf+88wxGWyrjegNg2L18wsYxwhfjX9O+NX/7wT1ZeuxU8P9vcj/mfy48K2tXrBOtFySaOmvPtPPyjrXv2YB2i8h4wHQN1ezvpv9xu8e+I27w0jgfT7xLrGe3W30OdTvS0AAzWLmuGAY1axIkUzTgt0Wsmn716Yld8Pl5WTJ1Rx78F4vQsKpD0PED7hHXvBhnTdjNZoTKb5/tDAkBiPR4I4mTTQb5CvDfSbgzcI/rDp0y2sQQk+yK+Xs7bycDVuRkgEuSaOHGhiRV5mHScqRAeWkyik+gR0wPDuEyG/31J8FmsthVguStOHr39N3XdBiIziFaTgofdrgOLpWFMFfaStqnMQd8jkxpdO1/yJfT+ox5j530bQmC1BLam9vElju0TmOi6tW/qWXM3BXZif5R+im1Lhbz9yxxwosm+i2HEW4Rgz144OdAAAA" alt="" width="40" height="40" /><strong>Birkin</strong><span>통합 에이전트 작업 공간</span></div>
     <div class="topbar-spacer"></div>
     <select id="workspace-theme" class="theme-select" data-testid="workspace-theme"
             aria-label="워크스페이스 테마">
@@ -530,9 +626,28 @@
   </header>
 
   <main id="lens" class="layout main">
+    <nav class="work-nav" aria-label="주요 업무">
+      <h2>작업 공간</h2>
+      <div class="work-nav-list">
+        <button class="work-nav-button" type="button" data-work-view="conversation"
+                aria-current="page">대화</button>
+        <button class="work-nav-button" type="button" data-work-view="research">리서치</button>
+        <button class="work-nav-button" type="button" data-work-view="documents">문서</button>
+        <button class="work-nav-button" type="button" data-work-view="approvals">승인</button>
+      </div>
+      <h3>최근 업무</h3>
+      <div id="recent-work" class="recent-work" aria-live="polite">
+        <p class="empty">최근 업무를 불러오는 중입니다.</p>
+      </div>
+      <button id="new-work" class="work-nav-button" type="button">새 업무</button>
+    </nav>
     <section class="conversation" aria-label="대화">
+      <header class="workspace-heading">
+        <h1 id="workspace-view-title">대화</h1>
+        <p id="workspace-view-description">현재 업무를 이어서 진행하세요.</p>
+      </header>
       <div id="workspace-transcript" class="transcript" role="log"
-           aria-live="polite" aria-relevant="additions text"
+           aria-live="off" aria-relevant="additions"
            data-testid="workspace-transcript">
         <p id="workspace-empty" class="empty">세션을 연결하고 있습니다.</p>
       </div>
@@ -584,7 +699,8 @@
                   aria-controls="workspace-panel-body" aria-selected="false" tabindex="-1">상태</button>
         </div>
         <button id="panel-more" class="panel-more" type="button"
-                aria-label="더 많은 패널 보기">›</button>
+                aria-label="부가 패널 보기" aria-controls="workspace-panel-tabs"
+                aria-expanded="false">›</button>
       </div>
       <div id="workspace-panel-body" class="panel-body" role="tabpanel"
            aria-labelledby="panel-tab-tasks" tabindex="0"></div>
@@ -612,6 +728,7 @@
   </main>
 
   <div id="queue-notice" class="notice" aria-live="polite"></div>
+  <div id="stream-status" class="stream-status" role="status" aria-live="polite"></div>
 </div>
 </div>
 
@@ -633,6 +750,10 @@ const composer = byId("workspace-composer");
 const queueNoticeElement = byId("queue-notice");
 const themeSelect = byId("workspace-theme");
 const mobileBack = document.querySelector('[data-testid="workspace-mobile-back"]');
+const workViewButtons = [...document.querySelectorAll("button[data-work-view]")];
+const viewTitle = byId("workspace-view-title");
+const viewDescription = byId("workspace-view-description");
+const streamStatus = byId("stream-status");
 let browserFrameTimer = null;
 const browserClientId = sessionStorage.getItem(
   "birkin-browser-client"
@@ -656,6 +777,10 @@ const state = {
   reconnectTimer: null,
   approvalRefreshTimer: null,
   approvalCount: null,
+  activeView: "conversation",
+  panelReturnFocus: null,
+  bootstrapGeneration: 0,
+  switchingSession: false,
 };
 
 let items = [];
@@ -1076,11 +1201,138 @@ function messageNode(kind, text, id) {
     assistant: "Birkin",
     tool: "도구",
   }[kind] || "메시지";
-  const content = document.createElement("span");
+  const content = document.createElement("div");
   content.className = "message-content";
-  content.textContent = text;
+  if (kind === "assistant") renderSafeMarkdown(content, text);
+  else content.textContent = text;
   article.append(meta, content);
   return article;
+}
+
+function safeHttpURL(raw) {
+  try {
+    const url = new URL(raw);
+    return ["http:", "https:"].includes(url.protocol) ? url.href : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function appendInlineText(target, text) {
+  const pattern = /\[([^\]\n]+)\]\(([^\s<>]+)\)|https?:\/\/[^\s<>]+/g;
+  let cursor = 0;
+  for (const match of text.matchAll(pattern)) {
+    target.append(document.createTextNode(text.slice(cursor, match.index)));
+    const markdownLabel = match[1];
+    const rawLink = match[2] || match[0];
+    let trailing = match[0].match(/[.,;!?]+$/)?.[0] || "";
+    if (markdownLabel) trailing = "";
+    const withoutPunctuation = trailing ? rawLink.slice(0, -trailing.length) : rawLink;
+    if (withoutPunctuation.endsWith(")")
+        && (withoutPunctuation.match(/\(/g) || []).length
+          < (withoutPunctuation.match(/\)/g) || []).length) trailing = `)${trailing}`;
+    const candidate = trailing ? rawLink.slice(0, -trailing.length) : rawLink;
+    const href = safeHttpURL(candidate);
+    if (href) {
+      const link = document.createElement("a");
+      link.href = href;
+      link.textContent = markdownLabel || candidate;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      target.appendChild(link);
+      target.append(document.createTextNode(trailing));
+    } else {
+      target.append(document.createTextNode(markdownLabel || match[0]));
+    }
+    cursor = match.index + match[0].length;
+  }
+  target.append(document.createTextNode(text.slice(cursor)));
+}
+
+function tableCells(line) {
+  return line.trim().replace(/^\||\|$/g, "").split("|").map((cell) => cell.trim());
+}
+
+function renderSafeMarkdown(target, source) {
+  target.replaceChildren();
+  const lines = String(source || "").replace(/\r\n?/g, "\n").split("\n");
+  let index = 0;
+  while (index < lines.length) {
+    const line = lines[index];
+    if (line.startsWith("```")) {
+      const code = [];
+      index += 1;
+      while (index < lines.length && !lines[index].startsWith("```")) code.push(lines[index++]);
+      if (index < lines.length) index += 1;
+      const pre = document.createElement("pre");
+      const node = document.createElement("code");
+      node.textContent = code.join("\n");
+      pre.appendChild(node);
+      target.appendChild(pre);
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const node = document.createElement(`h${heading[1].length}`);
+      appendInlineText(node, heading[2]);
+      target.appendChild(node);
+      index += 1;
+      continue;
+    }
+    if (line.includes("|") && index + 1 < lines.length
+        && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1])) {
+      const wrap = document.createElement("div");
+      wrap.className = "report-table-wrap";
+      const table = document.createElement("table");
+      table.className = "report-table";
+      const head = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      for (const value of tableCells(line)) {
+        const cell = document.createElement("th");
+        cell.scope = "col";
+        appendInlineText(cell, value);
+        headRow.appendChild(cell);
+      }
+      head.appendChild(headRow);
+      table.appendChild(head);
+      index += 2;
+      const body = document.createElement("tbody");
+      while (index < lines.length && lines[index].includes("|")) {
+        const row = document.createElement("tr");
+        for (const value of tableCells(lines[index++])) {
+          const cell = document.createElement("td");
+          appendInlineText(cell, value);
+          row.appendChild(cell);
+        }
+        body.appendChild(row);
+      }
+      table.appendChild(body);
+      wrap.appendChild(table);
+      target.appendChild(wrap);
+      continue;
+    }
+    const list = line.match(/^\s*([-*]|\d+\.)\s+(.+)$/);
+    if (list) {
+      const ordered = /\d+\./.test(list[1]);
+      const node = document.createElement(ordered ? "ol" : "ul");
+      while (index < lines.length) {
+        const item = lines[index].match(/^\s*([-*]|\d+\.)\s+(.+)$/);
+        if (!item || /\d+\./.test(item[1]) !== ordered) break;
+        const row = document.createElement("li");
+        appendInlineText(row, item[2]);
+        node.appendChild(row);
+        index += 1;
+      }
+      target.appendChild(node);
+      continue;
+    }
+    if (line.trim()) {
+      const paragraph = document.createElement("p");
+      appendInlineText(paragraph, line);
+      target.appendChild(paragraph);
+    }
+    index += 1;
+  }
 }
 
 function appendMessage(kind, text, id) {
@@ -1142,9 +1394,12 @@ function renderSnapshot(snapshot) {
 }
 
 async function refreshWorkspaceSnapshot() {
+  const generation = state.bootstrapGeneration;
+  const sessionId = state.sessionId;
   const snapshot = await api(
-    `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/snapshot`
+    `/api/workspace/sessions/${encodeURIComponent(sessionId)}/snapshot`
   );
+  if (generation !== state.bootstrapGeneration || sessionId !== state.sessionId) return;
   state.snapshot = snapshot;
   renderPanel();
 }
@@ -1793,9 +2048,10 @@ function handleWorkspaceEvent(raw) {
     if (!content) {
       appendMessage("assistant", String(payload.text || ""), `${commandId}:assistant`);
     } else {
-      content.textContent = String(payload.text || content.textContent || "");
+      renderSafeMarkdown(content, String(payload.text || content.textContent || ""));
     }
     state.pendingAssistant.delete(commandId);
+    streamStatus.textContent = "Birkin의 응답이 완료되었습니다.";
   } else if (event.type.startsWith("tool.")) {
     const summary = ({
       "tool.started": "도구 실행을 시작했습니다.",
@@ -1843,6 +2099,8 @@ function handleWorkspaceEvent(raw) {
 
 function connectEvents() {
   if (!state.sessionId) return;
+  const generation = state.bootstrapGeneration;
+  const sessionId = state.sessionId;
   if (state.reconnectTimer) {
     clearTimeout(state.reconnectTimer);
     state.reconnectTimer = null;
@@ -1852,6 +2110,11 @@ function connectEvents() {
     + `/events?after=${state.cursor}`;
   const source = new EventSource(path);
   state.source = source;
+  const handleCurrentEvent = (event) => {
+    if (state.source !== source || generation !== state.bootstrapGeneration
+        || sessionId !== state.sessionId) return;
+    handleWorkspaceEvent(event);
+  };
   const eventTypes = [
     "command.accepted", "command.started", "command.completed", "command.failed",
     "message.user", "message.assistant.delta", "message.assistant.completed",
@@ -1861,15 +2124,16 @@ function connectEvents() {
     "computer.updated", "turn.interrupted", "turn.resumed", "error.raised"
   ];
   for (const eventType of eventTypes) {
-    source.addEventListener(eventType, handleWorkspaceEvent);
+    source.addEventListener(eventType, handleCurrentEvent);
   }
   source.onopen = () => {
+    if (state.source !== source || generation !== state.bootstrapGeneration) return;
     state.reconnectAttempts = 0;
     setConnection("connected", "연결됨");
   };
   source.onerror = () => {
     source.close();
-    if (state.source === source) {
+    if (state.source === source && generation === state.bootstrapGeneration) {
       setConnection("connecting", "재연결");
       const delay = Math.min(
         1000 * (2 ** state.reconnectAttempts),
@@ -1886,6 +2150,11 @@ function commandId() {
 }
 
 async function sendCommand(type, payload) {
+  if (state.switchingSession) {
+    const error = new Error("업무를 전환하는 중입니다. 입력을 유지한 채 잠시 후 다시 시도하세요.");
+    error.status = 423;
+    throw error;
+  }
   const id = commandId();
   const approvalId = type === "approval.answer"
     ? String(payload.approval_id || "")
@@ -1922,7 +2191,7 @@ async function optionalLegacyApi(path, fallback) {
   }
 }
 
-async function refreshLegacyPanels() {
+async function refreshLegacyPanels(expectedGeneration = state.bootstrapGeneration) {
   const [status, jobs, runs] = await Promise.all([
     optionalLegacyApi("/api/status", {}),
     optionalLegacyApi("/api/jobs", []),
@@ -1930,6 +2199,7 @@ async function refreshLegacyPanels() {
   ]);
   const agentRuns = await optionalLegacyApi("/api/agent-runs", {runs: []});
   const approvals = await loadApprovals();
+  if (expectedGeneration !== state.bootstrapGeneration) return;
   items = buildQueue(approvals, jobs, runs);
   for (const run of agentRuns.runs || []) {
     items.push({
@@ -2003,32 +2273,88 @@ function startApprovalRefreshPolling() {
   }, APPROVAL_REFRESH_INTERVAL_MS);
 }
 
-async function bootstrap() {
+async function bootstrap(requestedSession = null) {
+  const generation = ++state.bootstrapGeneration;
+  state.switchingSession = true;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+  if (state.approvalRefreshTimer) {
+    clearInterval(state.approvalRefreshTimer);
+    state.approvalRefreshTimer = null;
+  }
+  if (state.source) {
+    state.source.close();
+    state.source = null;
+  }
   setConnection("connecting", "연결 중");
   await loadContract();
+  if (generation !== state.bootstrapGeneration) return;
   const sessions = await api("/api/workspace/sessions");
+  if (generation !== state.bootstrapGeneration) return;
+  const recent = byId("recent-work");
+  recent.replaceChildren();
+  for (const session of sessions.slice(0, 5)) {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "work-nav-button";
+    item.textContent = String(session.title || session.session_id || "이름 없는 업무");
+    item.addEventListener("click", () => {
+      startBootstrap(session.session_id);
+    });
+    recent.appendChild(item);
+  }
+  if (!recent.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "아직 최근 업무가 없습니다.";
+    recent.appendChild(empty);
+  }
   const stored = localStorage.getItem("birkin.workspace.session");
-  const preferred = stored || sessions[0]?.session_id
+  const preferred = requestedSession || stored || sessions[0]?.session_id
     || `web-${crypto.randomUUID()}`;
   const created = await api("/api/workspace/sessions", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({session_id: preferred}),
   });
-  state.sessionId = created.session_id;
-  localStorage.setItem("birkin.workspace.session", state.sessionId);
+  if (generation !== state.bootstrapGeneration) return;
+  const sessionId = created.session_id;
   const snapshot = await api(
-    `/api/workspace/sessions/${encodeURIComponent(state.sessionId)}/snapshot`
+    `/api/workspace/sessions/${encodeURIComponent(sessionId)}/snapshot`
   );
+  if (generation !== state.bootstrapGeneration) return;
+  state.sessionId = sessionId;
+  localStorage.setItem("birkin.workspace.session", sessionId);
   renderSnapshot(snapshot);
-  await refreshLegacyPanels();
+  await refreshLegacyPanels(generation);
+  if (generation !== state.bootstrapGeneration) return;
+  state.switchingSession = false;
   startApprovalRefreshPolling();
   connectEvents();
   announce("");
 }
 
+function handleBootstrapFailure(error) {
+  console.error("workspace bootstrap failed", error);
+  setConnection("disconnected", "연결 실패");
+  announce("연결 초기화에 실패했습니다. 로컬 bootstrap URL로 다시 열어 주세요.");
+}
+
+function startBootstrap(sessionId = null) {
+  const expectedGeneration = state.bootstrapGeneration + 1;
+  bootstrap(sessionId).catch((error) => {
+    if (expectedGeneration === state.bootstrapGeneration) handleBootstrapFailure(error);
+  });
+}
+
+byId("new-work").addEventListener("click", () => {
+  startBootstrap(`web-${crypto.randomUUID()}`);
+});
+
 const workspacePanelTabs = [...document.querySelectorAll('[role="tab"][data-panel]')];
-function activatePanelTab(tab) {
+function activatePanelTab(tab, returnFocus = null, open = true) {
   state.activePanel = tab.dataset.panel;
   workspacePanelTabs.forEach((entry) => {
     const selected = entry === tab;
@@ -2036,9 +2362,53 @@ function activatePanelTab(tab) {
     entry.tabIndex = selected ? 0 : -1;
   });
   byId("workspace-panel-body").setAttribute("aria-labelledby", tab.id || "");
-  shell.dataset.panelOpen = "true";
+  setPanelOpen(open, returnFocus);
   renderPanel();
 }
+
+const compactPanel = window.matchMedia("(max-width: 1100px)");
+function setPanelOpen(open, returnFocus = null) {
+  const panel = byId("workspace-panel");
+  if (returnFocus && !panel.contains(returnFocus)) state.panelReturnFocus = returnFocus;
+  shell.dataset.panelOpen = String(open);
+  const primaryPanel = ["documents", "approvals"].includes(state.activeView);
+  const hidden = compactPanel.matches && !open && !primaryPanel;
+  panel.inert = hidden;
+  panel.setAttribute("aria-hidden", String(hidden));
+  byId("lens-toggle").setAttribute("aria-expanded", String(open));
+  if (!open && state.panelReturnFocus?.isConnected) state.panelReturnFocus.focus();
+}
+
+const viewCopy = {
+  conversation: ["대화", "현재 업무를 이어서 진행하세요."],
+  research: ["리서치 보고서", "결론과 출처, 미해결 항목을 함께 검토하세요."],
+  documents: ["문서 작업", "가져온 문서와 변경 근거를 검토하세요."],
+  approvals: ["승인 검토", "대상과 영향, 변경 내용, 실행 결과를 확인하세요."],
+};
+function activateWorkView(view, trigger) {
+  const returningToConversation = view === "conversation";
+  state.activeView = view;
+  shell.dataset.workView = view;
+  const copy = viewCopy[view] || viewCopy.conversation;
+  viewTitle.textContent = copy[0];
+  viewDescription.textContent = copy[1];
+  workViewButtons.forEach((button) => button.setAttribute(
+    "aria-current", button.dataset.workView === view ? "page" : "false"
+  ));
+  const panelKey = view === "approvals" ? "approvals"
+    : ["research", "documents"].includes(view) ? "files_evidence" : null;
+  if (panelKey) {
+    const tab = workspacePanelTabs.find((entry) => entry.dataset.panel === panelKey);
+    if (tab) activatePanelTab(tab, trigger, view !== "research" || !compactPanel.matches);
+  } else if (compactPanel.matches) setPanelOpen(false, returningToConversation ? null : trigger);
+}
+workViewButtons.forEach((button) => button.addEventListener("click", () => {
+  activateWorkView(button.dataset.workView, button);
+}));
+compactPanel.addEventListener("change", () => setPanelOpen(
+  compactPanel.matches ? shell.dataset.panelOpen === "true" : true
+));
+setPanelOpen(!compactPanel.matches);
 workspacePanelTabs.forEach((tab, index) => {
   if (!tab.id) tab.id = `panel-tab-${index}`;
   tab.addEventListener("click", () => activatePanelTab(tab));
@@ -2056,19 +2426,17 @@ panelTabs.addEventListener("keydown", (event) => {
 });
 
 byId("lens-toggle").addEventListener("click", () => {
-  shell.dataset.panelOpen = String(shell.dataset.panelOpen !== "true");
+  setPanelOpen(shell.dataset.panelOpen !== "true", byId("lens-toggle"));
 });
 mobileBack.addEventListener("click", () => {
-  shell.dataset.panelOpen = "false";
-  byId("lens-toggle").focus();
+  if (state.activeView === "conversation") setPanelOpen(false);
+  else activateWorkView("conversation", mobileBack);
 });
 panelMore.addEventListener("click", () => {
-  const atEnd = panelTabs.scrollLeft + panelTabs.clientWidth
-    >= panelTabs.scrollWidth - 1;
-  panelTabs.scrollTo({
-    left: atEnd ? 0 : panelTabs.scrollLeft + panelTabs.clientWidth * 0.7,
-    behavior: "auto",
-  });
+  const expanded = panelTabs.dataset.expanded !== "true";
+  panelTabs.dataset.expanded = String(expanded);
+  panelMore.setAttribute("aria-expanded", String(expanded));
+  panelMore.setAttribute("aria-label", expanded ? "부가 패널 닫기" : "부가 패널 보기");
 });
 themeSelect.addEventListener("change", async () => {
   const contract = await api("/api/contract");
@@ -2085,7 +2453,10 @@ byId("workspace-composer").addEventListener("submit", async (event) => {
     input.value = "";
     localStorage.setItem("birkin.workspace.draft", "");
   } catch (error) {
-    if (error.status === 409) await bootstrap();
+    if (error.status === 409) startBootstrap(state.sessionId);
+    else if (error.status === 423) {
+      announce("업무를 전환하는 중입니다. 입력을 유지한 채 잠시 후 다시 시도하세요.");
+    }
     else {
       console.error("workspace message send failed", error);
       announce(
@@ -2107,9 +2478,10 @@ input.addEventListener("keydown", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     event.preventDefault();
-    if (shell.dataset.panelOpen === "true") {
-      shell.dataset.panelOpen = "false";
-      byId("lens-toggle").focus();
+    if (state.activeView !== "conversation") {
+      activateWorkView("conversation", mobileBack);
+    } else if (shell.dataset.panelOpen === "true") {
+      setPanelOpen(false);
     } else {
       sendCommand("chat.interrupt", {}).catch((error) => {
         console.error("workspace interrupt failed", error);
@@ -2147,13 +2519,7 @@ resumeButton.addEventListener("click", () => {
   });
 });
 
-bootstrap().catch((error) => {
-  console.error("workspace bootstrap failed", error);
-  setConnection("disconnected", "연결 실패");
-  announce(
-    "연결 초기화에 실패했습니다. 로컬 bootstrap URL로 다시 열어 주세요."
-  );
-});
+startBootstrap();
 </script>
 </body>
 </html>

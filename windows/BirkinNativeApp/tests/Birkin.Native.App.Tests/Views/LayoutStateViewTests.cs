@@ -60,6 +60,42 @@ public sealed class LayoutStateViewTests
     }
 
     [TestMethod]
+    public async Task WorkRoutes_ReuseActualViewsAndMoveDocumentsOrApprovalsIntoTheWorkspace()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(() =>
+        {
+            var view = CreateView();
+            var documents = OfficeWorkflowViewHarness.Find<Button>(view, "route.documents");
+            documents.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.AreEqual(Visibility.Collapsed, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.ContextColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible,
+                OfficeWorkflowViewHarness.Find<FrameworkElement>(view, "office.landmark").Visibility);
+            Assert.AreEqual(Visibility.Collapsed,
+                OfficeWorkflowViewHarness.Find<FrameworkElement>(view, "approvals.landmark").Visibility);
+            Assert.AreEqual(1,
+                OfficeWorkflowViewHarness.FindAll<FrameworkElement>(view, "office.landmark").Count);
+
+            var conversation = OfficeWorkflowViewHarness.Find<Button>(view, "route.conversation");
+            conversation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.AreEqual(Visibility.Visible, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual("대화",
+                OfficeWorkflowViewHarness.Find<TextBlock>(view, "workspace.route.title").Text);
+
+            var research = OfficeWorkflowViewHarness.Find<Button>(view, "route.research");
+            research.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.AreEqual("리서치",
+                OfficeWorkflowViewHarness.Find<TextBlock>(view, "workspace.route.title").Text);
+            Assert.AreEqual(1,
+                OfficeWorkflowViewHarness.FindAll<FrameworkElement>(view, "conversation.items").Count);
+            return true;
+        });
+    }
+
+    [TestMethod]
     public async Task ContextToggle_HidesAndRestoresColumnSplitterViewAndChip()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
