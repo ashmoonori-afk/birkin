@@ -83,6 +83,7 @@ def _spawn(*, finding_count=1, numeric=False, verdict="supported"):
                  else "Alpha가 문서에 있다", "supports": supports}
                 for i in range(finding_count)]}, ensure_ascii=False)
         if "검증된 직접 사실 원장" in prompt:
+            assert "원장에 없는 ID나 도구 문구를 만들지 마세요" in prompt
             return json.dumps({"inferences": [], "unanswered_questions": []},
                               ensure_ascii=False)
         if "지원과 반증을 구분" in prompt:
@@ -541,9 +542,10 @@ def test_verified_premises_and_explicit_assumptions_produce_inference_status(
     script, monkeypatch,
 ):
     _web(monkeypatch)
+    premise_enums = []
 
     def spawn(prompt, binding, opts, cfg, *, timeout=900.0):
-        del binding, opts, cfg, timeout
+        del binding, cfg, timeout
         if "서로 겹치지 않는 조사 축" in prompt:
             return json.dumps(AXES, ensure_ascii=False)
         supports = [
@@ -559,6 +561,9 @@ def test_verified_premises_and_explicit_assumptions_produce_inference_status(
         if "축: 검증" in prompt:
             return json.dumps({"findings": [], "leads": []})
         if "검증된 직접 사실 원장" in prompt:
+            premise_enums.extend(opts["schema"]["properties"]["inferences"]
+                                 ["items"]["properties"]["premise_claim_ids"]
+                                 ["items"]["enum"])
             return json.dumps({"inferences": [{
                 "claim": "따라서 Alpha 결과를 고려해야 한다",
                 "premise_claim_ids": ["C1"], "assumptions": []}],
@@ -574,6 +579,7 @@ def test_verified_premises_and_explicit_assumptions_produce_inference_status(
     assert by_type["inference"]["status"] == "inference_supported"
     assert "전제: C1" in result["answer"]
     assert "가정: 추가 가정 없음" in result["answer"]
+    assert premise_enums == ["C1"]
 
 
 def test_failed_inference_synthesis_keeps_the_run_partial(script, monkeypatch):
@@ -608,6 +614,7 @@ def test_final_coverage_replaces_stale_synthesis_gap_with_reviewed_gap(
         if "최종 감사 원장" in prompt:
             assert stale in prompt
             assert "https://one.example/a" in prompt
+            assert "실제 실험 수행 자체를 누락으로 추가하지 말고" in prompt
             return json.dumps({"complete": False,
                                "missing_questions": [actual],
                                "reason": "최종 원장 재평가"}, ensure_ascii=False)
@@ -785,6 +792,38 @@ def test_proposal_repair_uses_exact_evidence_without_becoming_a_fact():
     assert repaired[2] == "repaired"
     assert rows[0]["status"] == "inference_supported"
     assert rows[0]["status"] != "source_supported"
+
+
+def test_incomplete_or_noncanonical_inference_stays_unresolved_and_is_not_exposed():
+    from birkin.moirai.patterns.deep_research import (
+        _audited_inferences, _render_answer, _valid_inferences,
+    )
+
+    excerpt = "Verified premise text."
+    facts = [{"claim_id": "C1", "claim": "검증된 전제",
+              "audit_supports": [{"source_id": "S1", "excerpt": excerpt}]}]
+    sources = {"S1": {"source_id": "S1", "final_url": "https://example.test",
+                       "text": excerpt}}
+    clipped = "가" * 500
+    inferences = _valid_inferences([
+        {"claim": clipped, "premise_claim_ids": ["C1"], "assumptions": []},
+        {"claim": "정상처럼 보이는 불량 추론", "premise_claim_ids":
+         ["C1-23 channels to=functions.mq"], "assumptions": []},
+    ], facts)
+    clipped_verdict = ({"verdict": "supported", "reason": "감" * 400,
+                        "supports": [{"source_id": "S1", "excerpt": excerpt}]},
+                       [{"source_id": "S1", "excerpt": excerpt}], "valid")
+    verdict = ({"verdict": "supported", "reason": "지원됨",
+                "supports": [{"source_id": "S1", "excerpt": excerpt}]},
+               [{"source_id": "S1", "excerpt": excerpt}], "valid")
+    rows = _audited_inferences(inferences, [clipped_verdict, verdict], facts)
+    answer = _render_answer(rows, sources)
+
+    assert all(row["status"] == "unresolved" for row in rows)
+    assert clipped not in answer
+    assert "C1-23 channels to=functions.mq" not in answer
+    assert "감" * 400 not in answer
+    assert answer.count("불완전한 추론 생성 결과는 결론으로 표시하지 않습니다.") == 2
 
 
 def test_fact_qualifiers_and_final_assumptions_remain_in_model_context():

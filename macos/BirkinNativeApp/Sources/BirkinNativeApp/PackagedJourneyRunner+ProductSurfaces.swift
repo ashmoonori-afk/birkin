@@ -1,3 +1,4 @@
+import BirkinNativeProtocol
 import BirkinNativeShell
 
 extension PackagedJourneyRunner {

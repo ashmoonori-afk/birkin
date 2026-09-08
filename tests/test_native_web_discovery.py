@@ -100,12 +100,27 @@ def test_codex_native_web_accepts_single_queries_action(monkeypatch) -> None:
     assert result["observed_query"] == "SQLite WAL docs"
 
 
+def test_codex_native_web_preserves_bounded_query_batch(monkeypatch) -> None:
+    queries = [letter * 500 for letter in "abcd"]
+    monkeypatch.setattr(providers.shutil, "which", lambda name: "codex")
+    monkeypatch.setattr(
+        providers, "_run", lambda *args, **kwargs: (
+            _events(query=None, queries=queries), "secret", 0,
+        ),
+    )
+    result = json.loads(providers.codex_web_discovery("safe", schema=SCHEMA))
+    assert result["observed_query"].splitlines() == queries
+    assert result["web_search_count"] == 1
+
+
 def test_codex_native_web_rejects_ambiguous_query_shapes(monkeypatch) -> None:
     monkeypatch.setattr(providers.shutil, "which", lambda name: "codex")
     cases = [
         {"query": "first", "queries": ["second"]},
         {"query": None, "queries": []},
-        {"query": None, "queries": ["first", "second"]},
+        {"query": "first", "queries": ["first", "second"]},
+        {"query": None, "queries": ["q"] * 5},
+        {"query": None, "queries": ["first", " "]},
         {"query": None, "queries": [7]},
         {"query": 7, "queries": None},
     ]
@@ -182,6 +197,14 @@ def test_codex_native_web_rejects_overlong_observed_query(monkeypatch) -> None:
     assert providers.codex_web_discovery("safe", schema=SCHEMA) == (
         "[provider-error] codex native web: invalid tool trace (query_length)"
     )
+    monkeypatch.setattr(
+        providers, "_run", lambda *args, **kwargs: (
+            _events(query=None, queries=["short", "x" * 501]), "secret", 0,
+        ),
+    )
+    assert providers.codex_web_discovery("safe", schema=SCHEMA) == (
+        "[provider-error] codex native web: invalid tool trace (query_length)"
+    )
 
 
 def test_engine_native_web_uses_existing_codex_binding_only_once(tmp_path: Path) -> None:
@@ -194,12 +217,13 @@ def main(m):
 """ % (SCHEMA, SCHEMA)
     script = engine.load_script_source(tmp_path / "native.py", source)
     calls = []
+    observed = "\n".join(letter * 500 for letter in "abcd")
 
     def spawn(prompt, binding, opts, cfg, **kwargs):
         calls.append((binding.provider, opts["native_web"]))
         return json.dumps({
             "candidates": [], "web_search_count": 1,
-            "observed_query": "SQLite WAL docs",
+            "observed_query": observed,
             "provenance": "model_discovered_after_web_search",
         })
 
@@ -212,6 +236,7 @@ def main(m):
     )
 
     assert outcome["result"]["first"]["web_search_count"] == 1
+    assert outcome["result"]["first"]["observed_query"] == observed
     assert outcome["result"]["second"] is None
     assert calls == [("codex", True)]
 

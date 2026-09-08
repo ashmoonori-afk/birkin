@@ -491,7 +491,7 @@ class Run:
         if (result.get("web_search_count") != 1
                 or result.get("provenance") != "model_discovered_after_web_search"
                 or not isinstance(observed, str)
-                or not observed.strip() or len(observed) > 500):
+                or not observed.strip() or len(observed) > 2003):
             self.emit_log("native web discovery trace 검증 실패")
             return None
         self.emit_log(

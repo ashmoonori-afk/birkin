@@ -228,7 +228,8 @@ def codex_web_discovery(prompt: str, *, model: str = "",
         return "[provider-error] codex CLI not found"
     developer = (
         "You are a read-only URL discovery worker. Use native web_search "
-        "exactly once. Do not use shell, filesystem, MCP, browser automation, "
+        "exactly once with at most four queries, each at most 500 characters. "
+        "Do not use shell, filesystem, MCP, browser automation, "
         "or any other tool. Return only the requested JSON schema. Candidate "
         "URLs are discovery metadata, not verified source evidence."
     )
@@ -293,19 +294,19 @@ def codex_web_discovery(prompt: str, *, model: str = "",
         raw_queries = action.get("queries") if isinstance(action, dict) else None
         query_value = raw_query.strip() if isinstance(raw_query, str) else None
         queries_value = (
-            raw_queries[0].strip()
-            if isinstance(raw_queries, list) and len(raw_queries) == 1
-            and isinstance(raw_queries[0], str)
+            [query.strip() for query in raw_queries]
+            if isinstance(raw_queries, list) and 1 <= len(raw_queries) <= 4
+            and all(isinstance(query, str) and query.strip() for query in raw_queries)
             else None
         )
         query_shape_valid = raw_query is None or bool(query_value)
         queries_shape_valid = raw_queries is None or bool(queries_value)
-        query = query_value or queries_value or ""
+        queries = queries_value or ([query_value] if query_value else [])
         query_valid = (
             isinstance(action, dict)
             and action.get("type") == "search"
             and query_shape_valid and queries_shape_valid
-            and not (query_value and queries_value and query_value != queries_value)
+            and not (query_value and queries_value and [query_value] != queries_value)
         )
         reason = None
         if len(started) != 1 or len(searches) != 1:
@@ -325,9 +326,9 @@ def codex_web_discovery(prompt: str, *, model: str = "",
         elif not (started[0][0] < searches[0][0]
                   < messages[0][0] < terminals[0][0]):
             reason = "order"
-        elif not query_valid or not query:
+        elif not query_valid or not queries:
             reason = "query"
-        elif len(query) > 500:
+        elif any(len(query) > 500 for query in queries):
             reason = "query_length"
         if reason:
             return f"[provider-error] codex native web: invalid tool trace ({reason})"
@@ -336,7 +337,7 @@ def codex_web_discovery(prompt: str, *, model: str = "",
             raise ValueError("message was not an object")
         payload.update(
             web_search_count=1,
-            observed_query=query,
+            observed_query="\n".join(queries),
             provenance="model_discovered_after_web_search",
         )
         return json.dumps(payload, ensure_ascii=False)

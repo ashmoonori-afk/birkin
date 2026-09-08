@@ -97,7 +97,7 @@ Birkin 핵심 런타임에는 네 가지 공통 외부 의존성이 있습니다
 
 작업공간 전용 `research_run` 도구는 사용자가 제공한 HTTP(S) 출처 URL을 최대 18개까지 받아 제한된 심층 조사를 실행합니다. 보고서에는 출처를 최대 18개까지 남기며, 초기 본문 수집은 최대 36회이고 후속·반증 탐색에는 별도 제한이 적용됩니다. Codex를 사용할 수 있고 enforced egress가 꺼져 있으면 한 번의 격리된 임시 웹 검색으로 후보 URL을 찾을 수 있지만, 후보는 Birkin이 본문을 가져와 검증하기 전까지 근거가 아닙니다. 보고서는 출처가 뒷받침하는 사실, 전제와 가정을 표시한 추론, 반박된 주장, 미확정 주장을 구분합니다. 인용의 존재는 코드가 확인하고 의미와 추론의 타당성은 모델 검토 결과로 표시합니다.
 
-고난도 CSV와 Excel 입력에 대한 답변의 전체 인수 기준은 아직 충족하지 못했습니다. native-web이 찾은 후보도 검증된 수집과 감사 경로가 받아들이기 전까지는 근거가 아닌 탐색 단서이며, [남은 Office·리서치 인수 기준](./docs/office-agent-review.md)에서 범위를 확인할 수 있습니다.
+native-web은 한 번의 검색 호출 안에 검색어를 최대 4개, 각각 500자까지 허용하며 관측된 검색어를 실행 원장에 보존합니다. 고난도 CSV와 Excel 입력에 대한 답변의 전체 인수 기준은 아직 충족하지 못했습니다. native-web이 찾은 후보도 검증된 수집과 감사 경로가 받아들이기 전까지는 근거가 아닌 탐색 단서이며, [남은 Office·리서치 인수 기준](./docs/office-agent-review.md)에서 범위를 확인할 수 있습니다.
 
 ## 메모리
 
@@ -516,7 +516,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.412`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.413`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 

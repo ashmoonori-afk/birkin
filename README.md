@@ -37,7 +37,7 @@ Birkin's core runtime has four cross-platform external dependencies: `pydantic` 
 
 The workspace-only `research_run` tool runs Birkin's bounded deep-research workflow with up to 18 supplied HTTP(S) source URLs. A report retains at most 18 sources; initial collection allows up to 36 fetch attempts, while follow-up and counter-evidence searches have separate bounds. When a Codex binding is available and enforced egress is off, a run may use one isolated, ephemeral native-web search to discover candidate URLs; those candidates do not become evidence until Birkin fetches and validates them. Reports distinguish source-backed findings, audited inferences with their premises and assumptions, refuted claims, and unresolved claims. Citation existence is checked in code, while meaning and inference support remain model-audited rather than presented as deterministic verification.
 
-End-to-end acceptance for answers over difficult CSV and Excel inputs has not yet met the full criteria. Native-web discovery candidates remain leads rather than evidence until the validated fetch and audit path accepts them; see the [remaining Office and research acceptance criteria](./docs/office-agent-review.md).
+Native-web discovery accepts one search call containing up to four queries of 500 characters each and preserves the observed queries in the journal. End-to-end acceptance for answers over difficult CSV and Excel inputs has not yet met the full criteria. Native-web discovery candidates remain leads rather than evidence until the validated fetch and audit path accepts them; see the [remaining Office and research acceptance criteria](./docs/office-agent-review.md).
 
 ## Memory
 
@@ -458,7 +458,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.412`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.413`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 

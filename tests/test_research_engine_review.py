@@ -378,8 +378,11 @@ def test_model_cannot_promote_inference_with_unknown_or_self_referencing_premise
     )
     rows = [row for row in outcome["result"]["claim_ledger"]
             if row.get("claim_type") == "inference"]
-    assert rows, "rejected inferences must remain visible in the ledger"
-    assert all(row["status"] == "unresolved" for row in rows)
+    assert not rows, "schema-invalid inference must not enter the claim ledger"
+    assert outcome["result"]["completion"] != "complete"
+    assert "최종 추론 생성에 실패했습니다" in outcome["result"]["reasons"]
+    assert all(value not in outcome["result"]["answer"]
+               for value in premises if value != "shared-model-id")
 
 
 def test_grounded_inference_displays_its_conditions_without_becoming_a_direct_fact(tmp_path, monkeypatch):
@@ -536,7 +539,7 @@ def test_final_coverage_sees_rejected_inference_and_preserves_its_gap(tmp_path, 
     )
     result = outcome["result"]
     assert len(prompts) == 1 and "unresolved" in prompts[0]
-    assert "외부 작업은 완료됐다." in prompts[0]
+    assert "외부 작업은 완료됐다." not in prompts[0]
     assert result["completion"] == "partial"
     assert result["final_coverage"]["status"] == "unresolved"
     assert gap in result["answer"], "complete=true must not erase the model's explicit gaps"
