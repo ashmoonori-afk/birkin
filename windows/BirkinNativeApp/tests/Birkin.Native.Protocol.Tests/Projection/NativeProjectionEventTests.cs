@@ -108,6 +108,39 @@ public sealed class NativeProjectionEventTests
             ((NativeJsonString)item["updated_at"]!).Value);
     }
 
+    [TestMethod]
+    public void ApplyEvent_WhenWorkspaceRefreshArrives_ReplacesReviewPanels()
+    {
+        using var fixture = LoadFixture();
+        var store = new NativeProjectionStore();
+        store.ApplySnapshot(
+            Decode(fixture.RootElement.GetProperty("snapshot")),
+            ReadyIdentity);
+
+        store.ApplyEvent(WorkspaceRefreshEvent(3, "old-work"));
+        store.ApplyEvent(RuntimeTaskEvent(4));
+        store.ApplyEvent(WorkspaceRefreshEvent(5, "work-item-1"));
+
+        var panels = store.State!.Panels.Values.Cast<NativeJsonObject>().ToArray();
+        var approvals = (NativeJsonArray)panels.Single(panel =>
+            ((NativeJsonString)panel["key"]!).Value == "approvals")["items"]!;
+        var approval = (NativeJsonObject)approvals.Values.Single();
+        Assert.AreEqual("work_item", ((NativeJsonString)approval["category"]!).Value);
+        Assert.AreEqual("create", ((NativeJsonString)approval["action"]!).Value);
+        var tasks = (NativeJsonArray)panels.Single(panel =>
+            ((NativeJsonString)panel["key"]!).Value == "tasks_runs")["items"]!;
+        Assert.AreEqual(2, tasks.Values.Count);
+        var workItem = tasks.Values.Cast<NativeJsonObject>().Single(item =>
+            ((NativeJsonString)item["kind"]!).Value == "work_item");
+        Assert.AreEqual("work_item", ((NativeJsonString)workItem["kind"]!).Value);
+        Assert.AreEqual("검증 보고서 확인", ((NativeJsonString)workItem["summary"]!).Value);
+        Assert.AreEqual("job_id", ((NativeJsonString)workItem["source_type"]!).Value);
+        Assert.IsFalse(tasks.Values.Cast<NativeJsonObject>().Any(item =>
+            ((NativeJsonString)item["id"]!).Value == "old-work"));
+        Assert.IsTrue(tasks.Values.Cast<NativeJsonObject>().Any(item =>
+            ((NativeJsonString)item["summary"]!).Value == "일일 브리핑"));
+    }
+
     private static NativeJsonObject StateJson(NativeProjectionState state) => new([
         new("protocol_version", new NativeJsonInteger(state.ProtocolVersion)),
         new("session_id", new NativeJsonString(state.SessionId)),
@@ -183,6 +216,60 @@ public sealed class NativeProjectionEventTests
                 new("summary", new NativeJsonString("validation-complete")),
                 new("status", new NativeJsonString("working")),
                 new("ui_state", new NativeJsonString("pending")),
+            ])),
+        ]));
+
+    private static NativeEnvelope RuntimeTaskEvent(long cursor) => new(
+        NativeMessageKind.Event,
+        $"server-{cursor}",
+        new NativeJsonObject([
+            new("protocol_version", new NativeJsonInteger(1)),
+            new("session_id", new NativeJsonString("session-1")),
+            new("cursor", new NativeJsonInteger(cursor)),
+            new("event_id", new NativeJsonString($"briefing-{cursor}")),
+            new("type", new NativeJsonString("task.updated")),
+            new("timestamp", new NativeJsonString("2026-09-06T01:28:17Z")),
+            new("actor_id", new NativeJsonString("python:runtime")),
+            new("command_id", new NativeJsonString("briefing-command")),
+            new("payload", new NativeJsonObject([
+                new("task_id", new NativeJsonString("briefing-1")),
+                new("summary", new NativeJsonString("일일 브리핑")),
+            ])),
+        ]));
+
+    private static NativeEnvelope WorkspaceRefreshEvent(long cursor, string workItemId) => new(
+        NativeMessageKind.Event,
+        $"server-{cursor}",
+        new NativeJsonObject([
+            new("protocol_version", new NativeJsonInteger(1)),
+            new("session_id", new NativeJsonString("session-1")),
+            new("cursor", new NativeJsonInteger(cursor)),
+            new("event_id", new NativeJsonString($"refresh-{cursor}")),
+            new("type", new NativeJsonString("workspace.refreshed")),
+            new("timestamp", new NativeJsonString("2026-09-06T01:28:17Z")),
+            new("actor_id", new NativeJsonString("python:runtime")),
+            new("command_id", new NativeJsonString("approval-command")),
+            new("payload", new NativeJsonObject([
+                new("approval_requests", new NativeJsonArray([
+                    new NativeJsonObject([
+                        new("id", new NativeJsonString("approval-work-item")),
+                        new("kind", new NativeJsonString("approval")),
+                        new("summary", new NativeJsonString("후속 업무 생성 확인")),
+                        new("description", new NativeJsonString("업무: 검증 보고서 확인")),
+                        new("category", new NativeJsonString("work_item")),
+                        new("action", new NativeJsonString("create")),
+                    ]),
+                ])),
+                new("work_items", new NativeJsonArray([
+                    new NativeJsonObject([
+                        new("id", new NativeJsonString(workItemId)),
+                        new("kind", new NativeJsonString("work_item")),
+                        new("summary", new NativeJsonString("검증 보고서 확인")),
+                        new("status", new NativeJsonString("예정")),
+                        new("source_type", new NativeJsonString("job_id")),
+                        new("target", new NativeJsonString("job-1")),
+                    ]),
+                ])),
             ])),
         ]));
 }

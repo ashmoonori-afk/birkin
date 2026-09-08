@@ -42,6 +42,7 @@ internal static class WorkspaceProjectionMapper
 
     private static IReadOnlyList<PanelItemPresentation> Sessions(NativeProjectionState state) =>
         ReadOnly(PanelItems(state.Panels, "sessions_history")
+            .Where(item => string.Equals(item.Kind, "session", StringComparison.Ordinal))
             .Where(item => !string.IsNullOrWhiteSpace(item.SessionId ?? item.Id))
             .GroupBy(item => item.SessionId ?? item.Id!, StringComparer.Ordinal)
             .Select(group => group.Last() with
@@ -156,7 +157,21 @@ internal static class WorkspaceProjectionMapper
                 Text(item, "office_phase"),
                 Text(item, "updated_at"),
                 Text(item, "session_id"),
-                Text(item, "name"))));
+                Text(item, "name"),
+                Text(item, "source_type"),
+                Text(item, "target"),
+                Text(item, "assignee"),
+                Text(item, "due_date"),
+                Text(item, "source_detail"),
+                Text(item, "source_status"),
+                Text(item, "source_destination"),
+                Text(item, "source_validation"),
+                Text(item, "source_failure"),
+                Text(item, "source_rollback"),
+                Text(item, "action"),
+                Flag(item, "recheckable"),
+                Text(item, "mail_recheck_state"),
+                Text(item, "mail_rechecked_at"))));
     }
 
     private static IEnumerable<string> Values(NativeJsonObject value, string key) =>

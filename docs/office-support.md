@@ -2,7 +2,7 @@
 
 This shipped contract describes registered runtime behavior, not theoretical package features.
 
-- Birkin version: `0.4.409`
+- Birkin version: `0.4.410`
 - `catalog_revision: 8`
 - `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`
 - Machine publication: [`provenance_manifest.json`](../birkin/office/adapters/provenance_manifest.json)
@@ -61,7 +61,7 @@ format, Birkin routes to `office-documents` and asks exactly
 
 ## Registered tools and arguments
 
-The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
+The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `m365_document_import`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
 
 | Tool | Required arguments | Important optional arguments/behavior |
 |---|---|---|
@@ -72,6 +72,7 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `review_meeting_actions` | `notes`, `candidates` | Requires exact source evidence, preserves unknown owner/due date, separates suggested dates, deduplicates, and returns an unpersisted confirmation draft. |
 | `list_work_items` | none | Optional `timezone_name`; groups durable all-day items into today, overdue, missing owner/date, and recent completion. |
 | `work_item_request` | `action` | Approval-gated create, meeting confirmation, update, or completion with conversation/document/goal/job source links. |
+| `m365_document_import` | `drive_item_id` | Imports through an allowed Microsoft 365 connection. Registration is tested; the live connection path was not verified by the local Office acceptance run. |
 | `search_office_sources` | `query`, `sources` | Searches only live, access-granted current-work, selected-folder, or allowed-connection artifacts and returns exact extraction locators and versions. |
 | `list_office_batches` | none | Lists per-file success and failure results without collapsing partial failure. |
 | `office_batch_request` | `items` or `retry_batch_id` | Approval-binds up to 25 unique targets for sequential canonical Office jobs; retry plans include failed files only. |

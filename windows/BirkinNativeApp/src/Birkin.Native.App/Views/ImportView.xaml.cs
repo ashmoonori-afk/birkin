@@ -17,6 +17,7 @@ public partial class ImportView : UserControl
     private readonly ShellPresentationModel? _model;
     private readonly IOfficeFilePicker _picker;
     private IReadOnlyList<string> _selectedPaths = [];
+    private bool _batchOwnsStatus;
     private bool _importPending;
     private bool _subscribed;
 
@@ -52,6 +53,7 @@ public partial class ImportView : UserControl
                 PathBox.Text = selected.Count == 1
                     ? selected[0]
                     : $"{selected.Count}개 파일 선택됨";
+                _batchOwnsStatus = false;
                 _importPending = false;
                 HideStatus();
             }
@@ -101,6 +103,7 @@ public partial class ImportView : UserControl
         }
         var succeeded = 0;
         var failed = new List<string>();
+        _batchOwnsStatus = true;
         foreach (var path in paths)
         {
             if (!OfficeFileSelection.IsSupported(path))
@@ -111,13 +114,21 @@ public partial class ImportView : UserControl
             PathBox.Text = path;
             ShowStatus("파일을 안전한 작업공간으로 가져오는 중입니다.", "MutedBrush");
             _importPending = true;
-            if (await _coordinator.ImportAsync(
-                    new FileImportIntent(path),
-                    CancellationToken.None))
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            try
             {
-                succeeded++;
+                if (await _coordinator.ImportAsync(
+                        new FileImportIntent(path),
+                        timeout.Token))
+                {
+                    succeeded++;
+                }
+                else
+                {
+                    failed.Add(Path.GetFileName(path));
+                }
             }
-            else
+            catch (OperationCanceledException)
             {
                 failed.Add(Path.GetFileName(path));
             }
@@ -129,6 +140,12 @@ public partial class ImportView : UserControl
             ShowStatus(
                 $"{succeeded}개를 가져왔습니다. 실패: {string.Join(", ", failed)}",
                 "DangerBrush");
+        }
+        else if (succeeded == 1)
+        {
+            ShowStatus(
+                "파일을 가져왔습니다. 아래 파일을 첫 보고서 요청에 사용할 수 있습니다.",
+                "SuccessBrush");
         }
         else if (succeeded > 1)
         {
@@ -150,6 +167,10 @@ public partial class ImportView : UserControl
 
     private void PresentWorkflow()
     {
+        if (_batchOwnsStatus)
+        {
+            return;
+        }
         var workflow = _model?.OfficeWorkflow;
         if (workflow is null)
         {

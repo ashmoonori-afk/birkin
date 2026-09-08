@@ -34,8 +34,9 @@ def _mail_read(data: ToolInput, _ctx: ToolContext) -> ToolResult:
 
 def _mail_draft(data: ToolInput, _ctx: ToolContext) -> ToolResult:
     from ..m365_mail import create_local_draft
+    from ..m365_connection import verified_approval_identity
 
-    return ToolResult(json.dumps(create_local_draft(data), ensure_ascii=False))
+    return ToolResult(json.dumps(create_local_draft({**data, "connection_identity": verified_approval_identity()}), ensure_ascii=False))
 
 
 def _mail_send(data: ToolInput, ctx: ToolContext) -> ToolResult:
@@ -53,6 +54,13 @@ def _mail_send(data: ToolInput, ctx: ToolContext) -> ToolResult:
     return ToolResult(json.dumps({**queued, "category": "mail_send", "review": draft}, ensure_ascii=False))
 
 
+def _mail_send_recheck(data: ToolInput, _ctx: ToolContext) -> ToolResult:
+    from ..approval_execution_recovery import recheck_unknown_mail_send
+
+    result = recheck_unknown_mail_send(str(data.get("approval_id", "")))
+    return ToolResult(json.dumps(result, ensure_ascii=False), is_error=not bool(result.get("ok")))
+
+
 def _calendar_read(data: ToolInput, _ctx: ToolContext) -> ToolResult:
     from ..m365_calendar import calendar_view
 
@@ -67,8 +75,9 @@ def _calendar_candidates(data: ToolInput, _ctx: ToolContext) -> ToolResult:
 
 def _calendar_draft(data: ToolInput, _ctx: ToolContext) -> ToolResult:
     from ..m365_calendar import create_local_event
+    from ..m365_connection import verified_approval_identity
 
-    return ToolResult(json.dumps(create_local_event(data), ensure_ascii=False))
+    return ToolResult(json.dumps(create_local_event({**data, "connection_identity": verified_approval_identity()}), ensure_ascii=False))
 
 
 def _calendar_apply(data: ToolInput, ctx: ToolContext) -> ToolResult:
@@ -117,8 +126,9 @@ def _briefing_request(data: ToolInput, ctx: ToolContext) -> ToolResult:
 
 def _review_draft(data: ToolInput, _ctx: ToolContext) -> ToolResult:
     from ..team_review import create_handoff
+    from ..m365_connection import verified_approval_identity
 
-    return ToolResult(json.dumps(create_handoff(data), ensure_ascii=False))
+    return ToolResult(json.dumps(create_handoff({**data, "connection_identity": verified_approval_identity()}), ensure_ascii=False))
 
 
 def _review_share(data: ToolInput, ctx: ToolContext) -> ToolResult:
@@ -133,16 +143,16 @@ def _review_share(data: ToolInput, ctx: ToolContext) -> ToolResult:
     return ToolResult(json.dumps({**queued, "category": "team_share", "review": review}, ensure_ascii=False))
 
 
-def _review_comment(data: ToolInput, _ctx: ToolContext) -> ToolResult:
+def _review_comment(data: ToolInput, ctx: ToolContext) -> ToolResult:
     from ..team_review import add_comment
 
     return ToolResult(json.dumps(add_comment(data), ensure_ascii=False))
 
 
-def _review_list(data: ToolInput, _ctx: ToolContext) -> ToolResult:
+def _review_list(data: ToolInput, ctx: ToolContext) -> ToolResult:
     from ..team_review import list_review
 
-    return ToolResult(json.dumps(list_review(data.get("review_id"), data.get("actor")), ensure_ascii=False))
+    return ToolResult(json.dumps(list_review(data.get("review_id")), ensure_ascii=False))
 
 
 def _data_status(_data: ToolInput, ctx: ToolContext) -> ToolResult:
@@ -180,6 +190,7 @@ def tools() -> list[Tool]:
             "body": {"type": "string", "minLength": 1},
             "attachments": {"type": "array", "maxItems": 20, "items": artifact},
         }, "required": ["action", "from_account", "to", "subject", "body"], "additionalProperties": False,
+        "allOf": [{"if": {"properties": {"action": {"enum": ["reply", "reply_all", "forward"]}}}, "then": {"required": ["source_message_id", "source_etag"]}}],
     }
     return [
         Tool("m365_connection_status", "Show Microsoft 365 account, delegated read scopes, and exact connection state.", {"type": "object", "properties": {}, "additionalProperties": False}, _status),
@@ -201,6 +212,7 @@ def tools() -> list[Tool]:
         Tool("m365_mail_read", "Read a bounded unread Microsoft 365 message projection for summarization.", {"type": "object", "properties": {"unread_only": {"type": "boolean"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "additionalProperties": False}, _mail_read),
         Tool("m365_mail_draft", "Create a local new, reply, reply-all, or forward draft with hash-bound attachments.", draft_schema, _mail_draft),
         Tool("m365_mail_send_request", "Request explicit approval to send one unchanged local mail draft.", {"type": "object", "properties": {"draft_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "required": ["draft_id", "content_sha256"], "additionalProperties": False}, _mail_send),
+        Tool("m365_mail_send_recheck", "Recheck one unknown approved mail send using only its existing remote message.", {"type": "object", "properties": {"approval_id": {"type": "string", "pattern": "^[0-9a-f]{12}$"}}, "required": ["approval_id"], "additionalProperties": False}, _mail_send_recheck),
         Tool("m365_calendar_read", "Read bounded occurrences, exceptions, and single events from the signed-in user's calendar.", {"type": "object", "properties": {"start": {"type": "string", "format": "date-time"}, "end": {"type": "string", "format": "date-time"}}, "required": ["start", "end"], "additionalProperties": False}, _calendar_read),
         Tool("m365_calendar_candidates", "Propose slots using self and explicitly supplied attendee busy intervals only.", {"type": "object", "properties": {
             "start": {"type": "string", "format": "date-time"}, "end": {"type": "string", "format": "date-time"},
@@ -228,8 +240,8 @@ def tools() -> list[Tool]:
             "role": {"type": "string", "enum": ["read", "write"]}, "message": {"type": "string", "maxLength": 2000},
         }, "required": ["drive_item_id", "source_etag", "source_name", "proposer", "reviewers"], "additionalProperties": False}, _review_draft),
         Tool("m365_review_share_request", "Request approval to share one unchanged drive item with named reviewers.", {"type": "object", "properties": {"review_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"}, "content_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "required": ["review_id", "content_sha256"], "additionalProperties": False}, _review_share),
-        Tool("m365_review_comment", "Add a local review comment bound to the current drive item version.", {"type": "object", "properties": {"review_id": {"type": "string"}, "actor": {"type": "string"}, "text": {"type": "string", "minLength": 1}}, "required": ["review_id", "actor", "text"], "additionalProperties": False}, _review_comment),
-        Tool("m365_review_get", "Read a review only as its proposer or named reviewer.", {"type": "object", "properties": {"review_id": {"type": "string"}, "actor": {"type": "string"}}, "required": ["review_id", "actor"], "additionalProperties": False}, _review_list),
+        Tool("m365_review_comment", "Add a local review comment bound to the current drive item version.", {"type": "object", "properties": {"review_id": {"type": "string"}, "text": {"type": "string", "minLength": 1}}, "required": ["review_id", "text"], "additionalProperties": False}, _review_comment),
+        Tool("m365_review_get", "Read a review only as its verified caller.", {"type": "object", "properties": {"review_id": {"type": "string"}}, "required": ["review_id"], "additionalProperties": False}, _review_list),
         Tool("data_control_status", "Show connected account, search folders, provider transfer, memory, retention, deletion, and cache boundaries.", {"type": "object", "properties": {}, "additionalProperties": False}, _data_status),
         Tool("data_work_copy_delete_request", "Request permanent deletion of one unchanged Birkin-owned imported work copy.", {"type": "object", "properties": {
             "name": {"type": "string", "minLength": 1}, "uri": {"type": "string", "minLength": 1},

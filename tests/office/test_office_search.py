@@ -26,7 +26,9 @@ def test_search_returns_live_locator_version_and_drops_revoked_source(tmp_path: 
 
     assert result["excluded_sources"] == 1 and result["cache"] == "none"
     hit = result["results"][0]
-    assert hit["file"] == "report.docx" and hit["is_older_version"] is True
+    assert hit["file"] == "report.docx" and hit["is_older_version"] is False
+    assert hit["version_status"] == "verified_local"
+    assert hit["version"] == first["content_hash"]
     assert hit["source_sha256"] == first["content_hash"]
     assert hit["source_locator"]["document"].startswith("sha256:")
     assert len(hit["source_locator"]) > 1

@@ -98,7 +98,7 @@ def test_post_retries_then_succeeds(monkeypatch):
         return FakeResp()
 
     # no sleeping in tests
-    monkeypatch.setattr(llm_mod.urllib.request, "urlopen", flaky_urlopen)
+    monkeypatch.setattr("birkin.http_transport.open_no_redirect", flaky_urlopen)
     monkeypatch.setattr(llm_mod.time, "sleep", lambda *_: None)
 
     c = LLMClient(provider="anthropic", model="m", api_key="k", base_url="")
@@ -112,7 +112,7 @@ def test_post_gives_up_after_max_attempts(monkeypatch):
     def always_fail(req, timeout=300):
         raise urllib.error.URLError("dead")
 
-    monkeypatch.setattr(llm_mod.urllib.request, "urlopen", always_fail)
+    monkeypatch.setattr("birkin.http_transport.open_no_redirect", always_fail)
     monkeypatch.setattr(llm_mod.time, "sleep", lambda *_: None)
     c = LLMClient(provider="anthropic", model="m", api_key="k", base_url="")
     with pytest.raises(LLMError):

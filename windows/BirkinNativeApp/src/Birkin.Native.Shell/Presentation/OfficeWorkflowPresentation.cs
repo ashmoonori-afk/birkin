@@ -21,12 +21,14 @@ public sealed record MutationAvailabilitySet(
     MutationAvailability OfficeConvert,
     MutationAvailability SessionCreate,
     MutationAvailability SessionSelect,
-    MutationAvailability SessionRename)
+    MutationAvailability SessionRename,
+    MutationAvailability ApprovalRecheck)
 {
     private static readonly MutationAvailability Disabled = new(false, "E_CONNECTION_NOT_READY");
 
     public static MutationAvailabilitySet None { get; } =
         new(
+            Disabled,
             Disabled,
             Disabled,
             Disabled,

@@ -18,4 +18,17 @@ public sealed class ProviderOfficeJourneyTests : MainWindowTestBase
 
         await ProviderOfficeJourney.RunAsync();
     }
+
+    [TestMethod]
+    [TestCategory("OfficeWorkflow")]
+    [TestCategory("ExistingAccountProvider")]
+    public async Task MainWindow_NaturalLanguageAttachment_UsesOfficeToolsBeforeApprovalAndSave()
+    {
+        if (!string.Equals(Environment.GetEnvironmentVariable("BIRKIN_EXISTING_ACCOUNT_RUNNER"), "1", StringComparison.Ordinal))
+        {
+            Assert.Inconclusive("Set BIRKIN_EXISTING_ACCOUNT_RUNNER=1 on the protected Windows runner.");
+        }
+
+        await NaturalOfficeProviderJourney.RunAsync();
+    }
 }

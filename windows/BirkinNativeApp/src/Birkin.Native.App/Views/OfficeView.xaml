@@ -72,10 +72,9 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
         </Expander>
-        <Grid Grid.Row="3" Margin="0,4,0,0">
-            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <StackPanel Grid.Row="3" Margin="0,4,0,0">
             <Expander Header="새 문서와 수정 요청" automation:AutomationProperties.AutomationId="office.new-panel" automation:AutomationProperties.Name="새 문서와 수정 요청" Foreground="{StaticResource TextBrush}">
-                <StackPanel Margin="0,6,6,0">
+                <StackPanel Margin="0,6,0,0">
                     <TextBlock Text="목적" Style="{StaticResource MutedTextStyle}" />
                     <TextBox x:Name="PurposeBox" Margin="0,3,0,6" Padding="6" automation:AutomationProperties.AutomationId="office.request" automation:AutomationProperties.Name="문서 작업 목적" />
                     <TextBlock Text="본문(줄마다 한 문단)" Style="{StaticResource MutedTextStyle}" />
@@ -83,7 +82,7 @@
                     <TextBlock Text="결과 형식: DOCX" Style="{StaticResource MutedTextStyle}" />
                     <TextBlock Text="저장 위치" Margin="0,6,0,0" Style="{StaticResource MutedTextStyle}" />
                     <TextBox x:Name="DestinationBox" Margin="0,3,0,6" Padding="6" automation:AutomationProperties.AutomationId="office.destination" automation:AutomationProperties.Name="결과 DOCX 저장 위치" />
-                    <CheckBox x:Name="OverwriteBox" Content="같은 이름의 파일 덮어쓰기 요청" automation:AutomationProperties.AutomationId="office.overwrite" automation:AutomationProperties.HelpText="실제 저장은 별도 승인 후 진행됩니다." />
+                    <CheckBox x:Name="OverwriteBox" Content="같은 이름의 파일 덮어쓰기 요청" Foreground="{StaticResource TextBrush}" automation:AutomationProperties.AutomationId="office.overwrite" automation:AutomationProperties.HelpText="실제 저장은 별도 승인 후 진행됩니다." />
                     <WrapPanel HorizontalAlignment="Right" Margin="0,6,0,0">
                         <Button Content="수정 요청 작성" Margin="0,0,6,0" automation:AutomationProperties.AutomationId="office.edit-draft" automation:AutomationProperties.Name="가져온 문서 수정 요청을 대화에 작성" Style="{StaticResource ActionButtonStyle}" Click="EditDraftClicked" />
                         <Button automation:AutomationProperties.AutomationId="office.draft" automation:AutomationProperties.Name="새 DOCX 초안 요청" IsEnabled="{Binding OfficeWorkflow.Availability.OfficeDraft.IsEnabled}" Click="DraftClicked">
@@ -94,10 +93,10 @@
                     <TextBlock x:Name="RequestStatusText" Margin="0,6,0,0" TextWrapping="Wrap" Visibility="Collapsed" automation:AutomationProperties.AutomationId="office.request-status" automation:AutomationProperties.LiveSetting="Assertive" />
                 </StackPanel>
             </Expander>
-            <Expander x:Name="ImportPanel" Grid.Column="1" Header="문서 가져오기" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="업무 문서 가져오기" Foreground="{StaticResource TextBrush}">
+            <Expander x:Name="ImportPanel" Header="문서 가져오기" Margin="0,4,0,0" automation:AutomationProperties.AutomationId="office.import-panel" automation:AutomationProperties.Name="업무 문서 가져오기" Foreground="{StaticResource TextBrush}">
                 <ContentControl x:Name="ImportHost" />
             </Expander>
-        </Grid>
+        </StackPanel>
     </Grid>
     </ScrollViewer>
 </UserControl>

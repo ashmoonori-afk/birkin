@@ -21,7 +21,8 @@ from birkin.tools.documents import NAMES as DOCUMENT_TOOL_NAMES
 ROOT = Path(__file__).parents[2]
 SCRIPT = ROOT / "script/qa/office_complex_dogfood.py"
 FORMATS = {"docx", "xlsx", "pptx", "pdf", "hwpx"}
-TOOLS = set(DOCUMENT_TOOL_NAMES)
+M365_ONLY_TOOLS = {"m365_document_import"}
+LOCAL_TOOLS = set(DOCUMENT_TOOL_NAMES) - M365_ONLY_TOOLS
 
 
 def _invoke(output: Path, *, module: bool) -> dict[str, object]:
@@ -44,7 +45,7 @@ def _invoke(output: Path, *, module: bool) -> dict[str, object]:
     assert hashlib.sha256(payload).hexdigest() == full["sha256"]
     report = cast(dict[str, object], json.loads(payload))
     assert report["ok"] is True
-    assert set(cast(list[str], report["tools_exercised"])) == TOOLS
+    assert set(cast(list[str], report["tools_exercised"])) == LOCAL_TOOLS
     return report
 
 

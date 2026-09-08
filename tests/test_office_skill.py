@@ -28,6 +28,7 @@ REQUIRED_ARGUMENTS = {
     "review_meeting_actions": ["notes", "candidates"],
     "list_work_items": [],
     "work_item_request": ["action"],
+    "m365_document_import": ["drive_item_id"],
     "search_office_sources": ["query", "sources"],
     "list_office_batches": [],
     "office_batch_request": [],

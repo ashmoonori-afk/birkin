@@ -1,6 +1,7 @@
 $ErrorActionPreference = "Stop"
 $root = Join-Path $env:TEMP "birkin-package-selftest-$([guid]::NewGuid().ToString('N'))"
 $install = Join-Path $root "install"
+$previousExecutable = [Environment]::GetEnvironmentVariable("BIRKIN_EXECUTABLE", "User")
 function New-FakePackage([string]$Version, [string]$Reported) {
   $package = Join-Path $root "package-$Version-$Reported"
   New-Item -ItemType Directory -Force -Path (Join-Path $package "app") | Out-Null
@@ -30,7 +31,19 @@ try {
   if ($state.status -ne "failed_previous_preserved" -or -not (Test-Path (Join-Path $install "current\birkin.cmd"))) {
     throw "failed update did not preserve the installed version"
   }
+  $v2 = New-FakePackage "2.0.0" "2.0.0"
+  try { & (Join-Path $PSScriptRoot "install-package.ps1") -PackageRoot $v2 -InstallRoot $install -AllowUnsignedDevelopment -TestFailAfterPreviousMove } catch {}
+  $state = Get-Content (Join-Path $install "install-state.json") -Raw | ConvertFrom-Json
+  $reported = (& (Join-Path $install "current\birkin.cmd") --version | Out-String).Trim()
+  if ($state.status -ne "failed_previous_restored" -or $reported -notmatch "1.0.0") {
+    throw "failed swap did not restore the previous installation"
+  }
   Write-Output "windows-package-selftest=PASS"
 } finally {
-  if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+  [Environment]::SetEnvironmentVariable("BIRKIN_EXECUTABLE", $previousExecutable, "User")
+  $resolvedRoot = [IO.Path]::GetFullPath($root)
+  $resolvedTemp = [IO.Path]::GetFullPath($env:TEMP).TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+  if ($resolvedRoot.StartsWith($resolvedTemp, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $resolvedRoot)) {
+    Remove-Item -LiteralPath $resolvedRoot -Recurse -Force
+  }
 }

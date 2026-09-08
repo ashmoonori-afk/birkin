@@ -6,6 +6,13 @@ from pathlib import Path
 import pytest
 
 from birkin.team_review import add_comment, create_handoff, execute_share, list_review
+import birkin.team_review as team_review
+
+
+@pytest.fixture(autouse=True)
+def _verified_account(monkeypatch) -> None:
+    monkeypatch.setattr(team_review, "verify_approval_identity", lambda expected, client: {"id": "test", "name": "reviewer@example.com"})
+    monkeypatch.setattr(team_review, "current_verified_identity", lambda client: {"id": "test", "name": "reviewer@example.com"})
 
 
 class FakeDrive:
@@ -31,11 +38,10 @@ def test_review_handoff_binds_version_identity_and_permissions(tmp_path: Path, m
     assert shared["status"] == "shared"
     assert graph.calls[-1][2]["requireSignIn"] is True and graph.calls[-1][2]["roles"] == ["read"]
 
-    comment = add_comment({"review_id": review["id"], "actor": "reviewer@example.com", "text": "2쪽 수정"}, client=graph)
+    comment = add_comment({"review_id": review["id"], "actor": "stranger@example.com", "text": "2쪽 수정"}, client=graph)
+    assert comment["actor"] == "reviewer@example.com"
     assert comment["source_etag"] == "etag-1"
-    assert list_review(review["id"], "owner@example.com")["comments"][0]["text"] == "2쪽 수정"
-    with pytest.raises(PermissionError):
-        list_review(review["id"], "stranger@example.com")
+    assert list_review(review["id"], client=graph)["comments"][0]["text"] == "2쪽 수정"
 
 
 def test_review_refuses_changed_source_for_share_and_comment(tmp_path: Path, monkeypatch) -> None:

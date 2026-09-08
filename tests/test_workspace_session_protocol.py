@@ -359,6 +359,36 @@ def test_interrupt_acceptance_can_signal_while_turn_is_running(
     hub.close()
 
 
+def test_hub_chat_submit_returns_receipt_while_turn_keeps_running(
+    tmp_path: Path,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+
+    def chat(_payload: dict[str, object]) -> dict[str, object]:
+        started.set()
+        assert release.wait(timeout=2)
+        return {"reply": "done"}
+
+    hub = WorkspaceHub(root=tmp_path, handlers={"chat.send": chat})
+    _session, _created = hub.create("live-stream")
+    command = _command("streaming-turn", expected_cursor=0, text="stream")
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            submitted = executor.submit(
+                hub.submit,
+                command,
+                actor_id="native:window-main",
+            )
+            assert started.wait(timeout=1)
+            receipt = submitted.result(timeout=1)
+            assert receipt.state == "accepted"
+            assert not release.is_set()
+    finally:
+        release.set()
+        hub.close()
+
+
 def test_session_close_wakes_stream_waiter(tmp_path: Path) -> None:
     hub = WorkspaceHub(
         root=tmp_path,

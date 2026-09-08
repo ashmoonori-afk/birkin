@@ -13,6 +13,7 @@ from openpyxl import Workbook, load_workbook
 from birkin import approvals, config, store
 from birkin.approval_execution_journal import ExecutionJournal
 from birkin.office.errors import DocumentError, DocumentErrorCode
+from birkin.office.service import DocumentService
 from birkin.tools import build_registry
 from birkin.tools._types import ToolContext
 from birkin.workspace.approval_projection import approval_item
@@ -87,6 +88,32 @@ def queue_office_job(
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_invalid_operation_is_rejected_before_structured_preview(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    office_home = home / "office"
+    caller = tmp_path / "caller"
+    office_home.mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    request, _source, _sha = _request(office_home, caller / "output.xlsx")
+    request["operations"] = [{"unexpected": "A1", "value": 9}]
+
+    def fail_preview(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("structured preview must not run")
+
+    monkeypatch.setattr(DocumentService, "render_artifact", fail_preview)
+    result = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller), include={"documents"}
+    ).execute("office_job_request", request)
+
+    assert result.is_error is True
+    body = cast("dict[str, object]", json.loads(cast(str, result.content)))
+    assert body["error"]["code"] == "INVALID_INPUT"
+    assert body["error"]["stage"] == "plan"
 
 
 def test_docx_paragraph_request_executes_through_registry_and_approval(

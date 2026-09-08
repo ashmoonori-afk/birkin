@@ -10,10 +10,12 @@ public enum ApprovalDecision
 }
 
 public sealed record ApprovalAnswerIntent(string ApprovalId, ApprovalDecision Decision);
+public sealed record ApprovalRecheckIntent(string ApprovalId);
 
 public static class ApprovalCommands
 {
     public const string CommandType = "approval.answer";
+    public const string RecheckCommandType = "approval.recheck";
 
     public static NativeCommandRequest Answer(ApprovalAnswerIntent intent, CommandRequestContext context) =>
         new(
@@ -28,6 +30,16 @@ public static class ApprovalCommands
                         ApprovalDecision.Reject => "reject",
                         _ => throw new ArgumentOutOfRangeException(nameof(intent)),
                     })),
+                ])),
+            context.ViewId);
+
+    public static NativeCommandRequest Recheck(ApprovalRecheckIntent intent, CommandRequestContext context) =>
+        new(
+            new NativeCommandIdentity(context.CommandId, context.ExpectedCursor),
+            new NativeCommandIntent(
+                RecheckCommandType,
+                new NativeJsonObject([
+                    new("approval_id", new NativeJsonString(intent.ApprovalId)),
                 ])),
             context.ViewId);
 }

@@ -9,6 +9,7 @@ import pytest
 
 from birkin import approvals, config, store
 from birkin.workspace import approval_authority
+from birkin.workspace.contracts import WorkspaceCommand
 from birkin.workspace.records import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 from birkin.workspace.service import WorkspaceService
@@ -18,6 +19,141 @@ from birkin.workspace.snapshot import reduce_snapshot
 def _approval_items(service: WorkspaceService) -> list[dict[str, object]]:
     panel = next(panel for panel in service.snapshot().panels if panel.key == "approvals")
     return list(panel.items)
+
+
+def test_unknown_mail_recheck_contract_and_projection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        pending_id="abc123def456", category="mail_send", title="Send", description="",
+        payload={"draft_id": "d" * 32, "content_sha256": "a" * 64}, origin="test",
+    )
+    _ = store.resolve_pending(
+        str(record["id"]), "action_outcome_unknown",
+        updates={"mail_recheck_state": "accepted", "mail_rechecked_at": "2026-09-08T00:00:00+00:00"},
+    )
+    service = WorkspaceService(root=tmp_path / "journal", session_id="session-1", handlers={})
+
+    item = next(item for item in _approval_items(service) if item["id"] == record["id"])
+    command = WorkspaceCommand.parse({
+        "protocol_version": 1, "command_id": "recheck-1", "expected_cursor": 0,
+        "type": "approval.recheck", "payload": {"approval_id": record["id"]},
+        "client_context": {"surface": "windows", "view_id": "approvals"},
+    })
+
+    assert item["category"] == "mail_send"
+    assert item["status"] == "action_outcome_unknown"
+    assert item["risk"] == "high"
+    assert item["sealed"] is True
+    assert item["decided"] is True
+    assert item["ui_state"] == "action_needed"
+    assert item["recheckable"] is True
+    assert item["mail_recheck_state"] == "accepted"
+    assert item["mail_rechecked_at"] == "2026-09-08T00:00:00+00:00"
+    assert command.payload == {"approval_id": record["id"]}
+
+
+def test_runtime_mail_recheck_uses_existing_approval_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "birkin.approval_execution_recovery.recheck_unknown_mail_send",
+        lambda approval_id: calls.append(approval_id) or {
+            "ok": True, "state": "accepted", "recheckable": True,
+        },
+    )
+    emitted: list[WorkspaceEvent] = []
+
+    def emit(kind: str, payload: dict[str, object]) -> WorkspaceEvent:
+        event = WorkspaceEvent(
+            protocol_version=1, session_id="session-1", cursor=len(emitted) + 1,
+            event_id=f"event-{len(emitted) + 1}", type=kind,
+            timestamp="2026-09-08T00:00:00Z", actor_id="test",
+            command_id="recheck-1", payload=payload,
+        )
+        emitted.append(event)
+        return event
+
+    adapter = RuntimeWorkspaceAdapter("session-1", emit, workspace_root=tmp_path / "workspace")
+    refreshed: list[bool] = []
+    monkeypatch.setattr(adapter, "_refresh_review_panels", lambda: refreshed.append(True))
+    result = adapter.handlers()["approval.recheck"]({"approval_id": "abc123def456"})
+
+    assert result == {"ok": True, "state": "accepted", "recheckable": True}
+    assert calls == ["abc123def456"]
+    assert refreshed == [True]
+
+
+def test_runtime_mail_recheck_failure_becomes_command_failed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(
+        "birkin.approval_execution_recovery.recheck_unknown_mail_send",
+        lambda approval_id: {"ok": False, "error": "승인 기록을 찾을 수 없습니다"},
+    )
+    adapter = RuntimeWorkspaceAdapter(
+        "session-1", lambda kind, payload: WorkspaceEvent(
+            protocol_version=1, session_id="session-1", cursor=1,
+            event_id="adapter-event", type=kind, timestamp="2026-09-08T00:00:00Z",
+            actor_id="test", command_id="recheck-failed", payload=payload,
+        ), workspace_root=tmp_path / "workspace",
+    )
+    service = WorkspaceService(
+        root=tmp_path / "journal", session_id="session-1",
+        handlers={"approval.recheck": adapter.handlers()["approval.recheck"]},
+    )
+    command = WorkspaceCommand.parse({
+        "protocol_version": 1, "command_id": "recheck-failed", "expected_cursor": 0,
+        "type": "approval.recheck", "payload": {"approval_id": "abc123def456"},
+        "client_context": {"surface": "windows", "view_id": "approvals"},
+    })
+    receipt, execute = service.accept(command, actor_id="native:test")
+
+    assert execute is True
+    with pytest.raises(ValueError, match="승인 기록"):
+        service.execute(command, receipt)
+    event_types = [event.type for event in service.events()]
+    assert "command.failed" in event_types
+    assert "command.completed" not in event_types
+
+
+def test_runtime_mail_recheck_accepted_observation_completes_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(
+        "birkin.approval_execution_recovery.recheck_unknown_mail_send",
+        lambda approval_id: {"ok": True, "state": "accepted", "recheckable": True},
+    )
+    adapter = RuntimeWorkspaceAdapter(
+        "session-1", lambda kind, payload: WorkspaceEvent(
+            protocol_version=1, session_id="session-1", cursor=1,
+            event_id="adapter-event", type=kind, timestamp="2026-09-08T00:00:00Z",
+            actor_id="test", command_id="recheck-ok", payload=payload,
+        ), workspace_root=tmp_path / "workspace",
+    )
+    service = WorkspaceService(
+        root=tmp_path / "journal", session_id="session-1",
+        handlers={"approval.recheck": adapter.handlers()["approval.recheck"]},
+    )
+    command = WorkspaceCommand.parse({
+        "protocol_version": 1, "command_id": "recheck-ok", "expected_cursor": 0,
+        "type": "approval.recheck", "payload": {"approval_id": "abc123def456"},
+        "client_context": {"surface": "windows", "view_id": "approvals"},
+    })
+    receipt, execute = service.accept(command, actor_id="native:test")
+
+    completed = service.execute(command, receipt)
+
+    assert execute is True and completed.state == "completed"
+    assert completed.transient_result == {
+        "ok": True, "state": "accepted", "recheckable": True,
+    }
+    assert service.events()[-1].type == "command.completed"
 
 
 def test_snapshot_projects_pending_risk_and_sealed_approval(

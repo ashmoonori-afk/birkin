@@ -168,8 +168,8 @@ def test_an_empty_payload_does_not_crash_the_executor():
 
 # ---------------- the invariant that must survive -------------------------
 
-def test_no_tool_exposes_moirai_to_a_model():
-    """The model may propose; it may never spawn. That is the whole rail.
+def test_only_research_tool_exposes_moirai_to_a_model():
+    """Only the bounded research tool may start a bundled Moirai workflow.
 
     Checked structurally rather than by grepping for the word: no tool module
     may name the moirai package in an import or any other identifier. The one
@@ -182,6 +182,8 @@ def test_no_tool_exposes_moirai_to_a_model():
     from birkin.tools import files
     tools = pathlib.Path(__file__).resolve().parent.parent / "birkin" / "tools"
     for f in tools.glob("*.py"):
+        if f.name == "research.py":
+            continue
         src = f.read_text(encoding="utf-8")
         for node in ast.walk(ast.parse(src)):
             ident = (

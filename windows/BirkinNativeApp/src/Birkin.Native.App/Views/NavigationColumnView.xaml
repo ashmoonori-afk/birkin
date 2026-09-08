@@ -93,7 +93,8 @@
                         Click="ShowHistoryClicked"
                         IsEnabled="{Binding OfficeWorkflow.Availability.SessionSelect.IsEnabled}"
                         Padding="8,5"
-                        Content="{Binding Workspace.RecentResults.Count, StringFormat=최근 결과 {0}개 · 활동 기록 보기}"
+                        Content="{Binding Workspace.RecentResults.Count}"
+                        ContentStringFormat="최근 결과 {0}개 · 활동 기록 보기"
                         automation:AutomationProperties.AutomationId="sessions.history" />
             </Grid>
         </Border>
@@ -207,9 +208,9 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <TextBlock Text="오늘과 후속 업무" Style="{StaticResource SectionTitleStyle}" Margin="0,0,0,8" />
+                <DockPanel Margin="0,0,0,8"><TextBlock Text="오늘과 후속 업무" Style="{StaticResource SectionTitleStyle}" /><TextBlock x:Name="WorkItemFeedback" DockPanel.Dock="Right" Foreground="{StaticResource MutedBrush}" FontSize="10" /></DockPanel>
                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl ItemsSource="{Binding Workspace.WorkItems}">
+                    <ItemsControl x:Name="WorkItems" ItemsSource="{Binding Workspace.WorkItems}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="10,8" Margin="0,0,0,6">
@@ -217,12 +218,59 @@
                                         <TextBlock Text="{Binding Summary}" Foreground="{StaticResource TextBrush}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                         <TextBlock Text="{Binding Description}" Foreground="{StaticResource MutedBrush}" FontSize="11" TextWrapping="Wrap" />
                                         <TextBlock Text="{Binding Status}" Foreground="{StaticResource AccentBrush}" FontSize="11" />
+                                        <TextBlock Text="{Binding SourceTypeLabel}" Foreground="{StaticResource MutedBrush}" FontSize="10" />
+                                        <TextBlock Text="{Binding SourceDisplay}" Foreground="{StaticResource MutedBrush}" FontSize="10" TextWrapping="Wrap" />
+                                        <TextBlock Text="{Binding SourceDetail}" Foreground="{StaticResource TextBrush}" FontSize="11" TextWrapping="Wrap"
+                                                   automation:AutomationProperties.Name="후속 업무 원본 상세">
+                                            <TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Visible" /><Style.Triggers><DataTrigger Binding="{Binding HasSourceDetail}" Value="False"><Setter Property="Visibility" Value="Collapsed" /></DataTrigger></Style.Triggers></Style></TextBlock.Style>
+                                        </TextBlock>
+                                        <TextBlock Text="{Binding SourceStatusLabel}" Foreground="{StaticResource AccentBrush}" FontSize="10" />
+                                        <Expander x:Name="SourceReceiptDetails" Header="영수증 상세" Margin="0,4,0,0"
+                                                  Foreground="{StaticResource TextBrush}"
+                                                  automation:AutomationProperties.AutomationId="work-item.receipt-details"
+                                                  automation:AutomationProperties.Name="선택한 작업의 결과 영수증 상세">
+                                            <Expander.Style><Style TargetType="Expander"><Setter Property="Visibility" Value="Collapsed" /><Style.Triggers><DataTrigger Binding="{Binding HasReceiptDetails}" Value="True"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers></Style></Expander.Style>
+                                            <StackPanel Margin="8,4,0,0">
+                                                <TextBlock Text="{Binding SourceDestination, StringFormat=저장 위치: {0}}" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding SourceValidation, StringFormat=검증: {0}}" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding SourceFailure, StringFormat=실패: {0}}" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding SourceRollback, StringFormat=되돌리기: {0}}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </Expander>
+                                        <StackPanel Margin="0,6,0,0">
+                                            <TextBox Text="{Binding Assignee, Mode=OneWay}" Margin="0,0,0,4"
+                                                     automation:AutomationProperties.AutomationId="work-item.assignee"
+                                                     automation:AutomationProperties.Name="후속 업무 담당자" />
+                                            <DatePicker SelectedDate="{Binding DueDateValue, Mode=OneWay}" Margin="0,0,0,4"
+                                                        automation:AutomationProperties.AutomationId="work-item.due-date"
+                                                        automation:AutomationProperties.Name="후속 업무 기한" />
+                                            <Button Content="담당자와 기한 수정 요청" Tag="{Binding}" Click="UpdateWorkItemClicked"
+                                                    automation:AutomationProperties.Name="후속 업무 담당자와 기한 수정 승인 요청" />
+                                        </StackPanel>
+                                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                                            <Button Content="{Binding SourceActionLabel}" Tag="{Binding}" Click="OpenWorkItemSourceClicked"
+                                                    CommandParameter="{Binding ElementName=SourceReceiptDetails}"
+                                                    IsEnabled="{Binding CanOpenSource}" Margin="0,0,6,0"
+                                                    automation:AutomationProperties.Name="{Binding SourceActionLabel}" />
+                                            <Button Content="완료" Tag="{Binding}" Click="CompleteWorkItemClicked"
+                                                    IsEnabled="{Binding CanComplete}"
+                                                    automation:AutomationProperties.Name="후속 업무 완료 승인 요청" />
+                                        </StackPanel>
                                     </StackPanel>
                                 </Border>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                 </ScrollViewer>
+                <TextBlock Grid.Row="1" Text="표시할 후속 업무가 없습니다." Foreground="{StaticResource MutedBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers><DataTrigger Binding="{Binding ElementName=WorkItems, Path=HasItems}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </Grid>
         </Border>
     </Grid>

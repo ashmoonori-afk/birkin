@@ -5,12 +5,18 @@ from pathlib import Path
 
 import pytest
 
+from birkin import m365_calendar
 from birkin.m365_calendar import (
     calendar_view,
     create_local_event,
     execute_approved_event,
     propose_slots,
 )
+
+
+@pytest.fixture(autouse=True)
+def _verified_account(monkeypatch) -> None:
+    monkeypatch.setattr(m365_calendar, "verify_approval_identity", lambda expected, client: {"id": "test"})
 
 
 class FakeCalendarGraph:
@@ -44,6 +50,38 @@ def test_calendar_view_slots_and_unknown_attendees() -> None:
     assert view["occurrences_and_exceptions"] is True
     assert slots["candidates"][0]["start"] == "2026-09-07T09:00:00+09:00"
     assert slots["unknown_attendees"] == ["unknown@example.com"]
+
+
+def test_calendar_pages_slot_rounding_and_all_day_local_date(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+
+    class PagedGraph(FakeCalendarGraph):
+        def request(self, method, path, body=None, *, headers=None):
+            self.calls.append((method, path, body, headers))
+            if len(self.calls) == 1:
+                return {"value": [], "@odata.nextLink": "https://graph.microsoft.com/v1.0/me/calendarView?$skip=1"}
+            return {"value": [{"id": "second-page", "showAs": "busy"}]}
+
+    assert calendar_view("2026-09-07T09:00:00+09:00", "2026-09-07T13:00:00+09:00", client=PagedGraph())["events"][0]["id"] == "second-page"
+    slots = propose_slots(
+        "2026-09-07T09:00:59+09:00", "2026-09-07T12:00:00+09:00",
+        duration_minutes=60, timezone_name="Asia/Seoul", busy=[], attendees=[],
+    )
+    assert slots["candidates"][0]["start"] == "2026-09-07T09:30:00+09:00"
+    draft = create_local_event({
+        "action": "create", "subject": "휴일", "start": "2026-09-07T00:00:00+09:00",
+        "end": "2026-09-08T00:00:00+09:00", "timezone": "Asia/Seoul",
+        "is_all_day": True, "attendees": [],
+    })
+    body = m365_calendar._graph_event(draft)
+    assert body["start"] == {"dateTime": "2026-09-07T00:00:00", "timeZone": "Asia/Seoul"}
+
+    class MalformedGraph(FakeCalendarGraph):
+        def request(self, method, path, body=None, *, headers=None):
+            return {}
+
+    with pytest.raises(ValueError, match="page was invalid"):
+        calendar_view("2026-09-07T09:00:00+09:00", "2026-09-07T13:00:00+09:00", client=MalformedGraph())
 
 
 def test_event_draft_sends_no_invite_and_rechecks_conflict(tmp_path: Path, monkeypatch) -> None:

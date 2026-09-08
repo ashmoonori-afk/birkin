@@ -21,6 +21,7 @@ def search_sources(
     sources: object,
     *,
     extract: Callable[..., ExtractionResult],
+    resolve_connected: Callable[[Mapping[str, object]], Mapping[str, object]] | None = None,
     limit: object = 20,
 ) -> dict[str, object]:
     """Rank live extraction spans and keep their exact locator and revision."""
@@ -37,6 +38,7 @@ def search_sources(
     postings: dict[str, dict[str, int]] = {}
     doclens: dict[str, int] = {}
     excluded = 0
+    excluded_details: list[dict[str, object]] = []
     for source_index, raw in enumerate(sources):
         if not isinstance(raw, Mapping):
             raise TypeError("each source must be an object")
@@ -44,10 +46,17 @@ def search_sources(
         scope = source.get("scope")
         if scope not in SCOPES:
             raise ValueError(f"invalid search scope: {scope!r}")
-        if source.get("access_granted") is not True:
-            excluded += 1
-            continue
-        artifact = source.get("artifact")
+        resolved: Mapping[str, object] | None = None
+        if scope == "allowed_connection":
+            try:
+                resolved = resolve_connected(source) if resolve_connected is not None else None
+            except Exception:
+                resolved = None
+            if not isinstance(resolved, Mapping) or resolved.get("access_granted") is not True:
+                excluded += 1
+                excluded_details.append({"source": source_index, "reason": "remote_permission_and_freshness_unverified"})
+                continue
+        artifact = resolved.get("artifact") if resolved is not None else source.get("artifact")
         if not isinstance(artifact, Mapping):
             raise TypeError("source artifact must be an object")
         try:
@@ -55,17 +64,15 @@ def search_sources(
         except (DocumentError, FileNotFoundError, OSError):
             excluded += 1
             continue
-        version = source.get("version")
-        current_version = source.get("current_version", version)
-        if not isinstance(version, str) or not version:
-            raise ValueError("source version must be a non-empty string")
-        if not isinstance(current_version, str) or not current_version:
-            raise ValueError("source current_version must be a non-empty string")
-        label = source.get("label")
+        version = resolved.get("version") if resolved is not None else None
+        if resolved is not None and (not isinstance(version, str) or not version):
+            raise ValueError("resolved source version must be a non-empty string")
+        label = resolved.get("label") if resolved is not None else source.get("label")
         if not isinstance(label, str) or not label:
             uri = artifact.get("uri")
             label = Path(uri).name if isinstance(uri, str) else f"source-{source_index + 1}"
         for span_index, span in enumerate(extracted["spans"]):
+            verified_version = version if resolved is not None else span["source_sha256"]
             doc_id = f"{source_index}:{span_index}"
             terms = tokenize(span["text"])
             if not terms:
@@ -73,8 +80,12 @@ def search_sources(
             documents[doc_id] = {
                 "file": label,
                 "scope": scope,
-                "version": version,
-                "is_older_version": version != current_version,
+                "version": verified_version,
+                "is_older_version": (
+                    resolved.get("current_version") != version
+                    if resolved is not None else artifact.get("content_hash") != span["source_sha256"]
+                ),
+                "version_status": "verified_remote" if resolved is not None else "verified_local",
                 "source_sha256": span["source_sha256"],
                 "source_locator": span["source_locator"],
                 "snippet": span["text"][:500],
@@ -94,5 +105,6 @@ def search_sources(
         "query": query,
         "results": [{**documents[item], "score": round(scores[item], 6)} for item in ranked],
         "excluded_sources": excluded,
+        "excluded_details": excluded_details,
         "cache": "none",
     }

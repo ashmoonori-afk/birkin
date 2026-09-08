@@ -13,7 +13,10 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import config, store
 from .m365_graph import GraphClient, graph_client
+from .m365_connection import verify_approval_identity
 from .office.artifact_serialization import canonical_json
+
+MAX_CALENDAR_PAGES = 20
 
 
 def _instant(value: object, label: str) -> datetime:
@@ -30,9 +33,27 @@ def calendar_view(start: object, end: object, *, client: GraphClient | None = No
     if last <= first or last - first > timedelta(days=31):
         raise ValueError("calendar range must be positive and at most 31 days")
     query = urlencode({"startDateTime": first.isoformat(), "endDateTime": last.isoformat(), "$top": 500})
-    result = (client or graph_client()).request("GET", f"/me/calendarView?{query}")
-    values = result.get("value", [])
-    return {"events": values if isinstance(values, list) else [], "range": {"start": first.isoformat(), "end": last.isoformat()}, "occurrences_and_exceptions": True}
+    graph = client or graph_client()
+    path = f"/me/calendarView?{query}"
+    values: list[object] = []
+    for _ in range(MAX_CALENDAR_PAGES):
+        result = graph.request("GET", path)
+        page = result.get("value")
+        if not isinstance(page, list) or any(
+            not isinstance(event, dict) or not isinstance(event.get("id"), str) or not event["id"]
+            for event in page
+        ):
+            raise ValueError("Microsoft Graph calendar page was invalid")
+        values.extend(page)
+        next_link = result.get("@odata.nextLink")
+        if next_link is None:
+            break
+        if not isinstance(next_link, str) or not next_link.startswith("https://graph.microsoft.com/v1.0/"):
+            raise ValueError("Microsoft Graph calendar next page was invalid")
+        path = next_link.removeprefix("https://graph.microsoft.com/v1.0")
+    else:
+        raise ValueError("Microsoft Graph calendar result exceeded the page limit")
+    return {"events": values, "range": {"start": first.isoformat(), "end": last.isoformat()}, "occurrences_and_exceptions": True}
 
 
 def propose_slots(
@@ -67,8 +88,11 @@ def propose_slots(
     attendee_list = [str(item) for item in attendees] if isinstance(attendees, Sequence) and not isinstance(attendees, (str, bytes)) else []
     provided = {str(item) for item in attendee_busy_provided} if isinstance(attendee_busy_provided, Sequence) and not isinstance(attendee_busy_provided, (str, bytes)) else set()
     slots = []
-    cursor = first.astimezone(zone).replace(second=0, microsecond=0)
+    local_first = first.astimezone(zone)
+    cursor = local_first.replace(second=0, microsecond=0)
     cursor += timedelta(minutes=(-cursor.minute) % 30)
+    if cursor < local_first:
+        cursor += timedelta(minutes=30)
     duration = timedelta(minutes=duration_minutes)
     while cursor + duration <= last.astimezone(zone) and len(slots) < limit:
         finish = cursor + duration
@@ -95,6 +119,16 @@ def create_local_event(payload: Mapping[str, object]) -> dict[str, object]:
         raise ValueError("attendees must be an array")
     if action == "update" and (not payload.get("event_id") or not payload.get("source_etag")):
         raise ValueError("event update requires event_id and source_etag")
+    timezone_name = str(payload.get("timezone", "UTC"))
+    try:
+        zone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError("unknown timezone") from exc
+    is_all_day = bool(payload.get("is_all_day", False))
+    if is_all_day:
+        local_start, local_end = start.astimezone(zone), end.astimezone(zone)
+        if any((local_start.hour, local_start.minute, local_start.second, local_start.microsecond, local_end.hour, local_end.minute, local_end.second, local_end.microsecond)):
+            raise ValueError("all-day event start and end must be local midnight")
     draft: dict[str, object] = {
         "id": uuid.uuid4().hex,
         "action": action,
@@ -103,11 +137,12 @@ def create_local_event(payload: Mapping[str, object]) -> dict[str, object]:
         "subject": str(payload.get("subject", "")).strip(),
         "start": start.isoformat(),
         "end": end.isoformat(),
-        "timezone": str(payload.get("timezone", "UTC")),
-        "is_all_day": bool(payload.get("is_all_day", False)),
+        "timezone": timezone_name,
+        "is_all_day": is_all_day,
         "attendees": [str(item) for item in attendees],
         "location": str(payload.get("location", "")),
         "body": str(payload.get("body", "")),
+        "connection_identity": payload.get("connection_identity"),
     }
     if not draft["subject"]:
         raise ValueError("event subject is required")
@@ -133,12 +168,19 @@ def get_local_event(draft_id: object, digest: object) -> dict[str, object]:
 
 
 def _graph_event(draft: Mapping[str, object]) -> dict[str, object]:
-    start = _instant(draft["start"], "start").astimezone(timezone.utc).replace(tzinfo=None).isoformat()
-    end = _instant(draft["end"], "end").astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+    zone = ZoneInfo(str(draft["timezone"]))
+    if draft["is_all_day"]:
+        start = _instant(draft["start"], "start").astimezone(zone).replace(tzinfo=None).isoformat()
+        end = _instant(draft["end"], "end").astimezone(zone).replace(tzinfo=None).isoformat()
+        timezone_name = str(draft["timezone"])
+    else:
+        start = _instant(draft["start"], "start").astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+        end = _instant(draft["end"], "end").astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+        timezone_name = "UTC"
     return {
         "subject": draft["subject"],
-        "start": {"dateTime": start, "timeZone": "UTC"},
-        "end": {"dateTime": end, "timeZone": "UTC"},
+        "start": {"dateTime": start, "timeZone": timezone_name},
+        "end": {"dateTime": end, "timeZone": timezone_name},
         "isAllDay": draft["is_all_day"],
         "attendees": [{"emailAddress": {"address": item}, "type": "required"} for item in draft["attendees"]],
         "location": {"displayName": draft["location"]},
@@ -149,6 +191,7 @@ def _graph_event(draft: Mapping[str, object]) -> dict[str, object]:
 def execute_approved_event(payload: dict[str, Any], client: GraphClient | None = None) -> str:
     draft = get_local_event(payload.get("draft_id", payload.get("id")), payload.get("content_sha256"))
     graph = client or graph_client()
+    verify_approval_identity(draft.get("connection_identity"), graph)
     view = calendar_view(draft["start"], draft["end"], client=graph)
     conflicts = [event for event in view["events"] if isinstance(event, dict) and event.get("id") != draft.get("event_id") and event.get("showAs") not in {"free", "workingElsewhere"}]
     if conflicts:

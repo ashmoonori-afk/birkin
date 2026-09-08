@@ -165,6 +165,21 @@ def get_active(*, session_id: str | None = None) -> GoalState | None:
         return _active_unlocked(session_id)
 
 
+def get_by_slug(slug: str, *, session_id: str | None = None) -> GoalState | None:
+    """Return an exact persisted goal without deriving a path from caller input."""
+    if not isinstance(slug, str) or not slug or _slug(slug) != slug:
+        raise ValueError("goal slug is invalid")
+    with _domain_lock():
+        matches = [
+            state
+            for path in config.goals_dir().glob("*.json")
+            if (state := _load(path)) is not None
+            and state.slug == slug
+            and state.session_id == session_id
+        ]
+    return max(matches, key=lambda state: (state.updated_at, state.created_at)) if matches else None
+
+
 def validate_snapshot(
     value: dict[str, Any] | None,
     *,

@@ -33,7 +33,9 @@ Agent runtimes are easy to demo and hard to trust. Birkin keeps the model useful
 | A coding agent changes files before the user understands the plan | The official VS Code extension sends editor context, reviews a plan first, renders proposed diffs, resolves Birkin approvals, and restores checkpoints. |
 | A local tool becomes an opaque service | Runs, approvals, checkpoints, status, and configuration remain local and inspectable. |
 
-Birkin's core runtime has three cross-platform external dependencies: `pydantic` for validated data models, `psutil` for process identity, and `typing-extensions` for typed runtime contracts. On Windows, `tzdata` supplies the IANA time-zone database used by local scheduling. `birkin_mnemosyne` is bundled with Birkin and is not installed separately. Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
+Birkin's core runtime has four cross-platform external dependencies: `pydantic` for validated data models, `psutil` for process identity, `typing-extensions` for typed runtime contracts, and `httpx` for cancellable provider HTTP requests. On Windows, `tzdata` supplies the IANA time-zone database used by local scheduling. `birkin_mnemosyne` is bundled with Birkin and is not installed separately. Optional extras add voice, native desktop Computer Use, browser, and office-file support. The repository currently bundles **63 skills**; all default tests are designed to run offline.
+
+The workspace-only `research_run` tool runs Birkin's bounded deep-research workflow with up to 18 supplied HTTP(S) source URLs. A report retains at most 18 sources; initial collection allows up to 36 fetch attempts, while follow-up and counter-evidence searches have separate bounds. When a Codex binding is available and enforced egress is off, a run may use one isolated, ephemeral native-web search to discover candidate URLs; those candidates do not become evidence until Birkin fetches and validates them. Reports distinguish source-backed findings, audited inferences with their premises and assumptions, refuted claims, and unresolved claims. Citation existence is checked in code, while meaning and inference support remain model-audited rather than presented as deterministic verification.
 
 ## Memory
 
@@ -415,7 +417,7 @@ when no registered tool can invoke an operation. DOCX, XLSX, PPTX, PDF, and
 HWPX creation share the approval-bound `office_job_request` route. Non-ASCII
 PDF content binds a TrueType font artifact by URI and SHA-256.
 
-The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, the evidence-linked XLSX reviewer `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, the canonical approval coordinator `office_job_request`, and the separately approval-gated `office_rollback_request`. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
+The registered calls are `list_document_adapters`, `inspect_document`, `extract_document`, the evidence-linked XLSX reviewer `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `m365_document_import`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, the canonical approval coordinator `office_job_request`, and the separately approval-gated `office_rollback_request`. `m365_document_import` requires an allowed Microsoft 365 connection; its live connection path is not covered by the local Office acceptance run. The synchronized skills are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
 
 Document inputs are jailed to the dedicated `BIRKIN_HOME/office` tree, separate from configuration, vault, session, and native bootstrap files. With `BIRKIN_HOME=/workspace/.birkin`, copy or import sources under `/workspace/.birkin/office/artifacts/incoming`; a correctly hashed path elsewhere is still rejected. Durable jobs remain under `BIRKIN_HOME/office/jobs`, and generic model file tools cannot read, list, or rewrite Office receipt keys, jobs, validated drafts, backups, transaction journals, or destination locks. Consequential mutation and export use only `office_job_request`, whose destination must resolve beneath the caller's approved allowlisted root. Rollback is a second high-risk approval through `office_rollback_request`; export receipts are HMAC-authenticated, expire after 30 days, and expired receipts, active backup paths, and transaction/job journals are purged on the next Office request. Legacy unsigned receipts cannot authorize rollback. To avoid check-to-unlink and concurrent-hard-link races, authenticated helper and backup names are namespace-retired into a private `.birkin-retire` directory. POSIX cannot safely erase those inode bytes while also preserving a concurrently added hard link, so quarantined bytes may remain; they are not active state and cannot authorize rollback.
 
@@ -454,7 +456,7 @@ Optional local Python tiers add fidelity without changing that boundary. Install
 
 Trusted Korean and English natural-language requests deterministically preload the matching production skill: Word/DOCX -> `word-documents`, Excel/XLSX -> `spreadsheets`, PowerPoint/PPTX -> `presentations`, PDF -> `pdf-documents`, HWP/HWPX -> `korean-hwp-documents`, and general Office work -> `office-work-os`. Routing records source formats separately from the target format, gives an explicit save format priority over general words such as "report," and marks a default DOCX result as a changeable suggestion. Only ambiguous multiple-output requests ask for a format. Document contents are untrusted data and cannot select or override a skill. Every routed mutation remains copy-on-write.
 
-See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.409`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
+See the [detailed support contract](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), and [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md). This documentation targets Birkin `0.4.410`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`.
 
 ### Doing office work end to end
 
@@ -899,6 +901,8 @@ the newest snapshots with `prune --keep N`, or copy a snapshot with
 | `birkin reindex` | Rebuild the memory-palace index (zones, terms, dynamics). |
 | `birkin update` | Pull new code from the repo (fast-forward only). |
 
+When a gateway or OMO-controlled channel uses the warm Codex app-server provider, its internal Codex threads are ephemeral. They do not appear in the signed-in user's Codex history or derive history titles from Birkin prompts; Birkin's own channel and run records remain governed by their separate persistence rules.
+
 Run `birkin --help` or `birkin <command> --help` for the complete interface.
 
 ## Slash commands
@@ -1261,13 +1265,24 @@ window bounds are stored in `%LOCALAPPDATA%\Birkin\layout.json`; missing,
 malformed, or out-of-range values fall back to bounded defaults without changing
 Python policy or execution authority.
 
-The Windows Office path is deliberately read-only: it can import a jailed
-artifact, select its canonical projection, request a Python-owned comparison,
-and display the resulting Diff. Its approval controls answer only generic
-canonical Birkin approval records; the client does not create or seal a second
-Office approval authority. Direct comparison-report save is unavailable until
-Python exposes a durable comparison-report job through the canonical approval,
-execution, validation, receipt, and recovery path.
+The Windows Office path imports a jailed artifact, selects its canonical
+projection, requests Python-owned inspection or comparison, and can submit an
+existing-document change through the canonical Office approval flow. Its
+approval controls answer only canonical Birkin approval records; the client
+does not create or seal a second Office approval authority. Direct
+comparison-report save remains unavailable until Python exposes a durable
+comparison-report job through the canonical approval, execution, validation,
+receipt, and recovery path.
+
+A live signed-in acceptance run completed the representative bundled DOCX
+journey from a natural-language Native request through inspection, job request,
+UI approval, export, and receipt. Repository tests separately cover those
+authority and reopen contracts offline. This does not establish every Office
+format or request, and live Microsoft 365 import remains a separate release
+gate.
+
+See [Office implementation review and remaining acceptance TODOs](docs/office-agent-review.md)
+for the verified scope and outstanding research, accessibility, installation, and M365 checks.
 
 Before an Office mutation can be approved, the canonical macOS and Windows
 cards show the source filename, cell-level before/after description,

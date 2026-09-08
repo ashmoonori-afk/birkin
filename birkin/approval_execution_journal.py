@@ -146,6 +146,25 @@ class ExecutionJournal:
             {"result": result[:_RESULT_LIMIT]},
         )
 
+    def confirm_mail_succeeded(self, result: str) -> None:
+        snapshot = self.load()
+        try:
+            submitted = json_mapping(result).get("state") == "submitted"
+        except JournalCodecError:
+            submitted = False
+        if (
+            snapshot.category != "mail_send"
+            or snapshot.phase is not JournalPhase.ACTION_OUTCOME_UNKNOWN
+            or not submitted
+        ):
+            raise JournalCorruptionError("only an unknown mail outcome can be confirmed")
+        self._append(
+            {
+                "kind": JournalPhase.SUCCEEDED.value,
+                "result": result[:_RESULT_LIMIT],
+            }
+        )
+
     def failed(self, error: str) -> None:
         self._transition(
             JournalPhase.ATTEMPT_COMMITTED,

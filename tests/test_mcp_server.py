@@ -102,6 +102,93 @@ def test_build_tools_memory_scope_excludes_non_memory_tools(tmp_path, monkeypatc
     assert not {"create_skill", "load_skill", "propose_action"} & names
 
 
+def test_workspace_scope_exposes_only_bounded_office_tools(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("BIRKIN_MCP_SCOPE", "workspace")
+
+    names = set(mcp_server._build_tools())
+
+    assert {"inspect_document", "office_job_request"} <= names
+    assert not {
+        "render_artifact", "validate_artifact", "office_rollback_request",
+        "m365_document_import", "propose_action",
+    } & names
+
+
+def test_workspace_document_tools_respect_policy_filters(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("BIRKIN_MCP_SCOPE", "workspace")
+    from birkin import config
+
+    config.save_config({**config.DEFAULT_CONFIG, "disabled_tools": ["approvals"]})
+    names = set(mcp_server._build_tools())
+    assert "office_job_request" not in names
+    assert "work_item_request" not in names
+    assert "inspect_document" in names
+
+    config.save_config({**config.DEFAULT_CONFIG, "disabled_tools": ["documents"]})
+    names = set(mcp_server._build_tools())
+    assert "inspect_document" not in names
+    assert "office_job_request" not in names
+    assert "work_item_request" in names
+
+    from birkin import presets
+    monkeypatch.setattr(presets, "deny_tools", lambda *_args: {"documents"})
+    config.save_config(config.DEFAULT_CONFIG)
+    names = set(mcp_server._build_tools())
+    assert "inspect_document" not in names
+    assert "office_job_request" not in names
+    assert "work_item_request" in names
+
+
+def test_workspace_office_request_queues_without_output_and_guards_path(
+        tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    monkeypatch.chdir(workspace)
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("BIRKIN_MCP_SCOPE", "workspace")
+    from birkin import store
+
+    tools = mcp_server._build_tools()
+    destination = workspace / "report.docx"
+    text, is_error = tools["office_job_request"]["handler"]({
+        "request": "보고서를 작성해 주세요.",
+        "format": "docx",
+        "content": {"paragraphs": ["승인 전 초안"]},
+        "outcome": "새 보고서",
+        "destination": str(destination),
+        "overwrite_approved": False,
+    })
+
+    result = json.loads(text)
+    assert is_error is False
+    assert result["category"] == "office_create"
+    assert result["auto"] is False
+    assert len(store.list_pending()) == 1
+    assert not destination.exists()
+    from birkin.workspace.approval_projection import approval_items
+    projected = approval_items()
+    assert len(projected) == 1
+    assert projected[0]["id"] == result["id"]
+    assert projected[0]["category"] == "office_create"
+    assert projected[0]["decided"] is False
+
+    outside = tmp_path / "outside.docx"
+    text, is_error = tools["office_job_request"]["handler"]({
+        "request": "경계 밖 보고서",
+        "format": "docx",
+        "content": {"paragraphs": ["금지"]},
+        "outcome": "경계 밖",
+        "destination": str(outside),
+        "overwrite_approved": False,
+    })
+    assert is_error is True
+    assert json.loads(text)["error"]["code"] == "PERMISSION_DENIED"
+    assert len(store.list_pending()) == 1
+    assert not outside.exists()
+
+
 def test_serve_roundtrip_and_parse_error(monkeypatch):
     """serve() loop: real request/response framing + a -32700 on bad JSON."""
     import io

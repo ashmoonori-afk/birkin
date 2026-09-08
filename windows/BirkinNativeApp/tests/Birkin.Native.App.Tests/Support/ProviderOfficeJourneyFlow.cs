@@ -151,10 +151,10 @@ internal static class ProviderOfficeJourneyFlow
                 new Rect(new Point(), oldValue.RenderSize));
             newBounds = newValue.TransformToAncestor(workflowScroll).TransformBounds(
                 new Rect(new Point(), newValue.RenderSize));
-            Assert.IsTrue(IsInViewport(oldValue, workflowScroll) && IsInViewport(newValue, workflowScroll),
-                $"the labeled 4100 -> 4700 controls were not fully visible before approval; old={oldBounds}; new={newBounds}; viewport={workflowScroll.RenderSize}; offset={workflowScroll.VerticalOffset}");
             var beforePath = Path.Combine(evidenceRoot, "pre-approval-diff-1500x940.png");
-            var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940);
+            var before = ProviderOfficeScreenshot.CaptureRedacted(window, beforePath, 1500, 940, validate: () =>
+                Assert.IsTrue(IsFullyVisible(oldValue, workflowScroll) && IsFullyVisible(newValue, workflowScroll),
+                    $"the labeled 4100 -> 4700 controls were not fully visible in the captured layout; viewport={workflowScroll.RenderSize}; offset={workflowScroll.VerticalOffset}"));
             evidence.Record("pre-approval-screenshot", new Dictionary<string, object?>
             {
                 ["diff_id"] = diffId,
@@ -173,7 +173,7 @@ internal static class ProviderOfficeJourneyFlow
             Assert.IsTrue(approve.IsEnabled);
             approve.BringIntoView();
             await RenderBarrierAsync(window);
-            Assert.IsTrue(IsInViewport(approve, scroll), "the exact projected approval was not visibly actionable");
+            Assert.IsTrue(IsFullyVisible(approve, scroll), "the exact projected approval was not visibly actionable");
             var approval = await ProviderOfficeJourneyActions.ClickAsync(
                 composition.PresentationModel, events, approve, "approval.answer", officeCancellationToken);
             var answeredEvent = await events.WaitAsync(
@@ -255,11 +255,40 @@ internal static class ProviderOfficeJourneyFlow
         window.UpdateLayout();
     }
 
-    private static bool IsInViewport(FrameworkElement element, FrameworkElement viewport)
+    internal static bool IsFullyVisible(FrameworkElement element, FrameworkElement viewport)
     {
-        var bounds = element.TransformToAncestor(viewport).TransformBounds(
+        DependencyObject root = element;
+        while (System.Windows.Media.VisualTreeHelper.GetParent(root) is { } parent)
+        {
+            root = parent;
+        }
+        if (root is not FrameworkElement rootElement)
+        {
+            return false;
+        }
+        for (DependencyObject? current = element; current is FrameworkElement ancestor; current = System.Windows.Media.VisualTreeHelper.GetParent(current))
+        {
+            if (ancestor.Visibility != Visibility.Visible)
+            {
+                return false;
+            }
+        }
+        var bounds = element.TransformToAncestor(rootElement).TransformBounds(
             new Rect(new Point(0, 0), element.RenderSize));
-        var visible = new Rect(new Point(0, 0), viewport.RenderSize);
+        var visible = viewport.TransformToAncestor(rootElement).TransformBounds(new Rect(new Point(), viewport.RenderSize));
+        for (DependencyObject? current = element; current is FrameworkElement ancestor; current = System.Windows.Media.VisualTreeHelper.GetParent(current))
+        {
+            if (ancestor.ClipToBounds)
+            {
+                var clip = ancestor.TransformToAncestor(rootElement).TransformBounds(new Rect(new Point(), ancestor.RenderSize));
+                visible.Intersect(clip);
+            }
+            if (ancestor.Clip is { } geometry)
+            {
+                var clip = ancestor.TransformToAncestor(rootElement).TransformBounds(geometry.Bounds);
+                visible.Intersect(clip);
+            }
+        }
         return element.Visibility == Visibility.Visible
             && bounds.Left >= visible.Left - 1
             && bounds.Top >= visible.Top - 1

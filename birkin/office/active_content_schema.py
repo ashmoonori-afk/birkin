@@ -36,9 +36,19 @@ PATCH_OPERATION_SCHEMA: dict[str, object] = {
             "properties": {
                 "locator": {
                     "type": "object",
+                    "description": (
+                        "Public locator for a DOCX paragraph in word/document.xml. "
+                        "Use structure.inventory.paragraphs[].index + 1 for a "
+                        "body paragraph; do not copy the paragraph's nested "
+                        "native locator. Header paragraphs are outside this "
+                        "locator, and table-contained paragraphs are not editable."
+                    ),
                     "properties": {
                         "format": {"const": "docx"},
-                        "index": {"type": "integer", "minimum": 1},
+                        "index": {
+                            "type": "integer", "minimum": 1,
+                            "description": "One-based index: inspected body paragraph index + 1.",
+                        },
                     },
                     "required": ["format", "index"],
                     "additionalProperties": False,

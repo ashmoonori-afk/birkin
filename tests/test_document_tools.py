@@ -10,6 +10,7 @@ import pytest
 
 from birkin.tools import build_registry
 from birkin.tools._types import Config, ToolContext
+from birkin.workspace import WorkspaceService
 
 def _single_cell_xlsx(path: Path) -> Path:
     parts = {
@@ -32,6 +33,7 @@ NAMES = {
     "review_meeting_actions",
     "list_work_items",
     "work_item_request",
+    "m365_document_import",
     "search_office_sources",
     "list_office_batches",
     "office_batch_request",
@@ -72,6 +74,41 @@ def test_registry_exposes_document_tools_and_honors_disabled_group(
     assert blocked.names() == []
     result = blocked.execute("inspect_document", {})
     assert result.is_error or "approval" in str(result.content).lower()
+
+
+def test_work_item_approval_projects_the_exact_reviewable_fields(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    registry = build_registry(_ctx(tmp_path), include={"documents"})
+
+    invalid = registry.execute("work_item_request", {
+        "action": "create", "title": "견적 확인", "due_date": "다음 주",
+    })
+    assert invalid.is_error is True
+
+    queued = registry.execute("work_item_request", {
+        "action": "create",
+        "title": "견적 확인",
+        "assignee": "김담당",
+        "due_date": "2026-09-12",
+        "source": {"goal_slug": "quarterly-report"},
+    })
+    assert queued.is_error is False
+    approval_id = cast(dict[str, object], json.loads(cast(str, queued.content)))["id"]
+    snapshot = WorkspaceService(
+        root=tmp_path / "workspace", session_id="review", handlers={}
+    ).snapshot()
+    approvals_panel = next(panel for panel in snapshot.panels if panel.key == "approvals")
+    approval = next(item for item in approvals_panel.items if item["id"] == approval_id)
+
+    assert approval["summary"] == "후속 업무 생성 확인"
+    assert approval["action"] == "create"
+    assert approval["description"] == (
+        "업무: 견적 확인 · 담당자: 김담당 · 기한: 2026-09-12"
+        " · 원본: goal_slug=quarterly-report"
+    )
 
 
 def test_registry_removes_direct_mutations_and_keeps_one_coordinator(

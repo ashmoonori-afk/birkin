@@ -53,10 +53,8 @@ class OfficeReceiptProjection:
             return None
         approval = _mapping(approval_record.get("payload"), "approval")
         diff_id = approval.get("diff_id")
-        if category == "office_job" and (
-            not isinstance(diff_id, str) or not diff_id
-        ):
-            return None
+        if diff_id is not None:
+            diff_id = _text(diff_id, "diff_id")
         decoded = cast(object, json.loads(receipt_text))
         receipt = _mapping(decoded, "root")
         artifact = _mapping(

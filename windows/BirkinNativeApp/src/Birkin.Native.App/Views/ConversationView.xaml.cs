@@ -16,6 +16,8 @@ public partial class ConversationView : UserControl
     private bool _presentingDraft;
     private bool _hasMarkedText;
     private bool _restoreDraftFocus;
+    private bool _followLatest = true;
+    private string? _lastUserMessageId;
 
     public ConversationView()
     {
@@ -37,7 +39,9 @@ public partial class ConversationView : UserControl
         _coordinator = coordinator;
         DataContext = model;
         model.PropertyChanged += ModelPropertyChanged;
+        _lastUserMessageId = LastUserMessageId(model.Workspace?.Conversation);
         PresentDraft();
+        Loaded += ViewLoaded;
         Unloaded += ViewUnloaded;
     }
 
@@ -144,12 +148,58 @@ public partial class ConversationView : UserControl
 
     private void ModelPropertyChanged(object? sender, PropertyChangedEventArgs eventArgs)
     {
+        if (eventArgs.PropertyName == nameof(ShellPresentationModel.Workspace))
+        {
+            var conversation = _model?.Workspace?.Conversation ?? [];
+            var lastUserMessageId = LastUserMessageId(conversation);
+            if (lastUserMessageId is not null
+                && !string.Equals(lastUserMessageId, _lastUserMessageId, StringComparison.Ordinal))
+            {
+                _followLatest = true;
+            }
+            _lastUserMessageId = lastUserMessageId;
+            ScheduleScrollToLatest();
+        }
         if (eventArgs.PropertyName == nameof(ShellPresentationModel.OfficeWorkflow))
         {
             PresentDraft();
             ScheduleDraftFocusRestore();
         }
     }
+
+    private void ViewLoaded(object sender, RoutedEventArgs eventArgs) =>
+        ScheduleScrollToLatest();
+
+    private void ConversationScrollChanged(object sender, ScrollChangedEventArgs eventArgs)
+    {
+        if (eventArgs.ExtentHeightChange == 0)
+        {
+            _followLatest = ConversationScroll.ScrollableHeight - ConversationScroll.VerticalOffset <= 1;
+        }
+    }
+
+    private void ScheduleScrollToLatest()
+    {
+        if (_followLatest)
+        {
+            _ = Dispatcher.BeginInvoke(
+                DispatcherPriority.Loaded,
+                new Action(TryScrollToLatest));
+        }
+    }
+
+    private void TryScrollToLatest()
+    {
+        if (_followLatest)
+        {
+            ConversationScroll.ScrollToEnd();
+        }
+    }
+
+    private static string? LastUserMessageId(
+        IReadOnlyList<ConversationRowPresentation>? conversation) =>
+        conversation?.LastOrDefault(row =>
+            string.Equals(row.Kind, "user_message", StringComparison.Ordinal))?.Id;
 
     private void ScheduleDraftFocusRestore()
     {
@@ -188,6 +238,7 @@ public partial class ConversationView : UserControl
     {
         _hasMarkedText = false;
         _restoreDraftFocus = false;
+        Loaded -= ViewLoaded;
         _commandLifetime.Dispose();
         if (_model is not null)
         {

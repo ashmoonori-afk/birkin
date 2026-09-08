@@ -128,9 +128,10 @@ wheels = [
 
 [[package]]
 name = "birkin"
-version = "0.4.409"
+version = "0.4.410"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "typing-extensions" },
@@ -240,6 +241,7 @@ requires-dist = [
     { name = "defusedxml", marker = "extra == 'full'", specifier = ">=0.7,<1" },
     { name = "defusedxml", marker = "extra == 'office'", specifier = ">=0.7,<1" },
     { name = "docling", marker = "extra == 'office-docling'", specifier = ">=2.50,<3" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "jsonschema", marker = "extra == 'full'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'office'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'research'", specifier = ">=4.23,<5" },

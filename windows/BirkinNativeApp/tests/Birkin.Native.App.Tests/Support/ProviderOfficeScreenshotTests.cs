@@ -10,6 +10,40 @@ namespace Birkin.Native.App.Tests.Support;
 public sealed class ProviderOfficeScreenshotTests
 {
     [TestMethod]
+    public async Task LayoutVisibility_RejectsHiddenOuterParentAndOuterClipping()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            var root = new Canvas { Width = 200, Height = 200 };
+            var outer = new Canvas { Width = 100, Height = 20, ClipToBounds = true };
+            var viewport = new Canvas { Width = 100, Height = 100 };
+            var element = new Border { Width = 20, Height = 20 };
+            Canvas.SetTop(element, 30);
+            viewport.Children.Add(element);
+            outer.Children.Add(viewport);
+            root.Children.Add(outer);
+            var window = new Window { Content = root, Width = 200, Height = 200 };
+            try
+            {
+                window.Show();
+                window.UpdateLayout();
+                Assert.IsFalse(ProviderOfficeJourneyFlow.IsFullyVisible(element, viewport));
+                outer.ClipToBounds = false;
+                outer.Visibility = Visibility.Collapsed;
+                window.UpdateLayout();
+                Assert.IsFalse(ProviderOfficeJourneyFlow.IsFullyVisible(element, viewport));
+                await Task.CompletedTask;
+            }
+            finally
+            {
+                window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
     public async Task CaptureRedacted_PreservesTheLiveWindowLayout()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));

@@ -328,8 +328,19 @@ def test_chat_retry_over_socket_creates_new_intent_and_preserves_failure(
         "payload": {"text": "fail once"},
         "client_context": {"surface": "test", "view_id": "setup"},
     })
-    with pytest.raises(RuntimeError, match="intent failed"):
-        _ = hub.submit(failed_command, actor_id="test:setup")
+    accepted = hub.submit(failed_command, actor_id="test:setup")
+    assert accepted.state == "accepted"
+    session = hub.get("session-1")
+    assert session is not None
+    failed_events = session.wait_events(
+        after=accepted.accepted_cursor,
+        until="command.failed",
+        timeout=2,
+    )
+    assert any(
+        event.type == "command.failed" and event.command_id == "failed-intent"
+        for event in failed_events
+    )
     try:
         token = handshake(client)
         failed = next(event for event in hub.events() if event.type == "command.failed")

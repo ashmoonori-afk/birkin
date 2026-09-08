@@ -8,7 +8,7 @@ metadata:
   birkin:
     tags: [productivity, office, pdf, read-only]
     formats: [pdf]
-    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, search_office_sources, list_office_batches, office_batch_request, list_office_templates, office_template_request, resolve_office_template, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
+    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, m365_document_import, search_office_sources, list_office_batches, office_batch_request, list_office_templates, office_template_request, resolve_office_template, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
     inspect_first: inspect_document
     write_policy: copy-on-write
     extension_conversion: txt-only
@@ -64,7 +64,7 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `review_meeting_actions`: required `notes` and evidence-bound `candidates`; returns a deduplicated draft and never persists unconfirmed actions.
 - `list_work_items`: optional `timezone_name`; returns today, overdue, needs-confirmation, and recent-completion groups.
 - `work_item_request`: approval-gated create, meeting confirmation, update, or completion; preserves session and source references.
-- `search_office_sources`: required `query` and access-granted scoped `sources`; returns live file, locator, hash, and version evidence without an extraction cache.
+- `m365_document_import`: required Graph `drive_item_id`; downloads a bounded authenticated copy into the Office jail and records account/item/eTag/hash provenance. Use its `provenance.import_id` for an `allowed_connection` search source.\n- `search_office_sources`: required `query` and scoped `sources`; connected sources accept only a trusted `import_id` and recheck the current account, permission, and eTag before search.
 - `list_office_batches`: optional `limit`; reports each batch and per-file result.
 - `office_batch_request`: required `items` or `retry_batch_id`; approval-binds and sequentially runs canonical per-file Office jobs.
 - `list_office_templates`: no arguments; previews verified bases and visible saved versions.

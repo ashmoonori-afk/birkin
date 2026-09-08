@@ -65,6 +65,23 @@ CREATE TABLE IF NOT EXISTS calls (
   PRIMARY KEY (run_id, seq)
 );
 CREATE INDEX IF NOT EXISTS calls_by_model ON calls (provider, model, status);
+CREATE TABLE IF NOT EXISTS research_calls (
+  run_id      TEXT NOT NULL,
+  seq         INTEGER NOT NULL,
+  call_key    TEXT NOT NULL,
+  kind        TEXT NOT NULL,
+  input_json  TEXT NOT NULL,
+  status      TEXT NOT NULL,
+  result_json TEXT,
+  error       TEXT,
+  started     TEXT NOT NULL,
+  finished    TEXT,
+  replayed_from_run_id TEXT,
+  replayed_from_seq INTEGER,
+  PRIMARY KEY (run_id, seq)
+);
+CREATE INDEX IF NOT EXISTS research_calls_by_key
+  ON research_calls (run_id, call_key, status);
 CREATE TABLE IF NOT EXISTS incidents (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
   kind            TEXT NOT NULL,
@@ -168,7 +185,14 @@ def call_key(prompt: str, opts: dict[str, Any]) -> str:
     material = {k: opts.get(k) for k in
                 ("provider", "model", "schema", "tools", "effort", "cwd",
                  "max_turns")}
+    if opts.get("native_web"):
+        material["native_web"] = True
     blob = json.dumps([prompt, material], sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def research_call_key(kind: str, value: dict[str, Any]) -> str:
+    blob = json.dumps([kind, value], sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
@@ -360,6 +384,88 @@ def run_calls(run_id: str) -> list[dict]:
             return [dict(r) for r in rows]
     except Exception:
         return []
+
+
+def record_research_call(
+    run_id: str,
+    seq: int,
+    key: str,
+    *,
+    kind: str,
+    value: dict[str, Any],
+) -> None:
+    try:
+        with closing(_connect()) as con, con:
+            con.execute(
+                "INSERT OR REPLACE INTO research_calls "
+                "(run_id, seq, call_key, kind, input_json, status, started) "
+                "VALUES (?, ?, ?, ?, ?, 'running', ?)",
+                (run_id, seq, key, kind,
+                 json.dumps(value, ensure_ascii=False, sort_keys=True), _now()),
+            )
+    except Exception:
+        pass
+
+
+def finish_research_call(
+    run_id: str,
+    seq: int,
+    *,
+    status: str,
+    result: Any = None,
+    error: str = "",
+) -> None:
+    try:
+        with closing(_connect()) as con, con:
+            con.execute(
+                "UPDATE research_calls SET status = ?, result_json = ?, "
+                "error = ?, finished = ? WHERE run_id = ? AND seq = ?",
+                (status,
+                 json.dumps(result, ensure_ascii=False, sort_keys=True)
+                 if result is not None else None,
+                 error[:2000], _now(), run_id, seq),
+            )
+    except Exception:
+        pass
+
+
+def cached_research_calls(run_id: str) -> dict[str, list[dict[str, Any]]]:
+    try:
+        with closing(_connect()) as con, con:
+            con.row_factory = sqlite3.Row
+            rows = con.execute(
+                "SELECT * FROM research_calls WHERE run_id = ? "
+                "AND status = 'ok' ORDER BY seq",
+                (run_id,),
+            )
+            cached: dict[str, list[dict[str, Any]]] = {}
+            for row in rows:
+                item = dict(row)
+                cached.setdefault(str(item["call_key"]), []).append(item)
+            return cached
+    except Exception:
+        return {}
+
+
+def record_cached_research_call(
+    run_id: str,
+    seq: int,
+    source: dict[str, Any],
+) -> None:
+    try:
+        with closing(_connect()) as con, con:
+            con.execute(
+                "INSERT INTO research_calls (run_id, seq, call_key, kind, "
+                "input_json, status, result_json, error, started, finished, "
+                "replayed_from_run_id, replayed_from_seq) "
+                "VALUES (?, ?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?)",
+                (run_id, seq, source["call_key"], source["kind"],
+                 source["input_json"], source["result_json"],
+                 source.get("error") or "", _now(), _now(), source["run_id"],
+                 source["seq"]),
+            )
+    except Exception:
+        pass
 
 
 # -- durable human input continuation --------------------------------------

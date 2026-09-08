@@ -124,7 +124,18 @@
                                        FontSize="11"
                                        TextWrapping="Wrap"
                                        Margin="0,4,0,0"
-                                       automation:AutomationProperties.AutomationId="{Binding RejectionAutomationId}"/>
+                                       automation:AutomationProperties.AutomationId="{Binding RejectionAutomationId}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding CanAnswer}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </StackPanel>
                         <Border Grid.Row="4"
                                 Background="{StaticResource CardBrush}"
@@ -325,10 +336,10 @@
                                     Margin="0,9,0,0">
                             <StackPanel.Style>
                                 <Style TargetType="StackPanel">
-                                    <Setter Property="Visibility" Value="Visible"/>
+                                    <Setter Property="Visibility" Value="Collapsed"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Decided}" Value="True">
-                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                        <DataTrigger Binding="{Binding CanAnswer}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
@@ -336,15 +347,66 @@
                             <Button Content="{StaticResource ApprovalRejectLabel}" Tag="{Binding Id}" Margin="0,0,5,0" automation:AutomationProperties.AutomationId="{Binding RejectAutomationId}" automation:AutomationProperties.Name="{StaticResource ApprovalRejectAutomationName}" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="RejectClicked" />
                             <Button Content="{StaticResource ApprovalApproveLabel}" Tag="{Binding Id}" automation:AutomationProperties.AutomationId="{Binding ApproveAutomationId}" automation:AutomationProperties.Name="{StaticResource ApprovalApproveAutomationName}" Style="{StaticResource DisabledActionStyle}" IsEnabled="{Binding DataContext.OfficeWorkflow.Availability.ApprovalAnswer.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Click="ApproveClicked" />
                         </StackPanel>
+                        <StackPanel Grid.Row="6" Margin="0,9,0,0">
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsUnknownMailSend}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
+                            <TextBlock Text="{Binding MailRecheckLabel}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       TextWrapping="Wrap"
+                                       automation:AutomationProperties.AutomationId="{Binding RecheckStateAutomationId}"/>
+                            <TextBlock Text="{Binding MailRecheckedAtLabel}"
+                                       Foreground="{StaticResource MutedBrush}"
+                                       FontSize="11"
+                                       Margin="0,3,0,0"
+                                       automation:AutomationProperties.AutomationId="{Binding RecheckedAtAutomationId}"/>
+                            <Button Content="발송 상태 다시 확인"
+                                    Tag="{Binding Id}"
+                                    HorizontalAlignment="Right"
+                                    Margin="0,7,0,0"
+                                    automation:AutomationProperties.AutomationId="{Binding RecheckAutomationId}"
+                                    automation:AutomationProperties.Name="발송 상태 다시 확인"
+                                    Click="RecheckClicked">
+                                <Button.Style>
+                                    <Style TargetType="Button" BasedOn="{StaticResource DisabledActionStyle}">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Setter Property="IsEnabled" Value="False"/>
+                                        <Style.Triggers>
+                                            <MultiDataTrigger>
+                                                <MultiDataTrigger.Conditions>
+                                                    <Condition Binding="{Binding CanRecheck}" Value="True"/>
+                                                    <Condition Binding="{Binding DataContext.OfficeWorkflow.Availability.ApprovalRecheck.IsEnabled, RelativeSource={RelativeSource AncestorType=UserControl}}" Value="True"/>
+                                                </MultiDataTrigger.Conditions>
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                                <Setter Property="IsEnabled" Value="True"/>
+                                            </MultiDataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Button.Style>
+                            </Button>
+                        </StackPanel>
                         <StackPanel Grid.Row="6"
                                     Margin="0,9,0,0">
                             <StackPanel.Style>
                                 <Style TargetType="StackPanel">
                                     <Setter Property="Visibility" Value="Collapsed"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Decided}" Value="True">
+                                        <MultiDataTrigger>
+                                            <MultiDataTrigger.Conditions>
+                                                <Condition Binding="{Binding Decided}" Value="True"/>
+                                                <Condition Binding="{Binding IsUnknownMailSend}" Value="False"/>
+                                            </MultiDataTrigger.Conditions>
                                             <Setter Property="Visibility" Value="Visible"/>
-                                        </DataTrigger>
+                                        </MultiDataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </StackPanel.Style>

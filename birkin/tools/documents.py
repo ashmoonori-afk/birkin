@@ -17,6 +17,7 @@ NAMES = (
     "review_meeting_actions",
     "list_work_items",
     "work_item_request",
+    "m365_document_import",
     "search_office_sources",
     "list_office_batches",
     "office_batch_request",
@@ -197,12 +198,14 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
 
                 result = grouped(**payload)
             elif name == "work_item_request":
-                action = cast("str", payload["action"])
+                from ..work_items import request_review
+
+                title, description = request_review(payload)
                 result = {
                     **approvals.propose(
                         category="work_item",
-                        title="후속 업무 변경 확인",
-                        description=f"{action} 작업을 확인한 뒤 오늘 업무에 반영합니다.",
+                        title=title,
+                        description=description,
                         payload=payload,
                         cfg={},
                         origin=ctx.record_source,
@@ -211,12 +214,18 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                 }
             elif name == "search_office_sources":
                 from ..office.search import search_sources
+                from ..m365_drive import resolve_source
 
                 result = search_sources(
                     payload["query"], payload["sources"],
                     extract=service.extract_document,
+                    resolve_connected=resolve_source,
                     limit=payload.get("limit", 20),
                 )
+            elif name == "m365_document_import":
+                from ..m365_drive import import_document
+
+                result = import_document(cast("str", payload["drive_item_id"]), service=service)
             elif name == "list_office_batches":
                 from ..office.batch import list_batches
 
@@ -358,6 +367,10 @@ def tools() -> list[Tool]:
                 {"if": {"properties": {"action": {"enum": ["update", "complete"]}}}, "then": {"required": ["id"]}},
             ],
         },
+        "m365_document_import": _object(
+            {"drive_item_id": {"type": "string", "minLength": 1, "maxLength": 512}},
+            ["drive_item_id"],
+        ),
         "search_office_sources": _object(
             {
                 "query": {"type": "string", "minLength": 1},
@@ -365,12 +378,13 @@ def tools() -> list[Tool]:
                     "type": "array", "minItems": 1, "maxItems": 100,
                     "items": _object({
                         "artifact": _ARTIFACT,
+                        "import_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
                         "scope": {"type": "string", "enum": ["current_work", "selected_folder", "allowed_connection"]},
                         "access_granted": {"type": "boolean"},
                         "label": {"type": "string", "minLength": 1},
                         "version": {"type": "string", "minLength": 1},
                         "current_version": {"type": "string", "minLength": 1},
-                    }, ["artifact", "scope", "access_granted", "version"]),
+                    }, ["scope"]),
                 },
                 "limit": {"type": "integer", "minimum": 1, "maximum": 100},
             },
@@ -482,6 +496,21 @@ def tools() -> list[Tool]:
         ),
     }
     return [
-        Tool(name, f"Office Work OS: {name.replace('_', ' ')}.", schemas[name], _handler(name))
+        Tool(
+            name,
+            (
+                "Request approval for an Office document mutation or creation. "
+                "To change an existing source, provide source and operations; a "
+                "regular DOCX body paragraph operation is "
+                '{"locator":{"format":"docx","index":1},"value":"new text"}, '
+                "where index is one-based. To create a new document, provide "
+                "format and content instead of source and operations. Also provide "
+                "request, outcome, and destination in either case."
+                if name == "office_job_request"
+                else f"Office Work OS: {name.replace('_', ' ')}."
+            ),
+            schemas[name],
+            _handler(name),
+        )
         for name in NAMES
     ]

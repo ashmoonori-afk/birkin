@@ -46,6 +46,10 @@ public sealed class ShellCoordinatorConcurrencyTests
         fixture.Coordinator.SetConversationDraft("submitted draft");
         var submission = fixture.Coordinator.SendConversationAsync(deadline.Token);
         await fixture.Connection.SendEntered.Task.WaitAsync(deadline.Token);
+        fixture.DrainPresentation();
+        Assert.AreEqual(
+            "E_COMMAND_IN_PROGRESS",
+            fixture.Model.OfficeWorkflow.Availability.ConversationSend.DisabledReason);
 
         var authorityRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var releaseAuthority = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -83,6 +87,26 @@ public sealed class ShellCoordinatorConcurrencyTests
 
         Assert.AreEqual("newer draft", fixture.Model.OfficeWorkflow.Draft);
         Assert.AreEqual(WorkflowCommandState.Idle, fixture.Model.OfficeWorkflow.CommandState);
+    }
+
+    [TestMethod]
+    public async Task ActiveTurn_AfterAcceptedReceipt_ShowsProcessingInsteadOfStaleState()
+    {
+        await using var fixture = await Fixture.CreateAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        fixture.Coordinator.SetConversationDraft("stream this response");
+        var submission = fixture.Coordinator.SendConversationAsync(deadline.Token);
+        await fixture.Connection.SendEntered.Task.WaitAsync(deadline.Token);
+        fixture.Connection.CompleteReceipt(Receipt("command-1", 5));
+        Assert.IsTrue(await submission);
+
+        fixture.Store.ApplyEvent(CommandStartedEvent(5, "command-1"));
+        fixture.DrainPresentation();
+
+        Assert.AreEqual(WorkflowCommandState.Idle, fixture.Model.OfficeWorkflow.CommandState);
+        Assert.AreEqual(
+            "E_COMMAND_IN_PROGRESS",
+            fixture.Model.OfficeWorkflow.Availability.ConversationSend.DisabledReason);
     }
 
     [TestMethod]
@@ -160,6 +184,20 @@ public sealed class ShellCoordinatorConcurrencyTests
             ("actor_id", new NativeJsonString("user")),
             ("command_id", new NativeJsonString(commandId)),
             ("payload", Object(("text", new NativeJsonString(text))))));
+
+    private static NativeEnvelope CommandStartedEvent(long cursor, string commandId) => new(
+        NativeMessageKind.Event,
+        $"event-{cursor}",
+        Object(
+            ("protocol_version", new NativeJsonInteger(1)),
+            ("event_id", new NativeJsonString($"event-{cursor}")),
+            ("session_id", new NativeJsonString("session-1")),
+            ("cursor", new NativeJsonInteger(cursor)),
+            ("type", new NativeJsonString("command.started")),
+            ("timestamp", new NativeJsonString("2026-09-06T02:00:00+00:00")),
+            ("actor_id", new NativeJsonString("python:authority")),
+            ("command_id", new NativeJsonString(commandId)),
+            ("payload", Object(("command_type", new NativeJsonString("chat.send"))))));
 
     private static NativeEnvelope Receipt(string commandId, long cursor) => new(
         NativeMessageKind.Receipt,

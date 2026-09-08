@@ -180,6 +180,46 @@ def test_read_only_codex_cli_sets_read_only_sandbox(monkeypatch):
     assert "sandbox_workspace_write.network_access=false" in seen["argv"]
 
 
+@pytest.mark.parametrize("cli_access", ["read-only", "workspace", "full"])
+def test_codex_cli_is_ephemeral_for_every_access_mode(monkeypatch, cli_access):
+    seen = {}
+
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        seen["argv"] = argv
+        return "", "", False, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = LLMClient(provider="codex-cli", model="", api_key="cli",
+                       base_url="", cli_access=cli_access)
+    client._run_codex("prompt", "", None)
+
+    assert seen["argv"].count("--ephemeral") == 1
+
+
+def test_codex_cli_separates_system_instructions_from_user_prompt(monkeypatch):
+    import tomllib
+
+    seen = {}
+
+    def fake_capture(self, argv, prompt, abort=None, env=None, on_line=None):
+        seen.update(argv=argv, prompt=prompt)
+        return "", "", False, False
+
+    monkeypatch.setattr(LLMClient, "_run_cli_capture", fake_capture)
+    client = LLMClient(provider="codex-cli", model="", api_key="cli",
+                       base_url="")
+    system = '당신은 "Birkin"입니다.\n친절하게 답하세요 🙂'
+    client.complete(
+        system=system,
+        messages=[{"role": "user", "content": "Keep this user request."}],
+    )
+
+    assert seen["prompt"] == "USER: Keep this user request."
+    assert system not in seen["prompt"]
+    config_arg = seen["argv"][seen["argv"].index("-c") + 1]
+    assert tomllib.loads(config_arg)["developer_instructions"] == system
+
+
 def test_workspace_codex_cli_sets_network_policy(monkeypatch):
     seen = {}
 

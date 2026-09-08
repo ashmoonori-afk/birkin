@@ -46,7 +46,7 @@ def test_post_raises_with_status_and_kind(monkeypatch):
             "u", 429, "Too Many Requests", {},
             io.BytesIO(b'{"error":"slow down"}'))
 
-    monkeypatch.setattr("urllib.request.urlopen", _raise)
+    monkeypatch.setattr("birkin.http_transport.open_no_redirect", _raise)
     monkeypatch.setattr("time.sleep", lambda *_: None)
     c = _client()
     with pytest.raises(LLMError) as exc:
@@ -64,7 +64,7 @@ def test_post_overflow_400_is_not_retried_and_is_classified(monkeypatch):
             "u", 400, "Bad Request", {},
             io.BytesIO(b'{"error":{"message":"prompt is too long"}}'))
 
-    monkeypatch.setattr("urllib.request.urlopen", _raise)
+    monkeypatch.setattr("birkin.http_transport.open_no_redirect", _raise)
     monkeypatch.setattr("time.sleep", lambda *_: None)
     with pytest.raises(LLMError) as exc:
         _client()._post("https://example.invalid", {}, {}, stream=False)
@@ -76,7 +76,7 @@ def test_network_error_kind(monkeypatch):
     def _raise(*a, **k):
         raise urllib.error.URLError("no route to host")
 
-    monkeypatch.setattr("urllib.request.urlopen", _raise)
+    monkeypatch.setattr("birkin.http_transport.open_no_redirect", _raise)
     monkeypatch.setattr("time.sleep", lambda *_: None)
     with pytest.raises(LLMError) as exc:
         _client()._post("https://example.invalid", {}, {}, stream=False)

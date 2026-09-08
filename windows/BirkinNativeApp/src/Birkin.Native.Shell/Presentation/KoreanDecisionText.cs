@@ -20,6 +20,8 @@ public static class KoreanDecisionText
                 "현재 서버에서 이 작업을 지원하지 않습니다. 앱과 Birkin을 업데이트한 뒤 다시 시도하세요.",
             ["E_PROJECTION_FORBIDS_MUTATION"] =
                 "현재 화면 상태에서는 변경할 수 없습니다. 최신 상태를 불러온 뒤 다시 시도하세요.",
+            ["E_COMMAND_IN_PROGRESS"] =
+                "현재 요청을 처리하고 있습니다. 완료될 때까지 기다려 주세요.",
             ["E_OFFICE_JOB_REQUEST_REQUIRED"] =
                 "이 작업은 Office 승인 요청이 필요합니다. 승인 요청을 만든 뒤 계속하세요.",
             ["E_STALE_CURSOR"] =
@@ -60,8 +62,8 @@ public static class KoreanDecisionText
 
     public static string ConversationKind(string kind) => kind switch
     {
-        "user" => "사용자",
-        "assistant" => "Birkin",
+        "user" or "user_message" => "사용자",
+        "assistant" or "assistant_message" or "assistant_stream" => "Birkin",
         "system" => "시스템",
         "tool" => "도구",
         _ => "메시지",
@@ -71,6 +73,7 @@ public static class KoreanDecisionText
     {
         "office_job" => "Office 작업",
         "office_rollback" => "Office 되돌리기",
+        "mail_send" => "메일 발송",
         "shell" => "Shell 명령",
         "filesystem" => "파일 변경",
         _ => "기타 작업",
@@ -88,14 +91,30 @@ public static class KoreanDecisionText
     public static string ApprovalSeal(bool isSealed) =>
         isSealed ? "검토 내용 고정됨" : "검토 내용 고정 안 됨";
 
-    public static string ApprovalOutcome(string? status) => status switch
+    public static string ApprovalOutcome(
+        string? status,
+        string? category = null,
+        string? mailRecheckState = null) =>
+        category == "mail_send" && mailRecheckState == "submitted"
+            ? "Microsoft 365 발송 처리 확인 · 수신자 배달 완료는 확인하지 않음"
+            : status switch
     {
         "approved" => "승인됨",
         "rejected" => "거부됨",
         "answered_elsewhere" => "다른 위치에서 결정됨",
+        "action_outcome_unknown" => "실행 결과 확인 필요",
         "expired" => "만료됨",
         "failed" => "실패함",
         _ => "결정 대기 중",
+    };
+
+    public static string MailRecheck(string? state) => state switch
+    {
+        "accepted" => "Microsoft 365가 요청을 접수함 · 발송 처리는 아직 확인되지 않음",
+        "observed_non_draft" => "원격에서 초안이 아님을 확인했으나 발송 시각은 확인되지 않음",
+        "needs_review" => "연결 계정 또는 승인 내용을 확인할 수 없어 검토가 필요합니다",
+        "submitted" => "Microsoft 365 발송 처리 확인 · 수신자 배달 완료는 확인하지 않음",
+        _ => "현재 원격 발송 상태를 확인할 수 없음",
     };
 
     public static string ApprovalOverwrite(bool? overwriteApproved) =>

@@ -323,6 +323,8 @@ class WorkspaceHub:
     ) -> CommandReceipt:
         with self._lock:
             session = self._selected_session()
+        if command.type == "chat.send":
+            return session.submit(command, actor_id=actor_id)
         return session.service.submit(command, actor_id=actor_id)
 
     def submit_control(

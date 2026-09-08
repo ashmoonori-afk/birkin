@@ -20,6 +20,8 @@ model can start a workflow, which is the one spawn path that could run away.
 from __future__ import annotations
 
 import hashlib
+import inspect
+import json
 import re
 import threading
 import time
@@ -209,6 +211,23 @@ class MoiraiAPI:
     def log(self, message: str) -> None:
         self._run.emit_log(str(message))
 
+    def research_search(self, query: str, *, count: int = 5) -> list[dict[str, Any]]:
+        return self._run.research_call(
+            "search", {"query": str(query), "count": min(10, max(1, int(count)))})
+
+    def research_fetch(self, url: str) -> dict[str, Any] | None:
+        return self._run.research_call("fetch", {"url": str(url)})
+
+    def research_failures(self) -> list[dict[str, Any]]:
+        return [dict(item) for item in self._run.failures
+                if item.get("role") == "research"]
+
+    def native_web_discover(self, prompt: str, *, schema: dict,
+                            timeout: float = 240.0) -> Any:
+        """Run at most one Codex native-web discovery for this workflow."""
+        return self._run.native_web_discover(
+            str(prompt), schema=schema, timeout=timeout)
+
     def verify(self, cmd: str) -> dict[str, Any] | None:
         """Run an active goal verifier through Birkin's shell approval gate.
 
@@ -269,6 +288,12 @@ class Run:
         self._spawned = 0
         self._admission_lock = threading.Lock()
         self._cache = journal.cached_calls(resume_from) if resume_from else {}
+        self._research_cache = (
+            journal.cached_research_calls(resume_from) if resume_from else {})
+        self._research_seq = 0
+        self._research_lock = threading.Lock()
+        self._native_web_used = False
+        self._native_web_lock = threading.Lock()
         self._cache_by_key: dict[str, list[dict[str, Any]]] = {}
         self._cache_lock = threading.Lock()
         self._lane = threading.local()
@@ -361,6 +386,119 @@ class Run:
     def emit_log(self, message: str) -> None:
         self._emit("moirai.log", {"message": message})
 
+    def research_call(self, kind: str, value: dict[str, Any]) -> Any:
+        from ..tools import web
+        from ..tools._types import ToolContext
+
+        def search_results(result: dict[str, Any]) -> list[dict[str, Any]]:
+            results = result.get("results", [])
+            if result.get("status") == "ok":
+                return results
+            return [
+                item for item in results
+                if isinstance(item, dict)
+                and item.get("discovery_method") == "query_url"
+                and isinstance(item.get("url"), str)
+                and not web._is_blocked_literal_url(item["url"])
+            ] if isinstance(results, list) else []
+
+        blocked = self._guard()
+        if blocked:
+            return [] if kind == "search" else None
+        key = journal.research_call_key(kind, value)
+        with self._research_lock:
+            self._research_seq += 1
+            seq = self._research_seq
+            cached = self._research_cache.get(key, [])
+            source = cached.pop(0) if cached else None
+        if source is not None:
+            journal.record_cached_research_call(self.run_id, seq, source)
+            cached_result = json.loads(source["result_json"])
+            self.emit_log(
+                f"조사 {'검색' if kind == 'search' else '본문 수집'} 완료: "
+                f"{cached_result.get('status', 'invalid_response')} (재사용)")
+            if kind == "search":
+                return search_results(cached_result)
+            return cached_result
+        journal.record_research_call(
+            self.run_id, seq, key, kind=kind, value=value)
+        try:
+            context = ToolContext(
+                cfg=self.cfg,
+                client=None,
+                cwd=Path(str(
+                    self.args.get("_workspace")
+                    or self.cfg.get("workspace_root")
+                    or Path.cwd())).resolve(),
+            )
+            if kind == "search":
+                result = web.research_search(
+                    value["query"], count=value["count"], ctx=context)
+            elif kind == "fetch":
+                result = web.research_fetch(value["url"], ctx=context)
+            else:
+                raise MoiraiError(f"지원하지 않는 research 호출: {kind}")
+        except Exception as exc:
+            journal.finish_research_call(
+                self.run_id, seq, status="error", error=str(exc))
+            self._fail(
+                seq=seq, role="research", label=kind, phase=self._phase,
+                reason="research-tool", error=str(exc))
+            self.emit_log(f"조사 {'검색' if kind == 'search' else '본문 수집'} 실패")
+            return [] if kind == "search" else None
+        typed_status = str(result.get("status") or "invalid_response")
+        cacheable = ((kind == "search" and typed_status in {"ok", "no_results"})
+                     or (kind == "fetch" and typed_status in {"ok", "empty"}))
+        journal.finish_research_call(
+            self.run_id, seq, status="ok" if cacheable else "error",
+            result=result, error="" if cacheable else typed_status)
+        if not cacheable:
+            self._fail(
+                seq=seq, role="research", label=kind, phase=self._phase,
+                reason="research-tool", error=typed_status)
+        self.emit_log(
+            f"조사 {'검색' if kind == 'search' else '본문 수집'} 완료: {typed_status}")
+        if kind == "search":
+            return search_results(result)
+        return result
+
+    def native_web_discover(self, prompt: str, *, schema: dict,
+                            timeout: float) -> Any:
+        with self._native_web_lock:
+            if self._native_web_used:
+                return None
+            self._native_web_used = True
+        binding = next(
+            (item for item in self.bindings.values()
+             if item.provider.removesuffix("-cli") == "codex"), None,
+        )
+        if binding is None:
+            self.emit_log("Codex 바인딩이 없어 native web discovery를 건너뜀")
+            return None
+        egress = self.cfg.get("egress")
+        if (isinstance(egress, dict) and egress.get("enabled") is True
+                and egress.get("enforced") is True):
+            self.emit_log(
+                "enforced egress에서는 native web query를 사전 검사할 수 없어 건너뜀")
+            return None
+        result = self.call_agent(
+            prompt, role=binding.role, label="native-web:discovery",
+            schema=schema, native_web=True, timeout=timeout,
+        )
+        if not isinstance(result, dict):
+            return None
+        observed = result.get("observed_query")
+        if (result.get("web_search_count") != 1
+                or result.get("provenance") != "model_discovered_after_web_search"
+                or not isinstance(observed, str)
+                or not observed.strip() or len(observed) > 500):
+            self.emit_log("native web discovery trace 검증 실패")
+            return None
+        self.emit_log(
+            f"native web discovery 완료: 검색 1회, 후보 "
+            f"{len(result.get('candidates') or [])}개")
+        return result
+
     # -- the agent call ----------------------------------------------------
 
     def call_agent(self, prompt: str, *, role: Optional[str], **opts) -> Any:
@@ -369,8 +507,10 @@ class Run:
             "provider": binding.provider, "model": binding.model,
             "schema": opts.get("schema"),
             "tools": opts.get("tools") or binding.tools,
-            "effort": opts.get("effort"), "cwd": opts.get("cwd"),
+            "effort": opts.get("effort"),
+            "cwd": opts.get("cwd") or self.args.get("_workspace"),
             "max_turns": opts.get("max_turns", 12),
+            "native_web": bool(opts.get("native_web")),
         }
         key = journal.call_key(prompt, call_opts)
         lane = getattr(self._lane, "path", ())
@@ -417,8 +557,13 @@ class Run:
         self._emit("subagent.start", {"task": f"[{label}] {prompt[:160]}"})
         started = time.monotonic()
         try:
-            text = self._spawn(prompt, binding, call_opts, self.cfg,
-                               timeout=opts.get("timeout", 900.0))
+            spawn_kwargs = {"timeout": opts.get("timeout", 900.0)}
+            parameters = inspect.signature(self._spawn).parameters.values()
+            if any(p.name == "abort" or p.kind == p.VAR_KEYWORD for p in parameters):
+                spawn_kwargs["abort"] = self.abort
+            text = self._spawn(
+                prompt, binding, call_opts, self.cfg, **spawn_kwargs,
+            )
         except Exception as exc:
             tb = _traceback.format_exc()
             journal.finish_call(self.run_id, seq, status="error",
@@ -585,7 +730,7 @@ def _run_token_budget(cfg: dict) -> Optional[int]:
 
 
 def _default_spawn(prompt: str, binding: Binding, opts: dict, cfg: dict, *,
-                   timeout: float = 900.0) -> str:
+                   timeout: float = 900.0, abort=None) -> str:
     """Text-only agent: one shot through the existing provider layer.
 
     Tool-bearing agents (``tools != "none"``) arrive in M3; until then the
@@ -594,6 +739,16 @@ def _default_spawn(prompt: str, binding: Binding, opts: dict, cfg: dict, *,
     """
     from .. import providers
     from . import schema as _schema
+    if abort is not None and abort.is_set():
+        return "[provider-error] cancelled"
+    if opts.get("native_web"):
+        if binding.provider != "codex":
+            return "[provider-error] native web requires codex"
+        want = opts.get("schema")
+        return providers.codex_web_discovery(
+            prompt, model=binding.model or "", timeout=int(timeout),
+            schema=_schema.to_strict(want) if want else None, abort=abort,
+        )
     if (opts.get("tools") or "none") != "none":
         raise MoiraiError(
             "tools= 에이전트는 아직 지원되지 않습니다 (M3) — tools='none'으로 두세요")
@@ -605,10 +760,12 @@ def _default_spawn(prompt: str, binding: Binding, opts: dict, cfg: dict, *,
     completer = providers.get_completer(
         binding.provider, model=binding.model or None, cfg=cfg,
         timeout=int(timeout), cwd=opts.get("cwd"),
-        schema=_schema.to_strict(want) if native else None)
+        schema=_schema.to_strict(want) if native else None, abort=abort)
 
     ask = prompt if (native or not want) else prompt + _schema.instruction(want)
     text = completer(ask)
+    if abort is not None and abort.is_set():
+        return "[provider-error] cancelled"
     if not want or (isinstance(text, str)
                     and text.startswith("[provider-error]")):
         return text
@@ -619,6 +776,8 @@ def _default_spawn(prompt: str, binding: Binding, opts: dict, cfg: dict, *,
     except _schema.SchemaError as first:
         # One retry with the complaint attached. A second miss fails this
         # agent (the script sees None); it does not end the workflow.
+        if abort is not None and abort.is_set():
+            return "[provider-error] cancelled"
         retry = completer(ask + _schema.retry_instruction(str(first)))
         try:
             _decode(retry, want)

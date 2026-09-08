@@ -80,6 +80,7 @@ class ToolContext:
     max_depth: int = 2
     tree_budget: Any = None
     emit: Optional[Callable[[str, dict[str, Any]], None]] = None
+    abort: Any = None
     subagent_approval_required: bool = False
     approved_work: bool = False
     approved_operation: bool = False

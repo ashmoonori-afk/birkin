@@ -6,6 +6,7 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import config, cron, store
 from .m365_calendar import calendar_view
@@ -17,21 +18,26 @@ from .work_items import grouped
 
 def generate(job: dict[str, Any], *, now: datetime | None = None) -> dict[str, object]:
     basis = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    try:
+        options = json.loads(str(job.get("value") or "{}"))
+        zone = ZoneInfo(str(options.get("timezone", "Asia/Seoul")))
+    except (json.JSONDecodeError, ZoneInfoNotFoundError) as exc:
+        raise ValueError("briefing timezone is invalid") from exc
     occurrence = str(job.get("next_run") or basis.date().isoformat())
     key = hashlib.sha256(f"{job.get('id')}\0{occurrence}".encode()).hexdigest()
     path = config.briefings_dir() / f"{key}.json"
     if path.is_file():
         existing = store._read_json(path, {})
         return {**existing, "created": False} if isinstance(existing, dict) else {"created": False}
-    work = grouped(now=basis)
+    work = grouped(timezone_name=str(zone), now=basis)
     missing: list[dict[str, str]] = []
     calendar: list[object] = []
     mail: list[object] = []
     connection = connection_status()
-    if connection["state"] == "connected":
+    if connection["state"] in {"connected", "sync_failed"}:
         try:
             calendar = calendar_view(basis.isoformat(), (basis + timedelta(days=1)).isoformat())["events"]
-        except GraphError as exc:
+        except (GraphError, ValueError) as exc:
             missing.append({"source": "calendar", "reason": type(exc).__name__})
         try:
             mail = list_messages(limit=20)["messages"]
@@ -43,6 +49,8 @@ def generate(job: dict[str, Any], *, now: datetime | None = None) -> dict[str, o
         "id": key,
         "job_id": job.get("id"),
         "data_basis_at": basis.isoformat(timespec="seconds"),
+        "work_range": {"date": basis.astimezone(zone).date().isoformat(), "timezone": str(zone), "label": "현지 날짜 기준"},
+        "calendar_range": {"start": basis.isoformat(), "end": (basis + timedelta(days=1)).isoformat(), "label": "향후 24시간"},
         "calendar": calendar,
         "overdue_work": work["overdue"],
         "today_work": work["today"],
@@ -63,11 +71,20 @@ def apply_schedule(payload: dict[str, Any], _on_event: object = None) -> str:
         policy = payload.get("missed_policy", "run")
         if policy not in {"run", "skip"}:
             raise ValueError("missed_policy must be run or skip")
+        timezone_name = str(payload.get("timezone_name", "Asia/Seoul"))
+        try:
+            _ = ZoneInfo(timezone_name)
+        except ZoneInfoNotFoundError as exc:
+            raise ValueError("briefing timezone is invalid") from exc
+        parsed = cron.parse_schedule(str(payload.get("schedule") or "09:00"))
+        if parsed is None or parsed.get("kind") != "daily":
+            raise ValueError("briefing schedule must be a daily time")
+        parsed["timezone"] = timezone_name
         job = cron.add_job(
             name=str(payload.get("name") or "Daily briefing"),
             action_type="briefing",
-            value=json.dumps({"timezone": payload.get("timezone_name", "Asia/Seoul"), "missed_policy": policy}),
-            schedule=str(payload.get("schedule") or "09:00"),
+            value=json.dumps({"timezone": timezone_name, "missed_policy": policy}),
+            schedule=parsed,
         )
         result: object = job
     elif action in {"pause", "resume"}:

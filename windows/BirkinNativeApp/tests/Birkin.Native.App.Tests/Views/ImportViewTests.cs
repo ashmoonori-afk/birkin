@@ -68,6 +68,12 @@ public sealed class ImportViewTests
         await sta.InvokeAsync(async () =>
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Connection.NextImportReference = new ImportedFilePresentation(
+                "import-1",
+                "first-report.docx",
+                "import-1.docx",
+                new string('a', 64),
+                1200);
             var view = new ImportView(fixture.Model, fixture.Coordinator);
             OfficeWorkflowViewHarness.Layout(view);
             var missing = @"C:\does-not-exist\first-report.docx";
@@ -117,6 +123,38 @@ public sealed class ImportViewTests
             Assert.AreEqual(
                 AutomationLiveSetting.Assertive,
                 AutomationProperties.GetLiveSetting(status));
+        });
+    }
+
+    [TestMethod]
+    public async Task Drop_WhenTwoFilesAreSelected_ImportsBothInOrder()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Connection.ImportReferences.Enqueue(new ImportedFilePresentation(
+                "import-1", "baseline.xlsx", "import-1.xlsx", new string('a', 64), 1200));
+            fixture.Connection.ImportReferences.Enqueue(new ImportedFilePresentation(
+                "import-2", "candidate.xlsx", "import-2.xlsx", new string('b', 64), 1300));
+            var view = new ImportView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+
+            var submitted = await view.ImportDroppedFilesAsync(
+                [@"C:\fixtures\baseline.xlsx", @"C:\fixtures\candidate.xlsx"]);
+
+            Assert.IsTrue(submitted);
+            CollectionAssert.AreEqual(
+                new[] { @"C:\fixtures\baseline.xlsx", @"C:\fixtures\candidate.xlsx" },
+                fixture.Connection.Sent.Select(request =>
+                    ((NativeJsonString)request.Payload["source_path"]!).Value).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "baseline.xlsx", "candidate.xlsx" },
+                fixture.Model.OfficeWorkflow.Imports.Select(imported => imported.DisplayName).ToArray());
+            Assert.AreEqual(
+                "파일 2개를 가져왔습니다.",
+                OfficeWorkflowViewHarness.Find<TextBlock>(view, "import.status").Text);
         });
     }
 

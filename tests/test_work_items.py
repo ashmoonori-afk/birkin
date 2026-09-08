@@ -4,7 +4,9 @@ import json
 from datetime import datetime, timezone
 from typing import cast
 
-from birkin import approvals, work_items
+import pytest
+
+from birkin import approvals, goals, work_items
 from birkin.office.meeting_actions import review_meeting_actions
 from birkin.workspace.service import WorkspaceService
 
@@ -25,6 +27,12 @@ def test_confirmed_meeting_items_persist_with_unknowns_and_source(
         "session_id": "meeting-session",
         "source": {"conversation_id": "conversation-1", "artifact_uri": "office://meeting.docx"},
     }
+    title, description = work_items.request_review(payload)
+    assert title == "회의 후속 업무 등록 확인"
+    assert description == (
+        "업무: 견적 확인 · 담당자: 민지 · 기한: 미정"
+        " · 원본: conversation_id=conversation-1, artifact_uri=office://meeting.docx"
+    )
     queued = approvals.propose(
         category="work_item", title="후속 업무", description="확정", payload=payload, cfg={}
     )
@@ -67,3 +75,39 @@ def test_today_overdue_and_recent_completion_survive_each_write(
     ).snapshot()
     panel = next(panel for panel in snapshot.panels if panel.key == "tasks_runs")
     assert any(item["summary"] == "지연 업무" and item["status"] == "지연" for item in panel.items)
+
+
+def test_goal_source_is_resolved_from_persisted_authority_after_restart(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    goal = goals.set_goal("분기 보고서 제출", session_id="session-1")
+    created = json.loads(work_items.apply_approved({
+        "action": "create",
+        "title": "보고서 후속 확인",
+        "session_id": "session-1",
+        "source": {"goal_slug": goal.slug},
+    }))["items"][0]
+
+    reloaded = work_items.find(created["id"])
+    assert work_items.source_details(reloaded) == {
+        "source_type": "goal_slug",
+        "target": goal.slug,
+        "title": "관련 목표",
+        "summary": "분기 보고서 제출",
+        "status": "active",
+        "session_id": "session-1",
+    }
+
+
+def test_source_resolution_rejects_traversal_and_missing_references(
+    tmp_path, monkeypatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    sources = ({"goal_slug": "../secret"}, {"job_id": "../secret"}, {"job_id": "missing"})
+    for source in sources:
+        item = json.loads(work_items.apply_approved({
+            "action": "create", "title": "잘못된 참조", "source": source,
+        }))["items"][0]
+        with pytest.raises(ValueError, match="찾을 수 없습니다|invalid"):
+            work_items.source_details(item)

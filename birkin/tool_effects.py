@@ -28,6 +28,7 @@ EXTERNAL_DATA_TOOLS = frozenset(
     {
         "web_fetch",
         "web_search",
+        "research_run",
         "vision_analyze",
         "inspect_document",
         "extract_document",

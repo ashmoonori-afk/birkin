@@ -25,6 +25,7 @@ from .preview_semantics import PreviewSummary, summarize_operations
 from .proposal_integrity import authority_digest
 from .retention import purge_expired_office_state
 from .service import DocumentService
+from .service_patch_contract import validate_operations
 from .service_workspace import DocumentWorkspace
 from .skill_router import route_office_request
 
@@ -107,6 +108,12 @@ class OfficeCoordinator:
         """Inspect, preview, summarize, persist, and queue one canonical approval."""
         inspection = self._service.inspect_document(request.source)
         format_name = _text(inspection.get("format"), "inspection format")
+        validate_operations(
+            format_name,
+            request.operations,
+            operation_name="patch",
+            require_single=False,
+        )
         source_identity = _mapping(inspection.get("source"), "inspection source")
         source_sha256 = _text(source_identity.get("sha256"), "source sha256")
         raw_source_filename = request.source.get("source_filename")

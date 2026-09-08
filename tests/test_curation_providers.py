@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import json
+import sys
+import threading
+import time
 from pathlib import Path
+
+import pytest
 
 from birkin import curation_schema, providers
 
@@ -67,6 +72,50 @@ def test_codex_completer_is_readonly_and_never_copies_the_login(
     assert list(tmp_path.glob("**/*-codex-home*")) == []
     assert not captured["outpath"].exists()
     assert not schema_path.exists()
+
+
+def test_codex_failed_exit_rejects_partial_output_without_leaking_stderr(
+        monkeypatch, tmp_path):
+    prompt_marker = "PRIVATE USER PROMPT"
+    monkeypatch.setattr(providers.shutil, "which", lambda name: "codex.exe")
+
+    def fake_run(argv, **kwargs):
+        Path(argv[argv.index("-o") + 1]).write_text(
+            '{"looks":"valid"}', encoding="utf-8")
+        return '{"also":"partial"}', f"startup warning\n{prompt_marker}", 17
+
+    monkeypatch.setattr(providers, "_run", fake_run)
+
+    out = providers.codex_completer(cwd=str(tmp_path))(prompt_marker)
+
+    assert out == "[provider-error] codex: 종료 코드 17"
+    assert prompt_marker not in out
+
+
+def test_codex_success_still_returns_output_file(monkeypatch, tmp_path):
+    monkeypatch.setattr(providers.shutil, "which", lambda name: "codex.exe")
+
+    def fake_run(argv, **kwargs):
+        Path(argv[argv.index("-o") + 1]).write_text("model answer", encoding="utf-8")
+        return "progress", "startup warning", 0
+
+    monkeypatch.setattr(providers, "_run", fake_run)
+
+    assert providers.codex_completer(cwd=str(tmp_path))("prompt") == "model answer"
+
+
+def test_codex_empty_success_does_not_leak_stderr(monkeypatch, tmp_path):
+    prompt_marker = "PRIVATE USER PROMPT"
+    monkeypatch.setattr(providers.shutil, "which", lambda name: "codex.exe")
+    monkeypatch.setattr(
+        providers, "_run",
+        lambda *args, **kwargs: ("", f"startup warning\n{prompt_marker}", 0),
+    )
+
+    out = providers.codex_completer(cwd=str(tmp_path))(prompt_marker)
+
+    assert out == "[provider-error] codex: 모델 응답이 비어 있습니다"
+    assert prompt_marker not in out
 
 
 def test_get_completer_passes_cwd_to_codex_alias(monkeypatch):
@@ -149,12 +198,118 @@ def test_the_provider_layer_does_not_impose_a_schema_by_default():
     found by dogfooding the workflow engine, which shares this layer.
     """
     import inspect
-
-    from birkin import providers
     src = inspect.getsource(providers.codex_completer)
     assert "if schema:" in src, "schema must be opt-in"
     assert "plan_version" not in src, "no application schema inside the completer"
     assert not hasattr(providers, "CURATION_PLAN_SCHEMA")
+
+
+def test_run_abort_stops_the_whole_cli_process_tree(tmp_path):
+    marker = tmp_path / "orphan.txt"
+    child = (
+        "import time, pathlib; time.sleep(0.8); "
+        f"pathlib.Path({str(marker)!r}).write_text('orphan')"
+    )
+    parent = (
+        "import subprocess, sys, time; "
+        f"subprocess.Popen([sys.executable, '-c', {child!r}]); time.sleep(10)"
+    )
+    abort = threading.Event()
+    timer = threading.Timer(0.1, abort.set)
+    timer.start()
+    started = time.monotonic()
+    try:
+        _out, _err, code = providers._run(
+            [sys.executable, "-c", parent], timeout=10, abort=abort,
+        )
+    finally:
+        timer.cancel()
+    assert code == -2 and time.monotonic() - started < 3
+    time.sleep(1)
+    assert not marker.exists()
+
+
+def test_cancelled_cli_output_is_never_returned_as_model_text(monkeypatch, tmp_path):
+    monkeypatch.setattr(providers.shutil, "which", lambda name: f"{name}.exe")
+    monkeypatch.setattr(providers, "_run", lambda *args, **kwargs: ("partial", "", -2))
+    assert providers.claude_completer(abort=threading.Event())("q").endswith("cancelled")
+    assert providers.codex_completer(cwd=str(tmp_path), abort=threading.Event())("q").endswith("cancelled")
+
+
+def test_run_with_pre_cancelled_event_does_not_start_process(monkeypatch):
+    abort = threading.Event()
+    abort.set()
+    monkeypatch.setattr(
+        providers.subprocess, "Popen",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("spawned")),
+    )
+    assert providers._run(["unused"], abort=abort)[2] == -2
+
+
+def test_run_cleans_up_child_tree_on_keyboard_interrupt(monkeypatch):
+    class Process:
+        returncode = None
+        calls = 0
+
+        def communicate(self, *args, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise KeyboardInterrupt
+            return "", ""
+
+    process = Process()
+    killed = []
+    monkeypatch.setattr(providers.os, "name", "posix")
+    monkeypatch.setattr(providers.subprocess, "Popen", lambda *args, **kwargs: process)
+    monkeypatch.setattr("birkin.proc.kill_tree", lambda child: killed.append(child))
+
+    with pytest.raises(KeyboardInterrupt):
+        providers._run(["command"])
+
+    assert killed == [process]
+    assert process.calls == 2
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows Job Object cleanup")
+def test_run_kills_suspended_process_when_job_assignment_fails(monkeypatch):
+    class Process:
+        pid = 123
+        killed = False
+        waited = False
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            self.killed = True
+
+        def wait(self, timeout=None):
+            self.waited = True
+
+    class Job:
+        terminated = False
+        closed = False
+
+        def assign(self, pid):
+            raise OSError("assign failed")
+
+        def terminate(self):
+            self.terminated = True
+
+        def close(self):
+            self.closed = True
+
+    process = Process()
+    job = Job()
+    monkeypatch.setattr(providers.subprocess, "Popen",
+                        lambda *args, **kwargs: process)
+    monkeypatch.setattr("birkin._winjob.WindowsJob.create", lambda: job)
+
+    with pytest.raises(OSError, match="assign failed"):
+        providers._run(["command"])
+
+    assert job.terminated and job.closed
+    assert process.killed and process.waited
 
 
 def test_curation_still_asks_for_its_schema_explicitly():

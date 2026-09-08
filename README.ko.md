@@ -93,7 +93,9 @@ Birkin: 원본을 읽기 전용으로 검사하고 보고서 초안을 준비하
 | 코딩 에이전트가 사용자가 plan을 이해하기 전에 파일을 변경함 | 공식 VS Code extension이 editor context를 보내고, plan을 먼저 검토하며, 제안 diff를 표시하고, Birkin 승인을 처리하고, checkpoint를 복원합니다. |
 | 로컬 도구가 불투명한 서비스가 됨 | run, approval, checkpoint, status, config가 모두 로컬에서 확인 가능합니다. |
 
-Birkin 핵심 런타임에는 검증된 데이터 모델용 `pydantic`, process identity용 `psutil`, 타입화된 runtime 계약용 `typing-extensions`라는 세 공통 외부 의존성이 있습니다. Windows에서는 `tzdata`가 로컬 일정에 필요한 IANA 시간대 데이터베이스를 제공합니다. `birkin_mnemosyne`은 Birkin에 번들되며 별도로 설치하지 않습니다. 선택적 extra가 voice, native desktop Computer Use, browser, office 파일 지원을 추가합니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
+Birkin 핵심 런타임에는 네 가지 공통 외부 의존성이 있습니다. `pydantic`은 데이터 모델 검증, `psutil`은 프로세스 식별, `typing-extensions`는 실행 계약 타입, `httpx`는 중단 가능한 공급자 HTTP 요청을 담당합니다. Windows에서는 `tzdata`가 로컬 일정에 필요한 IANA 시간대 데이터베이스를 제공합니다. `birkin_mnemosyne`은 Birkin에 번들되며 별도로 설치하지 않습니다. 선택적 추가 기능으로 음성, 네이티브 데스크톱 Computer Use, 브라우저, Office 파일 지원을 사용할 수 있습니다. 현재 저장소에는 **63개 스킬**이 번들되며, 기본 테스트는 모두 오프라인 실행을 목표로 합니다.
+
+작업공간 전용 `research_run` 도구는 사용자가 제공한 HTTP(S) 출처 URL을 최대 18개까지 받아 제한된 심층 조사를 실행합니다. 보고서에는 출처를 최대 18개까지 남기며, 초기 본문 수집은 최대 36회이고 후속·반증 탐색에는 별도 제한이 적용됩니다. Codex를 사용할 수 있고 enforced egress가 꺼져 있으면 한 번의 격리된 임시 웹 검색으로 후보 URL을 찾을 수 있지만, 후보는 Birkin이 본문을 가져와 검증하기 전까지 근거가 아닙니다. 보고서는 출처가 뒷받침하는 사실, 전제와 가정을 표시한 추론, 반박된 주장, 미확정 주장을 구분합니다. 인용의 존재는 코드가 확인하고 의미와 추론의 타당성은 모델 검토 결과로 표시합니다.
 
 ## 메모리
 
@@ -473,7 +475,7 @@ Catalog의 하위 기능과 에이전트 연결 여부는 별도입니다. 등�
 승인 결합 `office_job_request` 경로를 공유합니다. 비ASCII PDF content는
 TrueType font artifact의 URI와 SHA-256을 승인 내용에 포함합니다.
 
-등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, 셀 근거를 포함하는 XLSX 검토용 `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, 정식 승인 코디네이터 `office_job_request`, 그리고 별도 승인을 거치는 `office_rollback_request`입니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
+등록된 호출은 `list_document_adapters`, `inspect_document`, `extract_document`, 셀 근거를 포함하는 XLSX 검토용 `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `m365_document_import`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, 정식 승인 코디네이터 `office_job_request`, 그리고 별도 승인을 거치는 `office_rollback_request`입니다. `m365_document_import`는 허용된 Microsoft 365 연결이 필요하며 실제 연결 경로는 로컬 Office acceptance 실행에서 검증하지 않았습니다. 동기화된 skill은 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
 
 문서 입력은 config, vault, session, native bootstrap 파일과 분리된 전용 `BIRKIN_HOME/office` jail 안에 있어야 합니다. `BIRKIN_HOME=/workspace/.birkin`이면 source를 `/workspace/.birkin/office/artifacts/incoming` 아래로 복사하거나 import해야 하며, 다른 위치의 path는 hash가 일치해도 거부됩니다. Durable job은 `BIRKIN_HOME/office/jobs`에 유지되며 generic model file tool은 Office receipt key, job, validated draft, backup, transaction journal, destination lock을 읽거나 나열하거나 다시 쓸 수 없습니다. 결과를 만드는 mutation과 export는 caller가 승인한 allowlist root 아래 destination을 사용하는 `office_job_request`로만 요청합니다. Rollback은 `office_rollback_request`를 통한 두 번째 high-risk 승인이며, export receipt에는 HMAC이 적용되고 30일 뒤 만료됩니다. 만료된 receipt, 활성 backup path, transaction/job journal은 다음 Office request에서 purge됩니다. Legacy unsigned receipt는 rollback authority로 허용되지 않습니다. Check-to-unlink race와 concurrent hard-link race를 피하기 위해 인증된 helper와 backup name은 private `.birkin-retire` directory로 namespace-retire됩니다. POSIX에서는 동시에 추가된 hard link를 보존하면서 해당 inode byte를 안전하게 지울 수 없으므로 격리된 byte가 남을 수 있지만, 이는 active state가 아니며 rollback authority를 부여하지 않습니다.
 
@@ -512,7 +514,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.409`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.410`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
@@ -964,6 +966,8 @@ snapshot을 복사할 수 있습니다.
 | `birkin reindex` | Memory-palace index(zone, term, dynamics) 재구성. |
 | `birkin update` | Repo에서 새 코드 pull (fast-forward만). |
 
+Gateway 또는 OMO 제어 채널이 상시 실행되는 Codex app-server 공급자를 사용하면 내부 Codex 대화는 임시로만 유지됩니다. 로그인한 사용자의 Codex 기록에 나타나거나 Birkin 요청으로 기록 제목을 만들지 않습니다. Birkin의 채널·실행 기록은 각각의 별도 보존 규칙을 따릅니다.
+
 전체 interface는 `birkin --help` 또는 `birkin <command> --help`로 확인하십시오.
 
 ## Slash command
@@ -1322,13 +1326,20 @@ projected state만 표시합니다.
 `%LOCALAPPDATA%\Birkin\layout.json`에 저장되며, 파일이 없거나 잘못된 값은
 Python의 정책이나 실행 권한을 바꾸지 않고 제한된 기본값으로 복구됩니다.
 
-Windows Office path는 의도적으로 read-only입니다. Jail 안으로 artifact를 import하고,
-canonical projection을 선택하고, Python 소유 comparison을 요청하고, 그 결과인
-Diff를 표시할 수 있습니다. Approval control은 generic canonical Birkin approval
-record에만 답하며 client가 별도의 Office approval authority를 만들거나 seal하지
-않습니다. Python이 canonical approval, execution, validation, receipt, recovery
-path를 사용하는 durable comparison-report job을 제공하기 전까지 direct
-comparison-report save는 unavailable입니다.
+Windows Office 경로는 격리 공간으로 문서를 가져오고 정식 투영을 선택하며,
+Python이 소유한 검사·비교를 요청하고 기존 문서 변경을 정식 Office 승인 흐름으로
+제출할 수 있습니다. 승인 제어는 정식 Birkin 승인 기록에만 응답하며 클라이언트가
+별도 Office 승인 권한을 만들거나 봉인하지 않습니다. Python이 승인·실행·검증·
+영수증·복구를 거치는 영구 비교 보고서 작업을 제공하기 전까지 비교 보고서를
+직접 저장할 수 없습니다.
+
+로그인된 실제 계정의 인수 실행에서 대표 번들 DOCX를 자연어로 요청해 검사, 작업
+요청, UI 승인, 내보내기, 영수증까지 완료했습니다. 저장소 테스트는 같은 권한과
+다시 열기 계약을 별도로 오프라인 검증합니다. 이 결과가 모든 Office 형식·요청을
+보장하지는 않으며 실제 Microsoft 365 가져오기는 별도 출시 관문입니다.
+
+검증 범위와 남은 연구·접근성·설치·M365 인수는
+[Office 구현 리뷰와 TODO](docs/office-agent-review.md)에서 확인할 수 있습니다.
 
 Office mutation을 승인하기 전에 canonical macOS와 Windows card는 source
 filename, cell 단위 before/after description, destination, overwrite authority,

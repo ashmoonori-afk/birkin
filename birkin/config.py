@@ -680,6 +680,10 @@ def office_templates_path() -> Path:
     return birkin_home() / "office-templates.json"
 
 
+def m365_imports_path() -> Path:
+    return birkin_home() / "m365-document-imports.json"
+
+
 def data_deletions_path() -> Path:
     return birkin_home() / "data-deletions.json"
 

@@ -12,6 +12,7 @@ from urllib.parse import quote
 
 from . import config, store
 from .m365_graph import GraphClient, graph_client
+from .m365_connection import current_verified_identity, verify_approval_identity
 from .office.artifact_serialization import canonical_json
 
 
@@ -28,7 +29,7 @@ def create_handoff(payload: Mapping[str, object]) -> dict[str, object]:
     reviewers = payload.get("reviewers")
     if isinstance(reviewers, (str, bytes)) or not isinstance(reviewers, Sequence) or not reviewers:
         raise ValueError("reviewers must be a non-empty array")
-    reviewer_list = sorted({str(item).strip() for item in reviewers})
+    reviewer_list = sorted({str(item).strip().casefold() for item in reviewers})
     if any("@" not in item for item in reviewer_list):
         raise ValueError("reviewer must be an email address")
     role = payload.get("role", "read")
@@ -39,12 +40,13 @@ def create_handoff(payload: Mapping[str, object]) -> dict[str, object]:
         "drive_item_id": str(payload.get("drive_item_id", "")),
         "source_etag": str(payload.get("source_etag", "")),
         "source_name": str(payload.get("source_name", "")),
-        "proposer": str(payload.get("proposer", "")),
+        "proposer": str(payload.get("proposer", "")).casefold(),
         "reviewers": reviewer_list,
         "role": role,
         "message": str(payload.get("message", ""))[:2000],
         "status": "draft",
         "comments": [],
+        "connection_identity": payload.get("connection_identity"),
     }
     if not all(record[key] for key in ("drive_item_id", "source_etag", "source_name", "proposer")):
         raise ValueError("drive_item_id, source_etag, source_name, and proposer are required")
@@ -74,6 +76,7 @@ def _current(item_id: str, client: GraphClient) -> dict[str, Any]:
 def execute_share(payload: dict[str, Any], *, approval_id: str | None, client: GraphClient | None = None) -> str:
     record = get_handoff(payload.get("review_id", payload.get("id")), payload.get("content_sha256"))
     graph = client or graph_client()
+    verify_approval_identity(record.get("connection_identity"), graph)
     current = _current(str(record["drive_item_id"]), graph)
     if current.get("eTag") != record["source_etag"]:
         raise ValueError("source document version changed; create a new review")
@@ -98,15 +101,18 @@ def execute_share(payload: dict[str, Any], *, approval_id: str | None, client: G
 
 
 def add_comment(payload: Mapping[str, object], *, client: GraphClient | None = None) -> dict[str, object]:
-    actor, review_id, text = str(payload.get("actor", "")), str(payload.get("review_id", "")), str(payload.get("text", "")).strip()
+    review_id, text = str(payload.get("review_id", "")), str(payload.get("text", "")).strip()
     with store.file_lock(config.team_reviews_path()):
         records = _read()
         record = records.get(review_id)
-        if record is None or actor not in {*record.get("reviewers", []), record.get("proposer")}:
+        graph = client or graph_client(allow_unverified=True)
+        actor = str(current_verified_identity(graph)["name"]).casefold()
+        members = {str(member).casefold() for member in [*record.get("reviewers", []), record.get("proposer")]} if record else set()
+        if record is None or actor not in members:
             raise PermissionError("actor cannot access this review")
         if not text:
             raise ValueError("comment text is required")
-        current = _current(str(record["drive_item_id"]), client or graph_client())
+        current = _current(str(record["drive_item_id"]), graph)
         if current.get("eTag") != record["source_etag"]:
             raise ValueError("source document version changed; comment targets an older version")
         comments = list(record.get("comments", []))
@@ -118,9 +124,12 @@ def add_comment(payload: Mapping[str, object], *, client: GraphClient | None = N
     return comment
 
 
-def list_review(review_id: object, actor: object) -> dict[str, object]:
+def list_review(review_id: object, *, client: GraphClient | None = None) -> dict[str, object]:
     record = _read().get(str(review_id))
-    if record is None or str(actor) not in {*record.get("reviewers", []), record.get("proposer")}:
+    graph = client or graph_client(allow_unverified=True)
+    actor = str(current_verified_identity(graph)["name"]).casefold()
+    members = {str(member).casefold() for member in [*record.get("reviewers", []), record.get("proposer")]} if record else set()
+    if record is None or actor not in members:
         raise PermissionError("actor cannot access this review")
     return record
 

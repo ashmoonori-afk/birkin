@@ -25,8 +25,8 @@ public static class OfficeDocumentPresentationMapper
         }
 
         var mediaType = Text(artifact, "media_type") ?? "office";
-        var uri = Text(artifact, "uri");
-        var name = uri is null ? artifactId : Path.GetFileName(uri);
+        var source = Text(artifact, "source_filename") ?? Text(artifact, "uri");
+        var name = source is null ? artifactId : Path.GetFileName(source);
         return new OfficeDocumentRowPresentation(
             artifactId,
             string.IsNullOrWhiteSpace(name) ? artifactId : name,

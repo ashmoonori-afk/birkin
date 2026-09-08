@@ -24,6 +24,7 @@ import pytest
 from birkin import codex_session
 from birkin.codex_session import (CodexAppServerSession, CodexSessionError,
                                   CodexTurnTimeout)
+from birkin.llm import LLMError
 
 
 def _item(text: str) -> dict:
@@ -36,6 +37,13 @@ def _completed() -> dict:
     return {"method": "turn/completed",
             "params": {"threadId": "thread-1",
                        "turn": {"id": "turn-1", "status": "completed"}}}
+
+
+def _failed(message: str) -> dict:
+    return {"method": "turn/completed",
+            "params": {"threadId": "thread-1",
+                       "turn": {"id": "turn-1", "status": "failed",
+                                "error": {"message": message}}}}
 
 
 def _session(turn_timeout: float = 0.4, pending: tuple = (),
@@ -281,6 +289,33 @@ class TestPartialOutputSurvivesTheTimeout:
 
 
 class TestRetryIsBoundedByRestartsNotWallClock:
+    def test_completed_provider_failure_is_not_retried(self) -> None:
+        calls: list[str] = []
+        starts: list[bool] = []
+        s = _session(turn_timeout=10.0)
+
+        def request(method, params, timeout=None):
+            if method == "turn/start":
+                calls.append(params["input"][0]["text"])
+                s._notes.put(_failed(
+                    '{"type":"error","status":400,"error":'
+                    '{"type":"invalid_request_error","message":'
+                    '"unsupported model"}}'
+                ))
+            return {"turn": {"id": "turn-1"}}
+
+        s.request = request
+        s.is_alive = lambda: True
+        s.start = lambda: starts.append(True)
+
+        with pytest.raises(LLMError) as caught:
+            s.ask("hello", None, 10.0)
+
+        assert str(caught.value) == "unsupported model"
+        assert caught.value.status == 400 and caught.value.kind == "client"
+        assert calls == ["hello"]
+        assert starts == []
+
     def test_a_restart_retry_gets_the_same_idle_window(self) -> None:
         """The budget measures SILENCE, so the retry is not handed a shrunk
         window for the time the first attempt spent doing real work.

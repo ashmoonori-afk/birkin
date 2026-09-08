@@ -7,6 +7,7 @@ using Birkin.Native.App;
 using Birkin.Native.App.Tests.Support;
 using Birkin.Native.App.Views;
 using Birkin.Native.Protocol.Framing;
+using Birkin.Native.Shell.Presentation;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Birkin.Native.App.Tests.Views;
@@ -64,6 +65,8 @@ public sealed class OfficeViewTests : MainWindowTestBase
         await sta.InvokeAsync(async () =>
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Connection.NextImportReference = new ImportedFilePresentation(
+                "import-1", "first-report.xlsx", "import-1.xlsx", new string('a', 64), 1200);
             var view = new OfficeView(fixture.Model, fixture.Coordinator);
             OfficeWorkflowViewHarness.Layout(view);
             var importPanel = OfficeWorkflowViewHarness.Find<Expander>(

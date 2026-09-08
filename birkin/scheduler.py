@@ -25,7 +25,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -414,7 +414,10 @@ def run_job(job: dict[str, Any]) -> None:
 
             options = json.loads(str(value) or "{}")
             scheduled = datetime.fromisoformat(str(job.get("next_run")))
-            if options.get("missed_policy") == "skip" and datetime.now() - scheduled > timedelta(minutes=5):
+            now = datetime.now(timezone.utc)
+            if scheduled.tzinfo is None:
+                scheduled = scheduled.replace(tzinfo=timezone.utc)
+            if options.get("missed_policy") == "skip" and now - scheduled > timedelta(minutes=5):
                 store.save_run("briefing", f"[{job.get('name')}] skipped missed run", {"job": job["id"], "policy": "skip"})
                 return
             report = generate(job)

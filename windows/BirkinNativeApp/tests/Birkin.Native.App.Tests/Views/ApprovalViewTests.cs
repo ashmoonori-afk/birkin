@@ -40,6 +40,33 @@ public sealed class ApprovalViewTests
         StringAssert.Contains(message, "주의: 기존 파일을 덮어쓸 수 있습니다");
     }
 
+    [DataTestMethod]
+    [DataRow("create", "후속 업무 생성")]
+    [DataRow("update", "후속 업무 수정")]
+    [DataRow("complete", "후속 업무 완료")]
+    public void WorkItemConfirmation_ShowsReviewContentWithoutFileLanguage(
+        string approvalAction,
+        string expectedChange)
+    {
+        var card = new PanelItemPresentation(
+            "4dba63e5beed",
+            "approval",
+            "후속 업무 생성 확인",
+            "업무: 검증 보고서 확인 · 담당자: 검증 담당 · 기한: 2050-01-01",
+            Category: "work_item",
+            ApprovalAction: approvalAction);
+
+        var message = ApprovalView.ConfirmationMessage(
+            card,
+            "승인",
+            "저장 위치 없음");
+
+        StringAssert.Contains(message, card.Description);
+        StringAssert.Contains(message, expectedChange);
+        Assert.IsFalse(message.Contains("저장 위치", StringComparison.Ordinal));
+        Assert.IsFalse(message.Contains("덮어쓰기", StringComparison.Ordinal));
+    }
+
     [TestMethod]
     public async Task AnsweredApproval_WhenCanonicalResolutionArrives_MovesToDecidedHistory()
     {
@@ -241,6 +268,286 @@ public sealed class ApprovalViewTests
     }
 
     [TestMethod]
+    public async Task UnknownMailSend_WhenRecheckable_RemainsVisibleAndSendsRecheckOnly()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.ApplyCanonical("workspace.refreshed", Object(
+                ("approval_requests", new NativeJsonArray([
+                    Object(
+                        ("id", Text("a1b2c3d4e5f6")),
+                        ("kind", Text("approval")),
+                        ("summary", Text("메일 발송 상태 확인")),
+                        ("category", Text("mail_send")),
+                        ("risk", Text("high")),
+                        ("sealed", new NativeJsonBoolean(true)),
+                        ("draft_id", Text("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
+                        ("content_sha256", Text("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+                        ("status", Text("action_outcome_unknown")),
+                        ("ui_state", Text("action_needed")),
+                        ("decided", new NativeJsonBoolean(true)),
+                        ("recheckable", new NativeJsonBoolean(true))),
+                    Object(
+                        ("id", Text("b1c2d3e4f5a6")),
+                        ("kind", Text("approval")),
+                        ("summary", Text("메일 발송 요청 접수")),
+                        ("category", Text("mail_send")),
+                        ("risk", Text("high")),
+                        ("sealed", new NativeJsonBoolean(true)),
+                        ("draft_id", Text("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
+                        ("content_sha256", Text("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+                        ("status", Text("action_outcome_unknown")),
+                        ("ui_state", Text("action_needed")),
+                        ("decided", new NativeJsonBoolean(true)),
+                        ("recheckable", new NativeJsonBoolean(true)),
+                        ("mail_recheck_state", Text("accepted")))
+                ]))));
+            var view = new ApprovalView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view, width: 380, height: 880);
+
+            Assert.AreEqual(2, view.ApprovalRows.Count);
+            Assert.AreEqual(0, view.DecidedApprovalRows.Count);
+            Assert.AreEqual(
+                "현재 원격 발송 상태를 확인할 수 없음",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.recheck-state.a1b2c3d4e5f6").Text);
+            Assert.AreEqual(
+                "실행 결과 확인 필요",
+                view.ApprovalRows.Single(item => item.Id == "a1b2c3d4e5f6").OutcomeLabel);
+            Assert.AreEqual(
+                "Microsoft 365가 요청을 접수함 · 발송 처리는 아직 확인되지 않음",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.recheck-state.b1c2d3e4f5a6").Text);
+            var recheck = OfficeWorkflowViewHarness.Find<Button>(
+                view,
+                "approval.recheck.a1b2c3d4e5f6");
+            Assert.AreEqual(Visibility.Visible, recheck.Visibility);
+            Assert.IsTrue(recheck.IsEnabled);
+            Assert.AreEqual("발송 상태 다시 확인", AutomationProperties.GetName(recheck));
+            Assert.IsFalse(
+                OfficeWorkflowViewHarness.Find<Button>(
+                    view,
+                    "approval.approve.a1b2c3d4e5f6").IsVisible);
+            var outcome = OfficeWorkflowViewHarness.Find<TextBlock>(
+                view,
+                "approval.outcome.a1b2c3d4e5f6");
+            Assert.AreEqual(Visibility.Collapsed, ((FrameworkElement)outcome.Parent).Visibility);
+            var state = OfficeWorkflowViewHarness.Find<TextBlock>(
+                view,
+                "approval.recheck-state.a1b2c3d4e5f6");
+            var stateBounds = state.TransformToAncestor(view).TransformBounds(
+                new Rect(0, 0, state.ActualWidth, state.ActualHeight));
+            var buttonBounds = recheck.TransformToAncestor(view).TransformBounds(
+                new Rect(0, 0, recheck.ActualWidth, recheck.ActualHeight));
+            Assert.IsTrue(stateBounds.Height > 0);
+            Assert.IsTrue(buttonBounds.Height > 0);
+            Assert.IsTrue(stateBounds.Bottom <= buttonBounds.Top);
+            Assert.IsTrue(buttonBounds.Right <= view.ActualWidth);
+            Assert.IsTrue(buttonBounds.Bottom <= view.ActualHeight);
+
+            recheck.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await view.Dispatcher.InvokeAsync(() => { });
+
+            var request = fixture.Connection.Sent.Single();
+            Assert.AreEqual("approval.recheck", request.CommandType);
+            CollectionAssert.AreEqual(new[] { "approval_id" }, request.Payload.Keys.ToArray());
+            Assert.AreEqual(
+                "a1b2c3d4e5f6",
+                ((NativeJsonString)request.Payload["approval_id"]!).Value);
+        });
+    }
+
+    [TestMethod]
+    public async Task UnknownApproval_WhenNotRecheckable_DoesNotExposeMailRecheckAction()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.ApplyCanonical("workspace.refreshed", Object(
+                ("approval_requests", new NativeJsonArray([
+                    Object(
+                        ("id", Text("c1d2e3f4a5b6")),
+                        ("kind", Text("approval")),
+                        ("summary", Text("메일 검토 필요")),
+                        ("category", Text("mail_send")),
+                        ("risk", Text("high")),
+                        ("sealed", new NativeJsonBoolean(true)),
+                        ("draft_id", Text("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
+                        ("content_sha256", Text("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+                        ("status", Text("action_outcome_unknown")),
+                        ("ui_state", Text("action_needed")),
+                        ("decided", new NativeJsonBoolean(true)),
+                        ("recheckable", new NativeJsonBoolean(false)),
+                        ("mail_recheck_state", Text("needs_review"))),
+                    Object(
+                        ("id", Text("d1e2f3a4b5c6")),
+                        ("kind", Text("approval")),
+                        ("summary", Text("명령 상태 불명")),
+                        ("category", Text("shell")),
+                        ("status", Text("action_outcome_unknown")),
+                        ("ui_state", Text("action_needed")),
+                        ("decided", new NativeJsonBoolean(true)),
+                        ("recheckable", new NativeJsonBoolean(true)))
+                ]))));
+            var view = new ApprovalView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+
+            Assert.AreEqual("c1d2e3f4a5b6", view.ApprovalRows.Single().Id);
+            Assert.AreEqual("d1e2f3a4b5c6", view.DecidedApprovalRows.Single().Id);
+
+            Assert.AreEqual(
+                "연결 계정 또는 승인 내용을 확인할 수 없어 검토가 필요합니다",
+                OfficeWorkflowViewHarness.Find<TextBlock>(
+                    view,
+                    "approval.recheck-state.c1d2e3f4a5b6").Text);
+            Assert.AreEqual(
+                Visibility.Collapsed,
+                OfficeWorkflowViewHarness.Find<Button>(
+                    view,
+                    "approval.recheck.c1d2e3f4a5b6").Visibility);
+            Assert.AreEqual(
+                0,
+                OfficeWorkflowViewHarness.FindAll<Button>(
+                    view,
+                    "approval.recheck.d1e2f3a4b5c6").Count);
+            Assert.AreEqual(
+                0,
+                OfficeWorkflowViewHarness.FindAll<TextBlock>(
+                    view,
+                    "approval.recheck-state.d1e2f3a4b5c6").Count);
+            Assert.AreEqual(
+                "실행 결과 확인 필요",
+                view.DecidedApprovalRows.Single(item => item.Id == "d1e2f3a4b5c6").OutcomeLabel);
+        });
+    }
+
+    [TestMethod]
+    public async Task AcceptedUnknownMail_WhenRenderedAtNarrowWidth_WritesReviewArtifact()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.ApplyCanonical("workspace.refreshed", Object(
+                ("approval_requests", new NativeJsonArray([
+                    Object(
+                        ("id", Text("b1c2d3e4f5a6")),
+                        ("kind", Text("approval")),
+                        ("summary", Text("메일 발송 요청 접수")),
+                        ("category", Text("mail_send")),
+                        ("risk", Text("high")),
+                        ("sealed", new NativeJsonBoolean(true)),
+                        ("draft_id", Text("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
+                        ("content_sha256", Text("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+                        ("status", Text("action_outcome_unknown")),
+                        ("ui_state", Text("action_needed")),
+                        ("decided", new NativeJsonBoolean(true)),
+                        ("recheckable", new NativeJsonBoolean(true)),
+                        ("mail_recheck_state", Text("accepted")),
+                        ("mail_rechecked_at", Text("2026-09-08T03:00:00+00:00")))
+                ]))));
+            var view = new ApprovalView(fixture.Model, fixture.Coordinator);
+            const int width = 380;
+            const int height = 540;
+            OfficeWorkflowViewHarness.Layout(view, width, height);
+            Assert.IsTrue(OfficeWorkflowViewHarness.Find<Button>(
+                view,
+                "approval.recheck.b1c2d3e4f5a6").IsEnabled);
+            Assert.AreEqual(
+                0,
+                OfficeWorkflowViewHarness.FindAll<TextBlock>(
+                    view,
+                    "approval.rejection.b1c2d3e4f5a6").Count(element => element.IsVisible));
+            var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(view);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = MailRecheckEvidencePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using var output = File.Create(path);
+            encoder.Save(output);
+
+            Assert.IsTrue(new FileInfo(path).Length > 0);
+            Assert.AreEqual("b1c2d3e4f5a6", view.ApprovalRows.Single().Id);
+            Assert.AreEqual(0, view.DecidedApprovalRows.Count);
+        });
+    }
+
+    [TestMethod]
+    public void SubmittedMailOutcome_DoesNotClaimRecipientDelivery()
+    {
+        var card = new PanelItemPresentation(
+            "approval-mail-2",
+            "approval",
+            "메일 발송",
+            Category: "mail_send",
+            Decided: true,
+            Status: "approved",
+            MailRecheckState: "submitted");
+
+        Assert.AreEqual(
+            "Microsoft 365 발송 처리 확인 · 수신자 배달 완료는 확인하지 않음",
+            card.OutcomeLabel);
+        Assert.AreEqual("메일 발송", card.CategoryLabel);
+        Assert.IsFalse(card.OutcomeLabel.Contains("수신자 배달 완료됨", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public async Task SubmittedMailProjection_MovesToDecidedHistory()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.ApplyCanonical("workspace.refreshed", Object(
+                ("approval_requests", new NativeJsonArray([
+                    Object(
+                        ("id", Text("e1f2a3b4c5d6")),
+                        ("kind", Text("approval")),
+                        ("summary", Text("메일 발송 처리 확인")),
+                        ("category", Text("mail_send")),
+                        ("risk", Text("high")),
+                        ("sealed", new NativeJsonBoolean(true)),
+                        ("draft_id", Text("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")),
+                        ("content_sha256", Text("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")),
+                        ("status", Text("approved")),
+                        ("ui_state", Text("succeeded")),
+                        ("decided", new NativeJsonBoolean(true)),
+                        ("recheckable", new NativeJsonBoolean(false)),
+                        ("mail_recheck_state", Text("submitted")))
+                ]))));
+            var view = new ApprovalView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view, width: 380, height: 880);
+
+            Assert.AreEqual(0, view.ApprovalRows.Count);
+            var decided = view.DecidedApprovalRows.Single();
+            Assert.AreEqual("e1f2a3b4c5d6", decided.Id);
+            Assert.AreEqual(
+                "Microsoft 365 발송 처리 확인 · 수신자 배달 완료는 확인하지 않음",
+                decided.OutcomeLabel);
+        });
+    }
+
+    [DataTestMethod]
+    [DataRow(null, "현재 원격 발송 상태를 확인할 수 없음")]
+    [DataRow("accepted", "Microsoft 365가 요청을 접수함 · 발송 처리는 아직 확인되지 않음")]
+    [DataRow("needs_review", "연결 계정 또는 승인 내용을 확인할 수 없어 검토가 필요합니다")]
+    [DataRow("submitted", "Microsoft 365 발송 처리 확인 · 수신자 배달 완료는 확인하지 않음")]
+    public void MailRecheckState_UsesBoundedStatusCopy(string? state, string expected)
+    {
+        Assert.AreEqual(expected, KoreanDecisionText.MailRecheck(state));
+    }
+
+    [TestMethod]
     public async Task DecidedReceipt_WhenExportCompleted_RendersCollapsedTrustCard()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -386,6 +693,12 @@ public sealed class ApprovalViewTests
             "windows-approval-trust-card.png");
     }
 
+    private static string MailRecheckEvidencePath() => Path.Combine(
+        RepositoryRoot(),
+        "reports",
+        "mail-recheck-ui-evidence",
+        "unknown-mail-accepted-380px.png");
+
     private static string RepositoryRoot()
     {
         for (
@@ -393,7 +706,8 @@ public sealed class ApprovalViewTests
             directory is not null;
             directory = directory.Parent)
         {
-            if (Directory.Exists(Path.Combine(directory.FullName, ".git")))
+            if (Directory.Exists(Path.Combine(directory.FullName, ".git"))
+                || File.Exists(Path.Combine(directory.FullName, ".git")))
             {
                 return directory.FullName;
             }

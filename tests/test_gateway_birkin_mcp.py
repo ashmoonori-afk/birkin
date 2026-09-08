@@ -43,7 +43,11 @@ ACCEPT = {"action": "accept", "content": {}}
 
 
 def _ask(server: str = "birkin", method: str = _MCP_ELICITATION) -> dict:
-    return {"id": 7, "method": method, "params": {"serverName": server}}
+    return {"id": 7, "method": method, "params": {
+        "serverName": server, "mode": "form",
+        "requestedSchema": {"type": "object", "properties": {}},
+        "_meta": {"codex_approval_kind": "mcp_tool_call"},
+    }}
 
 
 # -- who gets approved -----------------------------------------------------
@@ -77,6 +81,13 @@ def test_a_session_without_mcp_declines_even_a_birkin_ask():
 def test_a_missing_server_name_declines():
     s = CodexAppServerSession(birkin_mcp=True)
     assert s._approval_result({"id": 1, "method": _MCP_ELICITATION}) == DECLINE
+
+
+def test_non_tool_birkin_elicitation_is_declined():
+    s = CodexAppServerSession(birkin_mcp=True)
+    ask = _ask()
+    ask["params"]["_meta"]["codex_approval_kind"] = "oauth"
+    assert s._approval_result(ask) == DECLINE
 
 
 def test_the_server_name_matches_the_one_actually_registered():

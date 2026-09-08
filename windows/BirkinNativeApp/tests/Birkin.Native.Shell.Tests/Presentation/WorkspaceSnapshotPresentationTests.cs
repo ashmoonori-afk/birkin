@@ -221,7 +221,94 @@ public sealed class WorkspaceSnapshotPresentationTests
         StringAssert.StartsWith(row.LastUpdatedLabel, "마지막 갱신 ");
     }
 
+    [TestMethod]
+    public void WorkItemSource_EnablesPersistedReceiptAndDisablesMissingReference()
+    {
+        var receipt = new PanelItemPresentation(
+            "work-1", "work_item", "보고서 확인",
+            SourceType: "job_id", Target: "job-1",
+            SourceDetail: "분기 보고서를 저장했습니다.", SourceStatus: "exported");
+        var missing = receipt with
+        {
+            SourceDetail = "결과 영수증을 찾을 수 없습니다",
+            SourceStatus = "unavailable",
+        };
+
+        Assert.IsTrue(receipt.CanOpenSource);
+        Assert.AreEqual("결과 영수증 확인", receipt.SourceActionLabel);
+        Assert.AreEqual("분기 보고서를 저장했습니다.", receipt.SourceDetail);
+        Assert.IsFalse(missing.CanOpenSource);
+    }
+
+    [TestMethod]
+    public void ApprovalRequestedEvent_ProjectsWorkItemCompletionAction()
+    {
+        var store = ReceiptProjectionStore();
+        store.ApplyEvent(new NativeEnvelope(
+            NativeMessageKind.Event,
+            "event-work-item-complete",
+            new NativeJsonObject([
+                new("protocol_version", new NativeJsonInteger(1)),
+                new("session_id", new NativeJsonString("session-receipt")),
+                new("cursor", new NativeJsonInteger(8)),
+                new("event_id", new NativeJsonString("event-work-item-complete")),
+                new("type", new NativeJsonString("approval.requested")),
+                new("timestamp", new NativeJsonString("2026-09-06T02:11:29Z")),
+                new("actor_id", new NativeJsonString("windows:window-main")),
+                new("command_id", new NativeJsonString("complete-command")),
+                new("payload", new NativeJsonObject([
+                    new("approval_id", new NativeJsonString("approval-complete")),
+                    new("summary", new NativeJsonString("후속 업무 완료 확인")),
+                    new("description", new NativeJsonString("업무: 검증 보고서 확인")),
+                    new("category", new NativeJsonString("work_item")),
+                    new("action", new NativeJsonString("complete")),
+                ])),
+            ])));
+
+        var presentation = WorkspaceSnapshotPresentation.FromProjection(
+            store.State!,
+            "loopback");
+        var approval = presentation.ApprovalRequests.Single(item =>
+            item.Id == "approval-complete");
+        Assert.AreEqual("complete", approval.ApprovalAction);
+        Assert.AreEqual("수행할 변경: 후속 업무 완료", approval.WorkItemChangeLabel);
+    }
+
+    [TestMethod]
+    public void AssistantCompletedEvent_DoesNotBecomeSessionHistoryEntry()
+    {
+        var store = ReceiptProjectionStore();
+        store.ApplyEvent(new NativeEnvelope(
+            NativeMessageKind.Event,
+            "event-assistant-completed",
+            new NativeJsonObject([
+                new("protocol_version", new NativeJsonInteger(1)),
+                new("session_id", new NativeJsonString("session-receipt")),
+                new("cursor", new NativeJsonInteger(8)),
+                new("event_id", new NativeJsonString("assistant-event-id")),
+                new("type", new NativeJsonString("message.assistant.completed")),
+                new("timestamp", new NativeJsonString("2026-09-06T03:41:00Z")),
+                new("actor_id", new NativeJsonString("agent:birkin")),
+                new("command_id", new NativeJsonString("chat-command")),
+                new("payload", new NativeJsonObject([
+                    new("text", new NativeJsonString("처리를 마쳤습니다.")),
+                ])),
+            ])));
+
+        var presentation = WorkspaceSnapshotPresentation.FromProjection(
+            store.State!,
+            "loopback");
+
+        Assert.AreEqual("처리를 마쳤습니다.", presentation.Conversation.Single().Text);
+        Assert.AreEqual(1, presentation.Sessions.Count);
+        Assert.AreEqual("session-receipt", presentation.Sessions.Single().SessionId);
+        Assert.IsFalse(presentation.Sessions.Any(item => item.SessionId == "assistant-event-id"));
+    }
+
     private static NativeProjectionState ReceiptProjection()
+        => ReceiptProjectionStore().State!;
+
+    private static NativeProjectionStore ReceiptProjectionStore()
     {
         const string instanceId = "0123456789abcdef0123456789abcdef";
         var body = new NativeJsonObject([
@@ -258,6 +345,17 @@ public sealed class WorkspaceSnapshotPresentationTests
                         ]),
                     ])),
                 ]),
+                new NativeJsonObject([
+                    new("key", new NativeJsonString("sessions_history")),
+                    new("items", new NativeJsonArray([
+                        new NativeJsonObject([
+                            new("id", new NativeJsonString("session-receipt")),
+                            new("session_id", new NativeJsonString("session-receipt")),
+                            new("kind", new NativeJsonString("session")),
+                            new("summary", new NativeJsonString("현재 대화")),
+                        ]),
+                    ])),
+                ]),
             ])),
             new("conversation", new NativeJsonArray([])),
             new("composer", new NativeJsonObject([])),
@@ -275,7 +373,7 @@ public sealed class WorkspaceSnapshotPresentationTests
                 "snapshot-receipt",
                 body),
             new NativeReadyIdentity("session-receipt", instanceId, "test"));
-        return store.State!;
+        return store;
     }
 
     private static NativeEnvelope Decode(JsonElement vector) => NativeFrameCodec.Decode(

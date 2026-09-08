@@ -622,7 +622,7 @@ def test_edit_treats_not_modified_as_success_and_400_as_failure(monkeypatch):
 
 # -- CodexAppServerSession protocol (no subprocess) ---------------------------
 
-def test_codex_turn_streams_items_and_sends_preamble_once(monkeypatch):
+def test_codex_turn_streams_items_and_keeps_user_input_separate(monkeypatch):
     from birkin.codex_session import CodexAppServerSession
     s = CodexAppServerSession(preamble="PERSONA BLOCK")
     s._thread_id = "t1"
@@ -649,10 +649,10 @@ def test_codex_turn_streams_items_and_sends_preamble_once(monkeypatch):
     out = s._turn("hello", got.append, timeout=5)
     assert out == "final answer"              # last agent item is canonical
     assert got == ["part one", "\n\nfinal answer"]
-    assert "PERSONA BLOCK" in sent[0][1]["input"][0]["text"]
+    assert sent[0][1]["input"] == [{"type": "text", "text": "hello"}]
     out2 = s._turn("again", None, timeout=5)
     assert out2 == "final answer"
-    assert "PERSONA BLOCK" not in sent[1][1]["input"][0]["text"]  # once only
+    assert sent[1][1]["input"] == [{"type": "text", "text": "again"}]
 
 
 def _capture_codex_item_heartbeat(monkeypatch, events, on_progress=None):

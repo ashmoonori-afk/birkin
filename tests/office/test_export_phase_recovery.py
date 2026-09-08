@@ -19,6 +19,7 @@ from birkin.office.proposal_integrity import authority_digest
 from birkin.office.service import DocumentService
 from birkin.office.service_types import ArtifactRef
 from tests.office.test_export_policy import _request, _validated_draft
+from tests.symlink_support import create_symlink
 
 
 class SimulatedCrash(BaseException):
@@ -236,7 +237,7 @@ def test_export_rejects_matching_staging_symlink(
         transaction: ExportTransaction,
         source: SnapshotPath,
     ) -> None:
-        transaction.staging.symlink_to(Path(source))
+        create_symlink(transaction.staging, Path(source))
         real_stage(transaction, source)
 
     monkeypatch.setattr(ExportCommit, "stage", staticmethod(inject_symlink))
@@ -264,7 +265,7 @@ def test_export_rejects_matching_backup_symlink(
     ) -> ExportTransaction:
         assert transaction.backup is not None
         transaction.backup.parent.mkdir(parents=True, exist_ok=True)
-        transaction.backup.symlink_to(transaction.destination)
+        create_symlink(transaction.backup, transaction.destination)
         return real_prepare(self, transaction)
 
     monkeypatch.setattr(ExportCommit, "prepare", inject_symlink)
@@ -296,7 +297,7 @@ def test_export_rejects_staging_swapped_during_hash(
             and not path.name.endswith(".displaced")
         ):
             path.unlink()
-            path.symlink_to(artifact)
+            create_symlink(path, artifact)
             swapped = True
         return real_hash(path)
 
@@ -333,7 +334,7 @@ def test_export_rejects_staging_swapped_after_final_hash(
         staging_hashes += 1
         if staging_hashes == 1:
             path.unlink()
-            path.symlink_to(artifact)
+            create_symlink(path, artifact)
         return digest
 
     monkeypatch.setattr(
@@ -368,7 +369,7 @@ def test_export_rejects_backup_swapped_after_copy(
         real_copy(source, target)
         if target.name.endswith(".prepare"):
             target.unlink()
-            target.symlink_to(fixture.destination)
+            create_symlink(target, fixture.destination)
             swapped = True
 
     monkeypatch.setattr(export_commit, "copy_exact", swap_after_copy)

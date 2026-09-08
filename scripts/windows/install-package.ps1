@@ -1,7 +1,8 @@
 param(
   [Parameter(Mandatory)][string]$PackageRoot,
   [string]$InstallRoot = (Join-Path $env:LOCALAPPDATA "Birkin"),
-  [switch]$AllowUnsignedDevelopment
+  [switch]$AllowUnsignedDevelopment,
+  [switch]$TestFailAfterPreviousMove
 )
 $ErrorActionPreference = "Stop"
 
@@ -37,6 +38,8 @@ $stage = Join-Path $InstallRoot ".stage-$([guid]::NewGuid().ToString('N'))"
 $current = Join-Path $InstallRoot "current"
 $backup = Join-Path $InstallRoot "previous"
 $swapped = $false
+$previousMoved = $false
+$hadCurrent = Test-Path -LiteralPath $current
 try {
   Copy-Item -LiteralPath $package -Destination $stage -Recurse
   $reported = (& (Join-Path $stage "birkin.cmd") --version | Out-String).Trim()
@@ -47,18 +50,28 @@ try {
     throw "Native app executable is missing."
   }
   if (Test-Path -LiteralPath $backup) { Remove-Item -LiteralPath $backup -Recurse -Force }
-  if (Test-Path -LiteralPath $current) { Move-Item -LiteralPath $current -Destination $backup }
+  if (Test-Path -LiteralPath $current) {
+    Move-Item -LiteralPath $current -Destination $backup
+    $previousMoved = $true
+  }
+  if ($TestFailAfterPreviousMove) {
+    if (-not $AllowUnsignedDevelopment) { throw "Failure injection is restricted to development installs." }
+    throw "Injected failure after preserving previous installation."
+  }
   Move-Item -LiteralPath $stage -Destination $current
   $swapped = $true
   [Environment]::SetEnvironmentVariable("BIRKIN_EXECUTABLE", (Join-Path $current "birkin.cmd"), "User")
   @{ version = $manifest.product_version; previous_available = (Test-Path -LiteralPath $backup); status = "ready" } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $InstallRoot "install-state.json") -Encoding utf8
 } catch {
-  if ($swapped -and (Test-Path -LiteralPath $backup)) {
-    Remove-Item -LiteralPath $current -Recurse -Force -ErrorAction SilentlyContinue
+  $restored = $false
+  if (($swapped -or $previousMoved) -and (Test-Path -LiteralPath $backup)) {
+    if (Test-Path -LiteralPath $current) { Remove-Item -LiteralPath $current -Recurse -Force }
     Move-Item -LiteralPath $backup -Destination $current
+    $restored = $true
   }
-  @{ version = $manifest.product_version; status = "failed_previous_preserved"; reason = $_.Exception.Message } |
+  $failureStatus = if ($restored) { "failed_previous_restored" } elseif ($hadCurrent -and (Test-Path -LiteralPath $current)) { "failed_previous_preserved" } else { "failed_no_previous" }
+  @{ version = $manifest.product_version; status = $failureStatus; reason = $_.Exception.Message } |
     ConvertTo-Json | Set-Content -LiteralPath (Join-Path $InstallRoot "install-state.json") -Encoding utf8
   throw
 } finally {

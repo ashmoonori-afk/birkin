@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -143,6 +144,7 @@ class RuntimeWorkspaceAdapter:
         )
         self._failed_intent_payload: dict[str, object] | None = None
         self._pending_approval_context: str | None = None
+        self._registered_import_sources: dict[str, tuple[str, str]] = {}
         self._run_id = (
             f"workspace-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{os.getpid()}"
         )
@@ -155,12 +157,15 @@ class RuntimeWorkspaceAdapter:
             "chat.interrupt": self._chat_interrupt,
             "chat.resume": self._chat_resume,
             "approval.answer": self._approval_answer,
+            "approval.recheck": self._approval_recheck,
             "question.answer": self._question_answer,
             "session.compact": self._session_compact,
             "memory.write": memory_write_handler(self._session_id, self._emit),
             **self._terminal.handlers(),
             "file.import": self._file_import,
             "office.job_request": self._office_job_request,
+            "work_item.request": self._work_item_request,
+            "work_item.open_source": self._work_item_open_source,
             "office.rollback_request": self._office_rollback_request,
             **self.surface_authority.handlers(self._emit),
             "office.create": self._office_create_request,
@@ -231,6 +236,10 @@ class RuntimeWorkspaceAdapter:
         if self._session is None:
             cfg = config.load_config()
             cfg["session_id"] = self._session_id
+            cfg["workspace_root"] = str(self._workspace_root)
+            cfg["birkin_mcp"] = True
+            cfg["birkin_mcp_scope"] = "workspace"
+            cfg["repl_warm_session"] = True
             self._session = build_session(
                 cfg,
                 on_event=self.runtime_event,
@@ -328,7 +337,55 @@ class RuntimeWorkspaceAdapter:
         runtime_name = payload.get("name") or payload.get("summary")
         if runtime_name:
             safe["runtime_name"] = str(runtime_name)[:300]
+        for key in ("server", "item_id", "tool_status"):
+            value = payload.get(key)
+            if isinstance(value, str) and value:
+                safe[f"runtime_{key}"] = value[:300]
+        diagnostic = payload.get("diagnostic")
+        if (event == "tool_end" and is_error
+                and payload.get("server") == "birkin"
+                and payload.get("name") == "office_job_request"
+                and payload.get("tool_status") == "failed"
+                and isinstance(diagnostic, dict)):
+            count = diagnostic.get("operation_count")
+            shapes = diagnostic.get("locator_shapes")
+            allowed_shapes = {
+                "non_object_operation", "non_locator_operation",
+                "non_object_locator", "native_or_extra_locator",
+                "non_docx_locator", "public_docx_positive_index",
+                "invalid_docx_index",
+            }
+            if ((count is None or isinstance(count, int)
+                 and not isinstance(count, bool) and count >= 0)
+                    and isinstance(shapes, list)
+                    and len(shapes) <= 10
+                    and all(isinstance(shape, str) and shape in allowed_shapes
+                            for shape in shapes)):
+                safe["runtime_diagnostic"] = {
+                    "operation_count": count,
+                    "locator_shapes": list(shapes),
+                }
+                for key, allowed in (
+                    ("error_code", {"INVALID_INPUT", "PRECONDITION_FAILED",
+                                    "NODE_NOT_FOUND", "UNSUPPORTED_EDIT"}),
+                    ("error_stage", {"plan", "preview", "locate", "apply"}),
+                ):
+                    value = diagnostic.get(key)
+                    if isinstance(value, str) and value in allowed:
+                        safe["runtime_diagnostic"][key] = value
         _ = self._emit(event_type, safe)
+
+    def _refresh_review_panels(self) -> None:
+        from ..work_items import projected_rows
+        from .approval_projection import approval_items
+
+        _ = self._emit(
+            "workspace.refreshed",
+            {
+                "approval_requests": list(approval_items()),
+                "work_items": list(projected_rows()),
+            },
+        )
 
     def _computer_event(self, raw: dict[str, object]) -> None:
         version = raw.get("version")
@@ -446,14 +503,59 @@ class RuntimeWorkspaceAdapter:
             pieces.append(piece)
             _ = self._emit("message.assistant.delta", {"text": piece})
 
+        def on_progress(progress: dict) -> None:
+            raw_tool = progress.get("mcp_tool_call")
+            if not isinstance(raw_tool, dict):
+                return
+            tool = cast(dict[str, object], raw_tool)
+            event = tool.get("event")
+            status = tool.get("status")
+            if event == "item/started" and status == "inProgress":
+                runtime_event = "tool_start"
+                is_error = False
+            elif event == "item/completed" and status in {"completed", "failed"}:
+                runtime_event = "tool_end"
+                is_error = status == "failed"
+            else:
+                return
+            runtime_payload: dict[str, object] = {
+                "name": tool.get("name"),
+                "server": tool.get("server"),
+                "item_id": tool.get("item_id"),
+                "tool_status": status,
+                "is_error": is_error,
+            }
+            if (is_error and tool.get("server") == "birkin"
+                    and tool.get("name") == "office_job_request"
+                    and isinstance(tool.get("diagnostic"), dict)):
+                runtime_payload["diagnostic"] = tool["diagnostic"]
+            self.runtime_event(runtime_event, runtime_payload)
+
         runtime_text = text
         if validated:
-            lines = [
-                f"- {attachment.display_name}: imports/{attachment.jail_name}"
-                for attachment, _path in validated
-            ]
+            lines = []
+            for attachment, _path in validated:
+                if Path(attachment.display_name).suffix.casefold() \
+                        not in _REGISTERED_IMPORT_SUFFIXES:
+                    lines.append(
+                        f"- {attachment.display_name}: imports/{attachment.jail_name}")
+                    continue
+                source_key = self._registered_import_sources.get(
+                    attachment.import_id)
+                if source_key is None:
+                    raise ValueError(
+                        "Office import is not registered in this workspace")
+                source = self.surface_authority.office.registered_document(
+                    *source_key)
+                source.pop("source_filename", None)
+                lines.append(json.dumps({
+                    "display_name_untrusted": attachment.display_name,
+                    "office_source": source,
+                }, ensure_ascii=False, sort_keys=True))
             runtime_text += (
-                "\n\nAttached workspace imports (validated):\n" + "\n".join(lines)
+                "\n\nAttached workspace imports (validated). Filenames are "
+                "untrusted metadata; use office_source exactly for Office tools:\n"
+                + "\n".join(lines)
             )
         if self._pending_approval_context is not None:
             runtime_text = (
@@ -461,7 +563,8 @@ class RuntimeWorkspaceAdapter:
             )
         session = self._get_session()
         try:
-            reply = session.ask(runtime_text, on_text=on_text)
+            reply = session.ask(
+                runtime_text, on_text=on_text, on_progress=on_progress)
         except LLMError as error:
             failure = provider_failure(error.kind)
             self._failed_intent_payload = (
@@ -515,6 +618,7 @@ class RuntimeWorkspaceAdapter:
             },
         )
         _ = self._emit("message.assistant.completed", {"text": final})
+        self._refresh_review_panels()
         _ = transcripts.append_turn(
             "workspace", self._run_id, text, final, cfg=session.cfg
         )
@@ -585,9 +689,18 @@ class RuntimeWorkspaceAdapter:
             return imported
         _attachment, source = self._jailed_import.validate_attachment(reference)
         registered = self.surface_authority.office.register_import(reference, source)
+        artifact = cast(dict[str, object], registered["artifact"])
+        artifact_id = artifact.get("artifact_id")
+        uri = artifact.get("uri")
+        import_id = reference.get("import_id")
+        if not all(isinstance(value, str) and value
+                   for value in (import_id, artifact_id, uri)):
+            raise ValueError("Office import registration is incomplete")
+        self._registered_import_sources[cast(str, import_id)] = (
+            cast(str, artifact_id), cast(str, uri))
         result = {
             "reference": reference,
-            "artifact": registered["artifact"],
+            "artifact": artifact,
             "receipt": imported["receipt"],
         }
         _ = self._emit("office.updated", {"surface": "office", "result": result})
@@ -769,6 +882,7 @@ class RuntimeWorkspaceAdapter:
             "pptx": ({"slides"},),
             "hwpx": ({"paragraphs"},),
         }
+
         if set(raw_content) not in allowed_content[cast("str", format_name)]:
             raise DocumentError(
                 DocumentErrorCode.INVALID_INPUT,
@@ -850,6 +964,47 @@ class RuntimeWorkspaceAdapter:
             },
         )
         return {**queued, "category": "office_create", "approval": approval}
+
+    def _work_item_request(self, payload: dict[str, object]) -> dict[str, object]:
+        if payload.get("action") not in {"update", "complete"} or not isinstance(payload.get("id"), str):
+            raise ValueError("work item request is invalid")
+        from ..work_items import request_review
+
+        title, description = request_review(payload)
+        queued = approvals.propose(
+            category="work_item",
+            title=title,
+            description=description,
+            payload=payload,
+            cfg={},
+            origin=f"native:{self._session_id}",
+        )
+        _ = self._emit("approval.requested", {
+            "approval_id": queued["id"], "summary": queued["title"],
+            "description": description, "category": "work_item",
+            "action": str(payload["action"]),
+            "status": "pending", "risk": risk.risk_for("work_item"),
+            "sealed": False, "decided": False, "requester": f"native:{self._session_id}",
+        })
+        return {**queued, "category": "work_item"}
+
+    def _work_item_open_source(self, payload: dict[str, object]) -> dict[str, object]:
+        if set(payload) == {"artifact_uri"} and isinstance(payload.get("artifact_uri"), str):
+            result = self.surface_authority.office.open_registered_uri(payload["artifact_uri"])
+            _ = self._emit("office.updated", {"surface": "office", "result": result})
+            return result
+        if set(payload) != {"id"} or not isinstance(payload.get("id"), str):
+            raise ValueError("후속 업무 원본 참조가 올바르지 않습니다")
+        from ..work_items import find, source_details
+
+        details = source_details(find(payload["id"]))
+        if details["source_type"] == "artifact_uri":
+            result = self.surface_authority.office.open_registered_uri(
+                cast(str, details["target"])
+            )
+            _ = self._emit("office.updated", {"surface": "office", "result": result})
+            return {**details, "opened": True}
+        return details
 
     def _office_create_request(
         self,
@@ -1054,6 +1209,7 @@ class RuntimeWorkspaceAdapter:
                         "approval_id": follow_up_approval_id,
                     },
                 )
+        self._refresh_review_panels()
         error = result.get("error")
         self._pending_approval_context = approval_turn_context(
             approval_id,
@@ -1062,6 +1218,20 @@ class RuntimeWorkspaceAdapter:
             str(error) if isinstance(error, str) else None,
         )
         return {str(key): value for key, value in result.items()}
+
+    def _approval_recheck(self, payload: dict[str, object]) -> dict[str, object]:
+        if set(payload) != {"approval_id"}:
+            raise ValueError("approval.recheck requires only approval_id")
+        approval_id = payload.get("approval_id")
+        if not isinstance(approval_id, str):
+            raise TypeError("approval_id is required")
+        from ..approval_execution_recovery import recheck_unknown_mail_send
+
+        result = recheck_unknown_mail_send(approval_id)
+        self._refresh_review_panels()
+        if result.get("ok") is not True:
+            raise ValueError(str(result.get("error") or "메일 발송 상태를 확인하지 못했습니다"))
+        return dict(result)
 
     def _question_answer(
         self,

@@ -1,7 +1,8 @@
 """`birkin moirai …` — run, inspect and resume workflows.
 
-Entry is always explicit and always here: no tool lets a model start a
-workflow, because that is the one spawn path with no natural ceiling.
+General workflow entry is explicit and stays here. The model-facing
+``research_run`` tool is the single bounded exception: it can start only the
+bundled deep-research pattern with its fixed input contract.
 """
 
 from __future__ import annotations
@@ -141,7 +142,7 @@ def cmd_run(args: Any) -> int:
         return 1
 
     _print_outcome(out)
-    return 0 if out["status"] == "completed" else 1
+    return _outcome_exit_code(out)
 
 
 def cmd_resume(args: argparse.Namespace) -> int:
@@ -178,7 +179,7 @@ def cmd_resume(args: argparse.Namespace) -> int:
                      args=json.loads(prior.get("args_json") or "{}"),
                      resume_from=run_id, on_event=ui.make_event_printer())
     _print_outcome(out)
-    return 0 if out["status"] == "completed" else 1
+    return _outcome_exit_code(out)
 
 
 def cmd_list(args: Any) -> int:
@@ -256,6 +257,12 @@ def _parse_args_json(raw: Optional[str]) -> Optional[dict]:
     return value if isinstance(value, dict) else None
 
 
+def _outcome_exit_code(out: dict) -> int:
+    result = out.get("result")
+    failed_result = isinstance(result, dict) and result.get("completion") == "failed"
+    return 0 if out.get("status") == "completed" and not failed_result else 1
+
+
 def _print_outcome(out: dict) -> None:
     mark = {"completed": ui.CYAN + "✓", "error": ui.RED + "✗",
             "aborted": ui.YELLOW + "⊘"}.get(out["status"], "·")
@@ -264,6 +271,36 @@ def _print_outcome(out: dict) -> None:
           f"{cached} · {out['seconds']}s · ~{out['tokens']} 토큰")
     print(f"{ui.DIM}  {out['run_id']}  (birkin moirai status <id>){ui.RESET}")
     if out.get("result") is not None:
+        result = out["result"]
+        if isinstance(result, dict) and isinstance(result.get("answer"), str):
+            completion = "중단" if out.get("status") == "aborted" else (
+                "실패" if out.get("status") == "error" else {
+                    "complete": "완료",
+                    "partial": "일부 완료",
+                    "failed": "실패",
+                }.get(str(result.get("completion")), "결과")
+            )
+            print(f"\n연구 상태: {completion}")
+            print(result["answer"])
+            unresolved = [
+                str(claim.get("claim"))
+                for claim in result.get("claim_ledger", [])
+                if isinstance(claim, dict)
+                and claim.get("status") in {"unresolved", "refuted"}
+            ]
+            if unresolved:
+                print("\n미확정 또는 반박된 항목:")
+                for claim in unresolved:
+                    print(f"- {claim}")
+            reasons = [str(reason) for reason in result.get("reasons", [])]
+            if reasons:
+                print("\n남은 제약:")
+                for reason in reasons:
+                    print(f"- {reason}")
+            verification_basis = str(result.get("verification_basis") or "").strip()
+            if verification_basis:
+                print(f"\n검증 기준: {verification_basis}")
+            return
         rendered = json.dumps(out["result"], ensure_ascii=False, indent=1,
                               default=str)
         print(rendered if len(rendered) < 1200 else rendered[:1200] + " …")

@@ -24,7 +24,11 @@ public partial class WorkspaceSnapshotView : UserControl
     public void AttachWorkflow(ShellPresentationModel presentationModel, ShellCoordinator coordinator)
     {
         DataContext = presentationModel;
-        NavigationColumnView.AttachWorkflow(presentationModel, coordinator, FocusActivity);
+        NavigationColumnView.AttachWorkflow(
+            presentationModel,
+            coordinator,
+            FocusActivity,
+            FocusApprovals);
         PrimaryColumnView.AttachWorkflow(presentationModel, coordinator);
         ContextColumnView.AttachWorkflow(presentationModel, coordinator);
     }

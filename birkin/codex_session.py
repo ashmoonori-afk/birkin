@@ -29,8 +29,9 @@ are birkin's own gated surface: memory (reversible files under the birkin
 home), skills (guard-scanned), and ``propose_action``, which queues to
 ``birkin review`` instead of executing. Any other MCP server still declines.
 
-The system prompt (persona + memory digest) has no app-server-level slot, so
-it is sent as a preamble block on the FIRST turn of the thread.
+The system prompt (persona + memory digest) is passed as thread-level developer
+instructions. Threads are ephemeral so internal gateway turns never appear in
+the signed-in user's Codex history or derive titles from Birkin's prompt.
 
 Pure standard library: ``subprocess`` + reader thread + ``queue``.
 Interface-compatible with :class:`birkin.claude_session.ClaudeStreamSession`
@@ -49,6 +50,7 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
+from .llm import LLMError, _kind_for_status
 from .proc import cli_argv, kill_tree, popen_tree_kwargs
 
 StreamCallback = Optional[Callable[[str], None]]
@@ -138,7 +140,8 @@ class CodexAppServerSession:
                  startup_timeout: float = 90.0,
                  turn_timeout: float = 300.0,
                  request_timeout: float = 30.0):
-        self.model = model
+        # Match the one-shot Codex client: these values mean "let Codex pick".
+        self.model = None if model in (None, "", "codex", "default") else model
         self.cwd = cwd
         self.preamble = preamble
         # SECURITY: override the user's ~/.codex/config.toml so an exposed
@@ -179,14 +182,13 @@ class CodexAppServerSession:
         self._thread_id: Optional[str] = None
         self._active_turn_id: Optional[str] = None
         self._interrupted = False
-        self._sent_preamble = False
         self._closed = False
 
     # -- process lifecycle ---------------------------------------------------
 
     def _build_argv(self) -> list[str]:
-        # Birkin sends its system context through turn/start, so inherited
-        # user-level prompt hooks could mistake internal context for user input.
+        # Birkin supplies system context as thread developer instructions, but
+        # inherited user-level prompt hooks still must not rewrite gateway turns.
         parts = ["codex", "app-server",
                  "-c", "features.plugin_hooks=false"]
         if self.model:
@@ -260,7 +262,9 @@ class CodexAppServerSession:
                 "capabilities": {}}, timeout=self.startup_timeout)
             self._notify("initialized")
             result = self.request("thread/start",
-                                  {"cwd": self.cwd or os.getcwd()},
+                                  {"cwd": self.cwd or os.getcwd(),
+                                   "developerInstructions": self.preamble or None,
+                                   "ephemeral": True},
                                   timeout=self.startup_timeout)
             thread_obj = result.get("thread") or {}
             # Field name has moved across codex versions — accept them all.
@@ -272,12 +276,40 @@ class CodexAppServerSession:
                 raise CodexSessionError(
                     f"thread/start returned no thread id "
                     f"(keys: {sorted(result)})")
+            if self.birkin_mcp:
+                self._require_birkin_mcp_ready()
         except Exception:
             # A half-initialized child must not linger: is_alive() would lie
             # and the next ask() would send turn/start with threadId=None.
             self._terminate(mark_closed=False)
             raise
-        self._sent_preamble = False
+
+    def _require_birkin_mcp_ready(self) -> None:
+        deadline = time.monotonic() + self.startup_timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise CodexSessionError("birkin MCP server did not become ready")
+            status = self.request(
+                "mcpServerStatus/list",
+                {"detail": "toolsAndAuthOnly", "threadId": self._thread_id},
+                timeout=remaining,
+            )
+            server = next(
+                (item for item in status.get("data", [])
+                 if isinstance(item, dict) and item.get("name") == _server_name()),
+                None,
+            )
+            tools = server.get("tools") if isinstance(server, dict) else None
+            if (
+                isinstance(server, dict)
+                and server.get("runtimeStatus") == "connected"
+                and isinstance(tools, dict)
+                and (self.birkin_mcp_scope != "workspace"
+                     or "work_item_request" in tools)
+            ):
+                return
+            time.sleep(min(0.25, remaining))
 
     def _terminate(self, *, mark_closed: bool) -> None:
         self._closed = mark_closed
@@ -370,7 +402,13 @@ class CodexAppServerSession:
         """
         if self.birkin_mcp and msg.get("method") == _MCP_ELICITATION:
             params = msg.get("params") or {}
-            if params.get("serverName") == _server_name():
+            meta = params.get("_meta") or {}
+            if (
+                params.get("serverName") == _server_name()
+                and params.get("mode") == "form"
+                and params.get("requestedSchema") == {"type": "object", "properties": {}}
+                and meta.get("codex_approval_kind") == "mcp_tool_call"
+            ):
                 # MCP elicitation result shape, not codex's decision shape.
                 # requestedSchema is an empty object for a tool-call ask.
                 return {"action": "accept", "content": {}}
@@ -496,10 +534,6 @@ class CodexAppServerSession:
                 break
             if stale is None:
                 raise CodexSessionError("codex process exited unexpectedly")
-        carries_preamble = bool(self.preamble) and not self._sent_preamble
-        if carries_preamble:
-            text = (f"<system-context>\n{self.preamble}\n</system-context>\n\n"
-                    + text)
         ts = self.request("turn/start", {
             "threadId": self._thread_id,
             "input": [{"type": "text", "text": text}]})
@@ -509,11 +543,6 @@ class CodexAppServerSession:
         self._active_turn_id = ((turn_obj or {}).get("id")
                                 or (ts or {}).get("turnId")
                                 if isinstance(ts, dict) else None)
-        if carries_preamble:
-            # Only mark delivered once turn/start was ACCEPTED — if it raises
-            # (timeout on a live process), the next turn re-attaches the
-            # persona/memory block instead of silently dropping it forever.
-            self._sent_preamble = True
         # The budget bounds SILENCE, not the clock. A turn that keeps
         # producing items runs as long as the work takes -- the fix for
         # long research turns dying mid-stream at cli_timeout -- while a
@@ -538,16 +567,114 @@ class CodexAppServerSession:
         active_kind = ""
         saw_item = False
 
-        def report() -> None:
+        def report(mcp_tool_call: Optional[dict] = None) -> None:
             if on_progress is None:
                 return
             try:
-                on_progress({"activity": activity, "streamed": streamed,
-                             "last_kind": last_kind,
-                             "active_kind": active_kind,
-                             "elapsed": time.monotonic() - started})
+                progress = {"activity": activity, "streamed": streamed,
+                            "last_kind": last_kind,
+                            "active_kind": active_kind,
+                            "elapsed": time.monotonic() - started}
+                if mcp_tool_call is not None:
+                    progress["mcp_tool_call"] = mcp_tool_call
+                on_progress(progress)
             except Exception:
                 pass           # an observer bug must never kill the turn
+
+        def office_locator_shapes(item: dict) -> Optional[dict]:
+            if (item.get("server") != "birkin"
+                    or item.get("tool") != "office_job_request"
+                    or item.get("status") != "failed"):
+                return None
+            arguments = item.get("arguments")
+            operations = (
+                arguments.get("operations")
+                if isinstance(arguments, dict)
+                else None
+            )
+            shapes: list[str] = []
+            for operation in operations[:10] if isinstance(operations, list) else ():
+                if not isinstance(operation, dict):
+                    shapes.append("non_object_operation")
+                    continue
+                if set(operation) != {"locator", "value"}:
+                    shapes.append("non_locator_operation")
+                    continue
+                locator = operation.get("locator")
+                if not isinstance(locator, dict):
+                    shapes.append("non_object_locator")
+                elif set(locator) != {"format", "index"}:
+                    shapes.append("native_or_extra_locator")
+                elif locator.get("format") != "docx":
+                    shapes.append("non_docx_locator")
+                else:
+                    index = locator.get("index")
+                    shapes.append(
+                        "public_docx_positive_index"
+                        if isinstance(index, int)
+                        and not isinstance(index, bool) and index > 0
+                        else "invalid_docx_index"
+                    )
+            diagnostic: dict[str, object] = {
+                "operation_count": (
+                    len(operations) if isinstance(operations, list) else None
+                ),
+                "locator_shapes": shapes,
+            }
+            result = item.get("result")
+            content = result.get("content") if isinstance(result, dict) else None
+            result_text = next((block.get("text") for block in content
+                                if isinstance(block, dict)
+                                and block.get("type") == "text"
+                                and isinstance(block.get("text"), str)), None) \
+                if isinstance(content, list) else None
+            raw_error = item.get("error")
+            error_text = raw_error.get("message") \
+                if isinstance(raw_error, dict) else None
+            envelope = None
+            for text in (result_text, error_text):
+                if not isinstance(text, str) or len(text) > 16_384:
+                    continue
+                try:
+                    parsed = json.loads(text)
+                except (RecursionError, TypeError, ValueError):
+                    continue
+                if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict):
+                    envelope = parsed
+                    break
+            error = envelope.get("error") if isinstance(envelope, dict) else None
+            if isinstance(error, dict):
+                code = error.get("code")
+                stage = error.get("stage")
+                if isinstance(code, str) and code in {
+                    "INVALID_INPUT", "PRECONDITION_FAILED", "NODE_NOT_FOUND",
+                    "UNSUPPORTED_EDIT",
+                }:
+                    diagnostic["error_code"] = code
+                if isinstance(stage, str) and stage in {
+                    "plan", "preview", "locate", "apply",
+                }:
+                    diagnostic["error_stage"] = stage
+            return diagnostic
+
+        def mcp_tool_call(item: dict, method: str, turn_id: object) -> Optional[dict]:
+            if (turn_id != self._active_turn_id
+                    or item.get("type") != "mcpToolCall"):
+                return None
+            item_id = item.get("id")
+            server = item.get("server")
+            tool = item.get("tool")
+            status = item.get("status")
+            if (not all(isinstance(value, str) and value
+                        for value in (item_id, server, tool))
+                    or status not in {"inProgress", "completed", "failed"}):
+                return None
+            result = {"event": method, "item_id": item_id, "server": server,
+                      "name": tool, "status": status}
+            diagnostic = office_locator_shapes(item)
+            if diagnostic is not None:
+                result["diagnostic"] = diagnostic
+            return result
 
         while True:
             now = time.monotonic()
@@ -610,7 +737,7 @@ class CodexAppServerSession:
                 item = params.get("item") or {}
                 active_kind = str(
                     item.get("type") or item.get("itemType") or "")
-                report()
+                report(mcp_tool_call(item, method, params.get("turnId")))
             elif method == "item/completed":
                 item = params.get("item") or {}
                 activity += 1
@@ -628,7 +755,7 @@ class CodexAppServerSession:
                         # append-style contract: emit only what's new
                         on_text(("\n\n" if streamed else "") + piece)
                     streamed += 1
-                report()
+                report(mcp_tool_call(item, method, params.get("turnId")))
             elif is_item_event and not active_kind:
                 parts = method.split("/")
                 active_kind = parts[1] if len(parts) > 2 else ""
@@ -639,8 +766,19 @@ class CodexAppServerSession:
                 self._active_turn_id = None
                 if status and status not in ("completed", "interrupted"):
                     err = turn.get("error") or {}
-                    return (f"[birkin] codex error: "
-                            f"{str(err.get('message') or status)[:400]}")
+                    message = str(err.get("message") or status)
+                    provider_status = err.get("status")
+                    try:
+                        payload = json.loads(message)
+                        provider_status = payload.get("status", provider_status)
+                        detail = payload.get("error") or {}
+                        message = str(detail.get("message") or message)
+                    except (json.JSONDecodeError, AttributeError):
+                        pass
+                    code = provider_status if isinstance(provider_status, int) else None
+                    raise LLMError(message[:400], status=code,
+                                   kind=_kind_for_status(code, message)
+                                   if code is not None else "unknown")
                 return final
     def interrupt(self) -> bool:
         """Cancel the in-flight turn (called from another thread — e.g. a new

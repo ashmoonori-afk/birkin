@@ -23,14 +23,17 @@ the output so it reaches whatever the model writes next.
 from __future__ import annotations
 
 import ipaddress
+import hashlib
 import json
 import os
+import re
 import socket
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from datetime import datetime, timezone
 from typing import Any, Callable
-from urllib.parse import quote, urlparse, urlsplit
+from urllib.parse import quote, unquote, urljoin, urlparse, urlsplit
 
 from .. import __version__
 from ..egress import record_tool_receipt
@@ -40,10 +43,11 @@ from ..httpguard import (
     is_public_ip,
     pinned_opener,
 )
+from ..office.safe_xml import DefusedXmlException, ElementTree as ET
 from .web_document import (
     ContentDecodingError,
     decode_http_body,
-    extract_document,
+    extract_response,
 )
 
 from ._types import Tool, ToolContext, ToolResult
@@ -57,18 +61,334 @@ USER_AGENT = f"birkin/{__version__}"
 # Search backends. Hosts are constants so the model never influences them.
 MARGINALIA_URL = "https://api2.marginalia-search.com/search"
 MWMBL_URL = "https://api.mwmbl.org/api/v1/search/"
+BING_RSS_URL = "https://www.bing.com/search"
+MAX_BING_CANDIDATES = 100
+_SEARCH_STOPWORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "by", "can", "do", "does",
+    "for", "from", "how", "in", "is", "it", "of", "on", "or", "the", "to",
+    "was", "what", "when", "where", "which", "who", "why", "with",
+    "html", "htm", "txt", "www",
+})
 MARGINALIA_LICENSE = "CC-BY-NC-SA 4.0"
 MARGINALIA_PUBLIC_KEY = "public"   # the key its operator publishes for anyone
 SEARCH_TIMEOUT = 10   # a lookup, not a page read: fail into the fallback fast
 MAX_RESULTS = 20
+MAX_RESPONSE_BYTES = 2_000_000
+MAX_DOCUMENT_LINKS = 512
 _GuardedRedirectHandler = GuardedRedirectHandler
+
+
+def _empty_packet(url: str, status: str, error: str | None, attempts: list[dict[str, object]]) -> dict[str, object]:
+    return {
+        "requested_url": url, "final_url": None, "retrieved_at": None,
+        "published_at": None, "modified_at": None, "content_sha256": None,
+        "text": "", "status": status, "truncated": False, "error": error,
+        "attempts": attempts, "links": [],
+    }
+
+
+def research_fetch(url: str, ctx: ToolContext | None) -> dict[str, object]:
+    return _research_fetch(url, ctx, allow_fallback=True)
+
+
+def _https_canonical_hint(requested: str, error: urllib.error.HTTPError) -> str | None:
+    if error.code not in {301, 302, 307, 308}:
+        return None
+    location = error.headers.get("Location") if error.headers else None
+    if not isinstance(location, str):
+        return None
+    try:
+        source, target = urlsplit(requested), urlsplit(location)
+        if (
+            target.scheme != "http"
+            or not target.hostname
+            or target.username is not None
+            or target.password is not None
+            or target.hostname.casefold() != (source.hostname or "").casefold()
+            or target.port != source.port
+        ):
+            return None
+        candidate = target._replace(scheme="https", fragment="").geturl()
+    except (UnicodeError, ValueError):
+        return None
+    return None if _is_blocked_literal_url(candidate) else candidate
+
+
+def _same_https_origin(first: str, second: object) -> bool:
+    try:
+        left, right = urlsplit(first), urlsplit(second) if isinstance(second, str) else None
+        return bool(
+            right
+            and right.scheme == "https"
+            and right.hostname
+            and right.username is None
+            and right.password is None
+            and right.hostname.casefold() == (left.hostname or "").casefold()
+            and right.port == left.port
+        )
+    except (UnicodeError, ValueError):
+        return False
+
+
+def _research_fetch(url: str, ctx: ToolContext | None, *, allow_fallback: bool) -> dict[str, object]:
+    requested = str(url).strip()
+    if not requested:
+        return _empty_packet(requested, "invalid_response", "Missing url", [])
+    if not requested.startswith(("http://", "https://")):
+        requested = "https://" + requested
+    inspection = _inspect_outgoing_request(requested, ctx)
+    if inspection is not None:
+        return _empty_packet(requested, "blocked", str(inspection.content), [])
+    if _is_blocked_literal_url(requested):
+        return _empty_packet(requested, "blocked", "SSRF guard refused the URL", [])
+    attempt: dict[str, object] = {"url": requested, "status": "prepared", "error": None}
+    attempts = [attempt]
+    try:
+        receipt_id = record_tool_receipt(ctx.cfg if ctx is not None else {}, operation="web_fetch", outcome="prepared")
+    except OSError as exc:
+        attempt.update(status="blocked", error=str(exc))
+        return _empty_packet(requested, "blocked", "receipt storage unavailable", attempts)
+    try:
+        with pinned_opener().open(urllib.request.Request(requested, headers={"User-Agent": USER_AGENT}), timeout=30) as response:
+            http_status = getattr(response, "status", None)
+            content_type = response.headers.get("Content-Type", "")
+            encoding = response.headers.get("Content-Encoding", "")
+            last_modified = response.headers.get("Last-Modified")
+            final_url = response.geturl() if callable(getattr(response, "geturl", None)) else requested
+            raw = response.read(MAX_RESPONSE_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        attempt.update(status="http_error", error=f"HTTP {exc.code}")
+        canonical = _https_canonical_hint(requested, exc) if allow_fallback else None
+        try:
+            record_tool_receipt(ctx.cfg if ctx is not None else {}, operation="web_fetch", outcome="failed", receipt_id=receipt_id, http_status=exc.code)
+        finally:
+            if exc.fp is not None:
+                exc.close()
+        if canonical:
+            recovered = _research_fetch(canonical, ctx, allow_fallback=False)
+            combined_attempts = attempts + recovered["attempts"]
+            if recovered["status"] == "ok" and not _same_https_origin(
+                requested, recovered.get("final_url"),
+            ):
+                return _empty_packet(
+                    requested, "blocked", "canonical recovery left original origin",
+                    combined_attempts,
+                )
+            recovered["requested_url"] = requested
+            recovered["attempts"] = combined_attempts
+            return recovered
+        return _empty_packet(requested, "http_error", f"HTTP {exc.code}", attempts)
+    except (OSError, ValueError) as exc:
+        attempt.update(status="network_error", error=str(exc))
+        record_tool_receipt(ctx.cfg if ctx is not None else {}, operation="web_fetch", outcome="failed", receipt_id=receipt_id)
+        return _empty_packet(requested, "network_error", str(exc), attempts)
+    record_tool_receipt(
+        ctx.cfg if ctx is not None else {}, operation="web_fetch", outcome="sent", receipt_id=receipt_id,
+        byte_count=len(raw), http_status=http_status if isinstance(http_status, int) else None,
+    )
+    retrieved = _utc_now().isoformat(timespec="seconds")
+    attempt["http_last_modified"] = last_modified
+    if len(raw) > MAX_RESPONSE_BYTES:
+        attempt.update(status="too_large", error="response exceeded 2000000 bytes")
+        packet = _empty_packet(requested, "too_large", "response exceeded 2000000 bytes", attempts)
+        packet.update(final_url=final_url, retrieved_at=retrieved, truncated=True)
+        return packet
+    try:
+        decoded = decode_http_body(raw, encoding)
+        document = extract_response(decoded, content_type)
+    except ContentDecodingError as exc:
+        status = "unsupported" if "unavailable" in str(exc) else "invalid_response"
+        attempt.update(status=status, error=str(exc))
+        packet = _empty_packet(requested, status, str(exc), attempts)
+        packet.update(final_url=final_url, retrieved_at=retrieved)
+        return packet
+    text = document.text.strip()
+    suspicious = text.casefold()
+    blocked_markers = ("enable javascript", "verify you are human", "access denied", "sign in to continue", "로그인 후")
+    status = "blocked" if len(text) <= 500 and any(marker in suspicious for marker in blocked_markers) else "ok" if text else "empty"
+    error = "page returned a login, challenge, or JavaScript gate" if status == "blocked" else "no readable content" if status == "empty" else None
+    attempt.update(status=status, error=error)
+    packet = {
+        "requested_url": requested, "final_url": final_url, "retrieved_at": retrieved,
+        "published_at": document.published_at, "modified_at": document.modified_at or last_modified,
+        "content_sha256": hashlib.sha256(decoded).hexdigest(), "text": text,
+        "status": status, "truncated": False, "error": error, "attempts": attempts,
+        "links": _document_links(document.links, final_url),
+    }
+    if allow_fallback and status in {"blocked", "empty"} and document.alternate_urls:
+        alternate = urljoin(final_url, document.alternate_urls[0])
+        fallback = _research_fetch(alternate, ctx, allow_fallback=False)
+        packet["attempts"] = attempts + fallback["attempts"]
+        if fallback["status"] == "ok":
+            fallback["requested_url"] = requested
+            fallback["attempts"] = packet["attempts"]
+            return fallback
+    return packet
+
+
+def _document_links(
+    links: tuple[tuple[str, str], ...],
+    final_url: str,
+) -> list[dict[str, str]]:
+    base = urlsplit(final_url)._replace(fragment="").geturl()
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for href, text in links:
+        try:
+            resolved = urlsplit(urljoin(final_url, href))._replace(fragment="")
+            url = resolved.geturl()
+        except (UnicodeError, ValueError):
+            continue
+        if (
+            resolved.scheme != "https"
+            or not resolved.hostname
+            or resolved.username is not None
+            or resolved.password is not None
+            or len(url) > 2048
+            or url == base
+            or url in seen
+            or _is_blocked_literal_url(url)
+        ):
+            continue
+        seen.add(url)
+        found.append({"url": url, "text": " ".join(text.split())[:256]})
+        if len(found) >= MAX_DOCUMENT_LINKS:
+            break
+    return found
+
+
+def _explicit_https_url(query: str) -> str | None:
+    match = re.search(r'https://[^\s<>"]+', query)
+    if not match:
+        return None
+    url = match.group(0)
+    if not url.isascii():
+        return None
+    quoted = (
+        match.start() > 0
+        and query[match.start() - 1] in {'"', "'"}
+        and ((match.end() < len(query) and query[match.end()] == '"')
+             or url.endswith("'"))
+    )
+    if quoted and url.endswith("'"):
+        url = url[:-1]
+    while url.endswith(")") and url.count("(") < url.count(")"):
+        url = url[:-1]
+    while url.endswith("]") and url.count("[") < url.count("]"):
+        url = url[:-1]
+    return url or None
+
+
+def _matches_site(url: object, required_host: str) -> bool:
+    try:
+        host = (urlsplit(url).hostname or "").casefold() if isinstance(url, str) else ""
+    except (UnicodeError, ValueError):
+        return False
+    return host == required_host or host.endswith("." + required_host)
+
+
+def research_search(query: str, count: int, ctx: ToolContext) -> dict[str, object]:
+    normalized = str(query).strip()
+    if not normalized:
+        return {"query": normalized, "results": [], "status": "error"}
+    inspection = _inspect_outgoing_request(normalized, ctx)
+    if inspection is not None:
+        return {"query": normalized, "results": [], "status": "error"}
+    bounded = max(1, min(MAX_RESULTS, int(count)))
+    site = re.search(r"(?:^|\s)site:([A-Za-z0-9.-]+)", normalized)
+    required_host = site.group(1).casefold() if site else None
+    site_path = re.search(r"(?:^|\s)site:([A-Za-z0-9.-]+)(/[^\s]*)", normalized)
+    query_url = (
+        f"https://{site_path.group(1)}{site_path.group(2)}"
+        if site_path else _explicit_https_url(normalized)
+    )
+    cfg = ctx.cfg
+    failures: list[str] = []
+    attempts: list[dict[str, str]] = []
+    for provider, search in (
+        ("marginalia", lambda: _marginalia(normalized, bounded, cfg)),
+        ("mwmbl", lambda: _mwmbl(normalized, bounded)),
+        ("bing-rss", lambda: _bing_rss(normalized, bounded)),
+    ):
+        try:
+            hits = _search_attempt(cfg, provider, search)
+        except _SearchReceiptError:
+            return {"query": normalized, "results": [], "status": "error"}
+        except urllib.error.HTTPError as exc:
+            status = "rate_limited" if exc.code == 429 else "service_unavailable" if exc.code == 503 else "error"
+            failures.append(status)
+            attempts.append({"backend": provider, "status": status})
+            continue
+        except (TimeoutError, socket.timeout):
+            failures.append("timeout")
+            attempts.append({"backend": provider, "status": "timeout"})
+            continue
+        except (AttributeError, OSError, TypeError, ValueError):
+            failures.append("error")
+            attempts.append({"backend": provider, "status": "error"})
+            continue
+        if required_host:
+            hits = [
+                hit for hit in hits
+                if isinstance(hit, dict)
+                and _matches_site(hit.get("url"), required_host)
+            ]
+        hits = [
+            hit for hit in hits
+            if isinstance(hit, dict)
+            and _search_result_relevant(
+                normalized, hit, site_bound=required_host is not None,
+            )
+        ]
+        if hits:
+            attempts.append({"backend": provider, "status": "ok"})
+            results = []
+            if query_url and not _is_blocked_literal_url(query_url):
+                results.append({
+                    "title": urlsplit(query_url).path.rsplit("/", 1)[-1],
+                    "url": query_url, "snippet": "", "published_at": None,
+                    "backend": None, "discovery_method": "query_url",
+                    "attempt_statuses": list(attempts),
+                })
+            results.extend(
+                {
+                    "title": hit.get("title", ""), "url": hit["url"],
+                    "snippet": hit.get("snippet", ""),
+                    "published_at": hit.get("published_at") or None,
+                    "backend": provider, "discovery_method": "search_backend",
+                    "attempt_statuses": list(attempts),
+                }
+                for hit in hits
+                if hit["url"] != query_url
+            )
+            return {
+                "query": normalized,
+                "results": results[:bounded],
+                "status": "ok",
+            }
+        attempts.append({"backend": provider, "status": "no_results"})
+    status = next((item for item in ("rate_limited", "service_unavailable", "timeout", "error") if item in failures), "no_results")
+    results = []
+    if query_url and not _is_blocked_literal_url(query_url):
+        results.append({
+            "title": urlsplit(query_url).path.rsplit("/", 1)[-1],
+            "url": query_url, "snippet": "", "published_at": None,
+            "backend": None, "discovery_method": "query_url",
+            "attempt_statuses": list(attempts),
+        })
+    return {"query": normalized, "results": results, "status": status}
 
 
 def _is_blocked_literal_url(url: str) -> bool:
     """Reject malformed URLs and unsafe literal addresses without DNS."""
     try:
         parsed = urlsplit(url)
-        if parsed.scheme != "https" or not parsed.hostname:
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
             return True
         host = parsed.hostname.lower()
         if host == "localhost" or host.endswith(".localhost"):
@@ -135,80 +455,28 @@ def _web_fetch(
     ctx: ToolContext | None,
 ) -> ToolResult:
     from ._types import ToolResult
-    url = inp.get("url", "").strip()
-    if not url:
+    requested = inp.get("url", "").strip()
+    if not requested:
         return ToolResult("Missing url", is_error=True)
-    if not url.startswith(("http://", "https://")):
-        url = "https://" + url
-    inspection = _inspect_outgoing_request(url, ctx)
-    if inspection is not None:
-        return inspection
-    if _is_blocked_literal_url(url):
-        return ToolResult(
-            "Refused: that URL targets a local/internal/reserved address "
-            "(SSRF guard).", is_error=True)
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    opener = pinned_opener()
-    receipt_id = record_tool_receipt(
-        ctx.cfg if ctx is not None else {},
-        operation="web_fetch",
-        outcome="prepared",
+    packet = research_fetch(requested, ctx)
+    if packet["status"] != "ok":
+        prefix = "Refused" if packet["status"] == "blocked" else "Fetch failed"
+        return ToolResult(f"{prefix}: {packet['error']}", is_error=True)
+    attempts = packet["attempts"]
+    last_modified = (
+        attempts[-1].get("http_last_modified")
+        if isinstance(attempts, list) and attempts and isinstance(attempts[-1], dict)
+        else None
     )
-    try:
-        with opener.open(req, timeout=30) as resp:
-            http_status = getattr(resp, "status", None)
-            ctype = resp.headers.get("Content-Type", "")
-            content_encoding = resp.headers.get("Content-Encoding", "")
-            last_modified = resp.headers.get("Last-Modified")
-            final_url = (
-                resp.geturl()
-                if callable(getattr(resp, "geturl", None))
-                else url
-            )
-            raw = resp.read(2_000_000)
-    except (OSError, ValueError) as exc:
-        record_tool_receipt(
-            ctx.cfg if ctx is not None else {},
-            operation="web_fetch",
-            outcome="failed",
-            receipt_id=receipt_id,
-        )
-        return ToolResult(f"Fetch failed: {exc}", is_error=True)
-    record_tool_receipt(
-        ctx.cfg if ctx is not None else {},
-        operation="web_fetch",
-        outcome="sent",
-        receipt_id=receipt_id,
-        byte_count=len(raw),
-        http_status=http_status if isinstance(http_status, int) else None,
-    )
-
-    try:
-        body = decode_http_body(raw, content_encoding).decode(
-            "utf-8", "replace"
-        )
-    except ContentDecodingError as exc:
-        return ToolResult(f"Fetch failed: {exc}", is_error=True)
-    published_at: str | None = None
-    modified_at: str | None = None
-    if "html" in ctype.lower() or body.lstrip()[:1] == "<":
-        document = extract_document(body)
-        text = document.text
-        published_at = document.published_at
-        modified_at = document.modified_at
-    else:
-        text = body
-    # No slicing here: the 2MB read above already bounds memory, and
-    # tools/spill.py saves the whole page before capping what the model sees.
     metadata = [
         "# Source",
-        f"URL: {final_url}",
-        f"Retrieved-At: {_utc_now().isoformat(timespec='seconds')}",
-        f"Published-At: {published_at or 'unavailable'}",
-        f"Modified-At: {modified_at or 'unavailable'}",
+        f"URL: {packet['final_url']}",
+        f"Retrieved-At: {packet['retrieved_at']}",
+        f"Published-At: {packet['published_at'] or 'unavailable'}",
+        f"Modified-At: {packet['modified_at'] or 'unavailable'}",
         f"HTTP-Last-Modified: {last_modified or 'unavailable'}",
     ]
-    return ToolResult("\n".join(metadata) + f"\n\n# Content\n\n{text}")
+    return ToolResult("\n".join(metadata) + f"\n\n# Content\n\n{packet['text']}")
 
 
 # -- search ----------------------------------------------------------------
@@ -298,6 +566,89 @@ def _mwmbl(query: str, count: int) -> list[dict[str, str]]:
                     "title": _segments(r.get("title")),
                     "snippet": _segments(r.get("extract"))})
     return out
+
+
+def _bing_rss(query: str, count: int) -> list[dict[str, str]]:
+    """Public RSS search response; no browser session, cookie, or credential."""
+    site = re.search(r"(?:^|\s)site:([A-Za-z0-9.-]+)", query)
+    required_host = site.group(1).casefold() if site else None
+    searched = re.sub(r"(?:^|\s)site:[^\s]+", " ", query).strip()
+    if required_host:
+        searched = f"{required_host} {searched}".strip()
+    url = f"{BING_RSS_URL}?format=rss&q={quote(searched)}"
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with pinned_opener().open(request, timeout=SEARCH_TIMEOUT) as response:
+        raw = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(raw) > MAX_RESPONSE_BYTES:
+        raise ValueError("Bing RSS response exceeded 2000000 bytes")
+    if b"<!DOCTYPE" in raw.upper() or b"<!ENTITY" in raw.upper():
+        raise ValueError("Bing RSS response contained a DTD or entity declaration")
+    try:
+        root = ET.fromstring(raw)
+    except (ET.ParseError, DefusedXmlException) as exc:
+        raise ValueError("Bing RSS response was malformed XML") from exc
+    results: list[dict[str, str]] = []
+    for item in root.findall("./channel/item")[:MAX_BING_CANDIDATES]:
+        if len(results) >= count:
+            break
+        link = (item.findtext("link") or "").strip()
+        if not link or _is_blocked_literal_url(link):
+            continue
+        host = (urlsplit(link).hostname or "").casefold()
+        if required_host and host != required_host and not host.endswith("." + required_host):
+            continue
+        result = {
+            "url": link,
+            "title": (item.findtext("title") or "").strip(),
+            "snippet": (item.findtext("description") or "").strip(),
+            "published_at": (item.findtext("pubDate") or "").strip(),
+        }
+        if _search_result_relevant(
+            query, result, site_bound=required_host is not None,
+        ):
+            results.append(result)
+    return results
+
+
+def _informative_search_tokens(value: str) -> set[str]:
+    without_site = re.sub(r"(?:^|\s)site:[^\s]+", " ", value.casefold())
+    return {
+        token
+        for token in re.findall(r"[^\W_]+", without_site, flags=re.UNICODE)
+        if len(token) > 1 and not token.isdigit() and token not in _SEARCH_STOPWORDS
+    }
+
+
+def _search_result_relevant(
+    query: str,
+    result: Mapping[str, Any],
+    *,
+    site_bound: bool,
+) -> bool:
+    # ponytail: lexical overlap can miss synonyms; add semantic ranking only
+    # after a measured search corpus justifies that extra machinery.
+    title, snippet, url = (
+        result.get("title", ""), result.get("snippet", ""), result.get("url")
+    )
+    if not all(isinstance(value, str) for value in (title, snippet, url)):
+        return False
+    try:
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https" or not parsed.hostname
+                or _is_blocked_literal_url(url)):
+            return False
+        host_tokens = _informative_search_tokens(parsed.hostname)
+        searchable = " ".join((title, snippet, unquote(parsed.path),
+                               unquote(parsed.query)))
+    except (UnicodeError, ValueError):
+        return False
+    original_wanted = _informative_search_tokens(query)
+    if not original_wanted:
+        return site_bound
+    wanted = original_wanted - host_tokens or original_wanted
+    found = _informative_search_tokens(searchable)
+    minimum = 1 if len(wanted) == 1 else 2
+    return len(wanted & found) >= minimum
 
 
 def _segments(value: Any) -> str:

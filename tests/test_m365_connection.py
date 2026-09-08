@@ -20,6 +20,22 @@ def test_connection_uses_secret_reference_and_distinguishes_states(tmp_path: Pat
     approved = approvals.approve(approval_id, approved_by="human:test", approved_via="test")
     assert approved["ok"] is True
     assert status(env={})["state"] == "reauthentication_required"
+    monkeypatch.setenv("BIRKIN_M365_TOKEN", "secret-value")
+    connected = status(env={"BIRKIN_M365_TOKEN": "secret-value"})
+    assert connected["state"] == "verification_required"
+    from birkin.m365_connection import apply_approved
+
+    class IdentityGraph:
+        def request(self, method, path):
+            assert method == "GET"
+            if path.startswith("/me?"):
+                return {"id": "user-1", "userPrincipalName": "ada@example.com", "mail": "Ada@Example.com"}
+            assert path == "/organization?$select=id"
+            return {"value": [{"id": "tenant-1"}]}
+
+    monkeypatch.setattr("birkin.m365_graph.graph_client", lambda **_: IdentityGraph())
+    from birkin.m365_connection import verified_approval_identity
+    assert verified_approval_identity()["tenant_id"] == "tenant-1"
     connected = status(env={"BIRKIN_M365_TOKEN": "secret-value"})
     assert connected["state"] == "connected"
     assert connected["account"]["name"] == "Ada@Example.com"
@@ -30,6 +46,14 @@ def test_connection_uses_secret_reference_and_distinguishes_states(tmp_path: Pat
     record_sync_result("gateway unavailable")
     assert status(env={"BIRKIN_M365_TOKEN": "secret-value"})["state"] == "sync_failed"
     record_sync_result(None)
+    previous_generation = connected["generation"]
+    record_sync_result("authentication_required")
+    assert status(env={"BIRKIN_M365_TOKEN": "secret-value"})["state"] == "reauthentication_required"
+    apply_approved({"action": "reauthenticate", "scopes": connected["scopes"]})
+    assert status(env={"BIRKIN_M365_TOKEN": "secret-value"})["generation"] != previous_generation
+    assert status(env={"BIRKIN_M365_TOKEN": "secret-value"})["state"] == "verification_required"
+    assert verified_approval_identity()["tenant_id"] == "tenant-1"
+    assert status(env={"BIRKIN_M365_TOKEN": "secret-value"})["state"] == "connected"
 
     revoked = registry.execute("m365_connection_request", {"action": "revoke"})
     approved = approvals.approve(json.loads(revoked.content)["id"], approved_by="human:test", approved_via="test")

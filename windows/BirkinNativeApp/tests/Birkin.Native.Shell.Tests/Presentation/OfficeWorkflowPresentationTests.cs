@@ -55,6 +55,9 @@ public sealed class OfficeWorkflowPresentationTests
     [DataRow(
         "E_PROJECTION_FORBIDS_MUTATION",
         "현재 화면 상태에서는 변경할 수 없습니다. 최신 상태를 불러온 뒤 다시 시도하세요.")]
+    [DataRow(
+        "E_COMMAND_IN_PROGRESS",
+        "현재 요청을 처리하고 있습니다. 완료될 때까지 기다려 주세요.")]
     public void DisabledReason_WhenMapped_ExposesKoreanGuidance(
         string code,
         string expected)
@@ -84,7 +87,10 @@ public sealed class OfficeWorkflowPresentationTests
 
     [DataTestMethod]
     [DataRow("user", "사용자")]
+    [DataRow("user_message", "사용자")]
     [DataRow("assistant", "Birkin")]
+    [DataRow("assistant_message", "Birkin")]
+    [DataRow("assistant_stream", "Birkin")]
     [DataRow("system", "시스템")]
     [DataRow("tool", "도구")]
     [DataRow("future", "메시지")]
