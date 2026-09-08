@@ -366,6 +366,29 @@ def test_discarded_old_worker_source_does_not_disqualify_current_audit_evidence(
     assert outcome["result"]["claim_ledger"][0]["status"] == "source_supported"
 
 
+def test_suffixed_max_length_canonical_id_can_ground_an_inference(
+    tmp_path, monkeypatch,
+):
+    model_id = "C" + "x" * 29
+    suffixed_id = f"{model_id}-2"
+    outcome, _, _ = _run_corpus(
+        tmp_path, monkeypatch, axes=2, fact_id=model_id,
+        supports=[{
+            "source_id": "S1",
+            "excerpt": "The service accepts requests for later processing.",
+        }],
+        inferences=[{
+            "claim": "완료 상태를 별도로 확인해야 한다.",
+            "premise_claim_ids": [suffixed_id], "assumptions": [],
+        }],
+    )
+    rows = [row for row in outcome["result"]["claim_ledger"]
+            if row.get("claim_type") == "inference"]
+    assert any(row["claim_id"] == suffixed_id
+               for row in outcome["result"]["claim_ledger"])
+    assert len(rows) == 1 and rows[0]["status"] == "inference_supported"
+
+
 @pytest.mark.parametrize("premises", [["unknown"], ["shared-model-id", "unknown"], ["I1"]])
 def test_model_cannot_promote_inference_with_unknown_or_self_referencing_premises(
     tmp_path, monkeypatch, premises,

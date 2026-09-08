@@ -94,7 +94,7 @@ NATIVE_DISCOVERY_SCHEMA = {"type": "object", "additionalProperties": False,
                        "enum": ["model_discovered_after_web_search"]},
     }}
 MAX_SOURCES, MAX_FETCH_ATTEMPTS = 18, 36
-MAX_FINDINGS, MAX_AUDITS, MAX_WAVES = 24, 24, 3
+MAX_AUDITS, MAX_WAVES = 24, 3
 # Fixed policy reserve, not an empirical optimum: leave room for counter-evidence.
 CHALLENGE_SOURCE_RESERVE = 3
 _HIGH_RISK = re.compile(
@@ -390,10 +390,12 @@ def main(m):
 
     findings = _unique_claim_ids(findings)
     findings_by_id = {finding["claim_id"]: finding for finding in findings}
+    audit_findings = _select_audit_findings(findings, axes, MAX_AUDITS)
+    audited_ids = {finding["claim_id"] for finding in audit_findings}
     m.phase("Challenge")
     # Counter-evidence collection is distinct from the worker's discovery.
     counter_sources, counter_by_claim = {}, {}
-    for finding in findings[:MAX_AUDITS]:
+    for finding in audit_findings:
         counter_by_claim[finding["claim_id"]] = []
         counter_query = finding.get("counter_query") or f"반증 {finding['claim']}"
         for hit in m.research_search(counter_query, count=3):
@@ -428,13 +430,13 @@ def main(m):
         finding["claim_id"]: _claim_sources(
             finding, counter_by_claim.get(finding["claim_id"], []), all_sources,
             findings_by_id)
-        for finding in findings[:MAX_AUDITS]
+        for finding in audit_findings
     }
     audit_contexts = {
         finding["claim_id"]: _source_prompt(
             audit_sources[finding["claim_id"]], [finding["claim"]],
             _anchors_by_source(finding["supports"]))
-        for finding in findings[:MAX_AUDITS]
+        for finding in audit_findings
     }
     verdicts = m.parallel([
         lambda finding=finding: (
@@ -454,11 +456,12 @@ def main(m):
             "unresolved입니다.",
             role="auditor", label=f"audit:{finding['claim_id']}",
             schema=VERDICT_SCHEMA))
-        for finding in findings[:MAX_AUDITS]])
+        for finding in audit_findings])
+    verdicts_by_id = dict(zip(
+        (finding["claim_id"] for finding in audit_findings), verdicts))
     claims = []
-    selected, overflow = findings[:MAX_FINDINGS], findings[MAX_FINDINGS:]
-    for index, finding in enumerate(selected):
-        if index >= MAX_AUDITS:
+    for finding in findings:
+        if finding["claim_id"] not in audited_ids:
             claims.append({**finding, "status": "unresolved",
                            "reason": "검증 근거 부족 또는 감사 상한 밖의 주장",
                            "audit_reason": ""})
@@ -467,12 +470,13 @@ def main(m):
             reason = ("검증할 원문 근거가 없습니다"
                       if not audit_sources[finding["claim_id"]] else "검증 근거 부족")
             claims.append({**finding, "status": "unresolved", "reason": reason,
-                           "audit_reason": (verdicts[index] or {}).get("reason") or "",
+                           "audit_reason": (verdicts_by_id[finding["claim_id"]]
+                                            or {}).get("reason") or "",
                            "audit_supports": [],
                            "audit_validation": "not_decisive"})
             continue
         verdict, audit_supports, audit_validation = _validated_audit(
-            m, finding["claim"], verdicts[index] or {},
+            m, finding["claim"], verdicts_by_id[finding["claim_id"]] or {},
             audit_sources[finding["claim_id"]], audit_contexts[finding["claim_id"]],
             f"audit:repair:{finding['claim_id']}")
         audited = {**finding, "supports": audit_supports}
@@ -513,18 +517,16 @@ def main(m):
                        "audit_reason": verdict.get("reason") or "판정 없음",
                        "audit_supports": audit_supports,
                        "audit_validation": audit_validation})
-    claims.extend({**finding, "status": "unresolved",
-                   "reason": "발견 상한 밖의 주장", "audit_reason": ""}
-                  for finding in overflow)
     verified_facts = [claim for claim in claims if claim["status"] in {
         "source_supported", "cross_verified"}]
     synthesis_failed = False
     unanswered_questions = []
     if verified_facts:
         inference_schema = deepcopy(INFERENCE_SCHEMA)
-        inference_schema["properties"]["inferences"]["items"]["properties"][
-            "premise_claim_ids"]["items"]["enum"] = sorted(
-                fact["claim_id"] for fact in verified_facts)
+        premise_item = inference_schema["properties"]["inferences"]["items"][
+            "properties"]["premise_claim_ids"]["items"]
+        premise_item.pop("maxLength", None)
+        premise_item["enum"] = sorted(fact["claim_id"] for fact in verified_facts)
         synthesis = m.agent(
             f"전체 질문: {question}\n\n검증된 직접 사실 원장:\n"
             f"{_final_claim_context(verified_facts, all_sources)}\n\n"
@@ -898,6 +900,26 @@ def _round_robin(lanes):
     for index in range(max((len(lane) for lane in lanes), default=0)):
         ordered.extend(lane[index] for lane in lanes if index < len(lane))
     return ordered
+
+
+def _select_audit_findings(findings, axes, limit):
+    selected, selected_ids, source_ids = [], set(), set()
+    for finding in findings:
+        supports = {support["source_id"] for support in finding.get("supports", [])}
+        if supports - source_ids:
+            selected.append(finding)
+            selected_ids.add(finding["claim_id"])
+            source_ids.update(supports)
+            if len(selected) == limit:
+                return selected
+    lanes = [
+        [finding for finding in findings
+         if finding.get("axis_id") == str(axis["id"])
+         and finding["claim_id"] not in selected_ids]
+        for axis in axes
+    ]
+    remaining = limit - len(selected)
+    return selected + _round_robin(lanes)[:remaining]
 
 
 def _schedule_leads(pending, findings, seen, *, limit):

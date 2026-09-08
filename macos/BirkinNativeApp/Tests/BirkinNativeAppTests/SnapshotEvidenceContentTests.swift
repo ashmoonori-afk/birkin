@@ -36,6 +36,7 @@ struct SnapshotEvidenceContentTests {
         ))
 
         try runtime.store.apply(snapshot: snapshot(includeTerminal: true))
+        runtime.presentationModel.focus(.section(.terminal))
         let terminalURL = root.appendingPathComponent("terminal.png")
         #expect(try render(
             runtime,

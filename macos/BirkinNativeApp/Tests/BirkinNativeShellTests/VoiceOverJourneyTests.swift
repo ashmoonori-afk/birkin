@@ -11,7 +11,7 @@ struct VoiceOverJourneyTests {
             "sessions.research", "composer.draft", "composer.send", "approvals.card",
             "approvals.approve", "activity.receipt", "working-memory.landmark",
         ])
-        #expect(nodes[3].value == "Risk, category, and summary")
+        #expect(nodes[3].value == "위험, 범주 및 요약")
         #expect(nodes.filter { $0.role == .button }.allSatisfy { $0.actions == ["press"] })
         try writeActionLog(nodes, name: "j2-voiceover-seam-action.log")
     }

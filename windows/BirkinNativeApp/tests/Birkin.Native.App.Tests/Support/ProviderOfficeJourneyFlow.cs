@@ -150,7 +150,8 @@ internal static class ProviderOfficeJourneyFlow
                     var contentCenter = (Math.Min(oldBounds.Top, newBounds.Top)
                         + Math.Max(oldBounds.Bottom, newBounds.Bottom)) / 2;
                     workflowScroll.ScrollToVerticalOffset(
-                        Math.Max(0, contentCenter - workflowScroll.ViewportHeight / 2));
+                        Math.Max(0, workflowScroll.VerticalOffset
+                            + contentCenter - workflowScroll.ViewportHeight / 2));
                 },
                 validate: () =>
                     Assert.IsTrue(IsFullyVisible(oldValue, workflowScroll) && IsFullyVisible(newValue, workflowScroll),

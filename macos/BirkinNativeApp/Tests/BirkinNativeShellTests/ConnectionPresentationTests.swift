@@ -17,8 +17,8 @@ struct ConnectionPresentationTests {
 
         #expect(missing.identifier == "failed-embedded_helper_missing")
         #expect(mismatch.identifier == "failed-embedded_helper_hash_mismatch")
-        #expect(missing.actionLabel == "Retry")
-        #expect(mismatch.actionLabel == "Retry")
+        #expect(missing.actionLabel == "다시 시도")
+        #expect(mismatch.actionLabel == "다시 시도")
         #expect(missing.detail.contains("Reinstall Birkin"))
         #expect(!missing.detail.localizedCaseInsensitiveContains("choose"))
         print("B4 PRESENTATION code=embedded_helper_missing action=Retry picker=false")

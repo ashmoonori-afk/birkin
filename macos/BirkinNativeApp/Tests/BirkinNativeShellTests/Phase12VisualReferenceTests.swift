@@ -70,6 +70,10 @@ struct Phase12VisualReferenceTests {
             ),
             named: "redesign-documents-1024x768.png", size: NSSize(width: 1_024, height: 768)
         )
+        #expect(
+            try Data(contentsOf: evidenceURL("redesign-review-1024x768.png"))
+                != Data(contentsOf: evidenceURL("redesign-documents-1024x768.png"))
+        )
         let projection = try #require(store.projection)
         try snapshot(
             MessageStreamView(projection: projection),
@@ -124,20 +128,21 @@ struct Phase12VisualReferenceTests {
 
     @MainActor
     private func snapshot<V: View>(_ view: V, named: String, size: NSSize) throws {
-        let renderer = ImageRenderer(content:
-            view.padding(20).frame(width: size.width, height: size.height)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .environment(\.colorScheme, .light)
-                .environment(
-                    \.shellVisualSettings,
-                    ShellVisualSettings(snapshotRendering: true)
-                )
+        let content = view.padding(20).frame(width: size.width, height: size.height)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, .light)
+            .environment(
+                \.shellVisualSettings,
+                ShellVisualSettings(snapshotRendering: true)
+            )
+        let hosting = NSHostingView(rootView: content)
+        hosting.frame = NSRect(origin: .zero, size: size)
+        hosting.layoutSubtreeIfNeeded()
+        let bitmap = try #require(
+            hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds)
         )
-        renderer.scale = 1
-        let image = try #require(renderer.nsImage)
-        #expect(image.size == size)
-        let tiff = try #require(image.tiffRepresentation)
-        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        #expect(bitmap.size == size)
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         let png = try #require(bitmap.representation(using: .png, properties: [:]))
         #expect(png.count > 4_000)
         try png.write(to: evidenceURL(named), options: .atomic)

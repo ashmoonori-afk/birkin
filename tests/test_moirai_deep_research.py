@@ -365,6 +365,39 @@ def test_more_than_twelve_findings_are_all_audited(
     assert all(item.get("audit_reason") for item in out["claim_ledger"])
 
 
+def test_audit_budget_includes_late_new_source_and_preserves_overflow(
+    script, monkeypatch,
+):
+    _web(monkeypatch)
+    base = _spawn(finding_count=14)
+
+    def spawn(prompt, binding, opts, cfg, *, timeout=900.0):
+        payload = json.loads(base(prompt, binding, opts, cfg, timeout=timeout))
+        if "위 source_id만" in prompt and "축: 검증" in prompt:
+            for finding in payload["findings"][-4:]:
+                finding["claim"] = "Late novel evidence"
+                finding["supports"] = [{"source_id": "S2", "excerpt":
+                                        "Alpha causes 2 documented outcomes independently."}]
+        elif "지원과 반증을 구분" in prompt and "Late novel evidence" in prompt:
+            payload["supports"] = [{"source_id": "S2", "excerpt":
+                                    "Alpha causes 2 documented outcomes independently."}]
+        return json.dumps(payload, ensure_ascii=False)
+
+    out = moirai.run_script(
+        script, cfg={}, args={"question": "q"},
+        spawn=spawn,
+    )["result"]
+    facts = [row for row in out["claim_ledger"]
+             if row.get("claim_type") == "fact"]
+    late = [row for row in facts if row["claim"] == "Late novel evidence"]
+    overflow = [row for row in facts[:24] if "감사 상한 밖" in row["reason"]]
+    assert len(facts) == 28
+    assert sum(bool(row.get("audit_reason")) for row in facts) == 24
+    assert {row["axis_id"] for row in facts if row.get("audit_reason")} == {"a", "b"}
+    assert late and late[0]["status"] == "source_supported"
+    assert overflow and all(row["status"] == "unresolved" for row in overflow)
+
+
 def test_resume_reuses_durable_search_and_fetch_results(script, monkeypatch):
     calls = _web(monkeypatch)
     first = moirai.run_script(script, cfg={}, args={"question": "q"},

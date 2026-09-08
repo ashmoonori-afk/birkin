@@ -81,7 +81,11 @@ def test_native_swift_job_uploads_test_evidence() -> None:
     )
     assert upload_action in workflow
     assert "name: native-swift-test-evidence" in workflow
-    assert "path: .omo/evidence/native-swift" in workflow
+    assert (
+        "path: |\n"
+        "            .omo/evidence/native-swift\n"
+        "            .omo/evidence/native-shell\n"
+    ) in workflow
     assert "if-no-files-found: error" in workflow
 
 

@@ -27,6 +27,7 @@ struct ShellStructureTests {
     }
 
     @Test("research markdown keeps only web links")
+    @MainActor
     func researchLinks() {
         let source = "# 결론\n- [공식 근거](https://example.com)\n- [위험](javascript:alert(1))\n- [파일](file:///tmp/a)"
         let sanitized = ResearchReportView.sanitizedMarkdownSource(source)
@@ -48,7 +49,9 @@ struct ShellStructureTests {
             .approvals, .activity, .office, .browserAside, .computerUse,
         ])
         #expect(empty.columns.flatMap(\.sections).allSatisfy {
-            $0.state == .empty("Waiting for the canonical projection.")
+            $0.state == .empty(NativeLocalization.string(
+                "Waiting for the canonical projection."
+            ))
         })
 
         try store.apply(snapshot: snapshot())
@@ -58,7 +61,9 @@ struct ShellStructureTests {
             .first { $0.id == .conversation }
         #expect(conversation?.state == .content(itemCount: 1))
         #expect(projected.columns.flatMap(\.sections).contains {
-            $0.state == .unavailable("Not advertised by the Python projection.")
+            $0.state == .unavailable(NativeLocalization.string(
+                "Not advertised by the Python projection."
+            ))
         })
     }
 

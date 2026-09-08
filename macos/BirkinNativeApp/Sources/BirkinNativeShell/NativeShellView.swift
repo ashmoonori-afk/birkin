@@ -115,6 +115,9 @@ public struct NativeShellView: View {
             initialValue: presentationModel.target?.column ?? initialColumn
         )
         _activeRoute = State(initialValue: initialRoute)
+        _focusedAdditionalSection = State(initialValue: Self.additionalSection(
+            from: presentationModel.target
+        ))
         _templateLauncher = StateObject(wrappedValue: TemplateLauncherModel(
             presets: Self.readySession(in: connectionState)?.sessionPresets ?? [],
             makeSessionID: makeSessionID
@@ -132,9 +135,13 @@ public struct NativeShellView: View {
         VStack(spacing: 0) {
             HStack(spacing: 16) {
                 HStack(spacing: 10) {
-                    Image("birkin-brand-mark", bundle: .module)
-                        .resizable().scaledToFit().frame(width: 38, height: 38)
-                        .accessibilityHidden(true)
+                    if let url = Bundle.module.url(
+                        forResource: "birkin-brand-mark", withExtension: "png"
+                    ), let image = NSImage(contentsOf: url) {
+                        Image(nsImage: image)
+                            .resizable().scaledToFit().frame(width: 38, height: 38)
+                            .accessibilityHidden(true)
+                    }
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Birkin").font(.title2.weight(.bold))
                         Text("현재 업무와 검토할 내용을 한곳에서 확인하세요.")
@@ -213,6 +220,9 @@ public struct NativeShellView: View {
             if visualSettings.reduceMotion { transaction.disablesAnimations = true }
         }
         .onChange(of: presentationModel.requestGeneration) { _ in
+            if let target = presentationModel.target {
+                focusedAdditionalSection = Self.additionalSection(from: target)
+            }
             if let target = presentationModel.target,
                let route = WorkspaceRoute.resolve(
                     focus: target,
@@ -932,6 +942,18 @@ public struct NativeShellView: View {
         case .conversation, .research: .conversation
         case .documents: .office
         case .approvals: .approvals
+        }
+    }
+
+    private static func additionalSection(
+        from target: ShellFocusTarget?
+    ) -> ShellSectionID? {
+        guard case .section(let section)? = target else { return nil }
+        switch section {
+        case .terminal, .workingMemory, .browserAside, .computerUse:
+            return section
+        default:
+            return nil
         }
     }
 
