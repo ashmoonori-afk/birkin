@@ -308,6 +308,46 @@ def test_small_plan_leaves_room_for_expansion_after_many_initial_candidates(
     assert initial[13] not in fetched and len(urls) == 14
 
 
+def test_cap_blocked_exact_lead_is_deferred_to_the_next_wave(tmp_path, monkeypatch):
+    quote = "The service accepts requests for later processing."
+    initial = [f"https://initial.example/{index}" for index in range(12)]
+    fill = ["https://expand.example/fill-1", "https://expand.example/fill-2"]
+    blocked_lead = "cap blocked source"
+    exact = "https://docs.example/cap-blocked"
+    pages = {url: f"{quote} Initial {index}." for index, url in enumerate(initial)}
+    pages.update({fill[0]: "First expansion source.",
+                  fill[1]: "Second expansion source.", exact: "Deferred source."})
+    searches = []
+
+    def search(query):
+        searches.append(query)
+        if query == "initial-0":
+            return initial
+        if query in {"fill-1", "fill-2"}:
+            return [fill[int(query[-1]) - 1]]
+        if query == blocked_lead:
+            return [exact]
+        return []
+
+    def leads(prompt):
+        if prompt.startswith("축:"):
+            return ["fill-1", "fill-2", blocked_lead]
+        return [blocked_lead] if f"확장 리드: {blocked_lead}" in prompt else []
+
+    outcome, fetched, _ = _run_corpus(
+        tmp_path, monkeypatch,
+        supports=[{"source_id": "S1", "excerpt": quote}],
+        corpus_pages=pages, search_results=search, finding_leads=leads,
+        source_urls=initial,
+    )
+
+    urls = {row["final_url"] for row in outcome["result"]["source_ledger"]}
+    assert exact in urls
+    assert fetched.count(exact) == 1
+    assert searches.count(blocked_lead) == 2
+    assert len(urls) == 15
+
+
 def test_canonical_ids_handle_worker_supplied_suffix_collisions():
     items = [{"claim_id": value} for value in ("x", "x", "x-2", "x-2")]
     rows = deep_research._unique_claim_ids(items)

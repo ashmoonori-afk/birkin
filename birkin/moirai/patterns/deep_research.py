@@ -336,12 +336,17 @@ def main(m):
         selected, pending = _schedule_leads(pending, findings, seen_leads, limit=4)
         if not selected:
             break
-        generated = []
+        deferred, generated = [], []
         expansion_cap = (MAX_SOURCES - CHALLENGE_SOURCE_RESERVE
                          - (MAX_WAVES - wave))
         for axis, lead in selected:
             searched = [hit.get("url") for hit in m.research_search(lead, count=5)
                         if isinstance(hit, dict)]
+            if (len(sources) >= expansion_cap
+                    and any(isinstance(url, str) and url not in attempted_urls
+                            for url in searched)):
+                seen_leads.discard((str(axis["id"]), str(lead).strip().casefold()))
+                deferred.append((axis, lead))
             fetches = 0
             for url in dict.fromkeys(searched):
                 if len(sources) >= expansion_cap or fetches >= 5:
@@ -389,7 +394,7 @@ def main(m):
                     known.add(key)
             generated.extend((axis, next_lead)
                              for next_lead in (result or {}).get("leads") or [])
-        pending.extend(generated)
+        pending.extend([*deferred, *generated])
     if not findings:
         return _failed("원문으로 뒷받침된 주장이 없습니다",
                        coverage=coverage, source_ledger=_ledger(sources),

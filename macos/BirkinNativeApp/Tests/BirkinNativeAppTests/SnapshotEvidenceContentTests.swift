@@ -45,6 +45,15 @@ struct SnapshotEvidenceContentTests {
             to: terminalURL
         ))
 
+        runtime.presentationModel.focus(.section(.workingMemory))
+        let memoryURL = root.appendingPathComponent("working-memory.png")
+        #expect(try render(
+            runtime,
+            session: session,
+            captureView: captureView,
+            to: memoryURL
+        ))
+
         runtime.jailedDrop.applyCanonicalResult([
             "reference": .object([
                 "kind": .string("workspace_import"),
@@ -56,6 +65,7 @@ struct SnapshotEvidenceContentTests {
             ]),
             "receipt": .object(["copied": .bool(true)]),
         ])
+        runtime.presentationModel.focus(.section(.conversation))
         let importURL = root.appendingPathComponent("import.png")
         #expect(try render(
             runtime,
@@ -64,7 +74,7 @@ struct SnapshotEvidenceContentTests {
             to: importURL
         ))
 
-        let urls = [conversationURL, terminalURL, importURL]
+        let urls = [conversationURL, terminalURL, memoryURL, importURL]
         let images = try urls.map { try Data(contentsOf: $0) }
         #expect(Set(images).count == urls.count)
         for (url, image) in zip(urls, images) {
@@ -85,21 +95,22 @@ struct SnapshotEvidenceContentTests {
             terminalHeading.bounds.minY >= 0.15,
             "Owned Terminal is visibly sliced at normalized y=\(terminalHeading.bounds.minY)"
         )
-        let memoryHeading = try #require(terminalLines.first {
-            $0.text.contains("WORKING MEMORY")
+        let memoryLines = try recognizedLines(memoryURL)
+        let memoryHeading = try #require(memoryLines.first {
+            $0.text.contains("작업 메모")
         })
         #expect(
             memoryHeading.bounds.minY >= 0.15,
             "Working Memory is visibly sliced at normalized y=\(memoryHeading.bounds.minY)"
         )
         let navigationHeading = try #require(terminalLines
-            .filter { $0.text == "NAVIGATION" }
+            .filter { $0.text == "업무" }
             .max { $0.bounds.maxY < $1.bounds.maxY })
         let conversationHeading = try #require(terminalLines
-            .filter { $0.text == "CONVERSATION" }
+            .filter { $0.text == "대화" }
             .max { $0.bounds.maxY < $1.bounds.maxY })
         let contextHeading = try #require(terminalLines
-            .filter { $0.text == "CONTEXT" }
+            .filter { $0.text == "검토" }
             .max { $0.bounds.maxY < $1.bounds.maxY })
         #expect(navigationHeading.bounds.minX < 0.15)
         #expect(conversationHeading.bounds.minX > 0.18)

@@ -10,6 +10,7 @@ if ((Test-Path -LiteralPath $output) -and (Get-ChildItem -LiteralPath $output -F
 }
 New-Item -ItemType Directory -Force -Path $output | Out-Null
 $version = (& uv run python -c "import birkin; print(birkin.__version__)" | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($version)) { throw "Birkin version lookup failed." }
 
 dotnet publish (Join-Path $root "windows\BirkinNativeApp\src\Birkin.Native.App\Birkin.Native.App.csproj") `
   -c Release -r win-x64 --self-contained true -o (Join-Path $output "app")
@@ -20,11 +21,30 @@ $python = (& uv python find --system 3.13 | Out-String).Trim()
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $python)) { throw "Bundled Python was not found." }
 Copy-Item -LiteralPath (Split-Path $python) -Destination (Join-Path $output "runtime") -Recurse
 $bundledPython = Join-Path $output "runtime\python.exe"
-uv pip install --python $bundledPython --target (Join-Path $output "runtime\Lib\site-packages") $root
+$sitePackages = Join-Path $output "runtime\Lib\site-packages"
+$runtimeLock = Join-Path $output "runtime-requirements.txt"
+uv export --directory $root --locked --no-dev --extra office --extra office-advanced --extra research --extra browser `
+  --no-emit-project --no-annotate --no-header --format requirements.txt --output-file $runtimeLock
+if ($LASTEXITCODE -ne 0) { throw "Birkin runtime dependency export failed." }
+uv pip install --python $bundledPython --target $sitePackages --requirements $runtimeLock
+if ($LASTEXITCODE -ne 0) { throw "Birkin runtime dependency installation failed." }
+uv pip install --python $bundledPython --target $sitePackages --no-deps $root
 if ($LASTEXITCODE -ne 0) { throw "Birkin runtime installation failed." }
+$previousBrowserPath = $env:PLAYWRIGHT_BROWSERS_PATH
+try {
+  $env:PLAYWRIGHT_BROWSERS_PATH = "0"
+  & $bundledPython -m playwright install chromium
+  if ($LASTEXITCODE -ne 0) { throw "Bundled Chromium installation failed." }
+  & $bundledPython -c "import docx, hwpx, jsonschema, lxml, openpyxl, playwright.sync_api, pptx, pypdf, pypdfium2, reportlab, rfc8785; from birkin.browser_playwright import playwright_browser_available; assert playwright_browser_available()"
+  if ($LASTEXITCODE -ne 0) { throw "Bundled Office, research, or browser capability verification failed." }
+} finally {
+  $env:PLAYWRIGHT_BROWSERS_PATH = $previousBrowserPath
+}
+Remove-Item -LiteralPath $runtimeLock
 @"
 @echo off
 set "PYTHONPATH=%~dp0runtime\Lib\site-packages"
+set "PLAYWRIGHT_BROWSERS_PATH=0"
 "%~dp0runtime\python.exe" -m birkin %*
 "@ | Set-Content -LiteralPath (Join-Path $output "birkin.cmd") -Encoding ascii
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "install-package.ps1") -Destination $output
