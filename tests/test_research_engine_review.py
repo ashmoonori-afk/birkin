@@ -20,7 +20,9 @@ def _run_corpus(tmp_path, monkeypatch, *, supports, numeric=False, axes=1,
                 final_review=None, final_prompts=None, finding_claim=None,
                 corpus_pages=None, search_results=None, finding_leads=None,
                 counter_query=None, failed_urls=(), source_urls=None,
-                finding_prompts=None, plan_prompts=None):
+                finding_prompts=None, plan_prompts=None, fact_scope=None,
+                attributed_source_id=None, audit_scope_preserved=None,
+                inference_scope_preserved=None):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     pages = corpus_pages or {
         "https://one.example/a": "The service accepts requests for later processing.",
@@ -82,19 +84,33 @@ def _run_corpus(tmp_path, monkeypatch, *, supports, numeric=False, axes=1,
         if "findings" in properties:
             if finding_prompts is not None:
                 finding_prompts.append(prompt)
-            return json.dumps({"findings": [{
+            finding = {
                 "claim_id": fact_id,
                 "claim": finding_claim or (
                     "202 응답이면 처리 완료다" if numeric else "요청 수락은 처리 완료다"),
                 "supports": supports,
                 "counter_query": counter_query or "",
-            }], "leads": finding_leads(prompt) if finding_leads else []})
+            }
+            if fact_scope is not None:
+                finding["fact_scope"] = fact_scope
+            if attributed_source_id is not None:
+                finding["attributed_source_id"] = attributed_source_id
+            return json.dumps({"findings": [finding],
+                               "leads": finding_leads(prompt) if finding_leads else []})
         if "verdict" in properties:
             if audit_prompts is not None:
                 audit_prompts.append(prompt)
             # A credulous model must not bypass structural evidence checks.
-            return json.dumps({"verdict": "supported", "reason": "검증되었다고 주장",
-                               "supports": supports if audit_supports is None else audit_supports})
+            verdict = {"verdict": "supported", "reason": "검증되었다고 주장",
+                       "supports": supports if audit_supports is None else audit_supports}
+            inference_audit = ("감사할 추론:" in prompt or
+                               ("문서 진술 범위 확인 필요: True" in prompt
+                                and "지정 귀속 source_id: 없음" in prompt))
+            scope = (inference_scope_preserved if inference_audit
+                     else audit_scope_preserved)
+            if scope is not None:
+                verdict["scope_preserved"] = scope
+            return json.dumps(verdict)
         raise AssertionError("unexpected model call")
 
     script = moirai.load_script(cli.resolve_script_path("deep-research"))
@@ -364,6 +380,111 @@ def test_discarded_old_worker_source_does_not_disqualify_current_audit_evidence(
         question="현재 요청 수락과 완료를 구분하라",
     )
     assert outcome["result"]["claim_ledger"][0]["status"] == "source_supported"
+
+
+def test_attributed_document_statement_has_distinct_fail_closed_status(
+    tmp_path, monkeypatch,
+):
+    excerpt = "The document describes a maximum precision of 15 digits."
+    common = {
+        "supports": [{"source_id": "S1", "excerpt": excerpt}],
+        "corpus_pages": {"https://one.example/a": excerpt},
+        "finding_claim": "Microsoft 문서는 숫자 정밀도를 15자리로 설명한다.",
+        "fact_scope": "documentary_statement",
+        "attributed_source_id": "S1",
+        "question": "현재 Excel의 숫자 정밀도를 확인하라",
+    }
+    final_prompts = []
+    documented, _, _ = _run_corpus(
+        tmp_path, monkeypatch, audit_scope_preserved=True,
+        final_prompts=final_prompts, **common)
+    row = documented["result"]["claim_ledger"][0]
+    assert row["status"] == "documented_statement"
+    assert row["audit_scope_preserved"] is True
+    assert "출처 문서 설명" in documented["result"]["answer"]
+    assert "현재 제품 동작을 독립 검증한 판정은 아님" in documented["result"]["answer"]
+    assert "documented_statement" in final_prompts[0]
+
+    repair_prompts = []
+    missing_scope, _, _ = _run_corpus(
+        tmp_path, monkeypatch, audit_scope_preserved=None,
+        audit_prompts=repair_prompts, **common)
+    assert missing_scope["result"]["claim_ledger"][0]["status"] == "unresolved"
+    assert len(repair_prompts) == 2
+    assert "지정 귀속 source_id: S1" in repair_prompts[1]
+
+    world, _, _ = _run_corpus(
+        tmp_path, monkeypatch, audit_scope_preserved=True,
+        **{**common, "fact_scope": "world_fact"})
+    assert world["result"]["claim_ledger"][0]["status"] == "unresolved"
+
+    wrong_source, _, _ = _run_corpus(
+        tmp_path, monkeypatch, audit_scope_preserved=True,
+        **{**common, "attributed_source_id": "S2"})
+    assert wrong_source["result"]["claim_ledger"][0]["status"] == "unresolved"
+
+
+def test_document_scope_cannot_be_laundered_into_current_world_inference(
+    tmp_path, monkeypatch,
+):
+    excerpt = "The document describes a maximum precision of 15 digits."
+    outcome, _, _ = _run_corpus(
+        tmp_path, monkeypatch,
+        supports=[{"source_id": "S1", "excerpt": excerpt}],
+        corpus_pages={"https://one.example/a": excerpt},
+        finding_claim="Microsoft 문서는 숫자 정밀도를 15자리로 설명한다.",
+        fact_scope="documentary_statement", attributed_source_id="S1",
+        audit_scope_preserved=True, inference_scope_preserved=False,
+        inferences=[{
+            "claim": "따라서 현재 모든 Excel 환경은 숫자를 15자리로 제한한다.",
+            "premise_claim_ids": ["shared-model-id"], "assumptions": [],
+        }],
+    )
+    inference = next(row for row in outcome["result"]["claim_ledger"]
+                     if row.get("claim_type") == "inference")
+    assert inference["status"] == "unresolved"
+    assert inference["audit_scope_preserved"] is False
+    assert "문서 진술 전제의 귀속 범위" in inference["reason"]
+    assert inference["documentary_premise_ids"] == ["shared-model-id"]
+    context = deep_research._final_claim_context([inference])
+    assert context[0]["fact_scope"] is None
+    assert context[0]["documentary_premise_ids"] == ["shared-model-id"]
+
+    missing_scope, _, _ = _run_corpus(
+        tmp_path, monkeypatch,
+        supports=[{"source_id": "S1", "excerpt": excerpt}],
+        corpus_pages={"https://one.example/a": excerpt},
+        finding_claim="Microsoft 문서는 숫자 정밀도를 15자리로 설명한다.",
+        fact_scope="documentary_statement", attributed_source_id="S1",
+        audit_scope_preserved=True, inference_scope_preserved=None,
+        inferences=[{
+            "claim": "따라서 현재 모든 Excel 환경은 숫자를 15자리로 제한한다.",
+            "premise_claim_ids": ["shared-model-id"], "assumptions": [],
+        }],
+    )
+    missing_inference = next(
+        row for row in missing_scope["result"]["claim_ledger"]
+        if row.get("claim_type") == "inference")
+    assert missing_inference["status"] == "unresolved"
+    assert missing_inference["audit_scope_preserved"] is None
+    assert "문서 진술 전제의 귀속 범위" in missing_inference["reason"]
+
+    bounded, _, _ = _run_corpus(
+        tmp_path, monkeypatch,
+        supports=[{"source_id": "S1", "excerpt": excerpt}],
+        corpus_pages={"https://one.example/a": excerpt},
+        finding_claim="Microsoft 문서는 숫자 정밀도를 15자리로 설명한다.",
+        fact_scope="documentary_statement", attributed_source_id="S1",
+        audit_scope_preserved=True, inference_scope_preserved=True,
+        inferences=[{
+            "claim": "이 문서만으로 모든 Excel 환경의 동작을 보장할 수 없다.",
+            "premise_claim_ids": ["shared-model-id"], "assumptions": [],
+        }],
+    )
+    bounded_inference = next(
+        row for row in bounded["result"]["claim_ledger"]
+        if row.get("claim_type") == "inference")
+    assert bounded_inference["status"] == "inference_supported"
 
 
 def test_suffixed_max_length_canonical_id_can_ground_an_inference(

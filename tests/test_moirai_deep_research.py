@@ -837,6 +837,25 @@ def test_proposal_repair_uses_exact_evidence_without_becoming_a_fact():
     assert rows[0]["status"] != "source_supported"
 
 
+def test_inference_audit_recomputes_documentary_premises_from_canonical_facts():
+    from birkin.moirai.patterns.deep_research import _audited_inferences
+
+    fact = {"claim_id": "C1", "fact_scope": "documentary_statement"}
+    inference = {
+        "claim_id": "I1", "claim": "현재 모든 환경에서 같은 동작이다",
+        "claim_type": "inference", "premise_claim_ids": ["C1"],
+        "assumptions": [], "assumptions_provided": True,
+    }
+    audit = ({"verdict": "supported", "reason": "범위를 확인하지 않음"},
+             [{"source_id": "S1", "excerpt": "document text"}], "valid")
+
+    row = _audited_inferences([inference], [audit], [fact])[0]
+
+    assert row["status"] == "unresolved"
+    assert row["documentary_premise_ids"] == ["C1"]
+    assert "문서 진술 전제의 귀속 범위" in row["reason"]
+
+
 def test_incomplete_or_noncanonical_inference_stays_unresolved_and_is_not_exposed():
     from birkin.moirai.patterns.deep_research import (
         _audited_inferences, _render_answer, _valid_inferences,

@@ -103,6 +103,8 @@ native-web은 한 번의 검색 호출 안에 검색어를 최대 4개, 각각 5
 
 native 검색이 찾은 문서 URL이 기존 검색어 뒤에서 대기 중이면 해당 URL을 앞으로 옮기고 대기열의 중복을 제거합니다. 이미 수집을 시도한 URL은 다시 넣지 않으며, 앞으로 옮긴 후보도 같은 검색·수집 상한과 근거 검증을 거칩니다.
 
+보고서는 인용 문서가 무엇을 설명하는지에 관한 진술과 현재 또는 일반적인 실제 동작에 관한 주장을 구분합니다. 문서 진술은 출처와 수집일을 표시하며, 감사에서 귀속과 범위를 확인하지 못하면 미확정으로 남깁니다. 실제 동작 주장의 독립 출처·최신성 기준은 유지하고, 추론에도 같은 범위 제한을 적용합니다.
+
 ## 메모리
 
 한글과 자모를 인식해 tokenize하는 BM25가 기본 retrieval engine이며 선택 package가 필요 없습니다. 결과에는 정규화된 `lexical`, `vector`, `entity`, `time` score와 기여한 signal, backend 이름이 표시됩니다. Vector embedding, 1-hop entity traversal, temporal reranking은 각각 별도로 켜는 opt-in 기능입니다.
@@ -520,7 +522,7 @@ Base install의 경계는 명확합니다. 다섯 format 모두 inspect, validat
 
 신뢰된 한국어·영어 자연어 요청은 production skill을 결정적으로 preload합니다. Word/DOCX는 `word-documents`, Excel/XLSX는 `spreadsheets`, PowerPoint/PPTX는 `presentations`, PDF는 `pdf-documents`, HWP/HWPX는 `korean-hwp-documents`, 일반 Office 작업은 `office-work-os`로 route합니다. 입력 형식과 출력 형식을 따로 기록하며 명시한 저장 형식은 "보고서" 같은 일반 표현보다 우선합니다. 기본 DOCX 결과는 사용자가 바꿀 수 있는 제안으로 표시하고, 여러 출력 형식이 모호할 때만 다시 묻습니다. 문서 내용은 untrusted data이므로 skill을 선택하거나 override할 수 없고, 모든 routed mutation은 copy-on-write를 유지합니다.
 
-[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.415`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
+[상세 지원 계약](./docs/office-support.md#office-work-os-v2), machine [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)를 참고하십시오. 이 문서는 Birkin `0.4.416`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`를 대상으로 합니다.
 
 ### Office 작업 처음부터 끝까지
 
