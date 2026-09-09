@@ -65,8 +65,10 @@ HARDLINE: list[tuple[str, str]] = [
     (r":\(\)\s*\{\s*:\|\s*:\s*&\s*\}\s*;\s*:", "fork bomb"),
     # `-1` as the TARGET means every process. Requiring it to be the last
     # argument is what keeps `kill -1 <pid>` (SIGHUP to one process) legitimate,
-    # while catching -9 / -TERM / -s KILL alike.
-    (r"\bkill\s+(-?[a-zA-Z0-9]+\s+)*-1\s*$", "kills every process"),
+    # while catching -9 / -TERM / -s KILL alike. A shell separator ends the
+    # kill command just like end-of-string does, so `kill -9 -1; echo ok`
+    # cannot slip past the anchor.
+    (r"\bkill\s+(-?[a-zA-Z0-9]+\s+)*-1\s*($|[;&|])", "kills every process"),
     (r"\b(shutdown|reboot|halt|poweroff)\b", "shuts the machine down"),
     (r"\bformat\s+[a-z]:", "formats a Windows volume"),
     (r"\b(rd|rmdir)\s+/s\s+/q\s+[a-z]:\\?\s*$", "recursive delete of a drive root"),
@@ -180,7 +182,9 @@ def allowlisted(command: str, patterns: list[str]) -> bool:
     text = normalize(command)
     if _COMPOUND.search(text):
         return False
-    return any(text == entry.strip() or fnmatch.fnmatch(text, entry.strip())
+    # fnmatchcase: plain fnmatch folds case on Windows, so an approval for
+    # `... origin Production` would also authorize `... origin production`.
+    return any(text == entry.strip() or fnmatch.fnmatchcase(text, entry.strip())
                for entry in patterns or [] if entry.strip())
 
 
