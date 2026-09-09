@@ -15,6 +15,8 @@ Birkin brings conversation, source-backed research, document work, and approvals
 
 It is built for work where the difference between “prepared” and “executed” matters. A document change can be inspected before it is written. A consequential action waits for approval. A completed action returns an artifact and receipt instead of a vague success message.
 
+Birkin's mandatory runtime dependencies are `httpx`, `pydantic`, `psutil`, `tzdata`, and `typing-extensions`. `birkin_mnemosyne` is bundled with Birkin rather than installed separately. The repository currently bundles **63 skills**.
+
 ![Birkin workspace showing research, document review, and an approval request](./docs/assets/birkin-workspace-windows.png)
 
 > The hero is a generated brand illustration. The workspace image is a generated product-direction render with representative data. Neither is a live Microsoft 365 session or packaged-release acceptance result.
@@ -43,21 +45,13 @@ Research or file import → result + evidence → proposed change
         → human approval → execution + artifact + receipt
 ```
 
-## Quick start
+## Quick Start
 
-Birkin requires Python 3.10 or newer. The repository currently identifies as Birkin `0.4.417`. This is the source version, not a claim that the same version is installed on your machine or available as a signed public app.
+Birkin requires Python 3.10 or newer. The repository currently identifies as Birkin `0.4.418`. This is the source version, not a claim that the same version is installed on your machine or available as a signed public app.
 
-### Windows
+### Windows PowerShell quick install
 
-From a source checkout:
-
-```powershell
-py -3 -m pip install .
-birkin setup
-birkin chat
-```
-
-Or install the current `main` branch, then verify what was installed:
+From an ordinary, non-elevated PowerShell 5.1 or 7 prompt, run the installer for the current `main` branch, verify the installed version, configure a provider, and start the first conversation:
 
 ```powershell
 irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 | iex
@@ -66,13 +60,44 @@ birkin setup
 birkin chat
 ```
 
-The WPF client is a development surface and requires .NET 8 plus a locally installed Birkin CLI:
+The installer registers the user `PATH` without `setx PATH`, verifies `birkin --version`, and falls back to `python -m birkin --version` if the current shell cannot resolve the command shim yet. The current default Morpheus run time is **07:00**.
+
+To inspect the remote script before running it:
+
+```powershell
+irm https://raw.githubusercontent.com/ashmoonori-afk/birkin/main/scripts/install.ps1 -OutFile install.ps1
+notepad .\install.ps1
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+From an existing source checkout:
+
+```powershell
+python -m pip install .
+birkin setup
+birkin chat
+```
+
+Persist only the non-secret Birkin data root when needed. `setx` does not update the current window, and `setx PATH` can expand and truncate the user path:
+
+```powershell
+setx BIRKIN_HOME "$env:USERPROFILE\.birkin"
+```
+
+Remove that persistent override with:
+
+```powershell
+reg delete HKCU\Environment /v BIRKIN_HOME /f
+```
+
+The WPF client is a development preview and requires .NET 8 plus a locally installed Birkin CLI:
 
 ```powershell
 dotnet run --project .\windows\BirkinNativeApp\src\Birkin.Native.App\Birkin.Native.App.csproj -c Release
 ```
 
-There is no confirmed signed Windows customer package in this checkout. See [Birkin for Windows](./windows/BirkinNativeApp/README.md) for build, connection, and package-verification details.
+The Windows client remains a development preview. Installer and updater delivery, production
+signing, and provider-backed production delivery are separate release gates. See [Birkin for Windows](./windows/BirkinNativeApp/README.md) for build, connection, and package-verification details.
 
 ### macOS and Linux
 
@@ -113,15 +138,31 @@ python -m pip install ".[research]"        # research schemas and canonical reco
 
 Office support is bounded document work, not arbitrary desktop-suite automation.
 
-| Format | Current public path | Boundary |
-| --- | --- | --- |
-| DOCX | inspect, extract, create, bounded edits, structured preview | no layout or tracked-change proof |
-| XLSX | inspect, extract, create, numeric edits, structured preview | formulas are preserved, not recalculated |
-| PPTX | inspect, extract, create, placeholder edits, structured preview | no master, animation, overflow, or layout proof |
-| PDF | inspect/create; optional extraction and one-page image | existing PDFs are read-only; no forms, signing, OCR, or redaction |
-| HWPX | inspect, extract, create, template fields, one bounded field edit | no legacy HWP or Hancom automation |
+### Office Work OS v2
 
-Read the [versioned Office support contract](./docs/office-support.md) for the exact tool inventory, package provenance, limits, and refusal behavior.
+This README publishes the registered runtime contract for Birkin `0.4.418`, `catalog_revision: 8`, and `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`. The machine publication is [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), with generated attribution in [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md).
+
+<!-- office-support-matrix:start -->
+| Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
+|---|---|---|---|---|---|---|---|---|
+| `docx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
+| `xlsx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
+| `pptx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
+| `pdf` | bounded | bounded | conditional | structural | layered | conditional | refused | conditional-page-image |
+| `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
+<!-- office-support-matrix:end -->
+
+The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `m365_document_import`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`. The machine catalog records each adapter's `public_entrypoint` separately from lower-level capability.
+
+The synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`.
+
+Inputs are jailed to `BIRKIN_HOME/office`. With `BIRKIN_HOME=/workspace/.birkin`, import them under `/workspace/.birkin/office/artifacts/incoming`. Extraction accepts `max_text_bytes`; conversion requires an explicit `loss_budget`; and semantic rendering uses `output_format: "structured_preview"`. PDF alone can conditionally render one bounded page image. Other unavailable visual requests return `RENDER_UNAVAILABLE`.
+
+Read the [versioned Office support contract](./docs/office-support.md#office-work-os-v2) for exact arguments, provenance, limits, and refusal behavior.
+
+## GitHub Action
+
+The repository's GitHub workflows exercise the same Python-owned authority and documentation contracts; focused local results are not a claim of cross-platform release acceptance.
 
 ## Providers and useful commands
 
@@ -135,6 +176,253 @@ birkin review                                  # inspect pending approvals
 ```
 
 The generated tables live in [Configuration reference](./docs/config-reference.md). User-facing Korean and stable protocol/diagnostic English follow the [language policy](./docs/language-policy.md).
+
+## Configuration
+
+`birkin setup` writes `~/.birkin/config.json`. The block below is generated from `birkin.config.DEFAULT_CONFIG` and verified by tests, so it is the complete default surface rather than a curated excerpt.
+
+<details>
+<summary><strong>Full default configuration</strong></summary>
+
+<!-- config-schema:start -->
+```json
+{
+  "provider": "codex-cli",
+  "model": "default",
+  "subagent_model": "default",
+  "base_url": "",
+  "cli_command": [],
+  "api_key": null,
+  "max_tokens": 4096,
+  "temperature": 1.0,
+  "max_turns": 24,
+  "auto_compact": true,
+  "context_window": 200000,
+  "fallback_provider": "",
+  "fallback_model": "",
+  "fallback_base_url": "",
+  "fallback_cooldown": 300,
+  "fallback_chain": [],
+  "api_keys": [],
+  "a2a_enabled": false,
+  "lsp_servers": {},
+  "spill_threshold": 30000,
+  "spill_dir": "",
+  "spill_retention_days": 7,
+  "redact_secrets": true,
+  "repl_typed_line": "steer",
+  "moirai_auto": false,
+  "worker_call_auto": true,
+  "session_goal_fallback": true,
+  "moirai_workers": 4,
+  "moirai_max_agents": 100,
+  "moirai_roles": {},
+  "moirai_token_budget": 0,
+  "marginalia_api_key": "",
+  "parallel_tools": true,
+  "parallel_tool_workers": 8,
+  "shell_approval": "manual",
+  "shell": {
+    "extra_roots": [],
+    "env_passthrough": []
+  },
+  "allow_powershell": false,
+  "checkpoints": true,
+  "hooks": {},
+  "hooks_auto_accept": false,
+  "skills_guard_agent_created": false,
+  "checkpoint_keep": 20,
+  "command_allowlist": [],
+  "approval_model": "",
+  "max_depth": 2,
+  "extra_skill_dirs": [],
+  "disabled_tools": [],
+  "desktop_tools": false,
+  "computer_use": {
+    "enabled": false,
+    "allowed_apps": [],
+    "denied_apps": [],
+    "allowed_windows": null,
+    "denied_windows": [],
+    "allowed_operations": [
+      "click",
+      "double_click",
+      "right_click",
+      "middle_click",
+      "drag",
+      "scroll",
+      "type"
+    ],
+    "max_actions": 200
+  },
+  "self_improve": true,
+  "skill_nudge_interval": 3,
+  "memory_nudge_interval": 6,
+  "web_port": 8787,
+  "web_remote_access": false,
+  "web_external_url": "",
+  "browser_allow_private_network": false,
+  "gateway_port": 8788,
+  "gateway": {
+    "http": {
+      "insecure_no_token": false
+    }
+  },
+  "gateway_model": "",
+  "gateway_reasoning_effort": "",
+  "gateway_persistent": true,
+  "gateway_allowed_tools": [],
+  "repl_warm_session": false,
+  "gateway_clean_hooks": true,
+  "gateway_thinking_tokens": 0,
+  "gateway_prewarm": true,
+  "gateway_max_sessions": 8,
+  "gateway_session_ttl_s": 3600,
+  "gateway_polish_timeout": 90,
+  "voice": {
+    "wake_phrase": "Daddy is home",
+    "gateway_url": "",
+    "session_id": "voice-local",
+    "sample_rate": 24000,
+    "stt_model": "gpt-transcribe",
+    "tts_model": "gpt-4o-mini-tts",
+    "tts_voice": "coral",
+    "tts_instructions": "Speak concisely and clearly.",
+    "conversation_style": "",
+    "onboarding_complete": false,
+    "background_workers": 2
+  },
+  "autosave_transcripts": false,
+  "autosave_redact_secrets": true,
+  "autosave_max_chars": 4000,
+  "autosave_max_turns": 40,
+  "autosave_retention_days": 30,
+  "autosave_max_files": 500,
+  "profile": {
+    "enabled": false,
+    "write_approval": false,
+    "limits": {
+      "user": 1375,
+      "preferences": 1375,
+      "mask": 800,
+      "workflow": 1000,
+      "automation": 800
+    },
+    "background_review": {
+      "enabled": false,
+      "provider": null,
+      "model": null,
+      "digest_recent_turns": 6
+    }
+  },
+  "neurosis_threshold": null,
+  "neurosis_auto": true,
+  "channels": {
+    "http": {
+      "enabled": true
+    },
+    "telegram": {
+      "enabled": false,
+      "token": "",
+      "allowed_chat_ids": [],
+      "allowed_sender_ids": [],
+      "stream": true,
+      "max_public_workers": 4
+    },
+    "slack": {
+      "enabled": false,
+      "webhook_url": "",
+      "allowed_channel_ids": []
+    },
+    "discord": {
+      "enabled": false,
+      "webhook_url": "",
+      "allowed_channel_ids": []
+    }
+  },
+  "vault_path": "",
+  "memory_vector_enabled": false,
+  "memory_vector_backend": "sentence-transformers",
+  "memory_vector_model": "all-MiniLM-L6-v2",
+  "memory_entity_enabled": false,
+  "memory_temporal_enabled": false,
+  "memory_scope": "user",
+  "memory_visible_scopes": [
+    "workflow",
+    "agent",
+    "project",
+    "organization",
+    "user"
+  ],
+  "memory_default_trust": "medium",
+  "memory_source_trust": {},
+  "morpheus_deliver_chat_id": "",
+  "workspace_roots": [],
+  "reaper_enabled": true,
+  "morpheus_provider": "",
+  "morpheus_model": "",
+  "morpheus_hour": 7,
+  "morpheus_minute": 0,
+  "auto_approve": [
+    "memory",
+    "skill"
+  ],
+  "harness_enabled": true,
+  "harness_turn_interval": 12,
+  "harness_cooldown_min": 15,
+  "ishikawa_enabled": true,
+  "minto_enabled": true,
+  "confidence_strict_below": 0.4,
+  "confidence_fast_above": 0.8,
+  "cynefin_enabled": true,
+  "evidence_gate_enabled": false,
+  "harness_compact_review": true,
+  "harness_max_edits": 12,
+  "harness_prompt_budget": 20000,
+  "harness_auto_approve": [
+    "memory",
+    "skill_note"
+  ],
+  "cli_access": "workspace",
+  "cli_network_access": false,
+  "egress": {
+    "enabled": true,
+    "enforced": true,
+    "max_bytes": 1048576,
+    "destinations": {}
+  },
+  "allow_unattended_full": false,
+  "budget_tokens_daily": 0,
+  "budget_tokens_monthly": 0,
+  "subagent_tree_max_tokens": 0,
+  "subagent_tree_max_usd": 0.0,
+  "subagent_tree_deadline_seconds": 0,
+  "subagent_tree_max_concurrent": 4,
+  "subagent_tree_max_nodes": 16,
+  "cli_timeout": 300,
+  "evidence_required": false,
+  "critique_agents": 3,
+  "boulder_max_iters": 100,
+  "daedalus_dir": "",
+  "daedalus_max_files": 2000,
+  "fs_jail": false,
+  "sandbox": {
+    "backend": "worktree",
+    "image": "",
+    "setup": [],
+    "env_allowlist": [],
+    "network": "off",
+    "network_allowlist": [],
+    "write_paths": [
+      "."
+    ]
+  },
+  "update_verify_signature": false
+}
+```
+<!-- config-schema:end -->
+
+</details>
 
 ## Trust boundaries
 

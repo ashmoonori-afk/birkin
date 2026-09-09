@@ -52,7 +52,7 @@ public enum ShellSectionID: String, CaseIterable, Equatable, Sendable {
         case .sessions: "최근 업무"
         case .templates: NativeLocalization.string("Templates", locale: locale)
         case .workingMemory:
-            "업무 메모"
+            "작업 메모"
         case .conversation:
             NativeLocalization.string("Conversation", locale: locale)
         case .composer: "메시지"
