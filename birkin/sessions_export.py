@@ -93,8 +93,8 @@ def export(stem: str, *, to_vault: bool = False,
     ``to_vault`` files it under the vault's journal zone, where the memory
     index will pick it up like any other note.
     """
-    src = config.sessions_dir() / f"{stem}.json"
-    if not src.is_file():
+    src = config.session_file(stem)
+    if src is None or not src.is_file():
         raise FileNotFoundError(f"no session {stem!r}")
     messages = json.loads(src.read_text(encoding="utf-8"))
     if not isinstance(messages, list):
