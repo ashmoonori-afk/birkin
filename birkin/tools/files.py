@@ -406,6 +406,13 @@ def _write_file(inp: dict[str, Any], ctx: ToolContext) -> ToolResult:
             blocked = f"approval-required[control_plane]: {blocked}"
         return ToolResult(blocked, is_error=True)
     content = inp.get("content", "")
+    if not isinstance(content, str):
+        # Checked before open_for_write: a schema-invalid call used to
+        # create an empty target file and only then fail on .encode().
+        return ToolResult(
+            f"write_file content must be a string, got {type(content).__name__}",
+            is_error=True,
+        )
     try:
         target = open_for_write(
             path,

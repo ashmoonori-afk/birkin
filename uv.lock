@@ -128,7 +128,7 @@ wheels = [
 
 [[package]]
 name = "birkin"
-version = "0.4.429"
+version = "0.4.430"
 source = { editable = "." }
 dependencies = [
     { name = "httpx" },
