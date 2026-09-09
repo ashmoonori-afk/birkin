@@ -42,6 +42,8 @@ docs/moirai-design.md
 # Superseded Morpheus implementation notes; current behavior lives in ADRs/code
 docs/morpheus-skillification-plan.md
 docs/morpheus-skillification.md
+# Local design draft; nothing published links to it (2026-09-09)
+docs/soul-preference-design.md
 # Working evidence/drafts dir (codex receipts, model-test logs) — local only.
 # The native application contracts are the sole reviewed, tracked exception.
 .omo/*
