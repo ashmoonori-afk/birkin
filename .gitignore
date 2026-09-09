@@ -62,9 +62,20 @@ windows/BirkinNativeApp/artifacts/
 /*-analysis-*.md
 /ulw-*.md
 /.tmp-*
+# Agent working notes: debug journals, design/review/plan drafts, QA evidence.
+# Reviewed documentation lives under docs/ and stays tracked; these root-level
+# drafts are one-shot scratch that must never reach a commit.
+/.debug-journal.md
+/*-journal.md
+/*-design-*.md
+/*-review-*.md
+/*-plan-*.md
+/evidence/
 # One-shot generated UI handoff artifacts
 /DESIGN.md
 /*.html
+# .NET test-runner output (VSTest writes TestResults/ beside each test project)
+**/TestResults/
 # Tests that load the local-only benchmark harness (benchmarks/ is ignored)
 tests/test_bench_curation200.py
 tests/test_bench_lme_e2e.py
