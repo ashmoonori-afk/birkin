@@ -201,7 +201,19 @@ def inspect_pdf(
         if page_index >= INSPECT_SAMPLE_PAGES:
             pages.append(page)
             continue
-        text = page.extract_text() or ""
+        # Only reader construction was wrapped; a malformed content stream
+        # surfaced as a raw pypdf exception instead of a typed error.
+        try:
+            text = page.extract_text() or ""
+        except DocumentError:
+            raise
+        except Exception as exc:
+            raise DocumentError(
+                DocumentErrorCode.PACKAGE_INVALID,
+                "inspect",
+                f"PDF page {page_index + 1} could not be parsed: {exc}",
+                details={"reason": "pdf_structure_invalid", "page": page_index + 1},
+            ) from exc
         page = page.with_cached_text(text)
         pages.append(page)
         text_bytes += len(text.encode("utf-8"))
