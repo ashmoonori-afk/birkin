@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
@@ -118,6 +119,7 @@ class RuntimeWorkspaceAdapter:
         self._emit = emit
         self._workspace_root = (workspace_root or Path.cwd()).expanduser().resolve()
         self._session: Session | None = None
+        self._session_lock = threading.Lock()
         self._computer_state = ComputerState()
         self._terminal = TerminalAuthority(
             session_id=session_id,
@@ -233,19 +235,23 @@ class RuntimeWorkspaceAdapter:
         return self._get_session().agent.compact_now("manual")
 
     def _get_session(self) -> Session:
-        if self._session is None:
-            cfg = config.load_config()
-            cfg["session_id"] = self._session_id
-            cfg["workspace_root"] = str(self._workspace_root)
-            cfg["birkin_mcp"] = True
-            cfg["birkin_mcp_scope"] = "workspace"
-            cfg["repl_warm_session"] = True
-            self._session = build_session(
-                cfg,
-                on_event=self.runtime_event,
-                on_status=self.runtime_status,
-            )
-        return self._session
+        # Serialised: a first chat.send racing chat.interrupt both saw None
+        # and built two subprocess-backed sessions, leaking one and leaving
+        # the interrupt applied to the session that was then discarded.
+        with self._session_lock:
+            if self._session is None:
+                cfg = config.load_config()
+                cfg["session_id"] = self._session_id
+                cfg["workspace_root"] = str(self._workspace_root)
+                cfg["birkin_mcp"] = True
+                cfg["birkin_mcp_scope"] = "workspace"
+                cfg["repl_warm_session"] = True
+                self._session = build_session(
+                    cfg,
+                    on_event=self.runtime_event,
+                    on_status=self.runtime_status,
+                )
+            return self._session
 
     def runtime_status(self, status: LLMStatus) -> None:
         payload: dict[str, object] = {

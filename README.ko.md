@@ -74,7 +74,7 @@ Copy-Item $source $incoming
 
 ## 빠른 시작
 
-Python 3.10 이상이 필요합니다. 현재 저장소의 소스 버전은 Birkin `0.4.427`입니다. 이 표기는 같은 버전이 사용자 PC에 설치됐거나 서명된 공개 앱으로 배포됐다는 뜻이 아닙니다.
+Python 3.10 이상이 필요합니다. 현재 저장소의 소스 버전은 Birkin `0.4.428`입니다. 이 표기는 같은 버전이 사용자 PC에 설치됐거나 서명된 공개 앱으로 배포됐다는 뜻이 아닙니다.
 
 ### Windows PowerShell 빠른 설치
 
@@ -162,7 +162,7 @@ Office 기능은 범위가 정해진 문서 작업이며 데스크톱 Office 프
 
 ### Office Work OS v2
 
-이 README는 Birkin `0.4.427`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`의 등록된 runtime 계약을 공개합니다. Machine publication은 [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), 생성된 저작권 고지는 [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)입니다.
+이 README는 Birkin `0.4.428`, `catalog_revision: 8`, `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`의 등록된 runtime 계약을 공개합니다. Machine publication은 [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), 생성된 저작권 고지는 [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)입니다.
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
