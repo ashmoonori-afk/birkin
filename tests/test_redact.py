@@ -143,3 +143,20 @@ class TestRegistryChokePoint:
             "leak", {}
         )
         assert result.content == "total 4\ndrwxr-xr-x  2 lg lg"
+
+
+class TestCookieHeaders:
+    """Given a Cookie/Set-Cookie header, When redacted, Then the value is masked."""
+
+    def test_masks_cookie_header_value(self) -> None:
+        out = redact.redact_sensitive_text(
+            "GET / HTTP/1.1\nCookie: sessionid=AbCdEf0123456789ZyXwV\nHost: x")
+        assert "AbCdEf0123456789ZyXwV" not in out
+        assert "Cookie: " + redact.SENTINEL in out
+        assert "Host: x" in out
+
+    def test_masks_set_cookie_including_attributes(self) -> None:
+        out = redact.redact_sensitive_text(
+            "Set-Cookie: auth=AbCdEf0123456789ZyXwV; HttpOnly; Path=/")
+        assert "AbCdEf0123456789ZyXwV" not in out
+        assert "HttpOnly" not in out
