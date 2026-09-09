@@ -1,8 +1,8 @@
 {
   "schema": 1,
   "project": {
-    "pyproject_sha256": "615bda8bfb5dc1c1eda69217cbae967b5c3cc1bc3217efb3213d09d943b01495",
-    "uv_lock_sha256": "f57b9867cc562820c6ebbbf37fe929dd7e3cb286001a2dc488dbe909fc8f14eb"
+    "pyproject_sha256": "9002dd591281d9d709bba0faafde796b7d9ea063e11a25fab144b9c83b08f449",
+    "uv_lock_sha256": "092c4fe67f99edb35b20ff2836ec8ad92bcb79e3a43d7a068e7d541a2321059f"
   },
   "python": {
     "version": "3.13.13",

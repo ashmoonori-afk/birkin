@@ -110,3 +110,41 @@ def test_action_receipt_carries_trusted_actor_and_source(
     assert second["ok"] is False
     assert second["refusal_code"] == "rate_limited"
     assert backend.mutation_count == 1
+
+
+def test_explicit_empty_operation_allowlist_denies_every_mutation() -> None:
+    """`[]` used to be falsey and silently replaced by the full default set."""
+    from birkin.computer_use.runtime import _session_capability
+
+    capability = _session_capability(
+        "session-a", {"allowed_apps": ["app"], "allowed_operations": []}
+    )
+
+    assert capability.allowed_operations == frozenset()
+    assert capability.authorize(
+        session_id="session-a", operation="type",
+        app_identity="app", native_window_id="w",
+    ) is not None
+
+
+def test_absent_operation_allowlist_keeps_defaults() -> None:
+    from birkin.computer_use.runtime import _session_capability
+
+    capability = _session_capability("session-a", {"allowed_apps": ["app"]})
+
+    assert "click" in capability.allowed_operations
+
+
+def test_zero_max_actions_authorizes_nothing() -> None:
+    """`max_actions: 0` used to be raised to 1 by the runtime."""
+    from birkin.computer_use.runtime import _session_capability
+
+    capability = _session_capability(
+        "session-a", {"allowed_apps": ["app"], "max_actions": 0}
+    )
+
+    assert capability.max_actions == 0
+    assert capability.authorize(
+        session_id="session-a", operation="type",
+        app_identity="app", native_window_id="w",
+    ) == "rate_limited"

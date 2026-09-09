@@ -218,10 +218,16 @@ def _session_capability(
 
     allowed_apps = strings("allowed_apps")
     allowed_windows = optional_strings("allowed_windows")
-    operations = strings("allowed_operations") or frozenset(default_operations)
+    # Defaults apply only when the key is absent. An explicit `[]` or `0`
+    # is the operator saying "nothing", and must not widen into the default.
+    operations = (
+        frozenset(default_operations)
+        if "allowed_operations" not in policy
+        else strings("allowed_operations")
+    )
     raw_max_actions = policy.get("max_actions", 200)
     max_actions = (
-        max(1, min(10_000, raw_max_actions))
+        max(0, min(10_000, raw_max_actions))
         if isinstance(raw_max_actions, int) and not isinstance(raw_max_actions, bool)
         else 200
     )
