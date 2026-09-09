@@ -170,13 +170,17 @@ public struct NativeShellView: View {
             }
             .padding(.horizontal, 20).padding(.vertical, 14)
             .overlay {
-                HStack(spacing: 24) {
+                HStack(spacing: 28) {
                     ForEach(evidenceSpecimens, id: \.self) { specimen in
                         Text(specimen)
-                            .font(.title2.weight(.bold))
+                            .font(.system(size: 30, weight: .bold))
+                            .foregroundStyle(.black)
                             .fixedSize()
                     }
                 }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 6)
+                .background(Color.white)
                 .frame(maxWidth: .infinity)
                 .accessibilityIdentifier("journey-cjk-specimens")
             }
