@@ -100,6 +100,9 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
         }
     }
 
+    public static IEnumerable<T> DescendantsForTest<T>(DependencyObject root) where T : DependencyObject =>
+        Descendants<T>(root);
+
     private static NativeEnvelope Snapshot(bool canInterrupt) => new(
         NativeMessageKind.Snapshot,
         "snapshot-1",
@@ -151,7 +154,28 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
 
     private static NativeEnvelope Receipt(
         NativeCommandRequest request,
-        ImportedFilePresentation? imported) => new(
+        ImportedFilePresentation? imported)
+    {
+        if (request.CommandType == "work_item.open_source")
+        {
+            return new NativeEnvelope(
+                NativeMessageKind.Receipt,
+                $"receipt-{request.CommandId}",
+                Object(
+                    ("protocol_version", new NativeJsonInteger(1)),
+                    ("command_id", new NativeJsonString(request.CommandId)),
+                    ("session_id", new NativeJsonString("session-1")),
+                    ("actor_id", new NativeJsonString("windows:office")),
+                    ("accepted_cursor", new NativeJsonInteger(13)),
+                    ("state", new NativeJsonString("completed")),
+                    ("result_event_cursor", new NativeJsonInteger(13)),
+                    ("duplicate", new NativeJsonBoolean(false)),
+                    ("outcome", new NativeJsonString("accepted")),
+                    ("result", Object(
+                        ("source_type", new NativeJsonString("job_id")),
+                        ("summary", new NativeJsonString("분기 보고서를 저장했습니다."))))));
+        }
+        return new NativeEnvelope(
         NativeMessageKind.Receipt,
         $"receipt-{request.CommandId}",
         imported is null
@@ -183,6 +207,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
                     ("jail_name", new NativeJsonString(imported.JailName)),
                     ("sha256", new NativeJsonString(imported.Sha256)),
                     ("byte_count", new NativeJsonInteger(imported.ByteCount))))))));
+    }
 
     private static NativeEnvelope Event(long cursor, string commandId) =>
         Event(cursor, commandId, "command.completed", Object(("summary", new NativeJsonString("canonical completion"))));
@@ -211,14 +236,18 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
     internal sealed class RecordingConnection : INativeClientConnection
     {
         private readonly Queue<NativeEnvelope> _received = new();
+        private long _cursor = 12;
         private readonly TaskCompletionSource<NativeCommandRequest> _firstCommandSent =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         private static readonly HashSet<string> Commands =
         [
-            "chat.send", "file.import", "approval.answer",
+            "chat.send", "file.import", "approval.answer", "approval.recheck",
             "chat.interrupt",
             "office.select", "office.open", "office.compare",
+            "office.job_request",
             "office.rollback_request",
+            "work_item.request",
+            "work_item.open_source",
         ];
 
         public List<NativeCommandRequest> Sent { get; } = [];
@@ -226,6 +255,7 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
             _firstCommandSent.Task;
         public Func<CancellationToken, ValueTask>? CommandTaskFactory { get; set; }
         public ImportedFilePresentation? NextImportReference { get; set; }
+        public Queue<ImportedFilePresentation> ImportReferences { get; } = new();
         public IReadOnlySet<string> AdvertisedCommands => Commands;
         public bool HasLiveCapability(DateTimeOffset now) => true;
         public void Enqueue(NativeEnvelope envelope) => _received.Enqueue(envelope);
@@ -238,7 +268,14 @@ internal sealed class OfficeWorkflowViewHarness : IAsyncDisposable
             {
                 return CommandTaskFactory(cancellationToken);
             }
-            Enqueue(Receipt(request, NextImportReference));
+            var imported = ImportReferences.Count > 0
+                ? ImportReferences.Dequeue()
+                : NextImportReference;
+            Enqueue(Receipt(request, imported));
+            if (request.CommandType == "file.import")
+            {
+                Enqueue(Event(++_cursor, request.CommandId));
+            }
             NextImportReference = null;
             return ValueTask.CompletedTask;
         }

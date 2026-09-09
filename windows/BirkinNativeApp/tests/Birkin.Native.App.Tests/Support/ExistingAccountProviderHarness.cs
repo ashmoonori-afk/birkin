@@ -13,14 +13,20 @@ internal sealed class ExistingAccountProviderHarness
 
     public ExistingAccountProviderHarness(string repositoryRoot)
     {
+        var evidenceRoot = Environment.GetEnvironmentVariable("BIRKIN_NATIVE_EVIDENCE_ROOT");
         _path = Path.Combine(
-            repositoryRoot,
-            ".omo", "evidence", "native-windows-20260824", "live-chat", "diagnostic.jsonl");
+            string.IsNullOrWhiteSpace(evidenceRoot)
+                ? Path.Combine(repositoryRoot, ".omo", "evidence", "native-windows-20260824")
+                : evidenceRoot,
+            "live-chat",
+            "diagnostic.jsonl");
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         File.WriteAllText(_path, string.Empty);
     }
 
     public string EvidencePath => _path;
+
+    public string EvidenceDirectory => Path.GetDirectoryName(_path)!;
 
     public void Record(string stage, IReadOnlyDictionary<string, object?> values)
     {

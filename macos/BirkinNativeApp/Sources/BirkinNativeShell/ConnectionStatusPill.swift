@@ -36,14 +36,14 @@ public struct ConnectionStatusPill: View {
     @ViewBuilder
     private func content(axis: Axis) -> some View {
         if axis == .horizontal {
-            HStack(alignment: .center, spacing: 10) { fields }
+            HStack(alignment: .center, spacing: 10) { fields(axis: axis) }
         } else {
-            VStack(alignment: .leading, spacing: 8) { fields }
+            VStack(alignment: .leading, spacing: 8) { fields(axis: axis) }
         }
     }
 
     @ViewBuilder
-    private var fields: some View {
+    private func fields(axis: Axis) -> some View {
         Label(presentation.title, systemImage: presentation.symbolName)
             .font(.headline)
             .foregroundStyle(tint)
@@ -56,7 +56,9 @@ public struct ConnectionStatusPill: View {
                 .foregroundStyle(.secondary)
         }
         .fixedSize(horizontal: false, vertical: true)
-        Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 0 : 8)
+        if axis == .horizontal {
+            Spacer(minLength: dynamicTypeSize.isAccessibilitySize ? 0 : 8)
+        }
         Button(presentation.actionLabel, action: diagnosticsAction)
             .buttonStyle(DiagnosticsButtonStyle())
             .fixedSize(horizontal: false, vertical: true)

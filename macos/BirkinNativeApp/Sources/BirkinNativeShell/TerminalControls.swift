@@ -180,14 +180,14 @@ public struct TerminalView: View {
     public var body: some View {
         if presentationAuthority.shows(.closeConfirmation) {
             terminalContent.confirmationDialog(
-                "Close this Python-owned terminal?",
+                "이 Python 터미널을 닫을까요?",
                 isPresented: $confirmsClose,
                 titleVisibility: .visible
             ) {
-                Button("Close Terminal", role: .destructive, action: close)
-                Button("Cancel", role: .cancel) {}
+                Button("터미널 닫기", role: .destructive, action: close)
+                Button("취소", role: .cancel) {}
             } message: {
-                Text("The Python process tree will be terminated and cannot be resurrected.")
+                Text("Python 프로세스가 종료되며 다시 복원할 수 없습니다.")
             }
         } else {
             terminalContent
@@ -204,41 +204,41 @@ public struct TerminalView: View {
                 Spacer()
                 Text(presentationAuthority.statusLabel).font(.caption.bold())
                 if presentationAuthority.shows(.interrupt) {
-                    Button("Interrupt", action: interrupt)
+                    Button("중지", action: interrupt)
                         .keyboardShortcut(".", modifiers: .command)
-                        .accessibilityLabel("Interrupt Python terminal")
+                        .accessibilityLabel("Python 터미널 중지")
                 }
                 if presentationAuthority.shows(.close) {
-                    Button("Close") { confirmsClose = true }
-                        .accessibilityLabel("Close Python terminal")
+                    Button("닫기") { confirmsClose = true }
+                        .accessibilityLabel("Python 터미널 닫기")
                 }
             }
             ScrollView([.vertical, .horizontal]) { terminalText }
             if presentationAuthority.shows(.input), presentationAuthority.shows(.run) {
                 HStack {
-                    TextField("Terminal input", text: $input)
+                    TextField("터미널 입력", text: $input)
                         .textFieldStyle(.roundedBorder)
                         .onSubmit { submitInput() }
-                        .accessibilityLabel("Terminal input")
-                    Button("Run", action: submitInput)
+                        .accessibilityLabel("터미널 입력")
+                    Button("실행", action: submitInput)
                         .disabled(input.isEmpty)
-                        .accessibilityLabel("Run terminal input")
+                        .accessibilityLabel("터미널 입력 실행")
                 }
             }
         }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Python terminal")
+        .accessibilityLabel("Python 터미널")
     }
 
     private var terminalText: some View {
-        Text(terminal.screen.isEmpty ? "Terminal ready." : terminal.screen)
+        Text(terminal.screen.isEmpty ? "터미널이 준비되었습니다." : terminal.screen)
             .font(.system(.body, design: .monospaced))
             .textSelection(.enabled)
             .frame(maxWidth: .infinity, alignment: .topLeading)
             .padding(8)
             .background(Color.black.opacity(0.86), in: RoundedRectangle(cornerRadius: 6))
             .foregroundStyle(Color.green)
-            .accessibilityLabel("Terminal text snapshot")
+            .accessibilityLabel("터미널 화면 내용")
     }
 
     private func submitInput() {

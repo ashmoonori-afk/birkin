@@ -60,6 +60,50 @@ internal sealed class ProviderOfficeEvidence
                     values["text_bytes"] = Encoding.UTF8.GetByteCount(text);
                     values["text_sha256"] = Hash(text);
                 }
+                foreach (var key in new[] { "runtime_name", "runtime_server", "runtime_item_id", "runtime_tool_status" })
+                {
+                    if (payload.TryGetProperty(key, out var runtimeValue) && runtimeValue.ValueKind == JsonValueKind.String)
+                    {
+                        values[key] = runtimeValue.GetString();
+                    }
+                }
+                if (root.GetProperty("type").GetString() == "tool.failed"
+                    && payload.TryGetProperty("runtime_server", out var runtimeServer) && runtimeServer.ValueKind == JsonValueKind.String && runtimeServer.GetString() == "birkin"
+                    && payload.TryGetProperty("runtime_name", out var runtimeName) && runtimeName.ValueKind == JsonValueKind.String && runtimeName.GetString() == "office_job_request"
+                    && payload.TryGetProperty("runtime_tool_status", out var toolStatus) && toolStatus.ValueKind == JsonValueKind.String && toolStatus.GetString() == "failed"
+                    && payload.TryGetProperty("runtime_diagnostic", out var diagnostic)
+                    && diagnostic.ValueKind == JsonValueKind.Object)
+                {
+                    var bounded = new Dictionary<string, object?>();
+                    if (diagnostic.TryGetProperty("operation_count", out var count)
+                        && (count.ValueKind == JsonValueKind.Null
+                            || count.ValueKind == JsonValueKind.Number && count.TryGetInt32(out var operationCount) && operationCount >= 0))
+                    {
+                        bounded["operation_count"] = count.ValueKind == JsonValueKind.Number ? count.GetInt32() : null;
+                    }
+                    if (diagnostic.TryGetProperty("locator_shapes", out var shapes) && shapes.ValueKind == JsonValueKind.Array)
+                    {
+                        var allowedShapes = new HashSet<string>(["non_object_operation", "non_locator_operation", "non_object_locator", "native_or_extra_locator", "non_docx_locator", "public_docx_positive_index", "invalid_docx_index"]);
+                        var shapeValues = shapes.EnumerateArray().Take(11).ToArray();
+                        if (shapeValues.Length <= 10 && shapeValues.All(item => item.ValueKind == JsonValueKind.String && allowedShapes.Contains(item.GetString()!)))
+                        {
+                            bounded["locator_shapes"] = shapeValues.Select(item => item.GetString()).ToArray();
+                        }
+                    }
+                    foreach (var item in new[]
+                    {
+                        (Key: "error_code", Allowed: new HashSet<string>(["INVALID_INPUT", "PRECONDITION_FAILED", "NODE_NOT_FOUND", "UNSUPPORTED_EDIT"])),
+                        (Key: "error_stage", Allowed: new HashSet<string>(["plan", "preview", "locate", "apply"])),
+                    })
+                    {
+                        if (diagnostic.TryGetProperty(item.Key, out var diagnosticValue) && diagnosticValue.ValueKind == JsonValueKind.String
+                            && item.Allowed.Contains(diagnosticValue.GetString()!))
+                        {
+                            bounded[item.Key] = diagnosticValue.GetString();
+                        }
+                    }
+                    values["runtime_diagnostic"] = bounded;
+                }
                 Record("workspace-event", values);
             }
         }

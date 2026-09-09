@@ -49,9 +49,14 @@ def assemble_routed_skills(
             f"{rendered[0]}"
         )
     elif office_route is not None and rendered:
+        source_text = ", ".join(office_route.source_formats) or "none"
+        target_text = office_route.target_format or "none"
+        if office_route.target_format_suggested:
+            target_text += " (suggestion; the user may change it)"
         rendered[0] = (
             "Office route policy: inspect-first; write policy: "
-            f"{office_route.write_policy}.\n\n{rendered[0]}"
+            f"{office_route.write_policy}; source formats: {source_text}; "
+            f"target format: {target_text}.\n\n{rendered[0]}"
         )
     return RoutedSkills(
         names=tuple(skill.name for skill in selected),

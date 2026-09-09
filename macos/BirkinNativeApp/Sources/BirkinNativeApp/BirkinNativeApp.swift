@@ -356,7 +356,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
 
     func submitAwaitingTransport(_ request: NativeCommandRequest) async throws {
         guard let commandSubmitter else {
-            let reason = "Command transport is not connected."
+            let reason = "명령 전송 연결이 끊겼습니다. 다시 연결한 뒤 시도하세요."
             lastCommandError = reason
             throw NSError(
                 domain: "BirkinNativeApp.CommandTransport",
@@ -416,7 +416,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
 
     public func submit(_ control: ShellMutationControl) {
         guard let session = readySession else {
-            lastCommandError = "Command transport is not ready."
+            lastCommandError = "명령 전송 준비가 끝나지 않았습니다. 연결 상태를 확인하세요."
             return
         }
         submit(command(for: control, session: session))
@@ -443,7 +443,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
 
     public func submit(_ control: ProductSurfaceControl) {
         guard let session = readySession else {
-            lastCommandError = "Command transport is not ready."
+            lastCommandError = "명령 전송 준비가 끝나지 않았습니다. 연결 상태를 확인하세요."
             return
         }
         switch control {
@@ -453,57 +453,55 @@ public final class BirkinApplicationRuntime: ObservableObject {
             guard let request = BrowserCommandFactory.navigate(
                 to: url, store: store, session: session
             ) else {
-                lastCommandError = "Browser navigation needs an address and a live private profile."
+                lastCommandError = "주소와 실행 중인 비공개 브라우저가 필요합니다."
                 return
             }
             submit(request)
-        case .computerUseApproveOnce, .computerUseReject:
-            guard let surface = store.surface(named: "computer_use"),
-                  case .object(let consent) = surface.payload["consent"],
-                  case .string(let approvalID) = consent["approval_id"] else {
-                lastCommandError = "Computer Use approval is unavailable."
+        case .computerUseAnswer(let decision):
+            guard let presentation = ComputerUsePresentation(store: store),
+                  let command = ComputerUseCommandFactory.answer(
+                    decision: decision, presentation: presentation,
+                    store: store, session: session
+                  ) else {
+                lastCommandError = "화면 작업 승인 요청을 확인할 수 없습니다."
                 return
             }
-            submit(request(
-                commandType: "approval.answer",
-                payload: [
-                    "approval_id": .string(approvalID),
-                    "decision": .string(control == .computerUseApproveOnce ? "approve" : "reject"),
-                ],
-                session: session, viewID: "computer-use"
-            ))
-        case .officeNew:
-            submit(request(
-                commandType: "office.create",
-                payload: [
-                    "format": .string("docx"),
-                    // The canonical document service accepts only the keys its
-                    // adapter declares; a title key is refused for docx.
-                    "content": .object([
-                        "paragraphs": .array([
-                            .string("Created from the Birkin macOS shell."),
-                        ]),
-                    ]),
-                    "output_name": .string("birkin-document.docx"),
-                ],
-                session: session, viewID: "office"
+            submit(command)
+        case .computerUseExecute:
+            guard let presentation = ComputerUsePresentation(store: store),
+                  let command = ComputerUseCommandFactory.execute(
+                    presentation: presentation, store: store, session: session
+                  ) else {
+                lastCommandError = "승인된 화면 작업을 확인할 수 없습니다."
+                return
+            }
+            submit(command)
+        case .officeCreate(let form):
+            guard let command = OfficeCommandFactory.create(
+                form: form, store: store, session: session
+            ) else {
+                lastCommandError = "문서 형식과 이름을 확인하세요."
+                return
+            }
+            submit(command)
+        case .officeSelect(let artifactID):
+            submit(OfficeCommandFactory.select(
+                artifactID: artifactID, store: store, session: session
             ))
         case .officeOpen:
-            guard let surface = store.surface(named: "office"),
-                  case .array(let documents) = surface.payload["documents"],
-                  case .object(let artifact) = documents.first else {
-                lastCommandError = "No Office document is available to open."
+            guard let presentation = OfficePresentation(store: store),
+                  let command = OfficeCommandFactory.open(
+                    presentation: presentation, store: store, session: session
+                  ) else {
+                lastCommandError = "열 문서를 먼저 선택하세요."
                 return
             }
-            submit(request(
-                commandType: "office.open", payload: ["artifact": .object(artifact)],
-                session: session, viewID: "office"
-            ))
+            submit(command)
         }
     }
 
     public func beginVoiceInput() {
-        lastCommandError = "Voice input capture is not available in this build."
+        lastCommandError = "이 빌드에서는 음성 입력을 사용할 수 없습니다."
     }
 
     private var readySession: NativeReadySession? {
@@ -583,7 +581,6 @@ public final class BirkinApplicationRuntime: ObservableObject {
             try await transport.acceptCapabilityRenewal(message)
             connectionState = await transport.state
         case .receipt:
-            lastCommandError = nil
             switch resolveCorrelation(of: message) {
             case .terminalCreate: installTerminalLease(from: message)
             case .fileImport: applyImportResult(from: message)
@@ -595,7 +592,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
             if case .string(let value) = message.body["message"] {
                 messageText = value
             } else {
-                messageText = "Command was refused."
+                messageText = "명령이 거부되었습니다."
             }
             switch resolveCorrelation(of: message) {
             case .fileImport: jailedDrop.refuse(reason: messageText)
@@ -617,7 +614,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
             emit(
                 "command-error id=\(message.inReplyTo ?? message.id) code=\(errorCode)"
                     + "\(approvalCorrelation) "
-                    + "message=\(lastCommandError ?? "Command was refused.")"
+                    + "message=\(lastCommandError ?? "명령이 거부되었습니다.")"
             )
         case .streamDesynchronized:
             throw BirkinApplicationRuntimeError.replayRequired
@@ -690,7 +687,7 @@ public final class BirkinApplicationRuntime: ObservableObject {
 
     private func applyImportResult(from message: NativeEnvelope) {
         guard case .object(let result) = message.body["result"] else {
-            jailedDrop.refuse(reason: "Python returned no jailed import reference.")
+            jailedDrop.refuse(reason: "Python이 격리된 가져오기 참조를 반환하지 않았습니다.")
             return
         }
         jailedDrop.applyCanonicalResult(result)

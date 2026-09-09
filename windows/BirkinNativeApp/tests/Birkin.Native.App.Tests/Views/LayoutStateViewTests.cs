@@ -14,6 +14,87 @@ namespace Birkin.Native.App.Tests.Views;
 [TestClass]
 public sealed class LayoutStateViewTests
 {
+    [DataTestMethod]
+    [DataRow(683d)]
+    [DataRow(910d)]
+    public async Task CompactWidth_ShowsOneKeyboardSelectableRegionAtATime(double width)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(() =>
+        {
+            var view = CreateView();
+            view.ApplyAvailableWidth(width);
+            Assert.AreEqual(Visibility.Visible, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, view.NavigationColumnView.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, view.ContextColumnView.Visibility);
+            Assert.IsFalse(OfficeWorkflowViewHarness.Find<Expander>(view, "terminal.landmark").IsExpanded);
+
+            view.ToggleContextPanel();
+            Assert.AreEqual(Visibility.Collapsed, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.ContextColumnView.Visibility);
+            Assert.AreEqual(GridUnitType.Star, view.ContextColumn.Width.GridUnitType);
+            return true;
+        });
+    }
+
+    [TestMethod]
+    public async Task DocumentFocus_HidesOtherRegionsAndRestoresThePriorLayout()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(() =>
+        {
+            var view = CreateView();
+            view.ToggleDocumentFocusMode();
+            Assert.AreEqual(Visibility.Collapsed, view.NavigationColumnView.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.ContextColumnView.Visibility);
+
+            view.ToggleDocumentFocusMode();
+            Assert.AreEqual(Visibility.Visible, view.NavigationColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.ContextColumnView.Visibility);
+            return true;
+        });
+    }
+
+    [TestMethod]
+    public async Task WorkRoutes_ReuseActualViewsAndMoveDocumentsOrApprovalsIntoTheWorkspace()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(() =>
+        {
+            var view = CreateView();
+            var documents = OfficeWorkflowViewHarness.Find<Button>(view, "route.documents");
+            documents.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.AreEqual(Visibility.Collapsed, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible, view.ContextColumnView.Visibility);
+            Assert.AreEqual(Visibility.Visible,
+                OfficeWorkflowViewHarness.Find<FrameworkElement>(view, "office.landmark").Visibility);
+            Assert.AreEqual(Visibility.Collapsed,
+                OfficeWorkflowViewHarness.Find<FrameworkElement>(view, "approvals.landmark").Visibility);
+            Assert.AreEqual(1,
+                OfficeWorkflowViewHarness.FindAll<FrameworkElement>(view, "office.landmark").Count);
+
+            var conversation = OfficeWorkflowViewHarness.Find<Button>(view, "route.conversation");
+            conversation.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.AreEqual(Visibility.Visible, view.PrimaryColumnView.Visibility);
+            Assert.AreEqual("대화",
+                OfficeWorkflowViewHarness.Find<TextBlock>(view, "workspace.route.title").Text);
+
+            var research = OfficeWorkflowViewHarness.Find<Button>(view, "route.research");
+            research.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.AreEqual("리서치",
+                OfficeWorkflowViewHarness.Find<TextBlock>(view, "workspace.route.title").Text);
+            Assert.AreEqual(1,
+                OfficeWorkflowViewHarness.FindAll<FrameworkElement>(view, "conversation.items").Count);
+            return true;
+        });
+    }
+
     [TestMethod]
     public async Task ContextToggle_HidesAndRestoresColumnSplitterViewAndChip()
     {
@@ -66,6 +147,9 @@ public sealed class LayoutStateViewTests
                     if (!immediate && state.Navigation.Width > initial.Navigation.Width)
                         persisted.TrySetResult(state);
                 });
+                Assert.AreSame(
+                    view.NavigationSplitter,
+                    Keyboard.Focus(view.NavigationSplitter));
                 var source = PresentationSource.FromVisual(view.NavigationSplitter)!;
 
                 for (var index = 0; index < 15; index++)
@@ -81,7 +165,7 @@ public sealed class LayoutStateViewTests
 
                 var saved = await persisted.Task.WaitAsync(deadline.Token);
                 Assert.IsTrue(saved.Navigation.Width > initial.Navigation.Width);
-                Assert.AreEqual(saved.Navigation.Width, view.LayoutState.Navigation.Width, 0.01);
+                Assert.AreEqual(view.LayoutState.Navigation.Width, saved.Navigation.Width, 0.01);
             }
             finally
             {

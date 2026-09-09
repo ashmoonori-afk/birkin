@@ -12,11 +12,11 @@ struct NativeLocalizationTests {
     private let korean = Locale(identifier: "ko-KR")
     private let unsupported = Locale(identifier: "ja-JP")
 
-    @Test("English is the default and unsupported locales fall back to English")
+    @Test("Korean is the product default and unsupported locales fall back to English")
     func englishAndFallback() throws {
         #expect(
             NativeLocalization.language(for: NativeLocalization.currentLocale)
-                == "en"
+                == "ko"
         )
         #expect(NativeLocalization.language(for: english) == "en")
         #expect(NativeLocalization.language(for: unsupported) == "en")

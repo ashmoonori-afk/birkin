@@ -21,7 +21,7 @@ def approval_items(
     """Compose durable approval events with canonical authority records."""
 
     records: list[dict[str, object]] = list(approvals.reviewable_pending())
-    for status in ("approved", "rejected", "error", "expired"):
+    for status in ("approved", "rejected", "error", "expired", "action_outcome_unknown"):
         records.extend(store.list_resolved(status))
     records.sort(key=lambda record: str(record.get("created") or ""))
     canonical = tuple(approval_item(record) for record in records)
@@ -85,6 +85,15 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
             and isinstance(payload.get("receipt_hmac"), str)
             and bool(payload["receipt_hmac"])
         )
+        or (
+            category == "mail_send"
+            and isinstance(payload.get("draft_id"), str)
+            and len(payload["draft_id"]) == 32
+            and all(char in "0123456789abcdef" for char in payload["draft_id"])
+            and isinstance(payload.get("content_sha256"), str)
+            and len(payload["content_sha256"]) == 64
+            and all(char in "0123456789abcdef" for char in payload["content_sha256"])
+        )
     )
     item: dict[str, object] = {
         "id": str(record.get("id") or ""),
@@ -103,6 +112,9 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
     if isinstance(resolved_at, str) and resolved_at:
         item["resolved_at"] = resolved_at
     if _is_object_mapping(payload):
+        action = payload.get("action")
+        if category == "work_item" and isinstance(action, str) and action:
+            item["action"] = action
         for field in (
             "destination",
             "source_filename",
@@ -132,6 +144,15 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
     overwrite_retry = record.get("overwrite_retry")
     if isinstance(overwrite_retry, bool):
         item["overwrite_retry"] = overwrite_retry
+    recheckable = record.get("recheckable")
+    if isinstance(recheckable, bool):
+        item["recheckable"] = recheckable
+    elif status == "action_outcome_unknown" and category == "mail_send":
+        item["recheckable"] = True
+    for field in ("mail_recheck_state", "mail_rechecked_at"):
+        value = record.get(field)
+        if isinstance(value, str) and value:
+            item[field] = value
     action_receipt = record.get("action_receipt")
     if status == "approved" and isinstance(action_receipt, str):
         receipt = OfficeReceiptProjection.from_result(
@@ -157,4 +178,6 @@ def _ui_state(status: str) -> str:
         return "succeeded"
     if status == "rejected":
         return "blocked"
+    if status == "action_outcome_unknown":
+        return "action_needed"
     return "failed"

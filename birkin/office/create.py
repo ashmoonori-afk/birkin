@@ -9,8 +9,9 @@ from pathlib import Path
 from typing import Final
 
 from .adapters.catalog import supported_formats
+from .business_templates import prepare_business_content
 from .create_backends import write_docx, write_hwpx, write_pptx, write_xlsx
-from .create_content import ParagraphPlan, PresentationPlan, WorkbookPlan, validate_plan
+from .create_content import PdfPlan, ParagraphPlan, PresentationPlan, WorkbookPlan, validate_plan
 from .create_pdf import write_pdf
 from .errors import DocumentError, DocumentErrorCode
 
@@ -19,12 +20,12 @@ SUPPORTED_FORMATS: Final[tuple[str, ...]] = tuple(
 )
 
 
-def _write(format_name: str, plan: ParagraphPlan | WorkbookPlan | PresentationPlan, target: Path) -> None:
+def _write(format_name: str, plan: ParagraphPlan | PdfPlan | WorkbookPlan | PresentationPlan, target: Path) -> None:
     if format_name == "docx" and isinstance(plan, ParagraphPlan):
         write_docx(plan, target)
     elif format_name == "hwpx" and isinstance(plan, ParagraphPlan):
         write_hwpx(plan, target)
-    elif format_name == "pdf" and isinstance(plan, ParagraphPlan):
+    elif format_name == "pdf" and isinstance(plan, PdfPlan):
         write_pdf(plan, target)
     elif format_name == "xlsx" and isinstance(plan, WorkbookPlan):
         write_xlsx(plan, target)
@@ -44,7 +45,8 @@ def create_document_file(format_name: str, content: Mapping[str, object], output
             f"unsupported creation format: {format_name}",
             details={"supported": list(SUPPORTED_FORMATS)},
         )
-    plan = validate_plan(normalized, content)
+    prepared, _ = prepare_business_content(normalized, content)
+    plan = validate_plan(normalized, prepared)
     output = Path(output)
     if output.exists() or output.is_symlink():
         raise DocumentError(DocumentErrorCode.OUTPUT_EXISTS, "emit", "output exists")

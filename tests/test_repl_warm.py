@@ -57,6 +57,23 @@ def test_warm_on_routes_to_warm_session_and_reuses_it(tmp_path, monkeypatch):
     assert fake.closed is True and s._warm is None
 
 
+def test_codex_warm_forwards_progress_callback(tmp_path, monkeypatch):
+    s = _session(tmp_path, monkeypatch, provider="codex-cli",
+                 repl_warm_session=True, self_improve=False)
+    seen: list[dict] = []
+
+    class ProgressWarm(_FakeWarm):
+        def ask(self, text, on_text=None, on_progress=None):
+            if on_progress:
+                on_progress({"mcp_tool_call": {"status": "inProgress"}})
+            return super().ask(text, on_text=on_text)
+
+    monkeypatch.setattr(s, "_build_warm", ProgressWarm)
+
+    assert s.ask("run tool", on_progress=seen.append) == "warm reply"
+    assert seen == [{"mcp_tool_call": {"status": "inProgress"}}]
+
+
 def test_warm_turn_preloads_routed_skill_body_and_path(tmp_path, monkeypatch):
     skill_dir = tmp_path / "skills" / "blog-helper"
     skill_dir.mkdir(parents=True)

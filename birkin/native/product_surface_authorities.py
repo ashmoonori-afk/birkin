@@ -337,6 +337,13 @@ class OfficeSurfaceAuthority:
             raise ValueError("Office artifact source is not registered in this workspace")
         return dict(self._registered_sources[(artifact_id, uri)])
 
+    def open_registered_uri(self, uri: object) -> dict[str, object]:
+        """Open only a server-retained artifact whose exact URI is known."""
+        matches = [artifact_id for artifact_id, document in self._documents.items() if document.get("uri") == uri]
+        if len(matches) != 1:
+            raise ValueError("이 원본은 현재 업무에 검증된 Office 문서로 등록되어 있지 않습니다")
+        return self.open({"artifact": self._document(matches[0])})
+
     def compare(self, payload: dict[str, object]) -> dict[str, object]:
         _exact(
             payload,

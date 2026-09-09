@@ -18,9 +18,11 @@ convention). Pure standard library.
 from __future__ import annotations
 
 import contextlib
+from dataclasses import replace
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -48,7 +50,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         from . import approvals, config, presets
         from .memory import Memory
         from .skills import build_manager
-        from .tools import ToolContext, egress, market
+        from .tools import ToolContext, documents, egress, market, research
 
         cfg = config.load_config()
         effective_model = os.environ.get("BIRKIN_MCP_MODEL") or cfg.get("model")
@@ -66,9 +68,12 @@ def _build_tools() -> dict[str, dict[str, Any]]:
     egress_tool_names: set[str] = set()
 
     def _mk(tool):
-        def handler(args: dict[str, Any]) -> tuple[str, bool]:
+        def handler(
+            args: dict[str, Any], *, abort=None, emit=None,
+        ) -> tuple[str, bool]:
+            call_ctx = replace(ctx, abort=abort, emit=emit)
             with contextlib.redirect_stdout(sys.stderr):
-                res = tool.fn(args or {}, ctx)
+                res = tool.fn(args or {}, call_ctx)
             return res.content, bool(res.is_error)
         return handler
 
@@ -79,7 +84,8 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         memory_tool_names.add(t.name)
 
     # Read-only structured market quotes are safe for every full MCP session.
-    if os.environ.get("BIRKIN_MCP_SCOPE", "full") != "memory":
+    scope = os.environ.get("BIRKIN_MCP_SCOPE", "full")
+    if scope == "full":
         for t in market.tools():
             tools[t.name] = {
                 "description": t.description,
@@ -98,6 +104,22 @@ def _build_tools() -> dict[str, dict[str, Any]]:
                     "handler": _mk(t),
                 }
                 egress_tool_names.add(t.name)
+
+    workspace_tool_names: set[str] = set()
+    if scope == "workspace":
+        for tool in documents.tools() + research.tools():
+            if tool.name in {
+                "inspect_document",
+                "office_job_request",
+                "work_item_request",
+                "research_run",
+            }:
+                tools[tool.name] = {
+                    "description": tool.description,
+                    "schema": tool.input_schema,
+                    "handler": _mk(tool),
+                }
+                workspace_tool_names.add(tool.name)
 
     skill_tools = {tool.name: tool for tool in skills.tools(origin="mcp")}
 
@@ -228,6 +250,16 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         **{name: "memory" for name in memory_tool_names},
         **{name: "web" for name in market_tool_names},
         **{name: "egress" for name in egress_tool_names},
+        **{
+            name: (
+                "approvals"
+                if name in {"office_job_request", "work_item_request"}
+                else "documents"
+                if name == "inspect_document"
+                else "research"
+            )
+            for name in workspace_tool_names
+        },
         **{name: "skills" for name in skill_tool_names},
         "propose_action": "approvals",
         "companion_propose": "companion",
@@ -236,6 +268,7 @@ def _build_tools() -> dict[str, dict[str, Any]]:
         name: tool
         for name, tool in tools.items()
         if name not in disabled and groups.get(name) not in disabled
+        and not (name == "office_job_request" and "documents" in disabled)
     }
     if os.environ.get("BIRKIN_MCP_SCOPE") == "memory":
         return {
@@ -243,6 +276,13 @@ def _build_tools() -> dict[str, dict[str, Any]]:
             for name, tool in allowed.items()
             if name in memory_tool_names
         }
+    if scope == "workspace":
+        workspace_allowed = {
+            "memory_search", "memory_get_note", "memory_related",
+            "skills_list", "load_skill", "inspect_document",
+            "office_job_request", "work_item_request", "research_run",
+        }
+        return {name: tool for name, tool in allowed.items() if name in workspace_allowed}
     return allowed
 
 
@@ -300,15 +340,108 @@ def handle_message(msg: dict[str, Any], tools: dict[str, dict[str, Any]]):
     return _error(rid, -32601, f"method not found: {method}")
 
 
+def _tool_call_result(
+    msg: dict[str, Any], tools: dict[str, dict[str, Any]], *, abort=None, emit=None,
+) -> str:
+    rid = msg.get("id")
+    params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+    name = params.get("name")
+    tool = tools.get(name) if isinstance(name, str) else None
+    if tool is None:
+        return handle_message(msg, tools) or _error(rid, -32603, "tool call failed")
+    try:
+        text, is_error = tool["handler"](
+            params.get("arguments") if isinstance(params.get("arguments"), dict) else {},
+            abort=abort,
+            emit=emit,
+        )
+    except Exception as exc:
+        text, is_error = f"tool {name!r} failed: {exc}", True
+    return _result(rid, {
+        "content": [{"type": "text", "text": str(text)}],
+        "isError": bool(is_error),
+    })
+
+
 def serve(stdin=None, stdout=None) -> int:
     """Run the MCP server loop until stdin closes."""
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     tools = _build_tools()
+    output_lock = threading.Lock()
+    active: dict[str | int, tuple[threading.Event, threading.Thread]] = {}
+    active_lock = threading.Lock()
 
     def _emit(text: str) -> None:
-        stdout.write(text + "\n")
-        stdout.flush()
+        with output_lock:
+            stdout.write(text + "\n")
+            stdout.flush()
+
+    def _start_research(msg: dict[str, Any]) -> bool:
+        rid = msg.get("id")
+        params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+        if params.get("name") != "research_run" or isinstance(rid, bool) or not isinstance(rid, (str, int)):
+            return False
+        meta = params.get("_meta") if isinstance(params.get("_meta"), dict) else {}
+        token = meta.get("progressToken")
+        if isinstance(token, bool) or not isinstance(token, (str, int)):
+            token = None
+        abort = threading.Event()
+
+        def run() -> None:
+            progress = 0
+            progress_lock = threading.Lock()
+
+            def emit(event: str, payload: dict[str, Any]) -> None:
+                nonlocal progress
+                if token is None or abort.is_set():
+                    return
+                phase = str(payload.get("title") or "").casefold()
+                phase_message = next((
+                    label for key, label in (
+                        ("plan", "조사 계획 수립"),
+                        ("collect", "출처 수집"),
+                        ("analy", "근거 분석"),
+                        ("challenge", "반증 검토"),
+                        ("report", "결과 정리"),
+                    ) if key in phase
+                ), None)
+                message = phase_message or {
+                    "subagent.start": "연구 작업 시작",
+                    "subagent.done": "연구 작업 완료",
+                    "moirai.cached": "저장된 연구 결과 확인",
+                }.get(event)
+                if message is None:
+                    return
+                with progress_lock:
+                    progress += 1
+                    _emit(json.dumps({
+                        "jsonrpc": "2.0",
+                        "method": "notifications/progress",
+                        "params": {
+                            "progressToken": token,
+                            "progress": progress,
+                            "message": message,
+                        },
+                    }))
+
+            try:
+                response = _tool_call_result(msg, tools, abort=abort, emit=emit)
+                with active_lock:
+                    if not abort.is_set():
+                        _emit(response)
+            finally:
+                with active_lock:
+                    active.pop(rid, None)
+
+        thread = threading.Thread(target=run, name=f"mcp-research-{rid}", daemon=True)
+        with active_lock:
+            if active:
+                _emit(_error(rid, -32000, "research request already in progress"))
+                return True
+            active[rid] = (abort, thread)
+        thread.start()
+        return True
 
     while True:
         line = stdin.readline(_MAX_LINE_BYTES + 1)
@@ -327,9 +460,35 @@ def serve(stdin=None, stdout=None) -> int:
         except json.JSONDecodeError:
             _emit(_error(None, -32700, "parse error"))  # JSON-RPC 2.0 §5
             continue
+        if not isinstance(msg, dict):
+            _emit(_error(None, -32600, "invalid request"))
+            continue
+        if msg.get("method") == "notifications/cancelled":
+            params = msg.get("params") if isinstance(msg.get("params"), dict) else {}
+            request_id = params.get("requestId")
+            if isinstance(request_id, bool) or not isinstance(request_id, (str, int)):
+                continue
+            with active_lock:
+                running = active.get(request_id)
+            if running is not None:
+                running[0].set()
+            continue
+        if msg.get("method") == "tools/call" and _start_research(msg):
+            continue
+        with active_lock:
+            busy = bool(active)
+        if busy and msg.get("method") == "tools/call":
+            _emit(_error(msg.get("id"), -32000, "research request in progress"))
+            continue
         out = handle_message(msg, tools)
         if out is not None:
             _emit(out)
+    with active_lock:
+        running = list(active.values())
+    for abort, _thread in running:
+        abort.set()
+    for _abort, thread in running:
+        thread.join()
     return 0
 
 
@@ -338,15 +497,21 @@ def serve(stdin=None, stdout=None) -> int:
 def mcp_config_dict(*, model: Optional[str] = None,
                     scope: str = "full") -> dict[str, Any]:
     """An ``--mcp-config`` payload that launches THIS birkin as the server."""
+    from . import config
+
     server: dict[str, Any] = {
         "command": sys.executable,
         "args": ["-m", "birkin", "mcp-serve"],
     }
-    env: dict[str, str] = {}
+    env: dict[str, str] = {
+        "BIRKIN_HOME": str(config.birkin_home()),
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+    }
     if model:
         env["BIRKIN_MCP_MODEL"] = model
-    if scope == "memory":
-        env["BIRKIN_MCP_SCOPE"] = "memory"
+    if scope != "full":
+        env["BIRKIN_MCP_SCOPE"] = scope
     if env:
         server["env"] = env
     return {"mcpServers": {_SERVER_NAME: server}}
@@ -368,6 +533,7 @@ def codex_config_args(*, scope: str = "full",
         "-c", f"mcp_servers.{_SERVER_NAME}.args="
               f"{json.dumps(server['args'])}",
         "-c", f"mcp_servers.{_SERVER_NAME}.enabled=true",
+        "-c", f"mcp_servers.{_SERVER_NAME}.startup_timeout_sec=30",
     ]
     env = server.get("env") or {}
     if env:

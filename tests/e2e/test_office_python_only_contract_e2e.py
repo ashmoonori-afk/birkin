@@ -153,7 +153,8 @@ def test_artifact_mismatch_is_inspect_first_and_document_text_is_untrusted() -> 
     )
     assert mismatch is not None
     assert mismatch.skill_name == "office-documents"
-    assert mismatch.conflict is True
+    assert mismatch.conflict is False
+    assert mismatch.source_formats == ("docx", "xlsx")
     assert mismatch.inspect_first is True
 
     baseline = route_office_request(
@@ -191,7 +192,7 @@ def test_production_gateway_injects_exact_office_skill_and_document_tools(
         assert "copy-on-write" in model.systems[-1].lower()
 
 
-def test_mixed_office_formats_inject_clarification_question(
+def test_office_route_injects_roles_and_clarifies_only_multiple_outputs(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -199,7 +200,16 @@ def test_mixed_office_formats_inject_clarification_question(
     monkeypatch.setattr(gateway_core, "build_session", lambda _cfg: session)
     gateway = gateway_core.Gateway(dict(session.cfg))
 
-    assert gateway.handle("http", "local", "엑셀 비교해서 워드 보고서로") == "office-ok"
+    assert gateway.handle(
+        "http", "local", "엑셀을 비교해서 워드 보고서로 저장해줘"
+    ) == "office-ok"
+    assert "source formats: xlsx" in model.systems[-1]
+    assert "target format: docx" in model.systems[-1]
+    assert "어느 포맷으로 저장할까요?" not in model.systems[-1]
+
+    assert gateway.handle(
+        "http", "local", "PDF로 저장하고 DOCX로 저장해줘"
+    ) == "office-ok"
     assert "어느 포맷으로 저장할까요?" in model.systems[-1]
 
 

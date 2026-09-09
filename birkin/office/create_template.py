@@ -85,11 +85,14 @@ def _active_parts(names: list[str], scanned: list[ActiveContent]) -> list[str]:
 
 
 def plan_hwpx_template(source: Path, content: Mapping[str, object]) -> HwpxTemplatePlan:
-    allowed = {"bindings", "allow_active_content", "allow_signatures", "allow_external_relationships"}
+    allowed = {"bindings", "require_all_fields", "allow_active_content", "allow_signatures", "allow_external_relationships"}
     unknown = sorted(key for key in content if key not in allowed)
     if unknown:
         raise invalid_content(f"HWPX content has unsupported keys: {unknown}")
     bindings = _bindings(content.get("bindings"))
+    require_all = content.get("require_all_fields", False)
+    if not isinstance(require_all, bool):
+        raise invalid_content("HWPX require_all_fields must be a boolean")
     manifest = preflight_package(source)
     names = list(manifest["parts"])
     active = _active_parts(names, manifest["active_content"])
@@ -136,4 +139,14 @@ def plan_hwpx_template(source: Path, content: Mapping[str, object]) -> HwpxTempl
             binding.value,
             expected_text=binding.expected_text,
         )
+    if require_all:
+        field_ids = {
+            match.group(1).decode("utf-8")
+            for name, metadata in manifest["parts"].items()
+            if re.fullmatch(r"Contents/section\d+\.xml", name)
+            for match in re.finditer(rb"<hp:field\b[^>]*\bid=\"([^\"]+)\"", metadata["bytes"])
+        }
+        unreplaced = sorted(field_ids - {binding.key for binding in bindings})
+        if unreplaced:
+            raise invalid_content(f"HWPX template has unreplaced fields: {unreplaced}")
     return HwpxTemplatePlan(bindings, manifest["source_sha256"], tuple(warnings))

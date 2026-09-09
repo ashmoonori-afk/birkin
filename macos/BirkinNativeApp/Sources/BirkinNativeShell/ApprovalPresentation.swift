@@ -75,7 +75,7 @@ public struct ApprovalCardPresentation: Equatable, Sendable, Identifiable {
               let riskText = item.text("risk"),
               let risk = ApprovalRisk(rawValue: riskText) else { return nil }
         self.id = id
-        summary = item.text("summary") ?? "Approval"
+        summary = item.text("summary") ?? "승인 요청"
         description = item.text("description") ?? ""
         category = item.text("category") ?? "unknown"
         self.risk = risk
@@ -170,13 +170,13 @@ public struct ApprovalCardView: View {
                 Text(presentation.description).font(.subheadline).foregroundStyle(.secondary)
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text("REQUESTED BY: \(presentation.requester ?? "Unavailable")")
+                Text("요청자: \(presentation.requester ?? "확인할 수 없음")")
                     .font(.caption.weight(.semibold))
-                Text("EXPIRES: \(presentation.expiresAt ?? "Not specified")")
+                Text("만료: \(presentation.expiresAt ?? "지정되지 않음")")
                     .font(.caption).foregroundStyle(.secondary)
                 Text(
                     presentation.rejectionResult
-                        ?? "Rejection outcome unavailable"
+                        ?? "거부할 때의 결과를 확인할 수 없습니다"
                 )
                 .font(.caption)
             }
@@ -187,12 +187,12 @@ public struct ApprovalCardView: View {
             {
                 VStack(alignment: .leading, spacing: 7) {
                     if let source = presentation.sourceFilename {
-                        trustDetail("SOURCE", value: source)
+                        trustDetail("원본", value: source)
                     }
                     if let destination = presentation.destination,
                        let display = presentation.destinationDisplay {
                         trustDetail(
-                            "DESTINATION",
+                            "저장 위치",
                             value: display,
                             fullValue: destination,
                             monospaced: true
@@ -204,7 +204,7 @@ public struct ApprovalCardView: View {
                     if let digest = presentation.authorityDigest,
                        let display = presentation.authorityDigestDisplay {
                         trustDetail(
-                            "APPROVAL AUTHORITY",
+                            "승인 권한",
                             value: display,
                             fullValue: digest,
                             monospaced: true
@@ -231,22 +231,22 @@ public struct ApprovalCardView: View {
                 }
             } else if isSubmitting {
                 VStack(alignment: .leading, spacing: 7) {
-                    ProgressView("Sending approval decision...")
+                    ProgressView("승인 결정을 보내는 중입니다...")
                         .font(.subheadline)
-                        .accessibilityLabel("Sending approval decision")
-                    Text("Awaiting canonical confirmation.")
+                        .accessibilityLabel("승인 결정을 보내는 중")
+                    Text("최종 확인을 기다리고 있습니다.")
                         .font(.caption).foregroundStyle(.secondary)
-                    Button("Return to approval card") {
+                    Button("승인 카드로 돌아가기") {
                         isSubmitting = false
-                        submissionError = "Decision status is unknown. Review connection and retry."
+                        submissionError = "승인 상태를 확인할 수 없습니다. 연결을 확인하고 다시 시도하세요."
                     }
                 }
             } else if let pendingDecision {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(
                         pendingDecision == .approve
-                            ? "Confirm this reviewed write?"
-                            : "Confirm rejection?"
+                            ? "검토한 내용대로 실행할까요?"
+                            : "요청을 거부할까요?"
                     )
                     .font(.subheadline.weight(.semibold))
                     if let destination = presentation.destinationDisplay {
@@ -256,16 +256,16 @@ public struct ApprovalCardView: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(overwriteColor)
                     HStack {
-                        Button("Cancel") {
+                        Button("취소") {
                             self.pendingDecision = nil
                         }
                         if pendingDecision == .approve {
-                            Button("Confirm Approve") {
+                            Button("승인 확정") {
                                 submitConfirmed(.approve)
                             }
                             .buttonStyle(.borderedProminent)
                         } else {
-                            Button("Confirm Reject") {
+                            Button("거부 확정") {
                                 submitConfirmed(.reject)
                             }
                             .buttonStyle(.bordered)
@@ -280,15 +280,15 @@ public struct ApprovalCardView: View {
                         .foregroundStyle(ApprovalTrustPalette.danger(colorScheme))
                 }
                 HStack {
-                    Button("Reject", role: .destructive) {
+                    Button("거부", role: .destructive) {
                         pendingDecision = .reject
                     }
-                        .accessibilityLabel("Reject approval")
-                    Button("Approve") {
+                        .accessibilityLabel("요청한 작업 거부")
+                    Button("승인") {
                         pendingDecision = .approve
                     }
                         .buttonStyle(.bordered)
-                        .accessibilityLabel("Approve request")
+                        .accessibilityLabel("요청한 작업 승인")
                 }
                 .disabled(!canDecide)
             }
@@ -301,7 +301,7 @@ public struct ApprovalCardView: View {
     }
 
     private var riskBadge: some View {
-        Text("\(presentation.risk.rawValue.uppercased()) RISK")
+        Text("위험도: \(riskLabel)")
             .font(.caption.bold()).padding(.horizontal, 8).padding(.vertical, 4)
             .background(riskColor.opacity(0.12), in: Capsule())
             .foregroundStyle(riskColor)
@@ -309,7 +309,7 @@ public struct ApprovalCardView: View {
 
     private var sealedBadge: some View {
         Label(
-            presentation.isSealed ? "SEALED" : "NOT SEALED",
+            presentation.isSealed ? "검토 내용 고정됨" : "검토 내용 고정 안 됨",
             systemImage: presentation.isSealed ? "lock.shield" : "lock.open"
         )
         .font(.caption.weight(.semibold))
@@ -326,7 +326,7 @@ public struct ApprovalCardView: View {
         pendingDecision = nil
         isSubmitting = submitted
         if !submitted {
-            submissionError = "Decision was not sent. Review connection and retry."
+            submissionError = "승인 결정을 보내지 못했습니다. 연결을 확인하고 다시 시도하세요."
         }
     }
 
@@ -345,7 +345,7 @@ public struct ApprovalCardView: View {
                     .help(fullValue ?? value)
                     .accessibilityValue(fullValue ?? value)
                     .contextMenu {
-                        Button("Copy full value") {
+                        Button("전체 값 복사") {
                             copy(fullValue ?? value)
                         }
                     }
@@ -355,7 +355,7 @@ public struct ApprovalCardView: View {
                     .help(fullValue ?? value)
                     .accessibilityValue(fullValue ?? value)
                     .contextMenu {
-                        Button("Copy full value") {
+                        Button("전체 값 복사") {
                             copy(fullValue ?? value)
                         }
                     }
@@ -365,23 +365,23 @@ public struct ApprovalCardView: View {
     }
 
     private var accessibilitySummary: String {
-        let destination = presentation.destination ?? "destination unavailable"
+        let destination = presentation.destination ?? "저장 위치를 확인할 수 없음"
         return [
-            "\(presentation.risk.rawValue) risk approval",
+            "위험도 \(riskLabel) 승인 요청",
             presentation.summary,
-            presentation.isSealed ? "sealed" : "not sealed",
-            "requested by \(presentation.requester ?? "unavailable")",
-            "destination \(destination)",
+            presentation.isSealed ? "검토 내용 고정됨" : "검토 내용 고정 안 됨",
+            "요청자 \(presentation.requester ?? "확인할 수 없음")",
+            "저장 위치 \(destination)",
             overwriteLabel,
-            presentation.rejectionResult ?? "rejection outcome unavailable",
+            presentation.rejectionResult ?? "거부할 때의 결과를 확인할 수 없음",
         ].joined(separator: ", ")
     }
 
     private var overwriteLabel: String {
         switch presentation.overwriteApproved {
-        case true: "WARNING: Existing file may be replaced"
-        case false: "SAFE: Existing file must not already exist"
-        case nil: "UNKNOWN: Overwrite authority unavailable"
+        case true: "주의: 기존 파일을 덮어쓸 수 있습니다"
+        case false: "안전: 기존 파일이 없어야 합니다"
+        case nil: "덮어쓰기 권한을 확인할 수 없습니다"
         }
     }
 
@@ -417,12 +417,21 @@ public struct ApprovalCardView: View {
 
     private var outcomeLabel: String {
         switch presentation.status {
-        case "approved": "Approved"
-        case "rejected": "Rejected"
-        case "answered_elsewhere": "Answered elsewhere"
-        case "expired": "Expired"
-        case "failed": "Failed"
-        default: presentation.status.replacingOccurrences(of: "_", with: " ").capitalized
+        case "approved": "승인됨"
+        case "rejected": "거부됨"
+        case "answered_elsewhere": "다른 위치에서 결정됨"
+        case "expired": "만료됨"
+        case "failed": "실패함"
+        default: "결정 상태를 확인할 수 없음"
+        }
+    }
+
+    private var riskLabel: String {
+        switch presentation.risk {
+        case .low: "낮음"
+        case .medium: "보통"
+        case .high: "높음"
+        case .critical: "매우 높음"
         }
     }
 

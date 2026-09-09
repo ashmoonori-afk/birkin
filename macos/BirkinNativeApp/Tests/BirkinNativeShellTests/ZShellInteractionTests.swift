@@ -52,7 +52,7 @@ struct ShellInteractionTests {
         try sendKey("2", keyCode: 19, modifiers: .command, to: window)
         #expect(model.target == .section(.conversation))
         try sendKey("3", keyCode: 20, modifiers: .command, to: window)
-        #expect(model.target == .section(.approvals))
+        #expect(model.target == .section(.activity))
         try sendKey("1", keyCode: 18, modifiers: .command, to: window)
         #expect(model.target == .section(.sessions))
         try sendKey("a", keyCode: 0, modifiers: [.command, .shift], to: window)

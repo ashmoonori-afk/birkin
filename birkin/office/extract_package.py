@@ -190,6 +190,24 @@ def _extract_pptx(parts: Mapping[str, bytes], budget: list[int]) -> list[str]:
     return _paragraphs(parts, slides, "slide", budget)
 
 
+def _pptx_locators(parts: Mapping[str, bytes], lines: list[str]) -> list[dict[str, str | int]] | None:
+    slides = _numbered(parts, r"ppt/slides/slide(\d+)\.xml")
+    located: list[tuple[str, dict[str, str | int]]] = []
+    for part in slides:
+        for shape in (node for node in _parse(parts[part], part).iter() if _local(node.tag) == "sp"):
+            placeholder = next((node.get("idx") for node in shape.iter() if _local(node.tag) == "ph"), None)
+            for paragraph in (node for node in shape.iter() if _local(node.tag) == "p"):
+                text = "".join("".join(node.itertext()) for node in paragraph.iter() if _local(node.tag) == "t")
+                if text.strip():
+                    locator = (
+                        {"slide_part": part, "placeholder_idx": int(placeholder)}
+                        if placeholder is not None and placeholder.isdigit()
+                        else {"format": "pptx", "index": len(located) + 1}
+                    )
+                    located.append((text, locator))
+    return [locator for text, locator in located] if [text for text, _ in located] == lines else None
+
+
 def _shared_strings(parts: Mapping[str, bytes]) -> list[str]:
     data = parts.get("xl/sharedStrings.xml")
     if data is None:
@@ -252,6 +270,39 @@ def _extract_xlsx(parts: Mapping[str, bytes], budget: list[int]) -> list[str]:
     return lines
 
 
+def extract_xlsx_cell_items(path: Path) -> list[ExtractedItem]:
+    """Return review-only cell nodes with stable sheet and cell locators."""
+    with stream_package_payloads(path) as parts:
+        workbook_part = "xl/workbook.xml"
+        workbook = parts.get(workbook_part)
+        if workbook is None:
+            raise _invalid(workbook_part, "package contains no workbook")
+        targets = _relationship_targets(parts.get("xl/_rels/workbook.xml.rels"), "xl/")
+        sheets: list[tuple[str, str]] = []
+        for node in _parse(workbook, workbook_part).iter():
+            if _local(node.tag) != "sheet":
+                continue
+            relation = next((value for key, value in node.attrib.items() if key.endswith("}id")), None)
+            target = targets.get(relation or "")
+            name = node.get("name")
+            if target in parts and name:
+                sheets.append((name, target))
+        shared = _shared_strings(parts)
+        items: list[ExtractedItem] = []
+        for sheet, part in sheets:
+            for cell in (node for node in _parse(parts[part], part).iter() if _local(node.tag) == "c"):
+                reference = cell.get("r")
+                text = _cell_text(cell, shared)
+                if reference and text.strip():
+                    items.append({
+                        "text": text,
+                        "kind": "cell",
+                        "locator": {"sheet": sheet, "cell": reference},
+                        "method": "xlsx_package_cell",
+                    })
+    return items
+
+
 def extract_package_items(
     path: Path,
     format_name: str,
@@ -281,11 +332,16 @@ def extract_package_items(
                 "probe",
                 f"unsupported package format: {format_name}",
             )
+        pptx_locators = _pptx_locators(parts, lines) if format_name == "pptx" else None
     return [
         {
             "text": text,
             "kind": kind,
-            "locator": {"format": format_name, "index": index},
+            "locator": (
+                pptx_locators[index - 1]
+                if pptx_locators is not None
+                else {"format": format_name, "index": index}
+            ),
             "method": f"{format_name}_package_text",
         }
         for index, text in enumerate(lines, 1)

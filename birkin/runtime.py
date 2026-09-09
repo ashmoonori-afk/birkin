@@ -202,6 +202,11 @@ class Session:
         # no such attribute at all.
         if getattr(self.client, "birkin_mcp", False):
             extra += prompts.cli_mcp_block()
+            if getattr(self.client, "birkin_mcp_scope", "full") == "workspace":
+                extra += (
+                    "\nThis native workspace also exposes work_item_request. "
+                    "Use tool_search_tool to surface it before handling follow-up work.\n"
+                )
         turn_cfg = (
             self.cfg
             if session_id is None
@@ -275,6 +280,7 @@ class Session:
 
     def ask(self, text: str,
             on_text: Optional[Callable[[str], None]] = None, *,
+            on_progress: Optional[Callable[[dict], None]] = None,
             review_skills: bool = True,
             route_query: str | None = None,
             record_turn: bool = True,
@@ -308,7 +314,8 @@ class Session:
                 self.ctx.checkpoints.ensure_checkpoint(
                     self.ctx.cwd, "before CLI turn")
         if self._use_warm() and trusted:
-            reply = self._warm_ask(text, on_text, session_id=session_id)
+            reply = self._warm_ask(
+                text, on_text, on_progress=on_progress, session_id=session_id)
             if record_turn:
                 self._record_turn(
                     text,
@@ -399,18 +406,22 @@ class Session:
         text: str,
         on_text: Optional[Callable[[str], None]],
         *,
+        on_progress: Optional[Callable[[dict], None]] = None,
         session_id: str | None = None,
     ) -> str:
         if self._warm is None:
             self._warm = self._build_warm()
         self._emit_profile_notices(on_text, session_id=session_id)
+        ask_kwargs: dict[str, Any] = {"on_text": on_text}
+        if on_progress is not None and self.cfg.get("provider") == "codex-cli":
+            ask_kwargs["on_progress"] = on_progress
         return self._warm.ask(
             self._prepare_cli_turn(
                 text,
                 skill_state=self._warm_skill_state,
                 session_id=session_id,
             ),
-            on_text=on_text)
+            **ask_kwargs)
 
     def _build_warm(self):
         """One warm session carrying persona + memory + skill index (the same
@@ -440,9 +451,13 @@ class Session:
             sandbox = ("danger-full-access"
                        if self.cfg.get("cli_access") == "full"
                        else "workspace-write")
+            birkin_mcp = getattr(self.client, "birkin_mcp", False)
             return CodexAppServerSession(model=self.cfg.get("model"),
+                                         cwd=str(self.ctx.cwd),
                                          preamble=system, sandbox_mode=sandbox,
-                                         approval_policy="never",
+                                         approval_policy="on-request" if birkin_mcp else "never",
+                                         birkin_mcp=birkin_mcp,
+                                         birkin_mcp_scope=getattr(self.client, "birkin_mcp_scope", "full"),
                                          network_access=(
                                              sandbox == "workspace-write"
                                              and self.cfg.get(
@@ -817,6 +832,9 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
             f"or run `birkin setup`.")
 
     client = build_client(cfg, api_key)
+    if cfg.get("birkin_mcp") is True:
+        client.birkin_mcp = True
+        client.birkin_mcp_scope = str(cfg.get("birkin_mcp_scope", "full"))
     client._status = on_status
     skills = build_manager(cfg)
     memory = Memory(cfg)
@@ -835,11 +853,12 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
             state,
         ))
     hook_bus = hooks.build_bus(cfg)
+    abort = threading.Event()
     ctx = ToolContext(
-        cfg=cfg, client=client, cwd=Path.cwd(),
+        cfg=cfg, client=client, cwd=Path(str(cfg.get("workspace_root") or Path.cwd())).resolve(),
         skills=skills, memory=memory,
         max_depth=int(cfg.get("max_depth", 2)), emit=on_event,
-        tree_budget=budget.TreeBudget(cfg),
+        tree_budget=budget.TreeBudget(cfg), abort=abort,
         checkpoints=checkpoint_mgr, hooks=hook_bus)
     registry = build_registry(ctx)
     profile_review_service = _build_profile_review_service(cfg)
@@ -866,6 +885,7 @@ def build_session(cfg: Optional[dict[str, Any]] = None,
         agent=agent,
         _checkpoint_session=checkpoint_session,
         profile_review_service=profile_review_service,
+        abort=abort,
     )
 
 

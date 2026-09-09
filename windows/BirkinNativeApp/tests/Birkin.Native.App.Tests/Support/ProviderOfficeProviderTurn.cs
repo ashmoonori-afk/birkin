@@ -10,8 +10,7 @@ internal static class ProviderOfficeProviderTurn
     private const string Sentinel = "OFFICE_PROVIDER_PARTICIPATED";
     private const string SentinelSha256 = "3f78f63495f2955c6b0499884a11d123ed6cfbefbf63aca74c5a41a16b9fd577";
     private const string Request =
-        "Compare the imported baseline and candidate spreadsheets and draft a report from the imported template. "
-        + "Reply only OFFICE_PROVIDER_PARTICIPATED.";
+        "Reply with exactly OFFICE_PROVIDER_PARTICIPATED and no other text.";
 
     public static async Task<ProviderOfficeCommandTrace> SendAsync(
         CompositionRoot composition,

@@ -23,6 +23,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -35,13 +36,70 @@ _CLI_TIMEOUT = 900
 
 def _run(argv: list[str], stdin: str | None = None,
          timeout: int = _CLI_TIMEOUT, cwd: str | None = None,
-         env: dict | None = None) -> tuple[str, str, int]:
+         env: dict | None = None, abort=None) -> tuple[str, str, int]:
     """Discrete-argv subprocess (never shell=True). Returns (out, err, code)."""
     try:
-        proc = subprocess.run(argv, input=stdin, capture_output=True,
-                              text=True, errors="replace", timeout=timeout,
-                              cwd=cwd, env=env)
-        return proc.stdout or "", proc.stderr or "", proc.returncode
+        if abort is not None and abort.is_set():
+            return "", "cancelled", -2
+        from .proc import kill_tree, popen_tree_kwargs
+
+        job = None
+        proc = None
+        try:
+            kwargs = popen_tree_kwargs()
+            if os.name == "nt":
+                from ._winjob import WindowsJob
+
+                job = WindowsJob.create()
+                kwargs["creationflags"] |= getattr(
+                    subprocess, "CREATE_SUSPENDED", 0x00000004)
+            proc = subprocess.Popen(
+                argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE, text=True, errors="replace", cwd=cwd,
+                env=env, **kwargs,
+            )
+            if job is not None:
+                job.assign(proc.pid)
+                job.resume(proc.pid)
+        except BaseException:
+            try:
+                if job is not None:
+                    job.terminate()
+                if proc is not None and proc.poll() is None:
+                    proc.kill()
+                if proc is not None:
+                    proc.wait(timeout=10)
+            finally:
+                if job is not None:
+                    job.close()
+            raise
+        deadline = time.monotonic() + timeout
+        pending_input = stdin
+        try:
+            while True:
+                try:
+                    out, err = proc.communicate(input=pending_input, timeout=0.1)
+                    return out or "", err or "", proc.returncode
+                except subprocess.TimeoutExpired:
+                    pending_input = None
+                    if abort is not None and abort.is_set():
+                        job.terminate() if job is not None else kill_tree(proc)
+                        out, err = proc.communicate()
+                        return out or "", err or "cancelled", -2
+                    if time.monotonic() >= deadline:
+                        job.terminate() if job is not None else kill_tree(proc)
+                        out, err = proc.communicate()
+                        return out or "", err or f"timed out after {timeout}s", -1
+        except BaseException:
+            job.terminate() if job is not None else kill_tree(proc)
+            try:
+                proc.communicate()
+            except Exception:
+                pass
+            raise
+        finally:
+            if job is not None:
+                job.close()
     except subprocess.TimeoutExpired:
         return "", f"timed out after {timeout}s", -1
     except FileNotFoundError:
@@ -49,7 +107,7 @@ def _run(argv: list[str], stdin: str | None = None,
 
 
 def claude_completer(model: Optional[str] = None,
-                     timeout: int = _CLI_TIMEOUT) -> Completer:
+                     timeout: int = _CLI_TIMEOUT, abort=None) -> Completer:
     """Claude Code with NO tools — pure text generation of the plan."""
     def complete(prompt: str) -> str:
         exe = shutil.which("claude")
@@ -59,7 +117,10 @@ def claude_completer(model: Optional[str] = None,
                 "--allowedTools", "", "--permission-mode", "default"]
         if model and model not in ("claude-code", "default", ""):
             argv += ["--model", model]
-        out, err, code = _run(argv, stdin=prompt, timeout=timeout)
+        kwargs = {"abort": abort} if abort is not None else {}
+        out, err, code = _run(argv, stdin=prompt, timeout=timeout, **kwargs)
+        if code == -2:
+            return "[provider-error] claude: cancelled"
         out = out.strip()
         if out:
             try:
@@ -82,7 +143,7 @@ def claude_completer(model: Optional[str] = None,
 def codex_completer(model: Optional[str] = None,
                     timeout: int = _CLI_TIMEOUT,
                     cwd: Optional[str] = None,
-                    schema: Optional[dict] = None) -> Completer:
+                    schema: Optional[dict] = None, abort=None) -> Completer:
     """codex exec in a READ-ONLY sandbox — it only needs to emit text.
 
     Read-only means codex structurally cannot touch the vault even if it wanted
@@ -127,15 +188,23 @@ def codex_completer(model: Optional[str] = None,
             argv += ["-m", model]
         argv.append("-")
         try:
-            out, err, code = _run(argv, stdin=prompt, timeout=timeout,
-                                  cwd=cwd)
+            kwargs = {"abort": abort} if abort is not None else {}
+            out, err, code = _run(
+                argv, stdin=prompt, timeout=timeout, cwd=cwd, **kwargs,
+            )
+            if code == -2:
+                return "[provider-error] codex: cancelled"
+            if code == -1:
+                return f"[provider-error] codex: {timeout}초 후 시간 초과"
+            if code != 0:
+                return f"[provider-error] codex: 종료 코드 {code}"
             text = ""
             try:
                 text = Path(outpath).read_text(encoding="utf-8",
                                                errors="replace").strip()
             except OSError:
                 pass
-            return text or out.strip() or f"[provider-error] codex: {err.strip()[:2000]}"
+            return text or out.strip() or "[provider-error] codex: 모델 응답이 비어 있습니다"
         finally:
             try:
                 os.unlink(outpath)
@@ -147,6 +216,133 @@ def codex_completer(model: Optional[str] = None,
                 except OSError:
                     pass
     return complete
+
+
+def codex_web_discovery(prompt: str, *, model: str = "",
+                        timeout: int = _CLI_TIMEOUT,
+                        schema: Optional[dict] = None,
+                        abort=None) -> str:
+    """One ephemeral native-web turn, returning only verified event metadata."""
+    exe = shutil.which("codex")
+    if not exe:
+        return "[provider-error] codex CLI not found"
+    developer = (
+        "You are a read-only URL discovery worker. Use native web_search "
+        "exactly once with at most four queries, each at most 500 characters. "
+        "Do not use shell, filesystem, MCP, browser automation, "
+        "or any other tool. Return only the requested JSON schema. Candidate "
+        "URLs are discovery metadata, not verified source evidence."
+    )
+    with tempfile.TemporaryDirectory(prefix="birkin-codex-web-") as isolated:
+        schema_path = Path(isolated) / "schema.json"
+        if schema:
+            schema_path.write_text(json.dumps(schema), encoding="utf-8")
+        argv = [
+            exe, "--search", "--disable", "shell_tool", "--disable",
+            "unified_exec", "exec", "--skip-git-repo-check", "--ephemeral",
+            "--sandbox", "read-only", "--ignore-user-config", "--ignore-rules",
+            "--color", "never", "--json", "--cd", isolated,
+            "-c", "sandbox_workspace_write.network_access=false",
+            "-c", f"developer_instructions={json.dumps(developer)}",
+        ]
+        if schema:
+            argv += ["--output-schema", str(schema_path)]
+        if model:
+            argv += ["-m", model]
+        argv.append("-")
+        out, _err, code = _run(
+            argv, stdin=prompt, timeout=timeout, cwd=isolated, abort=abort,
+        )
+    if code == -2:
+        return "[provider-error] codex native web: cancelled"
+    if code == -1:
+        return "[provider-error] codex native web: timed out"
+    if code != 0:
+        return f"[provider-error] codex native web: exit {code}"
+    try:
+        events = [json.loads(line) for line in out.splitlines() if line.strip()]
+        if not events or not all(isinstance(event, dict) for event in events):
+            raise ValueError("event was not an object")
+        indexed_items = [
+            (index, event["type"], event["item"])
+            for index, event in enumerate(events)
+            if event.get("type") in {"item.started", "item.completed"}
+            and isinstance(event.get("item"), dict)
+        ]
+        other_tools = [
+            item for _, _, item in indexed_items
+            if item.get("type") not in {"agent_message", "reasoning", "web_search"}
+        ]
+        started = [
+            (index, item) for index, kind, item in indexed_items
+            if kind == "item.started" and item.get("type") == "web_search"
+        ]
+        searches = [
+            (index, item) for index, kind, item in indexed_items
+            if kind == "item.completed" and item.get("type") == "web_search"
+        ]
+        messages = [
+            (index, item) for index, kind, item in indexed_items
+            if kind == "item.completed" and item.get("type") == "agent_message"
+        ]
+        terminals = [
+            (index, event.get("type")) for index, event in enumerate(events)
+            if event.get("type") in {"turn.completed", "turn.failed"}
+        ]
+        action = searches[0][1].get("action") if len(searches) == 1 else None
+        raw_query = action.get("query") if isinstance(action, dict) else None
+        raw_queries = action.get("queries") if isinstance(action, dict) else None
+        query_value = raw_query.strip() if isinstance(raw_query, str) else None
+        queries_value = (
+            [query.strip() for query in raw_queries]
+            if isinstance(raw_queries, list) and 1 <= len(raw_queries) <= 4
+            and all(isinstance(query, str) and query.strip() for query in raw_queries)
+            else None
+        )
+        query_shape_valid = raw_query is None or bool(query_value)
+        queries_shape_valid = raw_queries is None or bool(queries_value)
+        queries = queries_value or ([query_value] if query_value else [])
+        query_valid = (
+            isinstance(action, dict)
+            and action.get("type") == "search"
+            and query_shape_valid and queries_shape_valid
+            and not (query_value and queries_value and [query_value] != queries_value)
+        )
+        reason = None
+        if len(started) != 1 or len(searches) != 1:
+            reason = "search_count"
+        elif other_tools:
+            reason = "other_tool"
+        elif len(messages) != 1:
+            reason = "message_count"
+        elif len(terminals) != 1 or terminals[0][1] != "turn.completed":
+            reason = "terminal"
+        elif terminals[0][0] != len(events) - 1:
+            reason = "terminal_order"
+        elif (not isinstance(started[0][1].get("id"), str)
+              or not started[0][1].get("id")
+              or started[0][1].get("id") != searches[0][1].get("id")):
+            reason = "search_id"
+        elif not (started[0][0] < searches[0][0]
+                  < messages[0][0] < terminals[0][0]):
+            reason = "order"
+        elif not query_valid or not queries:
+            reason = "query"
+        elif any(len(query) > 500 for query in queries):
+            reason = "query_length"
+        if reason:
+            return f"[provider-error] codex native web: invalid tool trace ({reason})"
+        payload = json.loads(str(messages[0][1].get("text") or ""))
+        if not isinstance(payload, dict):
+            raise ValueError("message was not an object")
+        payload.update(
+            web_search_count=1,
+            observed_query="\n".join(queries),
+            provenance="model_discovered_after_web_search",
+        )
+        return json.dumps(payload, ensure_ascii=False)
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return "[provider-error] codex native web: invalid event stream"
 
 
 def _responses_text(raw: str) -> str:
@@ -169,12 +365,17 @@ def _responses_text(raw: str) -> str:
     stripped = raw.lstrip()
     if stripped.startswith("{"):
         try:
-            return from_output(json.loads(stripped)).strip()
+            response = json.loads(stripped)
         except json.JSONDecodeError:
             return ""
+        if response.get("status") in {"failed", "incomplete"} \
+                or response.get("error"):
+            return "[provider-error] codex oauth: response failed"
+        return from_output(response).strip()
 
     deltas: list[str] = []
     final = ""
+    failed = False
     for line in raw.splitlines():
         if not line.startswith("data:"):
             continue
@@ -188,14 +389,20 @@ def _responses_text(raw: str) -> str:
         if not isinstance(event, dict):
             continue
         kind = event.get("type")
+        if kind in {"error", "response.failed", "response.incomplete"} \
+                or event.get("error"):
+            failed = True
+            continue
         if kind == "response.output_text.delta":
             deltas.append(str(event.get("delta") or ""))
-        elif kind in ("response.completed", "response.incomplete"):
+        elif kind == "response.completed":
             response = event.get("response")
             if isinstance(response, dict):
                 final = from_output(response)
     # Deltas are the live text; the terminal event repeats it in full and is
     # the only source when the server decides not to stream token-by-token.
+    if failed:
+        return "[provider-error] codex oauth: response failed"
     return ("".join(deltas) or final).strip()
 
 
@@ -208,17 +415,23 @@ def codex_oauth_available() -> bool:
 def codex_oauth_completer(model: Optional[str] = None,
                           timeout: int = _CLI_TIMEOUT,
                           cfg: Optional[dict] = None,
-                          schema: Optional[dict] = None) -> Completer:
+                          schema: Optional[dict] = None, abort=None) -> Completer:
     """Codex over OAuth — a direct HTTPS call, no ``codex`` CLI subprocess.
 
     Uses birkin's own ChatGPT session (:mod:`birkin.codex_oauth`), so it neither
     needs the CLI installed nor disturbs its login.
     """
     from . import codex_oauth
+    from .http_transport import (
+        HTTPAborted, HTTPTransportError, open_no_redirect, post,
+    )
 
     def complete(prompt: str) -> str:
         try:
-            token = codex_oauth.resolve_token()
+            token = (codex_oauth.resolve_token(abort=abort)
+                     if abort is not None else codex_oauth.resolve_token())
+        except HTTPAborted:
+            return "[provider-error] codex oauth: cancelled"
         except codex_oauth.CodexAuthError as exc:
             return f"[provider-error] codex oauth: {exc}"
         if not token:
@@ -250,8 +463,24 @@ def codex_oauth_completer(model: Optional[str] = None,
             f"{codex_oauth.base_url()}/responses",
             data=json.dumps(payload).encode(), method="POST", headers=headers)
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                raw = resp.read().decode("utf-8", "replace")
+            if abort is None:
+                with open_no_redirect(req, timeout=timeout) as resp:
+                    raw = resp.read().decode("utf-8", "replace")
+            else:
+                response = post(
+                    req.full_url, headers=dict(req.headers),
+                    data=req.data or b"", timeout=timeout, abort=abort,
+                )
+                if response.status >= 300:
+                    hint = ""
+                    if response.status == 401:
+                        hint = " — run `birkin auth codex login`"
+                    elif response.status == 403:
+                        hint = " — Codex rejected the client identity or the account"
+                    return f"[provider-error] codex oauth HTTP {response.status}{hint}"
+                raw = response.read().decode("utf-8", "replace")
+        except HTTPAborted:
+            return "[provider-error] codex oauth: cancelled"
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:500]
             hint = ""
@@ -260,13 +489,14 @@ def codex_oauth_completer(model: Optional[str] = None,
             elif exc.code == 403:
                 hint = " — Codex rejected the client identity or the account"
             return f"[provider-error] codex oauth HTTP {exc.code}{hint}: {detail}"
-        except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        except (urllib.error.URLError, HTTPTransportError,
+                OSError, TimeoutError) as exc:
             return f"[provider-error] codex oauth: {exc}"
         return _responses_text(raw) or "[provider-error] codex oauth: empty reply"
     return complete
 
 
-def api_completer(cfg: dict, model: Optional[str] = None) -> Completer:
+def api_completer(cfg: dict, model: Optional[str] = None, abort=None) -> Completer:
     """Anthropic/OpenAI via the existing LLMClient (single-turn, no tools)."""
     from .config import get_api_key
     from .llm import LLMError, build_client
@@ -274,11 +504,12 @@ def api_completer(cfg: dict, model: Optional[str] = None) -> Completer:
 
     def complete(prompt: str) -> str:
         try:
+            kwargs = {"abort": abort} if abort is not None else {}
             resp = client.complete(
                 system="You output only the requested JSON plan.",
                 messages=[{"role": "user", "content": [{"type": "text",
                                                          "text": prompt}]}],
-                tools=[], model=model)
+                tools=[], model=model, **kwargs)
         except LLMError as exc:
             return f"[provider-error] api: {str(exc)[:300]}"
         parts = [b.get("text", "") for b in resp.get("content", [])
@@ -321,7 +552,7 @@ HTTP_API_PROVIDERS = {
 
 
 def http_api_completer(provider: str, cfg: Optional[dict] = None,
-                       model: Optional[str] = None) -> Completer:
+                       model: Optional[str] = None, abort=None) -> Completer:
     """An OpenAI-compatible HTTP provider through the shared LLMClient.
 
     A missing key is reported in band like every other adapter here: curation
@@ -344,11 +575,12 @@ def http_api_completer(provider: str, cfg: Optional[dict] = None,
         from .llm import LLMError, build_client
         try:
             client = build_client(provider_cfg, key)
+            kwargs = {"abort": abort} if abort is not None else {}
             resp = client.complete(
                 system="You output only what the user asks for.",
                 messages=[{"role": "user",
                            "content": [{"type": "text", "text": prompt}]}],
-                tools=[], model=provider_cfg.get("model"))
+                tools=[], model=provider_cfg.get("model"), **kwargs)
         except LLMError as exc:
             return f"[provider-error] {provider}: {str(exc)[:300]}"
         parts = [b.get("text", "") for b in resp.get("content", [])
@@ -374,7 +606,7 @@ def get_completer(provider: str, *, model: Optional[str] = None,
                   cfg: Optional[dict] = None,
                   timeout: int = _CLI_TIMEOUT,
                   cwd: Optional[str] = None,
-                  schema: Optional[dict] = None) -> Completer:
+                  schema: Optional[dict] = None, abort=None) -> Completer:
     """Resolve ``provider`` (claude|codex|api|gemini|local, or the ``*-cli``
     aliases) to a ``complete(prompt) -> text`` function.
 
@@ -386,13 +618,26 @@ def get_completer(provider: str, *, model: Optional[str] = None,
     ``birkin auth codex login``."""
     p = provider.removesuffix("-cli")
     if p in ("claude", "claude-code"):
-        return claude_completer(model, timeout)
+        return (
+            claude_completer(model, timeout, abort=abort)
+            if abort is not None else claude_completer(model, timeout)
+        )
     if p == "codex":
         if codex_oauth_available():
-            return codex_oauth_completer(model, timeout, cfg=cfg, schema=schema)
-        return codex_completer(model, timeout, cwd=cwd, schema=schema)
+            return (
+                codex_oauth_completer(
+                    model, timeout, cfg=cfg, schema=schema, abort=abort)
+                if abort is not None else
+                codex_oauth_completer(model, timeout, cfg=cfg, schema=schema)
+            )
+        return (
+            codex_completer(model, timeout, cwd=cwd, schema=schema, abort=abort)
+            if abort is not None else
+            codex_completer(model, timeout, cwd=cwd, schema=schema)
+        )
     if p in ("api", "anthropic", "openai"):
-        return api_completer(cfg or {}, model)
+        return (api_completer(cfg or {}, model, abort=abort)
+                if abort is not None else api_completer(cfg or {}, model))
     if p == "gemini":
         return gemini_completer(model, timeout)
     if p in ("local", "ollama"):
@@ -400,7 +645,8 @@ def get_completer(provider: str, *, model: Optional[str] = None,
     if provider in HTTP_API_PROVIDERS:
         # Matched on the full name: `gemini-api` must not be reduced to
         # `gemini` by the ``-cli`` suffix stripping above.
-        return http_api_completer(provider, cfg, model)
+        return (http_api_completer(provider, cfg, model, abort=abort)
+                if abort is not None else http_api_completer(provider, cfg, model))
     raise ValueError(
         f"unknown curation provider {provider!r} (want: claude | codex | api "
         f"| gemini | local | {' | '.join(sorted(HTTP_API_PROVIDERS))})")

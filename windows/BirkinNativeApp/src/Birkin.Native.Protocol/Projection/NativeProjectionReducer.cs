@@ -46,6 +46,16 @@ internal static class NativeProjectionReducer
         {
             ReconcileApproval(panels, body, payload, cursor);
         }
+        else if (type == "workspace.refreshed")
+        {
+            ReplacePanel(panels, "approvals", payload, "approval_requests");
+            ReplacePanel(
+                panels,
+                "tasks_runs",
+                payload,
+                "work_items",
+                preserveNonWorkItems: true);
+        }
         else if (PanelByEvent.TryGetValue(type, out var panel))
         {
             AppendPanel(panels, panel, PanelItem(body, type, payload, cursor));
@@ -63,6 +73,39 @@ internal static class NativeProjectionReducer
             ("conversation", new NativeJsonArray(conversation)),
             ("composer", composer),
             ("terminals", new NativeJsonArray(terminals))));
+    }
+
+    private static void ReplacePanel(
+        List<NativeJsonObject> panels,
+        string panelKey,
+        NativeJsonObject payload,
+        string payloadKey,
+        bool preserveNonWorkItems = false)
+    {
+        if (payload[payloadKey] is not NativeJsonArray items)
+        {
+            return;
+        }
+        var index = panels.FindIndex(panel => String(panel, "key") == panelKey);
+        if (index < 0)
+        {
+            panels.Add(new NativeJsonObject([
+                new("key", new NativeJsonString(panelKey)),
+                new("items", items),
+            ]));
+        }
+        else
+        {
+            var values = preserveNonWorkItems
+                && panels[index]["items"] is NativeJsonArray current
+                ? current.Values.Where(value =>
+                    value is not NativeJsonObject item
+                    || OptionalString(item, "kind") != "work_item").Concat(items.Values)
+                : items.Values;
+            panels[index] = Replace(
+                panels[index],
+                ("items", new NativeJsonArray(values)));
+        }
     }
 
     private static void ApplyConversation(
@@ -174,15 +217,18 @@ internal static class NativeProjectionReducer
             new("status", new NativeJsonString(status)),
             new("cursor", new NativeJsonInteger(cursor)),
             new("kind", new NativeJsonString(kind)),
+            new("updated_at", body["timestamp"]!),
             new("ui_state", new NativeJsonString(uiState)),
         };
         foreach (var field in new[]
         {
             "requester", "description", "category", "target", "expected_impact",
+            "action",
             "rejection_result", "related_evidence", "risk", "issued_at", "expires_at",
             "receipt_ref", "snapshot_ref", "effect", "refusal_code", "session_id",
             "name", "destination", "source_filename", "authority_digest",
-            "office_phase", "job_id",
+            "office_phase", "job_id", "validation_summary",
+            "visual_validation_summary",
         })
         {
             if (OptionalString(payload, field) is { Length: > 0 } value)
@@ -195,7 +241,7 @@ internal static class NativeProjectionReducer
             foreach (var field in new[]
             {
                 "approval_id", "artifact_id", "draft_id", "diff_id",
-                "job_id", "request_command_id", "approval_command_id",
+                "request_command_id", "approval_command_id",
             })
             {
                 if (OptionalString(payload, field) is { Length: > 0 } value)
@@ -283,6 +329,8 @@ internal static class NativeProjectionReducer
                     "issued_at",
                     "expires_at",
                     "backup_exists",
+                    "validation_summary",
+                    "visual_validation_summary",
                     "effect",
                     "refusal_code",
                 ]);

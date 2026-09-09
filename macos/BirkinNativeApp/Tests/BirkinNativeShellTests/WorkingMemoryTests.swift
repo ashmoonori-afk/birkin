@@ -27,7 +27,7 @@ struct WorkingMemoryTests {
 
         let rows = WorkingMemoryPresentation(projection: projection).rows
 
-        #expect(rows.map(\.label) == ["Goals", "Context", "Files", "Constraints", "Notes"])
+        #expect(rows.map(\.label) == ["목표", "맥락", "파일", "제약 조건", "메모"])
         #expect(rows[0].values == ["Ship native"])
         #expect(rows[1].values == ["Corrected", "Use Python", "Tests are red"])
         #expect(rows[2].values == ["workspace/main.py"])
@@ -117,10 +117,10 @@ struct WorkingMemoryTests {
     @Test("clear scope and budget errors have bounded accessible copy")
     func clearAndBudgetAccessibility() throws {
         let clear = WorkingMemoryClearPresentation(sessionID: "session-1")
-        #expect(clear.title == "Clear Working Memory for session-1?")
-        #expect(clear.explanation.contains("corrections, constraints, decisions, incomplete items, evidence, and next actions"))
-        #expect(clear.explanation.contains("does not clear vault memory, workspace files, or audit history"))
-        #expect(clear.confirmAccessibilityLabel == "Clear session Working Memory only")
+        #expect(clear.title == "session-1 업무의 작업 기억을 비울까요?")
+        #expect(clear.explanation.contains("수정 사항, 제약 조건, 결정, 미완료 항목, 근거와 다음 작업"))
+        #expect(clear.explanation.contains("장기 기억, 작업공간 파일과 감사 기록은 지우지 않습니다"))
+        #expect(clear.confirmAccessibilityLabel == "이 업무의 작업 기억만 비우기")
 
         let model = WorkingMemoryEditorModel(
             authoritative: projection(revision: 7, constraints: ["Offline"])
@@ -153,7 +153,7 @@ struct WorkingMemoryTests {
             code: "E_WORKING_MEMORY_BUDGET", message: longMessage
         )
         #expect(error.message.count == 300)
-        #expect(error.accessibilityLabel.contains("20,000-character render budget"))
+        #expect(error.accessibilityLabel.contains("20,000자 표시 제한"))
         try writeEvidence(
             WorkingMemoryClearConfirmationView(presentation: clear)
                 .frame(width: 440, height: 240),

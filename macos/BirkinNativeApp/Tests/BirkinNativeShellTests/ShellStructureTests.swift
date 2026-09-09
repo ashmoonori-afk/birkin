@@ -7,15 +7,51 @@ import Testing
 
 @Suite("Adaptive native shell hierarchy")
 struct ShellStructureTests {
+    @Test("four product routes stay stable and Korean")
+    func workspaceRoutes() {
+        #expect(WorkspaceRoute.allCases.map(\.rawValue) == [
+            "conversation", "research", "documents", "approvals",
+        ])
+        #expect(WorkspaceRoute.allCases.map(\.title) == [
+            "대화", "리서치", "문서", "승인",
+        ])
+        #expect(WorkspaceRoute.resolve(
+            focus: .section(.conversation), navigationIntent: .research
+        ) == .research)
+        #expect(WorkspaceRoute.resolve(
+            focus: .section(.conversation), navigationIntent: nil
+        ) == .conversation)
+        #expect(WorkspaceRoute.resolve(
+            focus: .section(.composer), navigationIntent: nil
+        ) == .conversation)
+    }
+
+    @Test("research markdown keeps only web links")
+    @MainActor
+    func researchLinks() {
+        let source = "# 결론\n- [공식 근거](https://example.com)\n- [위험](javascript:alert(1))\n- [파일](file:///tmp/a)"
+        let sanitized = ResearchReportView.sanitizedMarkdownSource(source)
+        #expect(sanitized.contains("https://example.com"))
+        #expect(!sanitized.contains("javascript:"))
+        #expect(!sanitized.contains("file:"))
+        #expect(ResearchReportView.blocks(source + "\n```swift\nlet value = 1\n```").count == 5)
+    }
+
     @Test("shell exposes the complete three-column hierarchy without invented data")
     func completeHierarchy() throws {
         let store = NativeProjectionStore()
         let empty = ShellStructure(store: store)
 
         #expect(empty.columns.map(\.id) == [.navigation, .primary, .context])
-        #expect(empty.columns.flatMap(\.sections).map(\.id) == ShellSectionID.allCases)
+        #expect(empty.columns.flatMap(\.sections).map(\.id) == [
+            .sessions, .workingMemory,
+            .conversation, .composer, .terminal,
+            .approvals, .activity, .office, .browserAside, .computerUse,
+        ])
         #expect(empty.columns.flatMap(\.sections).allSatisfy {
-            $0.state == .empty("Waiting for the canonical projection.")
+            $0.state == .empty(NativeLocalization.string(
+                "Waiting for the canonical projection."
+            ))
         })
 
         try store.apply(snapshot: snapshot())
@@ -25,7 +61,9 @@ struct ShellStructureTests {
             .first { $0.id == .conversation }
         #expect(conversation?.state == .content(itemCount: 1))
         #expect(projected.columns.flatMap(\.sections).contains {
-            $0.state == .unavailable("Not advertised by the Python projection.")
+            $0.state == .unavailable(NativeLocalization.string(
+                "Not advertised by the Python projection."
+            ))
         })
     }
 

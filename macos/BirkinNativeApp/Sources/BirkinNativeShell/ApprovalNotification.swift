@@ -6,8 +6,8 @@ public struct ApprovalNotificationPayload: Equatable, Sendable {
     public let actions: [String]
 
     public init(approvalID: String, summary _: String) {
-        title = "Approval requested"
-        body = "Open Birkin to review this request."
+        title = "승인 요청이 도착했습니다"
+        body = "Birkin에서 요청 내용을 확인하세요."
         userInfo = ["route": "approvals", "approval_id": approvalID]
         actions = []
     }
@@ -32,12 +32,12 @@ public struct DesktopNotificationPayload: Equatable, Sendable {
     ) {
         switch category {
         case .sessionCompleted:
-            title = "Birkin session completed"
-            body = "Open Birkin to review the canonical result."
+            title = "Birkin 업무가 완료되었습니다"
+            body = "Birkin에서 최종 결과를 확인하세요."
             userInfo = ["route": "sessions", "item_id": itemID]
         case .bridgeAttention:
-            title = "Birkin needs attention"
-            body = "Open Birkin to view bounded diagnostics."
+            title = "Birkin 확인이 필요합니다"
+            body = "Birkin에서 연결 세부 정보를 확인하세요."
             userInfo = ["route": "connection", "item_id": itemID]
         }
         actions = []

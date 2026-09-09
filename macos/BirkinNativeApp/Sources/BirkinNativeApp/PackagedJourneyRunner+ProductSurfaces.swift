@@ -1,10 +1,15 @@
+import BirkinNativeProtocol
 import BirkinNativeShell
 
 extension PackagedJourneyRunner {
     func driveProductSurfaces() async throws {
         try await driveBrowser()
 
-        runtime.submit(ProductSurfaceControl.officeNew)
+        runtime.submit(ProductSurfaceControl.officeCreate(form: OfficeFormState(
+            format: "docx",
+            outputName: "birkin-document.docx",
+            content: ["paragraphs": .array([.string("Birkin 문서 작업에서 만들었습니다.")])]
+        )))
         try await nextOutcome("office.create")
         try await journeyDeadline("office create surface") { [events] in
             try await events.wait(for: "surface-applied name=office", occurrence: 2)

@@ -72,6 +72,36 @@ def test_session_rename_updates_canonical_summaries(tmp_path: Path) -> None:
     hub.close()
 
 
+def test_snapshot_lists_all_sessions_and_restores_names(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    hub = WorkspaceHub(root=root, handlers={"chat.send": lambda _p: {}})
+    first, _ = hub.create("first")
+    _second, _ = hub.create("second")
+    hub.rename(
+        _command(
+            "session.rename",
+            "rename-restored",
+            first.snapshot().cursor,
+            {"session_id": "first", "name": "주간 보고"},
+        ),
+        actor_id="windows:main",
+    )
+    sessions = next(
+        panel for panel in hub.snapshot().panels if panel.key == "sessions_history"
+    )
+    assert {item["session_id"] for item in sessions.items} == {"first", "second"}
+    hub.close()
+
+    restored = WorkspaceHub(root=root, handlers={"chat.send": lambda _p: {}})
+    restored.create("second")
+    restored.restore_existing()
+
+    assert {item["name"] for item in next(
+        panel for panel in restored.snapshot().panels if panel.key == "sessions_history"
+    ).items} == {"주간 보고", "second"}
+    restored.close()
+
+
 def test_session_compact_returns_canonical_receipt(tmp_path: Path) -> None:
     compacted: list[str] = []
 

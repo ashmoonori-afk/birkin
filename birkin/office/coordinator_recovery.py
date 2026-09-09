@@ -74,12 +74,17 @@ def _require_queue_authority(
     from .. import store
 
     record = store.get_pending(approval_id)
-    if (
-        record is None
-        or record.get("status") != "executing"
-        or record.get("category") != "office_job"
-        or record.get("payload") != payload
-    ):
+    batch_payload = record.get("payload") if isinstance(record, Mapping) else None
+    batch_plans = batch_payload.get("plans") if isinstance(batch_payload, Mapping) else None
+    owns_payload = (
+        record is not None
+        and record.get("status") == "executing"
+        and (
+            (record.get("category") == "office_job" and record.get("payload") == payload)
+            or (record.get("category") == "office_batch" and isinstance(batch_plans, list) and payload in batch_plans)
+        )
+    )
+    if not owns_payload:
         raise coordinator_error(
             DocumentErrorCode.POLICY_DENIED,
             "Office approval authority is not executing this payload",

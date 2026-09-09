@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from html.parser import HTMLParser
 from pathlib import Path
+import subprocess
 
 HTML_PATH = (
     Path(__file__).resolve().parents[1]
@@ -127,6 +128,34 @@ def test_web_workspace_does_not_inject_event_text_as_html() -> None:
     assert ".textContent" in source
     assert "insertAdjacentHTML" not in source
     assert ".innerHTML =" not in source
+
+
+def test_web_workspace_safely_renders_reports_and_links() -> None:
+    source, _ = _document()
+
+    assert "function renderSafeMarkdown(target, source)" in source
+    assert 'document.createElement("table")' in source
+    assert 'document.createElement("code")' in source
+    assert 'document.createElement(`h${heading[1].length}`)' in source
+    assert '["http:", "https:"].includes(url.protocol)' in source
+    assert 'link.rel = "noopener noreferrer"' in source
+    assert "markdownLabel || candidate" in source
+    assert "target.replaceChildren()" in source
+    assert "DOMParser" not in source
+
+    start = source.index("function safeHttpURL")
+    end = source.index("\n}\n", start) + 2
+    script = source[start:end] + "\nconsole.log(JSON.stringify([" \
+        "safeHttpURL('https://example.test/a%20b')," \
+        "safeHttpURL('http://example.test/path')," \
+        "safeHttpURL('javascript:alert(1)')," \
+        "safeHttpURL('data:text/html,attack')]))"
+    result = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == (
+        '["https://example.test/a%20b","http://example.test/path",null,null]'
+    )
 
 
 def test_web_workspace_restores_durable_conversation_and_panel_items() -> None:
@@ -263,6 +292,80 @@ def test_web_workspace_keeps_localized_controls_accessible() -> None:
     assert "textarea::placeholder" in source
     assert "summary:focus-visible" in source
     assert ".panel-more {\n    display: grid;" in source
+    assert "input:focus-visible, select:focus-visible" in source
+    assert "animation-iteration-count: 1" in source
+    assert "!event.isComposing && event.keyCode !== 229" in source
+    assert 'panelTabs.addEventListener("keydown"' in source
+    assert 'entry.tabIndex = selected ? 0 : -1' in source
+    assert "panel.inert = hidden" in source
+    assert 'panel.setAttribute("aria-hidden", String(hidden))' in source
+    assert 'setAttribute("aria-expanded", String(open))' in source
+    assert 'streamStatus.textContent = "Birkin의 응답이 완료되었습니다."' in source
+
+
+def test_web_workspace_exposes_primary_work_navigation_and_named_overflow() -> None:
+    source, document = _document()
+
+    assert {"conversation", "research", "documents", "approvals"} <= {
+        attrs.get("data-work-view")
+        for attrs in document.attributes
+        if attrs.get("data-work-view")
+    }
+    assert 'aria-label="주요 업무"' in source
+    assert 'id="recent-work"' in source
+    assert 'id="new-work"' in source
+    assert 'aria-label="부가 패널 보기"' in source
+    assert "function activateWorkView(view, trigger)" in source
+    assert "startBootstrap(session.session_id)" in source
+
+
+def test_web_workspace_discards_stale_session_bootstrap_results() -> None:
+    source, _ = _document()
+
+    assert "const generation = ++state.bootstrapGeneration" in source
+    assert source.count("generation !== state.bootstrapGeneration") >= 4
+    assert "state.source.close()" in source
+    assert "refreshLegacyPanels(generation)" in source
+    assert "expectedGeneration === state.bootstrapGeneration" in source
+
+
+def test_web_workspace_isolates_snapshots_events_and_commands_during_switch() -> None:
+    source, _ = _document()
+
+    assert "sessionId !== state.sessionId" in source
+    assert "state.source !== source || generation !== state.bootstrapGeneration" in source
+    assert "source.addEventListener(eventType, handleCurrentEvent)" in source
+    assert "clearTimeout(state.reconnectTimer)" in source
+    assert "clearInterval(state.approvalRefreshTimer)" in source
+    assert "state.switchingSession = true" in source
+    assert "state.switchingSession = false" in source
+    assert "if (state.switchingSession)" in source
+    assert "업무를 전환하는 중입니다. 입력을 유지한 채 잠시 후 다시 시도하세요." in source
+
+    failure_start = source.index("function handleBootstrapFailure")
+    failure_end = source.index("\n}", failure_start)
+    assert "switchingSession = false" not in source[failure_start:failure_end]
+
+
+def test_failed_session_switch_cannot_post_to_previous_session() -> None:
+    source, _ = _document()
+    start = source.index("async function sendCommand")
+    end = source.index("async function optionalLegacyApi", start)
+    send_command = source[start:end]
+    script = """
+const state = {switchingSession: true, sessionId: "previous", cursor: 1};
+let posts = 0;
+const api = async () => { posts += 1; };
+""" + send_command + """
+sendCommand("chat.send", {text: "keep"}).catch((error) => {
+  console.log(JSON.stringify({status: error.status, posts}));
+});
+"""
+
+    result = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, check=True,
+    )
+    assert result.stdout.strip() == '{"status":423,"posts":0}'
 
 
 def test_checkpoint_restore_success_is_not_reclassified_by_panel_refresh() -> None:

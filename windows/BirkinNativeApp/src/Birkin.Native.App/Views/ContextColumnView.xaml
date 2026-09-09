@@ -7,7 +7,7 @@
     </UserControl.Resources>
     <ScrollViewer x:Name="ContextScroll"
                   automation:AutomationProperties.AutomationId="context.scroll"
-                  automation:AutomationProperties.Name="Context panels"
+                  automation:AutomationProperties.Name="업무 상세 패널"
                   VerticalScrollBarVisibility="Auto"
                   HorizontalScrollBarVisibility="Disabled"
                   CanContentScroll="False">
@@ -32,7 +32,7 @@
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                     <TextBlock Text="&#xEA18;" FontFamily="Segoe MDL2 Assets"
                                Foreground="{StaticResource MutedBrush}" FontSize="18" Margin="0,0,9,0" />
-                    <TextBlock Text="Approvals" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="승인" Style="{StaticResource SectionTitleStyle}" />
                 </StackPanel>
                 <ItemsControl Grid.Row="1" automation:AutomationProperties.AutomationId="approvals.items" ItemsSource="{Binding Workspace.Approvals}">
                     <ItemsControl.ItemTemplate><DataTemplate>
@@ -51,18 +51,21 @@
 
         <Border x:Name="ActivityRegion" Grid.Row="2"
                 Height="220"
+                Focusable="True"
+                automation:AutomationProperties.Name="업무 진행 상황과 최근 결과"
                 automation:AutomationProperties.AutomationId="activity.landmark"
                 Style="{StaticResource CardStyle}">
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
                 <DockPanel>
-                    <Button DockPanel.Dock="Right" Content="Clear"
+                    <Button DockPanel.Dock="Right" Content="비우기"
+                            automation:AutomationProperties.Name="활동 기록 비우기"
                             Style="{StaticResource DisabledActionStyle}"
                             automation:AutomationProperties.AutomationId="activity.clear" />
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE823;" FontFamily="Segoe MDL2 Assets"
                                    Foreground="{StaticResource MutedBrush}" FontSize="18" Margin="0,0,9,0" />
-                        <TextBlock Text="Activity" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock Text="진행 상황" Style="{StaticResource SectionTitleStyle}" />
                     </StackPanel>
                 </DockPanel>
                 <Grid Grid.Row="1" Margin="0,8,0,0">
@@ -73,7 +76,13 @@
                         <ItemsControl automation:AutomationProperties.AutomationId="activity.items" ItemsSource="{Binding Workspace.Activity}">
                             <ItemsControl.ItemTemplate><DataTemplate>
                                 <Border Background="{StaticResource RaisedBrush}" CornerRadius="6" Padding="8" Margin="0,0,0,5">
-                                    <TextBlock automation:AutomationProperties.AutomationId="activity.summary" Text="{Binding Summary}" TextWrapping="Wrap" />
+                                    <StackPanel>
+                                        <TextBlock automation:AutomationProperties.AutomationId="activity.summary" Text="{Binding Summary}" TextWrapping="Wrap" />
+                                        <DockPanel Margin="0,4,0,0">
+                                            <TextBlock DockPanel.Dock="Right" Text="{Binding LastUpdatedLabel}" Style="{StaticResource MutedTextStyle}" />
+                                            <TextBlock Text="{Binding OfficePhaseLabel}" Foreground="{StaticResource AccentBrush}" FontSize="12" />
+                                        </DockPanel>
+                                    </StackPanel>
                                 </Border>
                             </DataTemplate></ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -85,7 +94,7 @@
                         </Style></Border.Style>
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="&#xE823;" Style="{StaticResource GlyphStyle}" FontSize="18" />
-                            <TextBlock Text="No recent activity" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                            <TextBlock Text="최근 진행 기록이 없습니다" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -107,7 +116,7 @@
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="&#xE774;" FontFamily="Segoe MDL2 Assets"
                                    Foreground="{StaticResource MutedBrush}" FontSize="18" Margin="0,0,9,0" />
-                        <TextBlock Text="Browser" Style="{StaticResource SectionTitleStyle}" />
+                        <TextBlock Text="브라우저" Style="{StaticResource SectionTitleStyle}" />
                     </StackPanel>
                 </DockPanel>
                 <Grid Grid.Row="1" Margin="0,8,0,0">
@@ -125,7 +134,7 @@
                         </Style></Border.Style>
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="&#xE774;" Style="{StaticResource GlyphStyle}" FontSize="18" />
-                            <TextBlock Text="No page loaded" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
+                            <TextBlock Text="열린 페이지가 없습니다" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
                 </Grid>
@@ -141,7 +150,7 @@
                 <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
                     <TextBlock Text="&#xE8A5;" FontFamily="Segoe MDL2 Assets"
                                Foreground="{StaticResource MutedBrush}" FontSize="18" Margin="0,0,9,0" />
-                    <TextBlock Text="Office" Style="{StaticResource SectionTitleStyle}" />
+                    <TextBlock Text="문서 작업" Style="{StaticResource SectionTitleStyle}" />
                 </StackPanel>
                 <ContentControl x:Name="OfficeHost" Grid.Row="1" />
             </Grid>

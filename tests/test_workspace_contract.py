@@ -165,6 +165,15 @@ def test_terminal_surface_forwards_office_progress(tmp_path: Path) -> None:
     assert observed[0][0] == "office.inspection"
     assert observed[0][1]["office_phase"] == "inspection"
     assert observed[0][1]["job_id"] == "job-progress"
+    activity = next(
+        panel for panel in session.service.snapshot().panels
+        if panel.key == "activity_logs"
+    )
+    progress = next(
+        item for item in activity.items
+        if item.get("office_phase") == "inspection"
+    )
+    assert isinstance(progress["updated_at"], str)
 
 
 def test_terminal_surface_renders_all_office_progress_phases(

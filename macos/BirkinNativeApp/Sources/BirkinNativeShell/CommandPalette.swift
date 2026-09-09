@@ -68,17 +68,17 @@ public struct CommandPaletteView: View {
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            TextField("Search advertised commands", text: $query)
+            TextField("사용 가능한 명령 검색", text: $query)
                 .textFieldStyle(.plain)
                 .padding(14)
                 .focused($searchFocused)
-                .accessibilityLabel("Command palette search")
+                .accessibilityLabel("명령 검색")
             Divider()
             if model.items.isEmpty {
                 VStack(spacing: 8) {
-                    Label("No Commands Available", systemImage: "command")
+                    Label("사용 가능한 명령이 없습니다", systemImage: "command")
                         .font(.headline)
-                    Text("Python advertised no command handlers.")
+                    Text("현재 Python 서비스에서 제공하는 명령이 없습니다.")
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -101,13 +101,13 @@ public struct CommandPaletteView: View {
                     .accessibilityLabel(item.title)
                     .accessibilityValue(item.commandType)
                 }
-                .accessibilityLabel("Advertised commands")
+                .accessibilityLabel("사용 가능한 명령")
             }
         }
         .frame(minWidth: 480, idealWidth: 560, minHeight: 360, idealHeight: 440)
         .onAppear { searchFocused = true }
         .onExitCommand { dismiss() }
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Command palette")
+        .accessibilityLabel("명령 팔레트")
     }
 }

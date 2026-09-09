@@ -23,7 +23,10 @@ struct OfficeControlTests {
 
         try await withTimeout("runtime start") { await runtime.start() }
 
-        runtime.submit(ProductSurfaceControl.officeNew)
+        runtime.submit(ProductSurfaceControl.officeCreate(form: OfficeFormState(
+            format: "docx", outputName: "검토-문서.docx",
+            content: ["paragraphs": .array([.string("검토할 내용")])]
+        )))
         try await withTimeout("office approval request") {
             try await events.wait(for: "projection-event type=approval.requested")
         }

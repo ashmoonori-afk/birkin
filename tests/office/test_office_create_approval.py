@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
+import zipfile
 from pathlib import Path
 from typing import cast
 
 import pytest
 from docx import Document
+from openpyxl import load_workbook
+from pptx import Presentation
 
 from birkin import approvals, store
 from birkin.office import create_execution
@@ -98,7 +102,7 @@ def test_creation_request_queues_approval_without_writing_docx(
     assert not list((office_home / "artifacts" / "drafts").iterdir())
 
 
-def test_mixed_format_creation_returns_clarification_question(
+def test_source_xlsx_and_target_docx_queue_one_creation_approval(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -129,10 +133,9 @@ def test_mixed_format_creation_returns_clarification_question(
         },
     )
 
-    assert result.is_error is True
-    error = cast("dict[str, object]", json.loads(cast(str, result.content)))
-    details = cast("dict[str, object]", error["error"])
-    assert details["message"] == "어느 포맷으로 저장할까요?"
+    assert result.is_error is False
+    body = cast("dict[str, object]", json.loads(cast(str, result.content)))
+    assert body["category"] == "office_create"
     assert not destination.exists()
 
 
@@ -220,6 +223,150 @@ def test_approved_creation_writes_real_docx_and_hash_receipt(
     journal = CreationJobJournal(office_home).latest(cast(str, receipt["job_id"]))
     assert journal["state"] == "exported"
     assert journal["export"] == exported
+
+
+def test_approved_business_template_creation_preserves_reviewed_structure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    (home / "office").mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    destination = caller / "weekly.docx"
+    registry = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:template"),
+        include={"documents"},
+    )
+    proposed = registry.execute("office_job_request", {
+        "request": "주간보고를 DOCX로 만들어 주세요.",
+        "format": "docx",
+        "content": {"business_template": {
+            "name": "weekly_report",
+            "version": "1.0",
+            "values": {
+                "title": "주간 보고",
+                "period": "2026-09-01 ~ 2026-09-05",
+                "summary": "계획 완료",
+                "achievements": ["검증 완료"],
+                "metrics": [["항목", "값"], ["완료", "3"]],
+            },
+            "sources": {"summary": "user://request"},
+        }},
+        "outcome": "주간보고 작성",
+        "destination": str(destination),
+    })
+    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
+    assert proposed.is_error is False, body
+
+    result = approvals.approve(
+        cast(str, body["id"]),
+        approved_by="human:template-reviewer",
+        approved_via="test:business-template",
+    )
+
+    assert result["ok"] is True, result
+    reopened = Document(str(destination))
+    assert reopened.paragraphs[0].text == "주간 보고"
+    assert reopened.tables[0].cell(1, 1).text == "3"
+
+
+@pytest.mark.parametrize(
+    ("format_name", "content", "request_text"),
+    [
+        ("xlsx", {"sheets": [{"name": "Summary", "rows": [["Metric", "Value"], ["Revenue", 42]]}]}, "매출표를 XLSX로 만들어 주세요."),
+        ("pptx", {"slides": [{"title": "Quarterly", "body": "Revenue 42"}]}, "발표자료를 PPTX로 만들어 주세요."),
+        ("hwpx", {"paragraphs": ["업무 보고", "완료 42"]}, "업무 보고를 HWPX로 만들어 주세요."),
+    ],
+)
+def test_non_docx_creation_uses_the_full_approval_and_receipt_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    format_name: str,
+    content: dict[str, object],
+    request_text: str,
+) -> None:
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    (home / "office").mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    destination = caller / f"approved.{format_name}"
+    registry = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:multi-format"),
+        include={"documents"},
+    )
+    proposed = registry.execute("office_job_request", {
+        "request": request_text,
+        "format": format_name,
+        "content": content,
+        "outcome": f"Create {format_name}",
+        "destination": str(destination),
+    })
+    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
+    assert proposed.is_error is False, body
+    assert not destination.exists()
+
+    result = approvals.approve(
+        cast(str, body["id"]),
+        approved_by="human:format-reviewer",
+        approved_via="test:multi-format",
+    )
+
+    assert result["ok"] is True, result
+    receipt = cast("dict[str, object]", json.loads(cast(str, result["result"])))
+    assert cast("dict[str, object]", receipt["creation"])["format"] == format_name
+    assert cast("dict[str, object]", receipt["export"])["output_sha256"] == _sha256(destination)
+    if format_name == "xlsx":
+        assert load_workbook(destination, read_only=True)["Summary"].cell(2, 2).value == 42
+    elif format_name == "pptx":
+        assert Presentation(str(destination)).slides[0].shapes.title.text == "Quarterly"
+    else:
+        with zipfile.ZipFile(destination) as archive:
+            assert b"42" in archive.read("Contents/section0.xml")
+
+
+@pytest.mark.skipif(
+    not Path("C:/Windows/Fonts/malgun.ttf").exists(),
+    reason="Windows Korean font validation requires Malgun Gothic",
+)
+def test_korean_pdf_creation_uses_full_approval_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    incoming = home / "office" / "artifacts" / "incoming"
+    incoming.mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    font = incoming / "malgun.ttf"
+    _ = shutil.copy2("C:/Windows/Fonts/malgun.ttf", font)
+    destination = caller / "approved.pdf"
+    registry = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:pdf"),
+        include={"documents"},
+    )
+    proposed = registry.execute("office_job_request", {
+        "request": "한글 보고서를 PDF로 만들어 주세요.",
+        "format": "pdf",
+        "content": {
+            "paragraphs": ["한글 보고서 English 42"],
+            "table": [["항목", "값"], ["합계", "42"]],
+            "font": {"uri": str(font), "content_hash": _sha256(font)},
+        },
+        "outcome": "PDF 보고서 작성",
+        "destination": str(destination),
+    })
+    body = cast("dict[str, object]", json.loads(cast("str", proposed.content)))
+    assert proposed.is_error is False, body
+    result = approvals.approve(
+        cast("str", body["id"]),
+        approved_by="human:pdf-reviewer",
+        approved_via="test:pdf",
+    )
+    assert result["ok"] is True, result
+    assert destination.read_bytes().startswith(b"%PDF-")
 
 
 def test_creation_execution_is_denied_outside_the_approval_queue(

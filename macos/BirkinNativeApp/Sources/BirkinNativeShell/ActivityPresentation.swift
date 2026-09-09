@@ -69,9 +69,9 @@ public struct ActivityPresentation: Equatable, Sendable, Identifiable {
     }
 
     private static let detailFields: [(String, String)] = [
-        ("target", "Target"), ("status", "Status"),
-        ("effect", "Effect"), ("receipt_ref", "Receipt"),
-        ("snapshot_ref", "Snapshot"), ("refusal_code", "Refusal"),
+        ("target", "대상"), ("status", "상태"),
+        ("effect", "변경 결과"), ("receipt_ref", "영수증"),
+        ("snapshot_ref", "스냅샷"), ("refusal_code", "거부 사유"),
     ]
 }
 
@@ -120,7 +120,7 @@ public struct ActivityListView: View {
                 .accessibilityLabel(NativeLocalization.string(
                     "Hide read activity"
                 ))
-                .accessibilityHint("Filters this view only and is not saved")
+                .accessibilityHint("현재 화면에만 적용되며 저장되지 않습니다")
             ForEach(filter.presentations(items)) { item in
                 VStack(alignment: .leading, spacing: 4) {
                     Button {
@@ -157,11 +157,11 @@ public struct ActivityListView: View {
 
     private func accessibilityLabel(_ kind: ActivityKind) -> String {
         switch kind {
-        case .tool: "Tool activity"
-        case .receipt: "Activity receipt"
-        case .failure: "Activity failure"
-        case .integrityWarning: "Activity integrity warning"
-        case .other: "Activity item"
+        case .tool: "도구 작업"
+        case .receipt: "작업 영수증"
+        case .failure: "작업 실패"
+        case .integrityWarning: "작업 무결성 경고"
+        case .other: "작업 항목"
         }
     }
 }

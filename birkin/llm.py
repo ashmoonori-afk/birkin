@@ -1,4 +1,4 @@
-"""Provider-agnostic LLM client built on the standard library only.
+"""Provider-agnostic LLM client with synchronous provider contracts.
 
 The *canonical* message format used throughout birkin is the Anthropic
 Messages content-block shape::
@@ -14,7 +14,8 @@ where a block is one of::
 The Anthropic provider speaks this natively (with SSE streaming). The OpenAI
 provider adapts to/from chat-completions function calling (non-streaming).
 
-No third-party packages: requests are made with ``urllib.request``.
+Normal requests use ``urllib.request``. Abortable HTTP requests use the shared
+HTTPX transport so an in-flight request can be cancelled and closed.
 """
 
 from __future__ import annotations
@@ -285,7 +286,8 @@ class LLMClient:
         elif self.provider == "local-cli":
             text, streamed = self._run_local_cli(prompt, abort), False
         else:  # codex-cli — output captured from a file only after exit
-            text, streamed = self._run_codex(prompt, model, abort), False
+            prompt = self._flatten("", messages)
+            text, streamed = self._run_codex(prompt, model, abort, system), False
         if on_text and text and not streamed:
             on_text(text)
         return {"role": "assistant",
@@ -488,7 +490,8 @@ class LLMClient:
                 return out, False
         return f"[birkin] Claude Code error: {(stderr or '').strip()[:400]}", False
 
-    def _run_codex(self, prompt: str, model: Optional[str], abort=None) -> str:
+    def _run_codex(self, prompt: str, model: Optional[str], abort=None,
+                   system: str = "") -> str:
         # Discrete argv (no shell=True). `-o` writes ONLY the final assistant
         # message to a file. By default codex uses its own policy
         # (workspace-write); "full" bypasses approvals + sandbox entirely.
@@ -497,11 +500,14 @@ class LLMClient:
         from .proc import cli_argv
         fd, path = tempfile.mkstemp(suffix="-codex.txt")
         os.close(fd)
-        parts = ["codex", "exec", "--skip-git-repo-check", "--color", "never"]
+        parts = ["codex", "exec", "--skip-git-repo-check", "--ephemeral",
+                 "--color", "never"]
+        if system:
+            parts += ["-c", f"developer_instructions={json.dumps(system, ensure_ascii=False)}"]
         if self.cli_access == "full":
             parts.append("--dangerously-bypass-approvals-and-sandbox")
         elif self.cli_access == "read-only":
-            parts += ["--sandbox", "read-only", "--ephemeral",
+            parts += ["--sandbox", "read-only",
                       "--ignore-user-config", "--ignore-rules",
                       "-c", "sandbox_workspace_write.network_access=false"]
         else:
@@ -581,7 +587,12 @@ class LLMClient:
     # -- HTTP --------------------------------------------------------------
 
     def _post(self, url: str, headers: dict[str, str], payload: dict[str, Any],
-              *, stream: bool, timeout: float = 300.0):
+              *, stream: bool, timeout: float = 300.0, abort=None,
+              on_line=None):
+        from .http_transport import (
+            HTTPAborted, HTTPTransportError, open_no_redirect, post, wait,
+        )
+
         data = json.dumps(payload).encode("utf-8")
         last_exc: Exception | None = None
 
@@ -609,12 +620,43 @@ class LLMClient:
             else:
                 print(f"[birkin] {why} — retrying in {backoff}s "
                       f"({attempt + 2}/4)", flush=True)
-            time.sleep(backoff)
+            if abort is None:
+                time.sleep(backoff)
+            else:
+                try:
+                    wait(backoff, abort)
+                except HTTPAborted as exc:
+                    raise LLMError("request cancelled", kind="aborted") from exc
 
         for attempt in range(4):
             req = urllib.request.Request(url, data=data, headers=headers, method="POST")
             try:
-                resp = urllib.request.urlopen(req, timeout=timeout)
+                if abort is None:
+                    resp = open_no_redirect(req, timeout=timeout)
+                else:
+                    resp = post(
+                        url, headers=headers, data=data, timeout=timeout,
+                        abort=abort, on_line=on_line,
+                    )
+                    if resp.status >= 300:
+                        body = resp.read().decode("utf-8", "replace")
+                        kind = _kind_for_status(resp.status, body)
+                        if resp.status in (429, 500, 502, 503, 529) and attempt < 3:
+                            _wait(
+                                f"rate-limited (HTTP {resp.status})"
+                                if resp.status == 429
+                                else f"server error (HTTP {resp.status})",
+                                kind, attempt, http_status=resp.status,
+                            )
+                            last_exc = LLMError(
+                                f"HTTP {resp.status}",
+                                status=resp.status, kind=kind,
+                            )
+                            continue
+                        raise LLMError(
+                            f"HTTP {resp.status}",
+                            status=resp.status, kind=kind,
+                        )
                 return resp  # caller reads (stream) or .read()
             except urllib.error.HTTPError as exc:
                 body = exc.read().decode("utf-8", "replace")
@@ -646,6 +688,14 @@ class LLMClient:
                     continue
                 raise LLMError(f"network error: {exc.reason}",
                                kind="network") from exc
+            except HTTPAborted:
+                raise LLMError("request cancelled", kind="aborted")
+            except HTTPTransportError as exc:
+                if not exc.response_started and attempt < 3:
+                    _wait("network error", "network", attempt)
+                    last_exc = LLMError(f"network error: {exc}", kind="network")
+                    continue
+                raise LLMError(f"network error: {exc}", kind="network") from exc
         raise last_exc or LLMError("request failed")
 
     # -- Anthropic ---------------------------------------------------------
@@ -701,8 +751,35 @@ class LLMClient:
             t[-1]["cache_control"] = {"type": "ephemeral"}  # cache the tool list too
             payload["tools"] = t
 
-        resp = self._post(url, headers, payload, stream=True)
-        result = self._read_anthropic_stream(resp, on_text, abort)
+        live_text = None
+        if abort is not None and on_text is not None:
+            def live_text(raw: bytes) -> None:
+                line = raw.decode("utf-8", "replace").strip()
+                if not line.startswith("data:"):
+                    return
+                try:
+                    event = json.loads(line[len("data:"):].strip())
+                except json.JSONDecodeError:
+                    return
+                delta = event.get("delta", {})
+                if event.get("type") == "content_block_delta" \
+                        and delta.get("type") == "text_delta":
+                    piece = delta.get("text", "")
+                    if piece:
+                        on_text(piece)
+        try:
+            post_kwargs = ({"abort": abort, "on_line": live_text}
+                           if abort is not None else {})
+            resp = self._post(
+                url, headers, payload, stream=True, **post_kwargs,
+            )
+        except LLMError as exc:
+            if exc.kind == "aborted":
+                return {"role": "assistant", "content": [],
+                        "stop_reason": "aborted"}
+            raise
+        result = self._read_anthropic_stream(
+            resp, None if live_text is not None else on_text, abort)
         if self.oauth:
             # Strip the mcp_ prefix so the agent's registry dispatches normally.
             # Rebuild immutably — a caller (retry/audit) may still hold the
@@ -787,7 +864,7 @@ class LLMClient:
             elif etype == "error":
                 msg = event.get("error", {}).get("message", "stream error")
                 raise LLMError(
-                    f"anthropic stream error: {msg}",
+                    "anthropic stream error",
                     kind="overflow" if _looks_like_overflow(msg) else "server")
             # message_start / message_stop / ping: ignored
 
@@ -824,13 +901,46 @@ class LLMClient:
             # Anthropic path) — a text-only turn is the common case; tool
             # calls still stream and are reassembled by index.
             payload["stream"] = True
-            resp = self._post(url, headers, payload, stream=True)
-            return self._read_openai_stream(resp, on_text, abort)
-        resp = self._post(url, headers, payload, stream=False)
+            live_text = None
+            if abort is not None:
+                def live_text(raw: bytes) -> None:
+                    line = raw.decode("utf-8", "replace").strip()
+                    if not line.startswith("data:"):
+                        return
+                    try:
+                        event = json.loads(line[len("data:"):].strip())
+                    except json.JSONDecodeError:
+                        return
+                    choices = event.get("choices") or []
+                    piece = choices[0].get("delta", {}).get("content") \
+                        if choices else None
+                    if piece:
+                        on_text(piece)
+            try:
+                post_kwargs = ({"abort": abort, "on_line": live_text}
+                               if abort is not None else {})
+                resp = self._post(
+                    url, headers, payload, stream=True, **post_kwargs,
+                )
+            except LLMError as exc:
+                if exc.kind == "aborted":
+                    return {"role": "assistant", "content": [],
+                            "stop_reason": "aborted"}
+                raise
+            return self._read_openai_stream(
+                resp, None if live_text is not None else on_text, abort)
+        try:
+            post_kwargs = {"abort": abort} if abort is not None else {}
+            resp = self._post(url, headers, payload, stream=False, **post_kwargs)
+        except LLMError as exc:
+            if exc.kind == "aborted":
+                return {"role": "assistant", "content": [],
+                        "stop_reason": "aborted"}
+            raise
         body = json.loads(resp.read().decode("utf-8", "replace"))
         choices = body.get("choices") or []
         if not choices:  # content-filter / billing block / odd 3rd-party server
-            raise LLMError(f"OpenAI response had no choices: {str(body)[:300]}")
+            raise LLMError("OpenAI response had no choices")
         choice = choices[0]
         msg = choice.get("message", {})
         from . import reasoning as _reasoning  # local import avoids cycles
@@ -887,6 +997,11 @@ class LLMClient:
                 event = json.loads(data)
             except json.JSONDecodeError:
                 continue
+            if not isinstance(event, dict):
+                continue
+            if event.get("error") or event.get("type") in {
+                    "error", "response.failed", "response.incomplete"}:
+                raise LLMError("model stream failed", kind="server")
             choices = event.get("choices") or []
             if not choices:
                 continue
@@ -895,7 +1010,8 @@ class LLMClient:
             piece = delta.get("content")
             if piece:
                 text_parts.append(piece)
-                on_text(piece)
+                if on_text:
+                    on_text(piece)
             for _rkey in ("reasoning", "reasoning_content"):
                 _rpiece = delta.get(_rkey)
                 if _rpiece:

@@ -212,7 +212,7 @@ def test_every_auth_request_announces_itself_as_the_codex_cli(home, monkeypatch)
         captured["headers"] = dict(req.headers)
         return FakeResponse()
 
-    monkeypatch.setattr(codex_oauth.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr("birkin.http_transport.open_no_redirect", fake_urlopen)
     codex_oauth._post(codex_oauth._DEVICE_CODE_URL, payload={"client_id": "x"})
 
     # urllib title-cases header keys it is given.

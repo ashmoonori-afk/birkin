@@ -221,6 +221,10 @@ def test_office_projection_create_and_secure_open_stay_in_service_jail(
     monkeypatch.setenv("BIRKIN_HOME", str(product.office.service.home.parent))
     artifact = approved_docx(product.office.service.home)
     opened = handlers["office.open"]({"artifact": artifact})
+    reopened = product.office.open_registered_uri(artifact["uri"])
+    assert _object(reopened["receipt"])["source_sha256"] == artifact["content_hash"]
+    with pytest.raises(ValueError, match="등록되어 있지 않습니다"):
+        product.office.open_registered_uri(str(tmp_path / "unknown.docx"))
     selected = handlers["office.select"]({"artifact_id": artifact["artifact_id"]})
     assert selected["selected_artifact_id"] == artifact["artifact_id"]
     payload = product.snapshots({"office": 0})[0].payload
@@ -240,7 +244,7 @@ def test_office_projection_create_and_secure_open_stay_in_service_jail(
     assert documents[0]["artifact_id"] == artifact["artifact_id"]
     assert _object(documents[0]["provenance"])["content_hash"] == artifact["content_hash"]
     assert documents[0]["active_content"] == []
-    assert [item["operation"] for item in receipts] == ["document_open"]
+    assert [item["operation"] for item in receipts] == ["document_open", "document_open"]
     with pytest.raises(DocumentError):
         _ = handlers["office.open"]({
             "artifact": {

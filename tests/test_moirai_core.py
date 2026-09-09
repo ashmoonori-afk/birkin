@@ -240,6 +240,26 @@ def main(m):
     assert outcome["agents"] == 2
 
 
+def test_agent_spawn_receives_run_abort_event_when_supported(tmp_path):
+    abort = threading.Event()
+    captured = {}
+
+    def spawn(prompt, binding, opts, cfg, *, timeout=900.0, abort=None):
+        captured["abort"] = abort
+        return "done"
+
+    script = moirai.load_script(_write(tmp_path, '''
+meta = {"name": "abort-forward", "roles": {"w": {"default": "codex:x"}}}
+
+def main(m):
+    return m.agent("work", role="w")
+'''))
+    outcome = moirai.run_script(script, cfg={}, spawn=spawn, abort=abort)
+
+    assert outcome["status"] == "completed"
+    assert captured["abort"] is abort
+
+
 def test_an_explicit_provider_on_the_call_overrides_the_role(tmp_path):
     calls = []
     p = _write(tmp_path, '''
@@ -381,6 +401,75 @@ def main(m):
     out = moirai.run_script(moirai.load_script(p), cfg={})
     assert out["result"] is None            # refused, run survives
     assert "M3" in journal.run_calls(out["run_id"])[0]["error"]
+
+
+def test_research_search_keeps_safe_query_url_without_hiding_failure(
+    tmp_path, monkeypatch,
+):
+    from birkin.tools import web
+
+    calls = 0
+
+    def search(query, count, ctx):
+        nonlocal calls
+        calls += 1
+        return {
+            "status": "rate_limited",
+            "results": [
+                {"url": "https://unicode.org/reports/tr39",
+                 "discovery_method": "query_url"},
+                {"url": "https://example.org/untrusted",
+                 "discovery_method": "search_backend"},
+                {"url": "https://127.0.0.1/private",
+                 "discovery_method": "query_url"},
+            ],
+        }
+
+    monkeypatch.setattr(web, "research_search", search)
+    script = moirai.load_script(_write(tmp_path, '''
+meta = {"name": "research-failure"}
+
+def main(m):
+    return m.research_search("site:unicode.org/reports/tr39 confusables")
+'''))
+    first = moirai.run_script(script, cfg={})
+    second = moirai.run_script(script, cfg={}, resume_from=first["run_id"])
+
+    expected = [{"url": "https://unicode.org/reports/tr39",
+                 "discovery_method": "query_url"}]
+    assert first["result"] == second["result"] == expected
+    assert calls == 2
+    saved = json.loads(journal.get_run(first["run_id"])["result_json"])
+    assert saved["failures"][0]["error"] == "rate_limited"
+
+
+def test_research_no_results_reuses_safe_query_url(tmp_path, monkeypatch):
+    from birkin.tools import web
+
+    calls = 0
+
+    def search(query, count, ctx):
+        nonlocal calls
+        calls += 1
+        return {
+            "status": "no_results",
+            "results": [{"url": "https://sqlite.org/wal.html",
+                         "discovery_method": "query_url"}],
+        }
+
+    monkeypatch.setattr(web, "research_search", search)
+    script = moirai.load_script(_write(tmp_path, '''
+meta = {"name": "research-empty"}
+
+def main(m):
+    return m.research_search("site:sqlite.org/wal.html concurrency")
+'''))
+    first = moirai.run_script(script, cfg={})
+    second = moirai.run_script(script, cfg={}, resume_from=first["run_id"])
+
+    assert second["result"] == first["result"]
+    assert second["result"][0]["url"] == "https://sqlite.org/wal.html"
+    assert calls == 1
 
 
 # ---------------- journal + resume ----------------------------------------

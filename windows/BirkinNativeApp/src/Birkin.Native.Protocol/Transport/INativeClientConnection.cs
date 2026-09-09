@@ -18,5 +18,7 @@ public interface INativeClientConnection : IAsyncDisposable
         NativeCommandRequest request,
         CancellationToken cancellationToken) =>
         throw new NativeProtocolError("E_STATE", "connection does not own command result correlation");
+    ValueTask SwitchSessionAsync(string sessionId, CancellationToken cancellationToken) =>
+        throw new NativeProtocolError("E_STATE", "connection does not support session switching");
     ValueTask<NativeEnvelope> ReceiveAsync(CancellationToken cancellationToken);
 }

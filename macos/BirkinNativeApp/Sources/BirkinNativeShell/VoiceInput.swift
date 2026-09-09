@@ -66,13 +66,13 @@ public struct VoiceInputControl: View {
                 beginCapture()
             } label: {
                 Label(
-                    model.isListening ? "Listening" : "Push to talk",
+                    model.isListening ? "듣는 중" : "눌러서 말하기",
                     systemImage: model.isListening ? "waveform" : "mic"
                 )
             }
-            .accessibilityLabel("Start voice input")
-            .accessibilityValue(model.isListening ? "Listening" : "Idle")
-            .accessibilityHint("Transcription is inserted into the editable draft and is not sent")
+            .accessibilityLabel("음성 입력 시작")
+            .accessibilityValue(model.isListening ? "듣는 중" : "대기 중")
+            .accessibilityHint("받아쓴 내용은 편집 가능한 초안에 추가되며 자동으로 보내지지 않습니다")
         }
     }
 }

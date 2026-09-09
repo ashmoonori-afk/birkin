@@ -13,7 +13,7 @@ from .approved_package_provenance import (
     RFC8785,
     XLSXWRITER,
 )
-from .candidate_package_provenance import REPORTLAB
+from .approved_package_provenance import REPORTLAB
 from .operation_provenance import (
     PDF_OPERATIONS,
     SECURITY_LIMIT,

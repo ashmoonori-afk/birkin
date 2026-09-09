@@ -44,7 +44,7 @@ struct BirkinApplicationOwnedBridgeTests {
             return
         }
         #expect(reason.hasPrefix("code=embedded_helper_missing"))
-        #expect(ConnectionPresentation(state: runtime.connectionState).actionLabel == "Retry")
+        #expect(ConnectionPresentation(state: runtime.connectionState).actionLabel == "다시 시도")
 
         restored = true
         let connected = Task { try await events.wait(for: "connected transport=uds") }

@@ -25,13 +25,14 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import config, cronexpr, monitor, store
 
 CRON_SCHEMA_VERSION = 1
-_ACTION_TYPES = {"prompt", "shell", "monitor"}
+_ACTION_TYPES = {"prompt", "shell", "monitor", "briefing"}
 _SCHEDULE_KINDS = {"daily", "interval", "once", "cron"}
 _COMMON_JOB_FIELDS = {
     "schema_version", "id", "name", "hour", "minute", "type", "value",
@@ -248,10 +249,20 @@ def compute_next_run(schedule: dict[str, Any],
     # daily
     hour = int(schedule.get("hour", 9))
     minute = int(schedule.get("minute", 0))
-    candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    if candidate <= now:
+    timezone_name = schedule.get("timezone")
+    if timezone_name is not None:
+        try:
+            zone = ZoneInfo(str(timezone_name))
+        except ZoneInfoNotFoundError as exc:
+            raise CronFormatError("$.schedule.timezone: unknown timezone") from exc
+        local_now = now.astimezone(zone)
+        candidate = local_now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    else:
+        local_now = now
+        candidate = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if candidate <= local_now:
         candidate += timedelta(days=1)
-    return candidate.isoformat(timespec="seconds")
+    return (candidate.astimezone(timezone.utc) if timezone_name is not None else candidate).isoformat(timespec="seconds")
 
 
 def schedule_display(job: dict[str, Any]) -> str:
@@ -292,7 +303,7 @@ def _validate_schedule(schedule: Any, path: str) -> dict[str, Any]:
     if kind not in _SCHEDULE_KINDS:
         raise CronFormatError(f"{path}.kind: unsupported value {kind!r}")
     allowed = {
-        "daily": {"kind", "display", "hour", "minute"},
+        "daily": {"kind", "display", "hour", "minute", "timezone"},
         "interval": {"kind", "display", "minutes"},
         "once": {"kind", "display", "run_at"},
         "cron": {"kind", "display", "expr"},
@@ -563,6 +574,38 @@ def remove_job(job_id: str) -> bool:
     return True
 
 
+def set_enabled(job_id: str, enabled: bool) -> bool:
+    with store.file_lock(config.cron_path()):
+        jobs = _load_jobs_unlocked(persist_migration=True)
+        found = False
+        for job in jobs:
+            if job.get("id") == job_id:
+                job["enabled"] = enabled
+                found = True
+        if found:
+            save_jobs(jobs)
+        return found
+
+
+def skip_next(job_id: str, now: datetime | None = None) -> bool:
+    now = now or datetime.now(timezone.utc)
+    with store.file_lock(config.cron_path()):
+        jobs = _load_jobs_unlocked(persist_migration=True)
+        job = next((item for item in jobs if item.get("id") == job_id), None)
+        if job is None or not isinstance(job.get("schedule"), dict):
+            return False
+        scheduled = _parse_dt(job.get("next_run"))
+        if scheduled is not None and scheduled.tzinfo is not None and now.tzinfo is None:
+            now = now.astimezone()
+        elif scheduled is not None and scheduled.tzinfo is None and now.tzinfo is not None:
+            now = now.astimezone().replace(tzinfo=None)
+        anchor = scheduled if scheduled is not None and scheduled > now else now
+        job["last_run"] = anchor.isoformat(timespec="seconds")
+        job["next_run"] = compute_next_run(job["schedule"], last=anchor, now=anchor)
+        save_jobs(jobs)
+        return True
+
+
 def mark_ran(job_id: str) -> None:
     now = datetime.now().isoformat(timespec="seconds")
     with store.file_lock(config.cron_path()):
@@ -633,7 +676,11 @@ def _schedule_due(job: dict[str, Any], now: datetime) -> bool:
         # One run per calendar day, then fall through to the armed next_run:
         # comparing only (hour, minute) ignores the date, so a job created
         # after today's clock time fired immediately instead of tomorrow.
-        if (job.get("last_run") or "")[:10] == date.today().isoformat():
+        timezone_name = schedule.get("timezone")
+        today = now.astimezone(ZoneInfo(str(timezone_name))).date() if timezone_name and now.tzinfo else now.date()
+        last = _parse_dt(job.get("last_run"))
+        last_date = last.astimezone(ZoneInfo(str(timezone_name))).date() if last and timezone_name and last.tzinfo else last.date() if last else None
+        if last_date == today:
             return False
     next_run = job.get("next_run")
     if not next_run:      # hand-edited, or written by an older birkin
@@ -645,7 +692,12 @@ def _schedule_due(job: dict[str, Any], now: datetime) -> bool:
         if not next_run:
             return False
     try:
-        return datetime.fromisoformat(next_run) <= now
+        scheduled = datetime.fromisoformat(next_run)
+        if scheduled.tzinfo is not None and now.tzinfo is None:
+            now = now.astimezone()
+        elif scheduled.tzinfo is None and now.tzinfo is not None:
+            now = now.astimezone().replace(tzinfo=None)
+        return scheduled <= now
     except (TypeError, ValueError):
         return False
 

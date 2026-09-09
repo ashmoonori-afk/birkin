@@ -13,7 +13,16 @@ struct Phase12VisualReferenceTests {
         let session = NativeReadySession(
             instanceID: "instance-12", serverVersion: "1.0", sessionCapability: "token",
             capabilityExpiresAt: now.addingTimeInterval(60),
-            capabilityHardExpiresAt: now.addingTimeInterval(120)
+            capabilityHardExpiresAt: now.addingTimeInterval(120),
+            supportedCommands: [
+                "session.create", "chat.send", "approval.answer",
+                "office.create", "office.select", "office.open",
+                "computer.answer", "computer.execute",
+            ],
+            sessionPresets: [NativeSessionPreset(
+                id: "research", name: "리서치", prefill: "다음 주제를 조사해 주세요:\n",
+                persistent: false, order: 0
+            )]
         )
         try snapshot(
             NativeShellView(store: NativeProjectionStore(), connectionState: .ready(session), now: now),
@@ -32,6 +41,38 @@ struct Phase12VisualReferenceTests {
                 initialColumn: .navigation
             ),
             named: "session-list.png", size: NSSize(width: 860, height: 900)
+        )
+        try snapshot(
+            NativeShellView(
+                store: store, connectionState: .ready(session), now: now,
+                initialColumn: .primary, initialRoute: .conversation
+            ),
+            named: "redesign-workspace-1500x940.png", size: NSSize(width: 1_500, height: 940)
+        )
+        try snapshot(
+            NativeShellView(
+                store: store, connectionState: .ready(session), now: now,
+                initialColumn: .primary, initialRoute: .approvals
+            ),
+            named: "redesign-review-1024x768.png", size: NSSize(width: 1_024, height: 768)
+        )
+        try snapshot(
+            NativeShellView(
+                store: store, connectionState: .ready(session), now: now,
+                initialColumn: .primary, initialRoute: .research
+            ),
+            named: "redesign-research-narrow.png", size: NSSize(width: 700, height: 760)
+        )
+        try snapshot(
+            NativeShellView(
+                store: store, connectionState: .ready(session), now: now,
+                initialColumn: .primary, initialRoute: .documents
+            ),
+            named: "redesign-documents-1024x768.png", size: NSSize(width: 1_024, height: 768)
+        )
+        #expect(
+            try Data(contentsOf: evidenceURL("redesign-review-1024x768.png"))
+                != Data(contentsOf: evidenceURL("redesign-documents-1024x768.png"))
         )
         let projection = try #require(store.projection)
         try snapshot(
@@ -87,20 +128,17 @@ struct Phase12VisualReferenceTests {
 
     @MainActor
     private func snapshot<V: View>(_ view: V, named: String, size: NSSize) throws {
-        let renderer = ImageRenderer(content:
-            view.padding(20).frame(width: size.width, height: size.height)
-                .background(Color(nsColor: .windowBackgroundColor))
-                .environment(\.colorScheme, .dark)
-                .environment(
-                    \.shellVisualSettings,
-                    ShellVisualSettings(snapshotRendering: true)
-                )
+        let content = view.padding(20).frame(width: size.width, height: size.height)
+            .background(Color(nsColor: .windowBackgroundColor))
+            .environment(\.colorScheme, .light)
+        let hosting = NSHostingView(rootView: content)
+        hosting.frame = NSRect(origin: .zero, size: size)
+        hosting.layoutSubtreeIfNeeded()
+        let bitmap = try #require(
+            hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds)
         )
-        renderer.scale = 1
-        let image = try #require(renderer.nsImage)
-        #expect(image.size == size)
-        let tiff = try #require(image.tiffRepresentation)
-        let bitmap = try #require(NSBitmapImageRep(data: tiff))
+        #expect(bitmap.size == size)
+        hosting.cacheDisplay(in: hosting.bounds, to: bitmap)
         let png = try #require(bitmap.representation(using: .png, properties: [:]))
         #expect(png.count > 4_000)
         try png.write(to: evidenceURL(named), options: .atomic)
@@ -115,18 +153,24 @@ struct Phase12VisualReferenceTests {
                 ])]),
                 .object(["key": .string("approvals"), "items": .array([.object([
                     "kind": .string("approval"), "id": .string("approval-12"),
-                    "risk": .string("high"), "summary": .string("Apply sealed file change"),
-                    "description": .string("Writes the reviewed diff inside the workspace jail."),
+                    "risk": .string("high"), "summary": .string("검토한 문서 변경 적용"),
+                    "description": .string("격리된 작업 공간에 검토한 변경만 저장합니다."),
                     "category": .string("file_write"), "sealed": .bool(true), "decided": .bool(false),
+                    "requester": .string("리서치 업무"),
+                    "expires_at": .string("2026-08-20T12:05:00Z"),
+                    "destination": .string("/workspace/office/검토-결과.docx"),
+                    "overwrite_approved": .bool(false),
+                    "authority_digest": .string(String(repeating: "a", count: 64)),
+                    "rejection_result": .string("원본과 저장 위치는 변경되지 않습니다."),
                 ])])]),
                 .object(["key": .string("activity_logs"), "items": .array([.object([
                     "id": .string("receipt-12"), "kind": .string("receipt"),
-                    "summary": .string("Terminal command completed"),
+                    "summary": .string("문서 검토 요청 접수 완료"),
                 ])])]),
             ]),
             "conversation": .array([
-                .object(["id": .string("message-1"), "kind": .string("user_message"), "text": .string("Review the accessibility evidence.")]),
-                .object(["id": .string("message-2"), "kind": .string("assistant_stream"), "text": .string("Inspecting the native hierarchy and active surfaces…")]),
+                .object(["id": .string("message-1"), "kind": .string("user_message"), "text": .string("이번 조사 결과와 근거를 정리해 주세요.")]),
+                .object(["id": .string("message-2"), "kind": .string("assistant_stream"), "text": .string("# 결론\n핵심 결과를 확인하고 있습니다.\n\n## 근거\n- [공식 자료](https://example.com/evidence)\n- 두 번째 근거\n\n```swift\nlet verified = true\n```\n\n## 미해결\n실제 제공자 응답 확인이 필요합니다.")]),
             ]),
             "composer": .object(["can_send": .bool(true), "can_interrupt": .bool(true), "can_resume": .bool(false)]),
             "status": .object(["connection": .string("connected")]),
@@ -178,6 +222,8 @@ struct Phase12VisualReferenceTests {
 
     private var officePayload: NativeJSONObject { [
         "inventory": .array([.object(["format": .string("docx")]), .object(["format": .string("pdf")])]),
+        "form": .object(["format": .string("docx"), "output_name": .string("검토-결과.docx")]),
+        "selected_artifact_id": .string("document:phase12"),
         "documents": .array([.object(["artifact_id": .string("document:phase12")])]),
         "receipts": .array([.object(["operation": .string("document_create")])]), "refusal": .null,
     ] }

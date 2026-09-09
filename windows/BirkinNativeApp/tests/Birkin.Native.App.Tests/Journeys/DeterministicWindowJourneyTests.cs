@@ -196,7 +196,6 @@ public sealed class DeterministicWindowJourneyTests : MainWindowTestBase
             "navigation.sessions",
             "working-memory.landmark",
             "conversation.landmark",
-            "terminal.landmark",
             "approvals.landmark",
             "activity.landmark",
             "browser.landmark",
@@ -208,6 +207,10 @@ public sealed class DeterministicWindowJourneyTests : MainWindowTestBase
                 FindByAutomationId<FrameworkElement>(window, automationId).Visibility,
                 $"{automationId} left the visible WPF hierarchy");
         }
+        Assert.AreEqual(
+            Visibility.Collapsed,
+            FindByAutomationId<FrameworkElement>(window, "terminal.landmark").Visibility,
+            "the unavailable Windows terminal placeholder must stay outside the visible hierarchy");
     }
 
     private static void AssertBoundText(DependencyObject window, string automationId, string expected) =>

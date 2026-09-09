@@ -64,6 +64,34 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
     private async void RejectClicked(object sender, RoutedEventArgs eventArgs) =>
         await AnswerAsync(sender, ApprovalDecision.Reject);
 
+    private async void RecheckClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (_coordinator is not null
+            && sender is Button
+            {
+                Tag: string approvalId,
+                DataContext: PanelItemPresentation { CanRecheck: true },
+            })
+        {
+            ApprovalItems.IsEnabled = false;
+            DecisionStatus.Text = "발송 상태를 다시 확인하는 중입니다.";
+            DecisionStatus.Visibility = Visibility.Visible;
+            try
+            {
+                await _commandLifetime.RunAsync(token =>
+                    _coordinator.RecheckApprovalAsync(
+                        new ApprovalRecheckIntent(approvalId),
+                        token));
+            }
+            finally
+            {
+                DecisionStatus.Visibility = Visibility.Collapsed;
+                DecisionStatus.Text = ResourceText("ApprovalSendingLabel");
+                ApprovalItems.IsEnabled = true;
+            }
+        }
+    }
+
     private void CopyFullValueClicked(object sender, RoutedEventArgs eventArgs)
     {
         if (sender is Button { Tag: string value } && value.Length > 0)
@@ -107,6 +135,17 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
                 _coordinator.RequestOfficeRollbackAsync(
                     new OfficeRollbackRequestIntent(receiptRef),
                     token));
+        }
+    }
+
+    private void FollowUpClicked(object sender, RoutedEventArgs eventArgs)
+    {
+        if (_coordinator is not null
+            && sender is Button { DataContext: PanelItemPresentation card }
+            && card.Destination is { Length: > 0 } destination)
+        {
+            _coordinator.SetConversationDraft(
+                $"'{destination}' 결과 문서를 이어서 수정해 주세요: ");
         }
     }
 
@@ -161,11 +200,20 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
     internal static string ConfirmationMessage(
         PanelItemPresentation card,
         string action,
-        string noDestination) =>
-        $"{action}하시겠습니까?\n\n"
-        + $"{card.Summary}\n"
-        + $"{card.Destination ?? noDestination}\n"
-        + card.OverwriteLabel;
+        string noDestination)
+    {
+        if (card.IsWorkItemApproval)
+        {
+            return $"{action}하시겠습니까?\n\n"
+                + $"{card.Summary}\n"
+                + $"{card.Description}\n"
+                + card.WorkItemChangeLabel;
+        }
+        return $"{action}하시겠습니까?\n\n"
+            + $"{card.Summary}\n"
+            + $"{card.Destination ?? noDestination}\n"
+            + card.OverwriteLabel;
+    }
 
     private string ResourceText(string key) =>
         FindResource(key) as string
@@ -185,8 +233,8 @@ public partial class ApprovalView : UserControl, INotifyPropertyChanged
             .Where(row =>
                 string.Equals(row.Kind, "approval", StringComparison.Ordinal))
             .ToArray() ?? [];
-        ApprovalRows = rows.Where(row => !row.Decided).ToArray();
-        DecidedApprovalRows = rows.Where(row => row.Decided).ToArray();
+        ApprovalRows = rows.Where(row => !row.Decided || row.IsUnknownMailSend).ToArray();
+        DecidedApprovalRows = rows.Where(row => row.Decided && !row.IsUnknownMailSend).ToArray();
     }
 
     private void ViewUnloaded(object sender, RoutedEventArgs eventArgs)

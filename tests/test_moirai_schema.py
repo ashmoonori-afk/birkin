@@ -7,6 +7,7 @@ it missed is reported with a message specific enough to fix on the retry —
 
 from __future__ import annotations
 
+import threading
 import pytest
 
 from birkin import moirai
@@ -147,6 +148,28 @@ def test_a_schema_answer_comes_back_as_data(tmp_path):
     out = moirai.run_script(_script(tmp_path, SCHEMA_SCRIPT), cfg={},
                             spawn=spawn)
     assert out["result"] == {"answer": "서울"}
+
+
+def test_abort_after_invalid_schema_prevents_retry(tmp_path, monkeypatch):
+    abort = threading.Event()
+    calls = []
+
+    def fake_get_completer(provider, **kwargs):
+        assert kwargs["abort"] is abort
+
+        def complete(prompt):
+            calls.append(prompt)
+            abort.set()
+            return "not json"
+
+        return complete
+
+    monkeypatch.setattr("birkin.providers.get_completer", fake_get_completer)
+    out = moirai.run_script(
+        _script(tmp_path, SCHEMA_SCRIPT), cfg={}, abort=abort,
+    )
+    assert out["status"] == "aborted"
+    assert len(calls) == 1
 
 
 def test_the_schema_is_put_in_the_prompt_for_providers_that_cannot_enforce_it(

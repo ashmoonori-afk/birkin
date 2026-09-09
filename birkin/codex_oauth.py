@@ -239,7 +239,7 @@ def account_id(access_token: str, tokens: Optional[dict[str, Any]] = None) -> st
 
 def _post(url: str, *, form: Optional[dict[str, Any]] = None,
           payload: Optional[dict[str, Any]] = None,
-          timeout: int = 20) -> tuple[int, dict[str, Any]]:
+          timeout: int = 20, abort=None) -> tuple[int, dict[str, Any]]:
     """POST form-encoded or JSON; return (status, decoded-json-or-{})."""
     if form is not None:
         body = urllib.parse.urlencode(form).encode()
@@ -252,10 +252,25 @@ def _post(url: str, *, form: Optional[dict[str, Any]] = None,
         "Accept": "application/json",
         **_IDENTITY_HEADERS,
     })
+    from .http_transport import open_no_redirect
+
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            raw = resp.read().decode("utf-8", "replace")
-            status = resp.status
+        if abort is None:
+            with open_no_redirect(req, timeout=timeout) as resp:
+                raw = resp.read().decode("utf-8", "replace")
+                status = resp.status
+        else:
+            from .http_transport import HTTPTransportError, post
+
+            try:
+                response = post(
+                    req.full_url, headers=dict(req.headers), data=req.data or b"",
+                    timeout=timeout, abort=abort,
+                )
+            except HTTPTransportError as exc:
+                raise CodexAuthError("could not reach Codex service") from exc
+            raw = response.read().decode("utf-8", "replace")
+            status = response.status
     except urllib.error.HTTPError as exc:
         raw = exc.read().decode("utf-8", "replace")
         status = exc.code
@@ -268,7 +283,7 @@ def _post(url: str, *, form: Optional[dict[str, Any]] = None,
     return status, (decoded if isinstance(decoded, dict) else {})
 
 
-def refresh(refresh_token: str) -> dict[str, str]:
+def refresh(refresh_token: str, *, abort=None) -> dict[str, str]:
     """Exchange a refresh_token for a fresh access token.
 
     Raises :class:`CodexAuthError` — a failed refresh means the user must log
@@ -278,15 +293,17 @@ def refresh(refresh_token: str) -> dict[str, str]:
     if not (isinstance(refresh_token, str) and refresh_token.strip()):
         raise CodexAuthError(
             "no refresh_token stored — run `birkin auth codex login`")
+    kwargs = {"abort": abort} if abort is not None else {}
     status, data = _post(_TOKEN_URL, form={
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
         "client_id": _CLIENT_ID,
-    })
+    }, **kwargs)
     if status != 200:
+        detail = "" if abort is not None else f"{_describe_error(data)} "
         raise CodexAuthError(
             f"codex token refresh failed (HTTP {status}) — "
-            f"{_describe_error(data)} run `birkin auth codex login`")
+            f"{detail}run `birkin auth codex login`")
     access = data.get("access_token")
     if not access:
         raise CodexAuthError(
@@ -426,7 +443,7 @@ def import_cli_tokens() -> dict[str, str]:
 
 # --- runtime --------------------------------------------------------------
 
-def _refresh_locked(tokens: dict[str, Any]) -> str:
+def _refresh_locked(tokens: dict[str, Any], *, abort=None) -> str:
     """Exchange the refresh token while holding a cross-process lock.
 
     ``_token_lock`` is per-interpreter, but birkin's CLI, gateway daemon and
@@ -444,7 +461,9 @@ def _refresh_locked(tokens: dict[str, Any]) -> str:
             access = str(fresh.get("access_token") or "")
             if access and not _is_expiring(access, _REFRESH_SKEW_SECONDS):
                 return access                      # another process refreshed
-            fresh.update(refresh(str(fresh.get("refresh_token") or "")))
+            token = str(fresh.get("refresh_token") or "")
+            refreshed = refresh(token, abort=abort) if abort is not None else refresh(token)
+            fresh.update(refreshed)
             if not fresh.get("account_id"):
                 fresh["account_id"] = account_id(fresh["access_token"])
             _write_store(fresh)
@@ -458,7 +477,8 @@ def _refresh_locked(tokens: dict[str, Any]) -> str:
             "another birkin process is refreshing the Codex token — retry")
 
 
-def resolve_token(*, refresh_if_expiring: bool = True) -> Optional[str]:
+def resolve_token(*, refresh_if_expiring: bool = True,
+                  abort=None) -> Optional[str]:
     """Return a usable access token, refreshing and persisting when stale.
 
     ``None`` means "not logged in" — callers fall back to the codex CLI. A
@@ -472,7 +492,8 @@ def resolve_token(*, refresh_if_expiring: bool = True) -> Optional[str]:
         tokens = dict(data["tokens"])
         access = str(tokens.get("access_token") or "")
         if refresh_if_expiring and _is_expiring(access, _REFRESH_SKEW_SECONDS):
-            access = _refresh_locked(tokens)
+            access = (_refresh_locked(tokens, abort=abort)
+                      if abort is not None else _refresh_locked(tokens))
         return access or None
 
 

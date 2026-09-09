@@ -15,6 +15,30 @@ from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.service import DocumentService
 from tests.office.fixture_builders import build_hwpx_template
 
+BUSINESS_TEMPLATES = {
+    "weekly_report": {
+        "title": "주간 업무 보고",
+        "period": "2026-09-01 ~ 2026-09-05",
+        "summary": "출시 준비 완료",
+        "achievements": ["품질 검사 완료"],
+        "metrics": [["지표", "값"], ["완료", "3"]],
+    },
+    "meeting_notes": {
+        "title": "제품 회의록",
+        "date": "2026-09-05",
+        "summary": "출시 범위를 확정함",
+        "decisions": ["DOCX부터 출시"],
+        "actions": [["담당", "할 일"], ["민수", "검증"]],
+    },
+    "work_proposal": {
+        "title": "문서 자동화 제안",
+        "problem": "반복 작성 시간이 큼",
+        "proposal": "검증된 양식을 사용",
+        "benefits": ["작성 시간 단축"],
+        "costs": [["항목", "비용"], ["개발", "2일"]],
+    },
+}
+
 
 def _hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -241,3 +265,77 @@ def test_template_risk_requires_specific_consent_and_is_warned(tmp_path: Path) -
         template=_artifact(template_path),
     )
     assert any("never executed" in warning for warning in result["warnings"])
+
+
+@pytest.mark.parametrize(("name", "values"), BUSINESS_TEMPLATES.items())
+def test_approved_business_templates_create_structured_reopenable_docx(
+    tmp_path: Path, name: str, values: dict[str, object]
+) -> None:
+    result = DocumentService(tmp_path).create_document(
+        format="docx",
+        content={"business_template": {
+            "name": name,
+            "version": "1.0",
+            "values": values,
+            "sources": {"title": "user://request"},
+        }},
+        output_name=f"{name}.docx",
+    )
+    reopened = Document(result["draft_artifact"]["uri"])
+    assert reopened.paragraphs[0].text == values["title"]
+    assert reopened.tables[0].cell(1, 1).text
+    assert result["business_template"] == {
+        "name": name,
+        "version": "1.0",
+        "profile_sha256": result["business_template"]["profile_sha256"],
+        "required_fields": list({
+            "weekly_report": ("title", "period", "summary"),
+            "meeting_notes": ("title", "date", "summary"),
+            "work_proposal": ("title", "problem", "proposal"),
+        }[name]),
+        "missing_fields": [],
+        "unreplaced_fields": [],
+        "sources": {"title": "user://request"},
+        "layout_verified": False,
+    }
+
+
+@pytest.mark.parametrize(("name", "values"), BUSINESS_TEMPLATES.items())
+def test_business_template_required_and_unreplaced_fields_fail_closed(
+    tmp_path: Path, name: str, values: dict[str, object]
+) -> None:
+    incomplete = dict(values)
+    del incomplete["title"]
+    with pytest.raises(DocumentError, match="missing required values"):
+        DocumentService(tmp_path).create_document(
+            format="docx",
+            content={"business_template": {"name": name, "version": "1.0", "values": incomplete}},
+            output_name=f"missing-{name}.docx",
+        )
+    fields = tuple(values) + ("unbound",)
+    template_path = build_hwpx_template(tmp_path / f"{name}.hwpx", fields)
+    with pytest.raises(DocumentError, match="unreplaced fields"):
+        DocumentService(tmp_path).create_document(
+            format="hwpx",
+            content={"business_template": {"name": name, "version": "1.0", "values": values}},
+            output_name=f"unreplaced-{name}.hwpx",
+            template=_artifact(template_path),
+        )
+
+
+@pytest.mark.parametrize(("name", "values"), BUSINESS_TEMPLATES.items())
+def test_business_template_fills_reopenable_hwpx_and_records_template_hash(
+    tmp_path: Path, name: str, values: dict[str, object]
+) -> None:
+    template_path = build_hwpx_template(tmp_path / f"source-{name}.hwpx", tuple(values))
+    result = DocumentService(tmp_path).create_document(
+        format="hwpx",
+        content={"business_template": {"name": name, "version": "1.0", "values": values}},
+        output_name=f"filled-{name}.hwpx",
+        template=_artifact(template_path),
+    )
+    output = Path(result["draft_artifact"]["uri"])
+    with zipfile.ZipFile(output) as archive:
+        assert b"PLACEHOLDER" not in archive.read("Contents/section0.xml")
+    assert result["template_sha256"] == _hash(template_path)
+    assert result["business_template"]["layout_verified"] is False

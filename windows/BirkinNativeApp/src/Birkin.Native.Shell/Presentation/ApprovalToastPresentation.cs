@@ -12,8 +12,8 @@ public sealed record ApprovalToastContent(
         ArgumentException.ThrowIfNullOrWhiteSpace(approvalId);
         return new(
             approvalId,
-            "Approval requested",
-            "Open Birkin to review this request.",
+            "승인 요청이 도착했습니다",
+            "Birkin에서 요청 내용을 확인하세요.",
             "approvals",
             []);
     }

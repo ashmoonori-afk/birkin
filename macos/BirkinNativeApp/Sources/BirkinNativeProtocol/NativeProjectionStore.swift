@@ -135,13 +135,13 @@ public final class NativeProjectionStore {
         guard Set(body.keys) == expectedKeys else {
             throw NativeProjectionError("projection event keys do not match the contract")
         }
-        _ = try string(body["timestamp"], label: "timestamp")
         return NativeProjectionEvent(
             protocolVersion: try integer(body["protocol_version"], label: "protocol_version"),
             sessionID: try string(body["session_id"], label: "session_id"),
             cursor: try integer(body["cursor"], label: "cursor"),
             eventID: try string(body["event_id"], label: "event_id"),
             type: try string(body["type"], label: "type"),
+            timestamp: try string(body["timestamp"], label: "timestamp"),
             actorID: try string(body["actor_id"], label: "actor_id"),
             commandID: try string(body["command_id"], label: "command_id"),
             payload: try object(body["payload"], label: "payload")

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import textwrap
+import hashlib
+from html import escape
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
-from .create_content import ParagraphPlan
+from .create_backends import optional_backend
+from .create_content import PdfPlan
 from .errors import DocumentError, DocumentErrorCode
 
 _MARGIN: Final[float] = 56.0
@@ -94,17 +97,43 @@ def _core_pdf(lines: Sequence[str], target: Path) -> None:
     _ = target.write_bytes(document)
 
 
-def write_pdf(plan: ParagraphPlan, target: Path) -> None:
-    lines = plan.paragraphs
-    if not all(line.isascii() for line in lines):
+def _reportlab_pdf(plan: PdfPlan, target: Path) -> None:
+    assert plan.font_uri is not None and plan.font_sha256 is not None
+    font = Path(plan.font_uri)
+    if not font.is_file() or hashlib.sha256(font.read_bytes()).hexdigest() != plan.font_sha256:
         raise DocumentError(
-            DocumentErrorCode.CAPABILITY_UNAVAILABLE,
+            DocumentErrorCode.SOURCE_CHANGED,
             "emit",
-            "non-Latin PDF creation requires an approved backend",
-            details={
-                "format": "pdf",
-                "reason": "pdf_non_latin_backend_unavailable",
-                "approved_backend_registered": False,
-            },
+            "approved PDF font artifact changed before creation",
         )
-    _core_pdf(lines, target)
+    _ = optional_backend("reportlab", "pdf")
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+    font_name = f"Birkin-{plan.font_sha256[:12]}"
+    pdfmetrics.registerFont(TTFont(font_name, str(font)))
+    style = ParagraphStyle("Birkin", fontName=font_name, fontSize=11, leading=16)
+    story: list[object] = []
+    for paragraph in plan.paragraphs:
+        story.extend((Paragraph(escape(paragraph), style), Spacer(1, 3 * mm)))
+    if plan.table:
+        table = Table([[Paragraph(escape(cell), style) for cell in row] for row in plan.table], repeatRows=1)
+        table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(table)
+    SimpleDocTemplate(str(target), pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm).build(story)
+
+
+def write_pdf(plan: PdfPlan, target: Path) -> None:
+    if plan.font_uri is None:
+        _core_pdf(plan.paragraphs, target)
+    else:
+        _reportlab_pdf(plan, target)

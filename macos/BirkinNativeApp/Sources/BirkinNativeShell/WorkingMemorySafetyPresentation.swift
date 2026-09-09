@@ -6,9 +6,9 @@ public struct WorkingMemoryClearPresentation: Equatable, Sendable {
     public let confirmAccessibilityLabel: String
 
     public init(sessionID: String) {
-        title = "Clear Working Memory for \(sessionID)?"
-        explanation = "This clears corrections, constraints, decisions, incomplete items, evidence, and next actions for this session. It does not clear vault memory, workspace files, or audit history."
-        confirmAccessibilityLabel = "Clear session Working Memory only"
+        title = "\(sessionID) 업무의 작업 기억을 비울까요?"
+        explanation = "이 업무의 수정 사항, 제약 조건, 결정, 미완료 항목, 근거와 다음 작업을 비웁니다. 장기 기억, 작업공간 파일과 감사 기록은 지우지 않습니다."
+        confirmAccessibilityLabel = "이 업무의 작업 기억만 비우기"
     }
 }
 
@@ -19,7 +19,7 @@ struct WorkingMemoryClearConfirmationView: View {
         VStack(alignment: .leading, spacing: 16) {
             Text(presentation.title).font(.headline)
             Text(presentation.explanation)
-            Button("Clear") {}
+            Button("비우기") {}
                 .accessibilityLabel(presentation.confirmAccessibilityLabel)
         }
         .padding(24)
@@ -36,11 +36,11 @@ public struct WorkingMemoryCanonicalErrorPresentation: Equatable, Sendable {
         self.message = String(message.prefix(300))
         switch code {
         case "E_WORKING_MEMORY_BUDGET":
-            accessibilityLabel = "Working Memory exceeds the canonical 20,000-character render budget. Reduce the update and try again."
+            accessibilityLabel = "작업 기억이 20,000자 표시 제한을 넘었습니다. 내용을 줄인 뒤 다시 시도하세요."
         case "E_WORKING_MEMORY_REVISION":
-            accessibilityLabel = "Working Memory revision conflict. Review the latest canonical state and try again."
+            accessibilityLabel = "작업 기억 버전이 달라졌습니다. 최신 상태를 확인한 뒤 다시 시도하세요."
         default:
-            accessibilityLabel = "Working Memory update failed. \(String(message.prefix(200)))"
+            accessibilityLabel = "작업 기억을 업데이트하지 못했습니다. \(String(message.prefix(200)))"
         }
     }
 }

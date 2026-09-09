@@ -30,8 +30,8 @@ struct ApprovalNotificationCenterTests {
         let content = request.content
 
         #expect(request.identifier == "approval:approval-1")
-        #expect(content.title == "Approval requested")
-        #expect(content.body == "Open Birkin to review this request.")
+        #expect(content.title == "승인 요청이 도착했습니다")
+        #expect(content.body == "Birkin에서 요청 내용을 확인하세요.")
         #expect(content.categoryIdentifier.isEmpty)
         #expect(content.userInfo["route"] as? String == "approvals")
         #expect(content.userInfo["approval_id"] as? String == "approval-1")

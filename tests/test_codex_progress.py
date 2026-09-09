@@ -19,6 +19,7 @@ fixture the budget tests use. No sleeps: activity is counted, never timed.
 
 from __future__ import annotations
 
+import json
 import queue
 import threading
 
@@ -85,6 +86,15 @@ def _child_agent(text: str) -> dict:
                        "item": {"type": "agentMessage", "text": text}}}
 
 
+def _mcp(method: str, *, turn_id: str = "turn-1",
+         status: str = "inProgress") -> dict:
+    return {"method": method,
+            "params": {"threadId": "t", "turnId": turn_id,
+                       "item": {"id": "mcp-item-1", "type": "mcpToolCall",
+                                "server": "birkin", "tool": "work_item_request",
+                                "status": status, "arguments": {"private": True}}}}
+
+
 def _done() -> dict:
     return {"method": "turn/completed",
             "params": {"threadId": "t",
@@ -92,6 +102,171 @@ def _done() -> dict:
 
 
 class TestOnProgressSeesTheWork:
+    def test_parent_mcp_identity_and_schema_status_are_reported(self) -> None:
+        seen: list[dict] = []
+        s = _session(pending=(
+            _mcp("item/started"),
+            _mcp("item/completed", status="completed"),
+            _done(),
+        ))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        tools = [progress["mcp_tool_call"] for progress in seen
+                 if "mcp_tool_call" in progress]
+        assert tools == [
+            {"event": "item/started", "item_id": "mcp-item-1",
+             "server": "birkin", "name": "work_item_request",
+             "status": "inProgress"},
+            {"event": "item/completed", "item_id": "mcp-item-1",
+             "server": "birkin", "name": "work_item_request",
+             "status": "completed"},
+        ]
+        assert "private" not in str(tools)
+
+    def test_failed_mcp_status_is_preserved_without_result(self) -> None:
+        seen: list[dict] = []
+        failed = _mcp("item/completed", status="failed")
+        failed["params"]["item"]["result"] = {"content": "private result"}
+        s = _session(pending=(failed, _done()))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        tool = next(progress["mcp_tool_call"] for progress in seen
+                    if "mcp_tool_call" in progress)
+        assert tool["status"] == "failed"
+        assert "private result" not in str(tool)
+
+    def test_failed_office_mcp_reports_only_safe_locator_shapes(self) -> None:
+        marker = "SECRET_MARKER"
+        seen: list[dict] = []
+        failed = _mcp("item/completed", status="failed")
+        item = failed["params"]["item"]
+        item.update({
+            "tool": "office_job_request",
+            "arguments": {
+                "source": {"uri": f"C:/private/{marker}.docx"},
+                "operations": [
+                    {"locator": {"format": "docx", "index": 1},
+                     "value": marker},
+                    {"locator": {"kind": "paragraph", "index": 0,
+                                 marker: marker}, "value": marker},
+                ],
+            },
+            "result": {"content": [{"type": "text", "text": json.dumps({
+                "error": {"code": "PRECONDITION_FAILED",
+                          "stage": "preview", "message": marker},
+            })}]},
+        })
+        s = _session(pending=(failed, _done()))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        tool = next(progress["mcp_tool_call"] for progress in seen
+                    if "mcp_tool_call" in progress)
+        assert tool["diagnostic"] == {
+            "operation_count": 2,
+            "locator_shapes": ["public_docx_positive_index",
+                               "native_or_extra_locator"],
+            "error_code": "PRECONDITION_FAILED",
+            "error_stage": "preview",
+        }
+        assert marker not in str(tool)
+
+    def test_failed_office_mcp_without_operations_keeps_safe_error(self) -> None:
+        seen: list[dict] = []
+        failed = _mcp("item/completed", status="failed")
+        item = failed["params"]["item"]
+        item.update({
+            "tool": "office_job_request",
+            "arguments": {"request": "SECRET_MARKER"},
+            "error": {"message": json.dumps({
+                "error": {"code": "INVALID_INPUT", "stage": "plan"},
+            })},
+        })
+        s = _session(pending=(failed, _done()))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        diagnostic = next(progress["mcp_tool_call"]["diagnostic"]
+                          for progress in seen if "mcp_tool_call" in progress)
+        assert diagnostic == {
+            "operation_count": None,
+            "locator_shapes": [],
+            "error_code": "INVALID_INPUT",
+            "error_stage": "plan",
+        }
+        assert "SECRET_MARKER" not in str(diagnostic)
+
+    def test_failed_office_mcp_ignores_oversized_and_invalid_error_fields(
+        self,
+    ) -> None:
+        seen: list[dict] = []
+        failed = _mcp("item/completed", status="failed")
+        item = failed["params"]["item"]
+        item.update({
+            "tool": "office_job_request",
+            "arguments": {},
+            "result": {"content": [{"type": "text", "text": "x" * 16_385}]},
+            "error": {"message": json.dumps({
+                "error": {"code": [], "stage": {}},
+            })},
+        })
+        s = _session(pending=(failed, _done()))
+
+        assert s._turn("hi", None, None, on_progress=seen.append) == ""
+        diagnostic = next(progress["mcp_tool_call"]["diagnostic"]
+                          for progress in seen if "mcp_tool_call" in progress)
+        assert diagnostic == {"operation_count": None, "locator_shapes": []}
+
+    def test_failed_office_mcp_json_recursion_does_not_kill_turn(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        failed = _mcp("item/completed", status="failed")
+        failed["params"]["item"].update({
+            "tool": "office_job_request",
+            "arguments": {},
+            "error": {"message": "small json candidate"},
+        })
+        monkeypatch.setattr(
+            "birkin.codex_session.json.loads",
+            lambda _text: (_ for _ in ()).throw(RecursionError()),
+        )
+        seen: list[dict] = []
+        s = _session(pending=(failed, _done()))
+
+        assert s._turn("hi", None, None, on_progress=seen.append) == ""
+        assert any("mcp_tool_call" in progress for progress in seen)
+
+    def test_child_mcp_is_liveness_only_not_a_parent_tool(self) -> None:
+        seen: list[dict] = []
+        s = _session(pending=(
+            _mcp("item/completed", turn_id="child-turn", status="completed"),
+            _done(),
+        ))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        assert seen[-1]["activity"] == 1
+        assert all("mcp_tool_call" not in progress for progress in seen)
+
+    def test_child_and_foreign_office_failures_do_not_leak_diagnostics(self) -> None:
+        seen: list[dict] = []
+        child = _mcp("item/completed", turn_id="child-turn", status="failed")
+        child["params"]["item"].update({
+            "tool": "office_job_request",
+            "arguments": {"operations": [{"SECRET_MARKER": True}]},
+        })
+        foreign = _mcp("item/completed", status="failed")
+        foreign["params"]["threadId"] = "foreign-thread"
+        foreign["params"]["item"].update(child["params"]["item"])
+        s = _session(pending=(child, foreign, _done()))
+
+        s._turn("hi", None, None, on_progress=seen.append)
+
+        assert all("mcp_tool_call" not in progress for progress in seen)
+        assert "SECRET_MARKER" not in str(seen)
+
     def test_started_reasoning_is_visible_before_it_completes(self) -> None:
         seen: list[dict] = []
         s = _session(pending=(_started("reasoning"), _done()))

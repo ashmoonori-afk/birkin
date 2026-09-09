@@ -1,0 +1,68 @@
+name: Windows package
+
+on:
+  pull_request:
+    paths:
+      - "windows/**"
+      - "birkin/**"
+      - "scripts/windows/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/windows-package.yml"
+  workflow_dispatch:
+    inputs:
+      signed_release:
+        description: Sign and validate a customer release candidate
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e
+        with:
+          version: "0.11.8"
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9
+        with:
+          dotnet-version: "8.x"
+      - name: Test install, restart, and failed-update recovery
+        shell: pwsh
+        run: ./scripts/windows/test-install-package.ps1
+      - name: Import release signing certificate
+        if: inputs.signed_release == true
+        shell: pwsh
+        env:
+          SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+        run: |
+          if (-not $env:SIGNING_PFX_BASE64 -or -not $env:SIGNING_PFX_PASSWORD) { throw "Release signing secrets are required." }
+          $pfx = Join-Path $env:RUNNER_TEMP "birkin-signing.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_PFX_BASE64))
+          $certificate = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My `
+            -Password (ConvertTo-SecureString $env:SIGNING_PFX_PASSWORD -AsPlainText -Force)
+          "SIGNING_THUMBPRINT=$($certificate.Thumbprint)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Build bundled package
+        shell: pwsh
+        run: ./scripts/windows/build-package.ps1 -OutputDirectory "$env:RUNNER_TEMP\birkin-package" -CertificateThumbprint "$env:SIGNING_THUMBPRINT"
+      - name: Install and verify bundled package
+        shell: pwsh
+        run: |
+          $arguments = @{ PackageRoot = "$env:RUNNER_TEMP\birkin-package"; InstallRoot = "$env:RUNNER_TEMP\birkin-installed" }
+          if ('${{ inputs.signed_release }}' -ne 'true') { $arguments.AllowUnsignedDevelopment = $true }
+          ./scripts/windows/install-package.ps1 @arguments
+          & "$env:RUNNER_TEMP\birkin-installed\current\birkin.cmd" --version
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ inputs.signed_release == true && 'birkin-windows-signed-candidate' || 'birkin-windows-unsigned-development' }}
+          path: ${{ runner.temp }}\birkin-package
+          if-no-files-found: error
+          retention-days: 14

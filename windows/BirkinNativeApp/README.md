@@ -90,6 +90,12 @@ $env:BIRKIN_EXECUTABLE = "C:\path\to\Python\Scripts\birkin.exe"
 The failure card never renders raw exception messages, process IDs, or private
 filesystem paths.
 
+## Installable package and updates
+
+`scripts/windows/build-package.ps1` builds the native app and a relocatable bundled Python 3.13 runtime. `install-package.ps1` verifies every packaged file, requires a valid signed catalog for release installs, checks the CLI/native product-version handshake, and keeps the previous installation when staging fails. A successful update retains one previous version for recovery.
+
+The `Windows package` workflow exercises install, restart, version handshake, update failure, and previous-version preservation on a fresh Windows runner. Its default artifact is explicitly named `birkin-windows-unsigned-development`. Only a workflow run with `signed_release=true`, valid release signing secrets, and a passing install check produces `birkin-windows-signed-candidate`; an unsigned build is never a customer-ready release.
+
 ## Test
 
 ```powershell

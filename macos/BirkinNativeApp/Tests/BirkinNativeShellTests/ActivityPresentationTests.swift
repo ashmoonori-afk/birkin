@@ -40,7 +40,7 @@ struct ActivityPresentationTests {
 
         #expect(tool?.kind == .tool)
         #expect(tool?.isExpandable == true)
-        #expect(tool?.details.first?.label == "Target")
+        #expect(tool?.details.first?.label == "대상")
         #expect(receipt?.kind == .receipt)
         #expect(receipt?.receiptReference == "receipt:1")
         #expect(failure?.kind == .failure)

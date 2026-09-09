@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import zipfile
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 
 def build_docx_template(path: Path) -> Path:
@@ -34,13 +35,17 @@ def build_docx_template(path: Path) -> Path:
     return path
 
 
-def build_hwpx_template(path: Path) -> Path:
+def build_hwpx_template(path: Path, fields: tuple[str, ...] = ("customer",)) -> Path:
+    field_xml = "".join(
+        f'<hp:p id="P{index}"><hp:field id="{escape(field)}">'
+        f"<hp:t>PLACEHOLDER</hp:t></hp:field></hp:p>"
+        for index, field in enumerate(fields, 1)
+    ).encode()
     entries = {
         "mimetype": b"application/hwp+zip",
         "Contents/section0.xml": (
             b'<hp:section xmlns:hp="http://www.hancom.co.kr/hwpml/2011/'
-            b'paragraph"><hp:p id="P1"><hp:field id="customer">'
-            b"<hp:t>PLACEHOLDER</hp:t></hp:field></hp:p><hp:tbl>"
+            b'paragraph">' + field_xml + b"<hp:tbl>"
             b'<hp:tc address="A1"/></hp:tbl><hp:fontRef id="F1"/>'
             b"</hp:section>"
         ),

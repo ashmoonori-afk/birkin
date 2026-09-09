@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
+from datetime import datetime, timezone
+from typing import Any
 
 from typing_extensions import assert_never
 
@@ -98,7 +101,22 @@ def recover_one(
                         snapshot.owner_pid,
                         snapshot.owner_generation,
                     ):
-                        if snapshot.category.startswith("office_"):
+                        if snapshot.category == "mail_send":
+                            from .m365_graph import GraphError
+                            from .m365_mail import reconcile_approved_send
+
+                            try:
+                                result = reconcile_approved_send(snapshot.payload)
+                            except (GraphError, OSError):
+                                journal.outcome_unknown()
+                            else:
+                                parsed = json.loads(result)
+                                if isinstance(parsed, dict) and parsed.get("state") == "submitted":
+                                    journal.succeeded(result)
+                                else:
+                                    journal.outcome_unknown()
+                            project_terminal(approval_id, record, journal.load())
+                        elif snapshot.category.startswith("office_"):
                             journal.resume_office()
                             process = launch_helper(
                                 journal,
@@ -189,6 +207,169 @@ def recover_one(
             "error": str(current.get("execution_error") or "execution frozen"),
         }
     return {"ok": True, "status": status}
+
+
+def recheck_unknown_mail_send(
+    approval_id: str,
+    *,
+    client: Any = None,
+) -> dict[str, JSONValue]:
+    """Re-observe one terminal mail attempt without creating or sending mail."""
+    if not store.valid_pending_id(approval_id):
+        return {"ok": False, "error": "승인 ID가 올바르지 않습니다"}
+    path = config.pending_dir() / f"{approval_id}.json"
+    try:
+        with store.file_lock(path):
+            record = store.get_pending(approval_id)
+            if record is None:
+                return {"ok": False, "error": "승인 기록을 찾을 수 없습니다"}
+            if (
+                record.get("category") != "mail_send"
+                or record.get("status") not in {
+                    "action_outcome_unknown", "approved", "resume_pending",
+                }
+            ):
+                return {"ok": False, "error": "재확인할 수 있는 메일 발송 기록이 아닙니다"}
+            journal = ExecutionJournal(approval_id)
+            try:
+                snapshot = journal.load()
+            except JournalCorruptionError as exc:
+                _freeze(approval_id, str(exc))
+                return {"ok": False, "error": "승인 실행 기록의 무결성을 확인할 수 없습니다"}
+            if snapshot.category != "mail_send" or snapshot.authority_digest != authority_digest(record):
+                _freeze(approval_id, "approval execution authority was changed")
+                return {"ok": False, "error": "승인 실행 권한이 변경되었습니다"}
+            checked_at = datetime.now(timezone.utc).isoformat()
+            confirmed_result: object = None
+            if snapshot.result is not None:
+                try:
+                    confirmed_result = json.loads(snapshot.result)
+                except json.JSONDecodeError:
+                    pass
+            confirmed_submitted = (
+                isinstance(confirmed_result, dict)
+                and confirmed_result.get("state") == "submitted"
+            )
+            if (
+                snapshot.phase is JournalPhase.SUCCEEDED
+                and confirmed_submitted
+                and record.get("status") in {
+                    "action_outcome_unknown", "approved", "resume_pending",
+                }
+            ):
+                previous_checked_at = record.get("mail_rechecked_at")
+                if isinstance(previous_checked_at, str) and previous_checked_at:
+                    checked_at = previous_checked_at
+                if record.get("status") == "action_outcome_unknown":
+                    project_terminal(approval_id, record, snapshot)
+                current = store.get_pending(approval_id)
+                if current is None or current.get("status") not in {"approved", "resume_pending"}:
+                    return {"ok": False, "error": "확인된 발송 처리 결과를 반영할 수 없습니다"}
+                _ = store.resolve_pending(
+                    approval_id,
+                    str(current["status"]),
+                    updates={
+                        "recheckable": False,
+                        "mail_recheck_state": "submitted",
+                        "mail_rechecked_at": checked_at,
+                    },
+                )
+                return {
+                    "ok": True,
+                    "state": "submitted",
+                    "recheckable": False,
+                    "mail_rechecked_at": checked_at,
+                    "message": "Microsoft 365 발송 처리가 확인되었습니다",
+                }
+            if snapshot.phase is JournalPhase.SUCCEEDED:
+                return {"ok": False, "error": "재확인으로 확정된 발송 처리 기록이 아닙니다"}
+            if (
+                snapshot.phase is not JournalPhase.ACTION_OUTCOME_UNKNOWN
+                or record.get("status") != "action_outcome_unknown"
+            ):
+                return {"ok": False, "error": "재확인할 수 있는 메일 발송 기록이 아닙니다"}
+            if (
+                record.get("mail_recheck_state") == "needs_review"
+                or record.get("recheckable") is False
+            ):
+                result: dict[str, JSONValue] = {
+                    "ok": True,
+                    "state": "needs_review",
+                    "recheckable": False,
+                    "message": "연결 계정 또는 승인 내용을 확인할 수 없어 검토가 필요합니다",
+                }
+                previous_checked_at = record.get("mail_rechecked_at")
+                if isinstance(previous_checked_at, str) and previous_checked_at:
+                    result["mail_rechecked_at"] = previous_checked_at
+                return result
+
+            from .m365_graph import GraphError
+            from .m365_mail import reconcile_approved_send
+
+            try:
+                result = reconcile_approved_send(snapshot.payload, client=client)
+            except ValueError:
+                state = "needs_review"
+                recheckable = False
+            except (GraphError, OSError):
+                state = "unknown"
+                recheckable = True
+            else:
+                parsed = json.loads(result)
+                state = str(parsed.get("state") if isinstance(parsed, dict) else "unknown")
+                recheckable = state not in {"submitted", "needs_review"}
+                if state == "submitted":
+                    journal.confirm_mail_succeeded(result)
+                    project_terminal(approval_id, record, journal.load())
+                    current = store.get_pending(approval_id)
+                    if current is None:
+                        return {"ok": False, "error": "확인된 발송 처리 결과를 반영할 수 없습니다"}
+                    terminal_status = str(current.get("status") or "")
+                    _ = store.resolve_pending(
+                        approval_id,
+                        terminal_status,
+                        updates={
+                            "recheckable": False,
+                            "mail_recheck_state": "submitted",
+                            "mail_rechecked_at": checked_at,
+                        },
+                    )
+                    return {
+                        "ok": True,
+                        "state": "submitted",
+                        "recheckable": False,
+                        "mail_rechecked_at": checked_at,
+                        "message": "Microsoft 365 발송 처리가 확인되었습니다",
+                    }
+
+            _ = store.resolve_pending(
+                approval_id,
+                "action_outcome_unknown",
+                updates={
+                    "recheckable": recheckable,
+                    "mail_recheck_state": state,
+                    "mail_rechecked_at": checked_at,
+                },
+            )
+            messages = {
+                "accepted": "Microsoft 365가 요청을 접수했지만 발송 처리는 아직 확인되지 않았습니다",
+                "needs_review": "연결 계정 또는 승인 내용을 확인할 수 없어 검토가 필요합니다",
+                "observed_non_draft": "원격 메일이 초안이 아님은 확인했지만 발송 시각은 확인되지 않았습니다",
+            }
+            return {
+                "ok": True,
+                "state": state,
+                "recheckable": recheckable,
+                "mail_rechecked_at": checked_at,
+                "message": messages.get(state, "현재 원격 발송 상태를 확인할 수 없습니다"),
+            }
+    except store.FileLockTimeout:
+        return {
+            "ok": False,
+            "error": "메일 발송 상태를 다른 작업에서 확인 중입니다",
+            "retryable": True,
+            "recheckable": True,
+        }
 
 
 def _owner_alive(pid: int | None, generation: str | None) -> bool:

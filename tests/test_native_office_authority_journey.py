@@ -11,6 +11,8 @@ import pytest
 from birkin import store
 from birkin.office.errors import DocumentError, DocumentErrorCode
 from birkin.office.receipt_auth import RETENTION_DAYS
+from birkin.tools import build_registry
+from birkin.tools._types import ToolContext
 from birkin.workspace.contracts import (
     ClientContext,
     ProtocolError,
@@ -300,6 +302,60 @@ def test_native_create_rejects_unbound_payload_fields_without_output(
     assert not list(drafts.iterdir())
 
 
+def test_native_approval_records_receipt_for_office_job_without_diff_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    service, _adapter = _service(tmp_path)
+    source = _import(
+        service,
+        "import-no-diff-source",
+        _single_cell_xlsx(tmp_path / "source-no-diff.xlsx"),
+    )
+    destination = tmp_path / "workspace" / "approved-no-diff.xlsx"
+    proposed = build_registry(
+        ToolContext(
+            cfg={}, client=None, cwd=tmp_path / "workspace",
+            record_source="conversation",
+        ),
+        include={"documents"},
+    ).execute("office_job_request", {
+        "request": "Update cell A1 in this Excel workbook",
+        "source": source,
+        "outcome": "Set Revenue A1 to 9",
+        "operations": [{"cell": "A1", "value": 9}],
+        "destination": str(destination),
+    })
+    assert proposed.is_error is False
+    body = cast("dict[str, object]", json.loads(cast(str, proposed.content)))
+    approval_id = cast(str, body["id"])
+    pending = store.get_pending(approval_id)
+    assert pending is not None
+    assert "diff_id" not in cast("dict[str, object]", pending["payload"])
+    assert not destination.exists()
+
+    _receipt, answered = _submit(
+        service,
+        "approve-no-diff-office-job",
+        "approval.answer",
+        {"approval_id": approval_id, "decision": "approve"},
+    )
+
+    assert answered["outcome"] == "approved"
+    assert isinstance(answered["receipt_ref"], str)
+    recorded = next(
+        event for event in service.events()
+        if event.type == "receipt.recorded"
+        and event.command_id == "approve-no-diff-office-job"
+    )
+    assert recorded.payload["approval_id"] == approval_id
+    assert recorded.payload["receipt_ref"] == answered["receipt_ref"]
+    assert recorded.payload["validation_summary"] == "등록된 구조 검증 통과"
+    assert recorded.payload["visual_validation_summary"] == "시각 검증 미실행"
+    assert "diff_id" not in recorded.payload
+    assert destination.is_file()
+
+
 def test_native_office_job_request_queues_current_canonical_proposal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -454,6 +510,8 @@ def test_native_office_job_request_queues_current_canonical_proposal(
         "issued_at": export["issued_at"],
         "expires_at": export["expires_at"],
         "backup_exists": export.get("destination_existed") is True,
+        "validation_summary": "등록된 구조 검증 통과",
+        "visual_validation_summary": "시각 검증 미실행",
     }
     approval_panel = next(
         panel for panel in service.snapshot().panels if panel.key == "approvals"

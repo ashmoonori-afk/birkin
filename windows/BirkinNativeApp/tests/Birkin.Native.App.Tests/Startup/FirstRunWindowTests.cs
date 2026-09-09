@@ -30,7 +30,7 @@ public sealed class FirstRunWindowTests
                 process.MainWindowHandle,
                 "Bridge launch failure prevented the main window from being shown.");
             Assert.AreEqual(
-                "Birkin for Windows - Development Preview",
+                "Windows용 Birkin - 개발 프리뷰",
                 process.MainWindowTitle);
 
             var title = WaitForAutomationId(

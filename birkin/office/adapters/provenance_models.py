@@ -22,6 +22,7 @@ class CapabilityInventory(TypedDict):
     fidelity_limits: str
     install_probe: str | None
     refusal_reason: str | None
+    public_entrypoint: str | None
 
 
 class PackageInventory(TypedDict):

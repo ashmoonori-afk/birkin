@@ -15,16 +15,17 @@ struct MenuBarNavigationTests {
                 instanceID: "instance-1", serverVersion: "1.0",
                 sessionCapability: "token"
             )),
-            sessionID: "session-7", pendingApprovalCount: 2
+            sessionID: "session-7", pendingApprovalCount: 2,
+            locale: Locale(identifier: "ko-KR")
         )
 
-        #expect(model.connectionTitle == "Connected")
+        #expect(model.connectionTitle == "연결됨")
         #expect(model.items.map(\.destination) == [
             .connection, .session(id: "session-7"), .approvals,
         ])
         #expect(model.items.allSatisfy { $0.kind == .navigate })
         #expect(model.items.map(\.title) == [
-            "Connection: Connected", "Session: session-7", "Approvals (2)",
+            "연결: 연결됨", "세션: session-7", "승인 (2)",
         ])
     }
 

@@ -26,7 +26,7 @@ def test_backoff_is_surfaced_via_status_sink(monkeypatch):
             raise urllib.error.HTTPError("u", 429, "Too Many", {},
                                          io.BytesIO(b'{"e":1}'))
         return io.BytesIO(b'{"ok":1}')
-    monkeypatch.setattr("birkin.llm.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("birkin.http_transport.open_no_redirect", fake_urlopen)
     c._post("https://x", {}, {}, stream=False)
     assert seen == [
         LLMStatus(
@@ -52,7 +52,7 @@ def test_backoff_prints_when_no_status_sink(monkeypatch, capsys):
         if attempts["n"] == 1:
             raise urllib.error.URLError("conn reset")
         return io.BytesIO(b"{}")
-    monkeypatch.setattr("birkin.llm.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("birkin.http_transport.open_no_redirect", fake_urlopen)
     c._post("https://x", {}, {}, stream=False)
     assert "network error" in capsys.readouterr().out
 

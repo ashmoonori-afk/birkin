@@ -17,19 +17,19 @@ public struct WorkingMemoryPresentation: Equatable, Sendable {
         let fields = projection.fields
         rows = [
             WorkingMemoryRow(
-                label: "Goals",
+                label: "목표",
                 canonicalFields: ["GoalState.objective"],
                 values: projection.goal.map { [$0.objective] } ?? []
             ),
             WorkingMemoryRow(
-                label: "Context",
+                label: "맥락",
                 canonicalFields: ["corrections", "decisions", "evidence"],
                 values: (fields["corrections"] ?? [])
                     + (fields["decisions"] ?? [])
                     + (fields["evidence"] ?? [])
             ),
             WorkingMemoryRow(
-                label: "Files",
+                label: "파일",
                 canonicalFields: ["files_evidence"],
                 values: projection.filesEvidence.compactMap { item in
                     guard case .string(let summary) = item["summary"] else { return nil }
@@ -37,12 +37,12 @@ public struct WorkingMemoryPresentation: Equatable, Sendable {
                 }
             ),
             WorkingMemoryRow(
-                label: "Constraints",
+                label: "제약 조건",
                 canonicalFields: ["constraints"],
                 values: fields["constraints"] ?? []
             ),
             WorkingMemoryRow(
-                label: "Notes",
+                label: "메모",
                 canonicalFields: ["incomplete", "next_actions"],
                 values: (fields["incomplete"] ?? []) + (fields["next_actions"] ?? [])
             ),
@@ -74,7 +74,7 @@ struct WorkingMemoryView: View {
             ForEach(presentation.rows) { row in
                 VStack(alignment: .leading, spacing: 3) {
                     Text(row.label).font(.subheadline.bold())
-                    Text(row.values.isEmpty ? "None" : row.values.joined(separator: "\n"))
+                    Text(row.values.isEmpty ? "비어 있음" : row.values.joined(separator: "\n"))
                         .foregroundStyle(.secondary)
                     Text(row.canonicalFields.joined(separator: ", "))
                         .font(.caption2)
@@ -85,23 +85,23 @@ struct WorkingMemoryView: View {
                     "\(row.label), \(row.canonicalFields.joined(separator: ", "))"
                 )
             }
-            Text("Revision \(presentation.revision)")
+            Text("버전 \(presentation.revision)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text("Stored locally on this device")
+            Text("이 기기에만 저장됨")
                 .font(.caption)
-                .accessibilityLabel("Stored locally on this device. Python owns storage; the native app does not persist Working Memory.")
+                .accessibilityLabel("이 기기에만 저장됩니다. Python 서비스가 작업 기억을 관리하며 앱은 별도로 저장하지 않습니다.")
             if let clearPresentation {
-                Button("Clear Working Memory") { showsClearConfirmation = true }
+                Button("작업 기억 비우기") { showsClearConfirmation = true }
                     .disabled(!canClear)
-                    .accessibilityLabel("Review session Working Memory clear scope")
+                    .accessibilityLabel("이 업무에서 비울 작업 기억 범위 확인")
                     .sheet(isPresented: $showsClearConfirmation) {
                         VStack(alignment: .leading, spacing: 16) {
                             Text(clearPresentation.title).font(.headline)
                             Text(clearPresentation.explanation)
                             HStack {
-                                Button("Cancel") { showsClearConfirmation = false }
-                                Button("Clear") {
+                                Button("취소") { showsClearConfirmation = false }
+                                Button("비우기") {
                                     showsClearConfirmation = false
                                     clearAction()
                                 }

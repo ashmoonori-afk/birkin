@@ -25,8 +25,29 @@ GRANT = InspectGrant(IDENTITY, True, "reviewed", "2026-08-21T12:00:00Z")
 
 def test_contracts_are_frozen_and_native_declarations_are_exact() -> None:
     assert NATIVE_INSPECT_PARALLEL_TOOLS == frozenset({
-        "read_file", "list_files", "web_fetch", "session_search",
-        "session_get", "memory_search", "memory_get_note", "memory_related",
+        "analyze_workbook",
+        "data_control_status",
+        "list_daily_briefings",
+        "list_files",
+        "list_office_batches",
+        "list_office_templates",
+        "list_work_items",
+        "m365_calendar_candidates",
+        "m365_calendar_read",
+        "m365_connection_status",
+        "m365_mail_read",
+        "m365_meeting_prepare",
+        "m365_review_get",
+        "memory_get_note",
+        "memory_related",
+        "memory_search",
+        "read_file",
+        "resolve_office_template",
+        "review_meeting_actions",
+        "search_office_sources",
+        "session_get",
+        "session_search",
+        "web_fetch",
     })
     with pytest.raises(dataclasses.FrozenInstanceError):
         GRANT.reason = "changed"  # type: ignore[misc]

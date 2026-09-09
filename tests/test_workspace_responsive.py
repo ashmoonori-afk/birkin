@@ -45,7 +45,10 @@ def test_mobile_sheet_has_explicit_back_and_escape_contract() -> None:
     assert 'data-testid="workspace-mobile-back"' in source
     assert 'aria-controls="workspace-panel"' in source
     assert 'event.key === "Escape"' in source
-    assert 'shell.dataset.panelOpen = "false"' in source
+    assert "setPanelOpen(false)" in source
+    assert 'window.matchMedia("(max-width: 1100px)")' in source
+    assert "panel.inert = hidden" in source
+    assert "state.panelReturnFocus?.isConnected" in source
 
 
 def test_responsive_transitions_preserve_composer_draft() -> None:
@@ -56,3 +59,5 @@ def test_responsive_transitions_preserve_composer_draft() -> None:
     assert "localStorage.getItem" in source
     assert "@media (max-width: 820px)" in source
     assert "prefers-reduced-motion" in source
+    assert "@media (max-width: 720px)" in source
+    assert "grid-template-columns: 224px minmax(0, 1fr) minmax(300px, 25vw)" in source

@@ -22,7 +22,7 @@ def _element(path: Path, automation_id: str) -> ElementTree.Element:
     )
 
 
-def test_windows_picker_selects_supported_office_path_only() -> None:
+def test_windows_picker_selects_all_supported_import_paths() -> None:
     view = APP / "Views" / "ImportView.xaml"
     source = (APP / "Views" / "OfficeFilePicker.cs").read_text(encoding="utf-8")
 
@@ -30,14 +30,14 @@ def test_windows_picker_selects_supported_office_path_only() -> None:
     path = _element(view, "import.path")
     assert browse.attrib["Click"] == "BrowseClicked"
     assert path.attrib["IsReadOnly"] == "True"
-    for extension in (".docx", ".xlsx"):
+    for extension in (".docx", ".xlsx", ".pptx", ".pdf", ".hwpx", ".txt"):
         assert extension in source
-    for extension in (".pptx", ".pdf", ".hwpx", ".txt", "*.*"):
+    for extension in ("*.hwp;", "*.*"):
         assert extension not in source
     assert "OpenFileDialog" in source
-    assert "Multiselect = false" in source
+    assert "Multiselect = true" in source
     assert "CheckFileExists = true" in source
-    assert '"가져올 Excel 또는 Word 파일 선택"' in source
+    assert '"가져올 업무 문서 선택"' in source
 
 
 def test_full_window_drop_routes_one_supported_path_to_import() -> None:
@@ -62,7 +62,7 @@ def test_full_window_drop_routes_one_supported_path_to_import() -> None:
     assert overlay.attrib["IsHitTestVisible"] == "False"
     assert "DataFormats.FileDrop" in source
     assert "catch (COMException)" in source
-    assert "OfficeFileSelection.Select" in source
+    assert "OfficeFileSelection.IsSupported" in source
     assert "ImportDroppedFilesAsync" in source
     assert "ImportDroppedFilesAsync" in snapshot
     assert import_panel.attrib[f"{{{XAML}}}Name"] == "ImportPanel"

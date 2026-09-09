@@ -212,7 +212,56 @@ def run(output_dir: Path) -> dict[str, object]:
     records: dict[str, dict[str, object]] = {}
     expected_refusals: list[dict[str, object]] = []
 
+    search = call("search_office_sources", {
+        "query": "Complex",
+        "sources": [{
+            "artifact": artifact(paths["docx"]),
+            "scope": "current_work",
+            "access_granted": True,
+            "label": "complex.docx",
+            "version": "v1",
+        }],
+    })
+    if not search["results"]:
+        raise AssertionError("search_office_sources returned no live evidence")
+
     inventory = cast(list[dict[str, object]], call("list_document_adapters", {})["adapters"])
+    meeting_draft = call("review_meeting_actions", {
+        "notes": "민지는 견적을 확인한다. 기한은 정하지 않았다.",
+        "candidates": [{
+            "action": "견적 확인",
+            "evidence": "민지는 견적을 확인한다.",
+            "assignee": "민지",
+        }],
+    })
+    work_request = call("work_item_request", {
+        "action": "confirm_meeting",
+        "draft_sha256": meeting_draft["draft_sha256"],
+        "items": meeting_draft["items"],
+        "selected": [0],
+        "session_id": "complex-dogfood",
+    })
+    work_approved = approve(
+        cast(str, work_request["id"]),
+        approved_by="system:qa",
+        approved_via="qa:script",
+    )
+    if work_approved["ok"] is not True:
+        raise AssertionError(f"work item approval failed: {work_approved}")
+    _ = call("list_work_items", {})
+    batch_request = call("office_batch_request", {
+        "items": [{
+            "request": REQUESTS["docx"],
+            "source": artifact(paths["docx"]),
+            "outcome": "Apply one approved DOCX batch edit",
+            "operations": [PATCH["docx"]],
+            "destination": str(coordinated / "batch-docx.docx"),
+        }],
+    })
+    batch_approved = approve(cast(str, batch_request["id"]), approved_by="system:qa", approved_via="qa:script")
+    if batch_approved["ok"] is not True:
+        raise AssertionError(f"office batch approval failed: {batch_approved}")
+    _ = call("list_office_batches", {})
     adapter_by_format = {str(item["format"]): item for item in inventory}
     template_plan = service.fill_template(
         artifact(paths["hwpx"]),
@@ -240,12 +289,25 @@ def run(output_dir: Path) -> dict[str, object]:
             expected_refusals.append({"format": fmt, "operation": "create", **create_error})
         inspection = call("inspect_document", {"source": source})
         extraction = call("extract_document", {"source": source})
+        if fmt == "xlsx":
+            _ = call(
+                "analyze_workbook",
+                {"source": source, "sheet": "Data", "cell_range": "A1:B4"},
+            )
         validation = call("validate_artifact", {"artifact": source})
         comparison = call("compare_documents", {"left": source, "right": source})
         preview = call("render_artifact", {"artifact": source, "output_format": "structured_preview"})
-        visual = call("render_artifact", {"artifact": source, "output_format": "png"}, refused=True)
-        visual_error = cast(dict[str, object], visual["error"])
-        expected_refusals.append({"format": fmt, "operation": "visual_render", **visual_error})
+        visual = call(
+            "render_artifact",
+            {"artifact": source, "output_format": "png"},
+            refused=fmt != "pdf",
+        )
+        if fmt == "pdf":
+            visual_result = {"status": "rendered", "page_count": visual["page_count"]}
+        else:
+            visual_error = cast(dict[str, object], visual["error"])
+            expected_refusals.append({"format": fmt, "operation": "visual_render", **visual_error})
+            visual_result = {"status": "unavailable", "code": visual_error["code"]}
         budget = {category: 100 for category in LOSS_CATEGORIES}
         converted = cast(dict[str, str], service.convert_document(source, target_format="txt", output_name=f"complex-{fmt}.txt", loss_budget=budget)["draft_artifact"])
         primary = source
@@ -294,7 +356,7 @@ def run(output_dir: Path) -> dict[str, object]:
         records[fmt] = {
             "source_sha256_before": source_digest, "source_sha256_after": sha256(source_path),
             "capabilities": adapter_by_format[fmt]["capabilities"], "modified_artifact": primary["uri"],
-            "operations": {"create": creation, "inspect": "ok", "extract": {"status": "ok", "spans": len(cast(list[object], extraction["spans"]))}, "modify": mutation, "validate": {"status": "ok", "checks": len(cast(list[object], validation["checks"]))}, "diff": {"status": "ok", "self_equal": comparison["equal"]}, "structured_preview": {"status": "preview", "visual_proof": preview["visual_proof"]}, "convert_txt": {"status": "ok", "sha256": converted["content_hash"]}, "visual_render": {"status": "unavailable", "code": visual_error["code"]}},
+            "operations": {"create": creation, "inspect": "ok", "extract": {"status": "ok", "spans": len(cast(list[object], extraction["spans"]))}, "modify": mutation, "validate": {"status": "ok", "checks": len(cast(list[object], validation["checks"]))}, "diff": {"status": "ok", "self_equal": comparison["equal"]}, "structured_preview": {"status": "preview", "visual_proof": preview["visual_proof"]}, "convert_txt": {"status": "ok", "sha256": converted["content_hash"]}, "visual_render": visual_result},
             "structure": structure, "preservation": preservation,
             "reopen_validation": reopened,
             "expected_content_match": expected_content_match,
@@ -353,6 +415,21 @@ def run(output_dir: Path) -> dict[str, object]:
                 f"legacy {ext} external engine was not permanently refused"
             )
         legacy[ext] = {"identity": preflight.to_dict(), "conversion": receipt.to_dict(), "source_immutable": sha256(source) == preflight.source_sha256}
+    _ = call("list_office_templates", {})
+    template_request = call("office_template_request", {
+        "action": "clone", "base": "weekly_report", "name": "QA weekly report",
+        "scope": "current_work", "preferences": {"tone": "concise"},
+    })
+    template_approved = approve(
+        cast(str, template_request["id"]), approved_by="system:qa", approved_via="qa:script",
+    )
+    if template_approved["ok"] is not True:
+        raise AssertionError(f"office_template_request approval failed: {template_approved}")
+    saved_template = cast(list[dict[str, object]], call("list_office_templates", {})["saved"])[0]
+    _ = call("resolve_office_template", {
+        "template_id": saved_template["id"], "version": saved_template["version"],
+        "values": {"title": "QA", "period": "current", "summary": "passed"},
+    })
     rollback_destination = coordinated / "rollback-probe.docx"
     rollback_source = artifact(paths["docx"])
     shutil.copy2(Path(rollback_source["uri"]), rollback_destination)

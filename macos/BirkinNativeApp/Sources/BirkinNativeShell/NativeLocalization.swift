@@ -2,7 +2,7 @@ import Foundation
 
 public enum NativeLocalization {
     public static var currentLocale: Locale {
-        Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        Locale(identifier: "ko-KR")
     }
 
     public static func language(for locale: Locale) -> String {

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import json
 from pathlib import Path
 import threading
 from typing import cast, final
 
 import pytest
 
-from birkin import uistate
+from birkin import approvals, goals, store, uistate, work_items
 from birkin.computer_use.capability_types import (
     DisplayServer,
     PermissionState,
@@ -15,9 +16,10 @@ from birkin.computer_use.capability_types import (
 )
 from birkin.computer_use.runtime import UnavailableBackend
 from birkin.llm import LLMError, LLMStatus
+from birkin.office.adapters.catalog import supported_formats
 from birkin.workspace import approval_authority
 from birkin.runtime import Session
-from birkin.workspace import WorkspaceEvent, runtime_adapter
+from birkin.workspace import WorkspaceEvent, WorkspaceService, runtime_adapter
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
 
 
@@ -32,8 +34,8 @@ class _RuntimeSession:
         self.steers.append(text)
         return True
 
-    def ask(self, text: str, *, on_text: object) -> str:
-        del on_text
+    def ask(self, text: str, *, on_text: object, on_progress: object = None) -> str:
+        del on_text, on_progress
         self.ask_count += 1
         if self.ask_count == 1:
             raise RuntimeError("provider failed")
@@ -49,8 +51,8 @@ class _ActiveRuntimeSession:
         self._started = started
         self._release = release
 
-    def ask(self, text: str, *, on_text: object) -> str:
-        del on_text
+    def ask(self, text: str, *, on_text: object, on_progress: object = None) -> str:
+        del on_text, on_progress
         self._started.set()
         if not self._release.wait(timeout=10):
             raise AssertionError("test did not release active runtime")
@@ -67,8 +69,8 @@ class _FailingRuntimeSession:
         self.cfg: dict[str, object] = {}
         self._error = error
 
-    def ask(self, text: str, *, on_text: object) -> str:
-        del text, on_text
+    def ask(self, text: str, *, on_text: object, on_progress: object = None) -> str:
+        del text, on_text, on_progress
         raise self._error
 
 
@@ -79,8 +81,8 @@ class _CapturingRuntimeSession:
         self.abort = threading.Event()
         self.prompts: list[str] = []
 
-    def ask(self, text: str, *, on_text: object) -> str:
-        del on_text
+    def ask(self, text: str, *, on_text: object, on_progress: object = None) -> str:
+        del on_text, on_progress
         self.prompts.append(text)
         if '<approval-outcome' in text and 'outcome="approved"' in text:
             return "승인된 작업이 완료되었습니다."
@@ -309,6 +311,86 @@ def test_computer_use_surface_projects_an_unavailable_backend(
     assert status["permission_prompted"] is False
 
 
+def test_runtime_import_formats_follow_office_catalog() -> None:
+    assert runtime_adapter._REGISTERED_IMPORT_SUFFIXES == {
+        f".{format_name}" for format_name in supported_formats()
+    } | {".txt"}
+
+
+def test_work_item_source_handler_resolves_persisted_goal_after_restart(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    goal = goals.set_goal("고객 보고서 제출", session_id="source-session")
+    item = cast(dict[str, object], json.loads(work_items.apply_approved({
+        "action": "create",
+        "title": "보고서 확인",
+        "session_id": "source-session",
+        "source": {"goal_slug": goal.slug},
+    }))["items"][0])
+
+    restarted = RuntimeWorkspaceAdapter(
+        "source-session", _event, workspace_root=tmp_path / "workspace"
+    )
+    result = restarted.handlers()["work_item.open_source"]({"id": item["id"]})
+
+    assert result["source_type"] == "goal_slug"
+    assert result["summary"] == "고객 보고서 제출"
+    with pytest.raises(ValueError, match="올바르지"):
+        restarted.handlers()["work_item.open_source"]({"id": item["id"], "target": "../secret"})
+
+
+def test_creation_receipt_source_uses_canonical_approved_journal(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    workspace = tmp_path / "approved"
+    workspace.mkdir()
+    adapter = RuntimeWorkspaceAdapter(
+        "receipt-session", _event, workspace_root=workspace
+    )
+    queued = adapter.handlers()["office.create"]({
+        "format": "docx",
+        "content": {"paragraphs": ["승인 영수증 검증"]},
+        "output_name": "report.docx",
+    })
+    approved = approvals.approve(
+        cast(str, queued["id"]), approved_by="human:test", approved_via="test"
+    )
+    assert approved["ok"] is True
+    approval = cast(dict[str, object], queued["approval"])
+    item = cast(dict[str, object], json.loads(work_items.apply_approved({
+        "action": "create",
+        "title": "생성 결과 확인",
+        "source": {"job_id": approval["job_id"]},
+    }))["items"][0])
+
+    restarted = RuntimeWorkspaceAdapter(
+        "receipt-session", _event, workspace_root=workspace
+    )
+    details = restarted.handlers()["work_item.open_source"]({"id": item["id"]})
+
+    assert details["summary"] == "Create report.docx"
+    assert details["destination"] == str(workspace / "report.docx")
+    assert details["validation"] == "등록된 구조 검증 통과 · 시각 검증 미실행"
+    assert "되돌리기 가능" in cast(str, details["rollback"])
+    assert "새 파일 삭제로 복원" in cast(str, details["rollback"])
+    assert "receipt_hmac" not in json.dumps(details)
+    assert "rollback_token" not in json.dumps(details)
+    snapshot = WorkspaceService(
+        root=tmp_path / "fresh-workspace",
+        session_id="receipt-session",
+        handlers={},
+    ).snapshot()
+    activity = next(panel for panel in snapshot.panels if panel.key == "activity_logs")
+    tasks = next(panel for panel in snapshot.panels if panel.key == "tasks_runs")
+    projected = next(row for row in tasks.items if row.get("id") == item["id"])
+    assert activity.items == ()
+    assert projected["source_validation"] == "등록된 구조 검증 통과 · 시각 검증 미실행"
+
+
 def test_runtime_adapter_advertises_and_executes_jailed_file_import(
     tmp_path: Path,
 ) -> None:
@@ -452,8 +534,10 @@ def test_chat_send_brackets_silent_gap_with_bounded_progress(
     class CompletedRuntime:
         cfg: dict[str, object] = {}
 
-        def ask(self, text: str, *, on_text: object) -> str:
-            del text, on_text
+        def ask(
+            self, text: str, *, on_text: object, on_progress: object = None
+        ) -> str:
+            del text, on_text, on_progress
             return "완료"
 
     def build(
@@ -618,7 +702,129 @@ def test_retry_replays_failed_text_as_a_new_handler_invocation(
             },
         ),
         ("message.assistant.completed", {"text": "retried: original intent"}),
+        ("workspace.refreshed", {"approval_requests": [], "work_items": []}),
     ]
+
+
+def test_chat_send_projects_parent_mcp_start_and_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    @final
+    class McpRuntime:
+        cfg: dict[str, object] = {}
+
+        def ask(
+            self, text: str, *, on_text: object, on_progress: object = None
+        ) -> str:
+            del text, on_text
+            progress = cast(Callable[[dict], None], on_progress)
+            identity = {"item_id": "item-7", "server": "birkin",
+                        "name": "office_job_request"}
+            progress({"mcp_tool_call": {
+                **identity, "event": "item/started", "status": "inProgress"}})
+            progress({"mcp_tool_call": {
+                **identity, "event": "item/completed", "status": "failed",
+                "diagnostic": {
+                    "operation_count": 2,
+                    "locator_shapes": ["public_docx_positive_index",
+                                       "native_or_extra_locator"],
+                    "error_code": "PRECONDITION_FAILED",
+                    "error_stage": "preview",
+                }}})
+            progress({"mcp_tool_call": {
+                **identity, "event": "item/completed", "status": "unknown"}})
+            return "완료"
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
+    ) -> Session:
+        del on_event, on_status
+        return cast(Session, cast(object, McpRuntime()))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("mcp-progress-session", emit)
+
+    adapter.handlers()["chat.send"]({"text": "업무를 만들어 줘"})
+
+    tools = [(event_type, payload) for event_type, payload in emitted
+             if event_type.startswith("tool.")]
+    assert [event_type for event_type, _payload in tools] == [
+        "tool.started", "tool.failed"]
+    assert tools[0][1]["runtime_name"] == "office_job_request"
+    assert tools[0][1]["runtime_server"] == "birkin"
+    assert tools[0][1]["runtime_item_id"] == "item-7"
+    assert tools[0][1]["runtime_tool_status"] == "inProgress"
+    assert tools[1][1]["runtime_tool_status"] == "failed"
+    assert tools[1][1]["runtime_diagnostic"] == {
+        "operation_count": 2,
+        "locator_shapes": ["public_docx_positive_index",
+                           "native_or_extra_locator"],
+        "error_code": "PRECONDITION_FAILED",
+        "error_stage": "preview",
+    }
+
+
+def test_chat_send_drops_untrusted_or_non_office_diagnostics(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    @final
+    class DiagnosticRuntime:
+        cfg: dict[str, object] = {}
+
+        def ask(
+            self, text: str, *, on_text: object, on_progress: object = None
+        ) -> str:
+            del text, on_text
+            progress = cast(Callable[[dict], None], on_progress)
+            for name, diagnostic in (
+                ("office_job_request", {
+                    "operation_count": 1,
+                    "locator_shapes": [{"SECRET_MARKER": True}],
+                    "error_code": ["PRECONDITION_FAILED"],
+                }),
+                ("work_item_request", {
+                    "operation_count": 1,
+                    "locator_shapes": ["native_or_extra_locator"],
+                    "SECRET_MARKER": "SECRET_MARKER",
+                }),
+            ):
+                progress({"mcp_tool_call": {
+                    "item_id": f"item-{name}", "server": "birkin",
+                    "name": name, "event": "item/completed",
+                    "status": "failed", "diagnostic": diagnostic,
+                }})
+            return "완료"
+
+    def build(
+        _cfg: dict[str, object],
+        on_event: Callable[[str, dict[str, object]], None] | None = None,
+        on_status: Callable[[LLMStatus], None] | None = None,
+    ) -> Session:
+        del on_event, on_status
+        return cast(Session, cast(object, DiagnosticRuntime()))
+
+    monkeypatch.setattr("birkin.workspace.runtime_adapter.build_session", build)
+    adapter = RuntimeWorkspaceAdapter("diagnostic-session", emit)
+
+    result = adapter.handlers()["chat.send"]({"text": "진단"})
+
+    assert result["reply"] == "완료"
+    assert "runtime_diagnostic" not in str(emitted)
+    assert "SECRET_MARKER" not in str(emitted)
 
 
 def test_non_provider_runtime_failure_emits_bounded_korean_guidance(
@@ -817,8 +1023,80 @@ def test_approval_answer_event_carries_execution_receipt(
                 "outcome": "approved",
                 "receipt": "exit 0: approved",
             },
-        )
+        ),
+        ("workspace.refreshed", {"approval_requests": [], "work_items": []}),
     ]
+
+
+def test_chat_completion_refreshes_provider_created_work_item_approval(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    emitted: list[tuple[str, dict[str, object]]] = []
+    runtime = _CapturingRuntimeSession()
+    adapter = RuntimeWorkspaceAdapter(
+        "refresh-session",
+        lambda event_type, payload: (
+            emitted.append((event_type, payload)) or _event(event_type, payload)
+        ),
+        workspace_root=tmp_path / "workspace",
+    )
+    setattr(adapter, "_session", cast(Session, cast(object, runtime)))
+    pending = store.add_pending(
+        category="work_item",
+        title="후속 업무 생성 확인",
+        description="업무: 새 검증 업무 · 담당자: 담당자 · 기한: 미정 · 원본: 없음",
+        payload={"action": "create", "title": "새 검증 업무"},
+        origin="conversation",
+    )
+
+    adapter.handlers()["chat.send"]({"text": "후속 업무를 제안해 줘"})
+
+    refresh = next(payload for event_type, payload in emitted if event_type == "workspace.refreshed")
+    approval = next(
+        item for item in cast("list[dict[str, object]]", refresh["approval_requests"])
+        if item["id"] == pending["id"]
+    )
+    assert approval["description"] == pending["description"]
+    assert approval["action"] == "create"
+
+
+def test_native_complete_request_projects_canonical_action(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    item = cast(dict[str, object], json.loads(work_items.apply_approved({
+        "action": "create", "title": "키보드 완료 확인",
+    }))["items"][0])
+    emitted: list[tuple[str, dict[str, object]]] = []
+    adapter = RuntimeWorkspaceAdapter(
+        "complete-session",
+        lambda event_type, payload: (
+            emitted.append((event_type, payload)) or _event(event_type, payload)
+        ),
+        workspace_root=tmp_path / "workspace",
+    )
+
+    adapter.handlers()["work_item.request"]({
+        "action": "complete", "id": item["id"],
+    })
+
+    requested = next(payload for event_type, payload in emitted if event_type == "approval.requested")
+    assert requested["action"] == "complete"
+    snapshot = WorkspaceService(
+        root=tmp_path / "bridge",
+        session_id="complete-session",
+        handlers={},
+    ).snapshot()
+    approvals_panel = next(panel for panel in snapshot.panels if panel.key == "approvals")
+    canonical = next(
+        item
+        for item in approvals_panel.items
+        if item["id"] == requested["approval_id"]
+    )
+    assert requested["sealed"] is canonical["sealed"] is False
 
 
 def test_approval_answer_summary_is_injected_into_next_agent_turn(

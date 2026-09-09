@@ -14,16 +14,22 @@ namespace Birkin.Native.App.Tests.Views;
 public sealed class ImportViewTests
 {
     [TestMethod]
-    public void PickerFilterOffersOnlyFirstReportFormats()
+    public void PickerFilterMatchesSupportedImportFormats()
     {
         Assert.AreEqual(
-            "Excel and Word documents|*.xlsx;*.docx"
-                + "|Excel workbooks|*.xlsx"
-                + "|Word documents|*.docx",
+            "지원 문서|*.docx;*.xlsx;*.pptx;*.pdf;*.hwpx;*.txt"
+                + "|Word 문서|*.docx"
+                + "|Excel 통합 문서|*.xlsx"
+                + "|PowerPoint 프레젠테이션|*.pptx"
+                + "|PDF 문서|*.pdf"
+                + "|한글 HWPX 문서|*.hwpx"
+                + "|텍스트 문서|*.txt",
             OfficeFilePicker.FileFilter);
         Assert.AreEqual(
-            "가져올 Excel 또는 Word 파일 선택",
+            "가져올 업무 문서 선택",
             OfficeFilePicker.DialogTitle);
+        Assert.IsTrue(OfficeFileSelection.IsSupported(@"C:\report.HWPX"));
+        Assert.IsFalse(OfficeFileSelection.IsSupported(@"C:\legacy.hwp"));
     }
 
     [TestMethod]
@@ -62,6 +68,12 @@ public sealed class ImportViewTests
         await sta.InvokeAsync(async () =>
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Connection.NextImportReference = new ImportedFilePresentation(
+                "import-1",
+                "first-report.docx",
+                "import-1.docx",
+                new string('a', 64),
+                1200);
             var view = new ImportView(fixture.Model, fixture.Coordinator);
             OfficeWorkflowViewHarness.Layout(view);
             var missing = @"C:\does-not-exist\first-report.docx";
@@ -78,13 +90,19 @@ public sealed class ImportViewTests
     }
 
     [TestMethod]
-    public async Task Drop_WhenSeveralPathsAreSelected_ShowsInlineStatusAndSendsNothing()
+    public async Task Drop_WhenOneOfSeveralPathsIsUnsupported_PreservesSuccessAndNamesFailure()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
         await sta.InvokeAsync(async () =>
         {
             await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Connection.NextImportReference = new ImportedFilePresentation(
+                "import-1",
+                "baseline.xlsx",
+                "import-1.xlsx",
+                new string('a', 64),
+                1200);
             var view = new ImportView(fixture.Model, fixture.Coordinator);
             OfficeWorkflowViewHarness.Layout(view);
             var status = OfficeWorkflowViewHarness.Find<TextBlock>(
@@ -94,16 +112,49 @@ public sealed class ImportViewTests
             var submitted = await view.ImportDroppedFilesAsync(
                 [
                     @"C:\fixtures\baseline.xlsx",
-                    @"C:\fixtures\candidate.xlsx",
+                    @"C:\fixtures\legacy.hwp",
                 ]);
 
-            Assert.IsFalse(submitted);
-            Assert.AreEqual(0, fixture.Connection.Sent.Count);
+            Assert.IsTrue(submitted);
+            Assert.AreEqual(1, fixture.Connection.Sent.Count);
+            Assert.AreEqual(1, fixture.Model.OfficeWorkflow.Imports.Count);
             Assert.AreEqual(System.Windows.Visibility.Visible, status.Visibility);
-            Assert.IsFalse(string.IsNullOrWhiteSpace(status.Text));
+            StringAssert.Contains(status.Text, "legacy.hwp");
             Assert.AreEqual(
                 AutomationLiveSetting.Assertive,
                 AutomationProperties.GetLiveSetting(status));
+        });
+    }
+
+    [TestMethod]
+    public async Task Drop_WhenTwoFilesAreSelected_ImportsBothInOrder()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Connection.ImportReferences.Enqueue(new ImportedFilePresentation(
+                "import-1", "baseline.xlsx", "import-1.xlsx", new string('a', 64), 1200));
+            fixture.Connection.ImportReferences.Enqueue(new ImportedFilePresentation(
+                "import-2", "candidate.xlsx", "import-2.xlsx", new string('b', 64), 1300));
+            var view = new ImportView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+
+            var submitted = await view.ImportDroppedFilesAsync(
+                [@"C:\fixtures\baseline.xlsx", @"C:\fixtures\candidate.xlsx"]);
+
+            Assert.IsTrue(submitted);
+            CollectionAssert.AreEqual(
+                new[] { @"C:\fixtures\baseline.xlsx", @"C:\fixtures\candidate.xlsx" },
+                fixture.Connection.Sent.Select(request =>
+                    ((NativeJsonString)request.Payload["source_path"]!).Value).ToArray());
+            CollectionAssert.AreEqual(
+                new[] { "baseline.xlsx", "candidate.xlsx" },
+                fixture.Model.OfficeWorkflow.Imports.Select(imported => imported.DisplayName).ToArray());
+            Assert.AreEqual(
+                "파일 2개를 가져왔습니다.",
+                OfficeWorkflowViewHarness.Find<TextBlock>(view, "import.status").Text);
         });
     }
 
@@ -166,13 +217,13 @@ public sealed class ImportViewTests
             Assert.AreEqual(1, fixture.Connection.Sent.Count);
             Assert.AreEqual("file.import", fixture.Connection.Sent[0].CommandType);
             Assert.AreEqual(path.Text, ((NativeJsonString)fixture.Connection.Sent[0].Payload["source_path"]!).Value);
-            Assert.AreEqual("Import selected office file", AutomationProperties.GetName(submit));
+            Assert.AreEqual("선택한 업무 문서 가져오기", AutomationProperties.GetName(submit));
         });
     }
 
     private sealed class StubOfficeFilePicker(string selectedPath)
         : IOfficeFilePicker
     {
-        public string? SelectOfficeFile(Window? owner) => selectedPath;
+        public IReadOnlyList<string> SelectOfficeFiles(Window? owner) => [selectedPath];
     }
 }

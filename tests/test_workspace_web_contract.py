@@ -360,6 +360,7 @@ def test_web_approval_payload_executes_through_runtime_authority(
         "command.accepted",
         "command.started",
         "approval.answered",
+        "workspace.refreshed",
         "command.completed",
     ]
     assert decided == [(approval_id, "approve")]

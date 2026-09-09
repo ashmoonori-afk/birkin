@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from .approval_execution_codec import JSONValue
+from .approval_execution_codec import JSONValue, JournalCodecError, json_mapping
 
 
 class JournalPhase(str, Enum):
@@ -67,6 +67,19 @@ def snapshot(events: list[dict[str, JSONValue]]) -> JournalSnapshot:
         except ValueError as exc:
             raise JournalStateError("approval execution phase is invalid") from exc
         transition_valid = allowed[candidate] is phase
+        if (
+            candidate is JournalPhase.SUCCEEDED
+            and phase is JournalPhase.ACTION_OUTCOME_UNKNOWN
+            and category == "mail_send"
+        ):
+            result = event.get("result")
+            try:
+                transition_valid = (
+                    isinstance(result, str)
+                    and json_mapping(result).get("state") == "submitted"
+                )
+            except JournalCodecError:
+                transition_valid = False
         if candidate is JournalPhase.READY and (
             (
                 phase is JournalPhase.ATTEMPT_COMMITTED

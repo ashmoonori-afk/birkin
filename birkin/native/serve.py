@@ -48,8 +48,6 @@ MAX_CONSECUTIVE_ACCEPT_FAILURES = 64
 
 
 class ServingEndpoint(Protocol):
-    """The accept-and-serve surface one bridge lifecycle needs."""
-
     def serve_once(self) -> None: ...
 
     def close(self) -> None: ...
@@ -109,6 +107,7 @@ class BridgeProcess:
             handler_factory=self._session_handlers,
         )
         _session, _created = self._hub.create(options.session_id)
+        self._hub.restore_existing()
         self._capabilities = BootstrapSecretStore(options.root / "native")
         self._socket_path = options.root / "bridge.sock"
         on_authenticated, on_connection_closed = ownership_callbacks(

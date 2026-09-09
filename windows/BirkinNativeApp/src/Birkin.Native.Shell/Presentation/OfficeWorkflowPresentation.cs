@@ -18,12 +18,20 @@ public sealed record MutationAvailabilitySet(
     MutationAvailability OfficeOpen,
     MutationAvailability OfficeCompare,
     MutationAvailability OfficeDraft,
-    MutationAvailability OfficeConvert)
+    MutationAvailability OfficeConvert,
+    MutationAvailability SessionCreate,
+    MutationAvailability SessionSelect,
+    MutationAvailability SessionRename,
+    MutationAvailability ApprovalRecheck)
 {
     private static readonly MutationAvailability Disabled = new(false, "E_CONNECTION_NOT_READY");
 
     public static MutationAvailabilitySet None { get; } =
         new(
+            Disabled,
+            Disabled,
+            Disabled,
+            Disabled,
             Disabled,
             Disabled,
             Disabled,
@@ -67,6 +75,10 @@ public sealed record OfficeWorkflowPresentation(
 
     public string CommandProgressText => CommandState switch
     {
+        WorkflowCommandState.PendingReceipt when CommandType == "chat.interrupt" =>
+            "중지 요청을 전송하고 있습니다.",
+        WorkflowCommandState.AcceptedPendingProjection when CommandType == "chat.interrupt" =>
+            "중지 요청을 처리하고 있습니다.",
         WorkflowCommandState.PendingReceipt => "명령을 전송하고 있습니다.",
         WorkflowCommandState.AcceptedPendingProjection => "결과를 화면에 반영하고 있습니다.",
         _ => string.Empty,
@@ -93,6 +105,13 @@ public sealed record OfficeWorkflowPresentation(
                 CurrentCursor).DiagnosticDetail
             : null;
 
+    public bool CanRetryConversation =>
+        CommandState == WorkflowCommandState.Refused
+        && RefusalRetryable is true
+        && string.Equals(CommandType, "chat.send", StringComparison.Ordinal)
+        && !string.IsNullOrWhiteSpace(Draft)
+        && Availability.ConversationSend.IsEnabled;
+
     public OfficeWorkflowPresentation WithDraft(string draft) => this with { Draft = draft };
 
     public OfficeWorkflowPresentation WithAvailability(MutationAvailabilitySet availability) =>
@@ -107,6 +126,15 @@ public sealed record OfficeWorkflowPresentation(
                 StringComparison.Ordinal))
             .Append(imported)
             .TakeLast(16)
+            .ToArray(),
+    };
+
+    public OfficeWorkflowPresentation WithImportSelection(string importId, bool isSelected) => this with
+    {
+        Imports = Imports
+            .Select(item => string.Equals(item.ImportId, importId, StringComparison.Ordinal)
+                ? item with { IsSelected = isSelected }
+                : item)
             .ToArray(),
     };
 
@@ -177,7 +205,6 @@ public sealed record OfficeWorkflowPresentation(
         AcceptedCursor = null,
         CurrentCursor = null,
         RefusalCode = null,
-        Imports = [],
         RefusalMessage = null,
         RefusalRetryable = null,
     };

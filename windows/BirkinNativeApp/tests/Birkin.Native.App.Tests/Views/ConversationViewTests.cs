@@ -54,6 +54,46 @@ public sealed class ConversationViewTests
     }
 
     [TestMethod]
+    public async Task Send_WhenOnlyFirstImportedFileIsSelected_AttachesOnlyFirstReference()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            foreach (var imported in new[]
+            {
+                new ImportedFilePresentation("import-a", "a.xlsx", "import-a.xlsx", new string('a', 64), 100),
+                new ImportedFilePresentation("import-b", "b.xlsx", "import-b.xlsx", new string('b', 64), 200),
+            })
+            {
+                fixture.Connection.NextImportReference = imported;
+                Assert.IsTrue(await fixture.Coordinator.ImportAsync(
+                    new Birkin.Native.Shell.Commands.FileImportIntent($@"C:\{imported.DisplayName}"),
+                    deadline.Token));
+            }
+
+            var view = new ConversationView(fixture.Model, fixture.Coordinator);
+            OfficeWorkflowViewHarness.Layout(view);
+            var second = OfficeWorkflowViewHarness.Find<CheckBox>(view, "import-b");
+            Assert.AreEqual(view.FindResource("TextBrush"), second.Foreground);
+            second.IsChecked = false;
+            second.RaiseEvent(new RoutedEventArgs(CheckBox.ClickEvent));
+            fixture.Coordinator.SetConversationDraft("inspect");
+
+            Assert.IsTrue(await fixture.Coordinator.SendConversationAsync(deadline.Token));
+
+            var request = fixture.Connection.Sent[^1];
+            var attachments = (NativeJsonArray)request.Payload["attachments"]!;
+            var reference = (NativeJsonObject)attachments.Values.Single();
+            Assert.AreEqual("import-a", ((NativeJsonString)reference["import_id"]!).Value);
+            Assert.AreEqual(2, fixture.Model.OfficeWorkflow.Imports.Count);
+            Assert.IsFalse(fixture.Model.OfficeWorkflow.Imports.Single(item => item.ImportId == "import-b").IsSelected);
+            StringAssert.Contains(AutomationProperties.GetHelpText(second), "삭제되지 않습니다");
+        });
+    }
+
+    [TestMethod]
     public async Task Stop_WhenTurnIsInterruptible_SubmitsCanonicalInterruptOnce()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
@@ -291,7 +331,37 @@ public sealed class ConversationViewTests
     }
 
     [TestMethod]
-    public async Task CommandProgress_WhenPending_ShowsKoreanCopyAndAnimatedSpinner()
+    public async Task Retry_WhenConversationRefusalIsRetryable_ResubmitsPreservedDraft()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            fixture.Coordinator.SetConversationDraft("보고서 다시 작성");
+            var refusal = fixture.Model.OfficeWorkflow
+                .Begin("retry-1", "chat.send")
+                .Refuse("retry-1", "E_BUSY", "busy", true, null);
+            var view = new ConversationView(fixture.Model, fixture.Coordinator);
+            fixture.Model.PresentOfficeWorkflow(refusal);
+            OfficeWorkflowViewHarness.Layout(view);
+
+            var retry = OfficeWorkflowViewHarness.Find<Button>(
+                view,
+                "conversation.retry");
+            Assert.AreEqual(Visibility.Visible, retry.Visibility);
+            retry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.AreEqual(1, fixture.Connection.Sent.Count);
+            Assert.AreEqual("chat.send", fixture.Connection.Sent[0].CommandType);
+            Assert.AreEqual(
+                "보고서 다시 작성",
+                ((NativeJsonString)fixture.Connection.Sent[0].Payload["text"]!).Value);
+        });
+    }
+
+    [TestMethod]
+    public async Task CommandProgress_WhenPending_ShowsKoreanCopyAndAnimation()
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
@@ -329,8 +399,7 @@ public sealed class ConversationViewTests
                 Assert.AreEqual("명령을 전송하고 있습니다.", label.Text);
                 Assert.IsInstanceOfType<RotateTransform>(
                     spinner.RenderTransform);
-                Assert.IsTrue(
-                    spinner.RenderTransform.HasAnimatedProperties);
+                Assert.IsTrue(spinner.RenderTransform.HasAnimatedProperties);
             }
             finally
             {
@@ -338,4 +407,92 @@ public sealed class ConversationViewTests
             }
         });
     }
+
+    [TestMethod]
+    public async Task ConversationScroll_PreservesReadingPositionAndFollowsNewUserRequest()
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await using var sta = await StaDispatcherHarness.StartAsync(deadline.Token);
+        await sta.InvokeAsync(async () =>
+        {
+            await using var fixture = await OfficeWorkflowViewHarness.CreateAsync();
+            var initial = Enumerable.Range(1, 30)
+                .Select(index => new ConversationRowPresentation(
+                    $"message-{index}",
+                    index % 2 == 0 ? "assistant_message" : "user_message",
+                    $"오래된 대화 {index}: " + new string('가', 80),
+                    "actor:test",
+                    index))
+                .ToArray();
+            fixture.Model.PresentSnapshot(
+                WithConversation(fixture.Model.Workspace!, initial),
+                () => { });
+            var view = new ConversationView(fixture.Model, fixture.Coordinator);
+            var window = new Window { Content = view, Width = 760, Height = 520 };
+            window.Show();
+            var scroll = OfficeWorkflowViewHarness.Find<ScrollViewer>(
+                view,
+                "conversation.scroll");
+
+            await view.Dispatcher.InvokeAsync(
+                () => { },
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            Assert.IsTrue(scroll.ScrollableHeight > 0);
+            scroll.ScrollToTop();
+            view.UpdateLayout();
+
+            var withAssistant = initial.Append(new ConversationRowPresentation(
+                "assistant-new",
+                "assistant_message",
+                "위 내용을 읽는 동안 도착한 응답",
+                "agent:birkin",
+                31)).ToArray();
+            fixture.Model.PresentSnapshot(
+                WithConversation(fixture.Model.Workspace!, withAssistant),
+                () => { });
+            await view.Dispatcher.InvokeAsync(
+                () => { },
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            Assert.AreEqual(0D, scroll.VerticalOffset, 0.5D);
+
+            var withUser = withAssistant.Append(new ConversationRowPresentation(
+                "user-new",
+                "user_message",
+                "새 요청",
+                "windows:window-main",
+                32)).ToArray();
+            fixture.Model.PresentSnapshot(
+                WithConversation(fixture.Model.Workspace!, withUser),
+                () => { });
+            await view.Dispatcher.InvokeAsync(
+                () => { },
+                System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            Assert.AreEqual(scroll.ScrollableHeight, scroll.VerticalOffset, 0.5D);
+            window.Close();
+        });
+    }
+
+    private static WorkspaceSnapshotPresentation WithConversation(
+        WorkspaceSnapshotPresentation source,
+        IReadOnlyList<ConversationRowPresentation> conversation) => new(
+            source.ProtocolVersion,
+            source.SessionId,
+            source.Cursor,
+            source.InstanceId,
+            source.ResetReason,
+            source.Transport,
+            source.PanelCount,
+            source.PythonConnection,
+            conversation,
+            source.Composer,
+            source.WorkingMemory,
+            source.Approvals,
+            source.ApprovalRequests,
+            source.Activity,
+            source.Browser,
+            source.Office,
+            source.Terminal,
+            source.MutationAvailability,
+            source.Sessions,
+            source.WorkItems);
 }

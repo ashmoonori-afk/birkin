@@ -164,6 +164,31 @@ public sealed class BridgeSession : INativeClientConnection
             "E_STATE",
             "session receive is owned by its lifetime pump"));
 
+    public async ValueTask SwitchSessionAsync(
+        string sessionId,
+        CancellationToken cancellationToken)
+    {
+        EnsureMutable();
+        var applied = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void OnApplied(NativeProjectionState state)
+        {
+            if (string.Equals(state.SessionId, sessionId, StringComparison.Ordinal))
+            {
+                applied.TrySetResult();
+            }
+        }
+        ProjectionStore.SnapshotApplied += OnApplied;
+        try
+        {
+            await _connection.SwitchSessionAsync(sessionId, cancellationToken).ConfigureAwait(false);
+            await applied.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            ProjectionStore.SnapshotApplied -= OnApplied;
+        }
+    }
+
     public ValueTask SendGoodbyeAsync(CancellationToken cancellationToken) =>
         HasLiveCapability(DateTimeOffset.UtcNow)
             ? _connection.SendGoodbyeAsync(cancellationToken)

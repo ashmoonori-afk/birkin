@@ -14,8 +14,8 @@ struct DesktopNotificationTests {
             untrustedDetail: String(repeating: command, count: 20)
         )
 
-        #expect(payload.title == "Birkin session completed")
-        #expect(payload.body == "Open Birkin to review the canonical result.")
+        #expect(payload.title == "Birkin 업무가 완료되었습니다")
+        #expect(payload.body == "Birkin에서 최종 결과를 확인하세요.")
         #expect(payload.body.utf8.count <= 120)
         #expect(!payload.body.contains(seededSecret))
         #expect(!payload.body.contains("curl"))
@@ -32,7 +32,7 @@ struct DesktopNotificationTests {
             summary: "rm -rf / --token \(secret)"
         )
 
-        #expect(payload.body == "Open Birkin to review this request.")
+        #expect(payload.body == "Birkin에서 요청 내용을 확인하세요.")
         #expect(payload.body.utf8.count <= 120)
         #expect(!payload.body.contains(secret))
         #expect(!payload.body.contains("rm -rf"))
@@ -49,8 +49,8 @@ struct DesktopNotificationTests {
             itemID: "bridge",
             untrustedDetail: "Authorization: Bearer secret full command text"
         )
-        #expect(payload.title == "Birkin needs attention")
-        #expect(payload.body == "Open Birkin to view bounded diagnostics.")
+        #expect(payload.title == "Birkin 확인이 필요합니다")
+        #expect(payload.body == "Birkin에서 연결 세부 정보를 확인하세요.")
         #expect(payload.userInfo == ["route": "connection", "item_id": "bridge"])
         #expect(payload.actions.isEmpty)
     }

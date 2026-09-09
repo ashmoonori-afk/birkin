@@ -208,8 +208,8 @@ public sealed class ExistingAccountProviderJourneyTests : MainWindowTestBase
                     var encoder = new PngBitmapEncoder();
                     encoder.Frames.Add(BitmapFrame.Create(bitmap));
                     var evidencePath = Path.Combine(
-                        repositoryRoot,
-                        ".omo", "evidence", "native-windows-20260824", "live-chat", "real-conversation.png");
+                        evidence.EvidenceDirectory,
+                        "real-conversation.png");
                     Directory.CreateDirectory(Path.GetDirectoryName(evidencePath)!);
                     await using (var output = File.Create(evidencePath))
                     {

@@ -9,6 +9,7 @@ from pathlib import Path
 
 from .adapters.catalog import supported_formats
 from .adapters.hwpx import HwpxAdapter
+from .business_templates import prepare_business_content
 from .conversion_engine import convert_document
 from .create import create_document_file
 from .create_template import HwpxTemplatePlan, plan_hwpx_template
@@ -108,6 +109,7 @@ def _result(
     template: Mapping[str, object] | None,
     source_sha256: str | None,
     warnings: list[str],
+    business_template: dict[str, object] | None,
 ) -> CreatedDocument:
     mode = "template_derivation" if source_sha256 is not None else "blank_authoring"
     artifact = workspace.artifact(output, template)
@@ -147,6 +149,7 @@ def _result(
         "validation_evidence": evidence,
         "warnings": warnings,
         "receipt": receipt,
+        "business_template": business_template,
     }
 
 
@@ -168,20 +171,21 @@ def create_document(
         )
     output = workspace.output_path(output_name, f".{fmt}")
     workspace.enforce_content_limit(content)
+    prepared_content, business_template = prepare_business_content(fmt, content)
     source_sha256: str | None = None
     warnings: list[str] = []
     if fmt == "hwpx":
         if template is None:
-            create_document_file(fmt, content, output)
+            create_document_file(fmt, prepared_content, output)
         else:
-            plan, _ = _create_hwpx(workspace, content, template, output)
+            plan, _ = _create_hwpx(workspace, prepared_content, template, output)
             source_sha256 = plan.source_sha256
             warnings.extend(plan.warnings)
     else:
         if template is not None:
             raise DocumentError(DocumentErrorCode.INVALID_INPUT, "plan", "template derivation is supported only for HWPX")
-        create_document_file(fmt, content, output)
-    return _result(workspace, output, fmt, output_name, template, source_sha256, warnings)
+        create_document_file(fmt, prepared_content, output)
+    return _result(workspace, output, fmt, output_name, template, source_sha256, warnings, business_template)
 
 
 __all__ = ["convert_document", "create_document"]

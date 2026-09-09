@@ -63,6 +63,47 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
     }
 
     [TestMethod]
+    public async Task OpenWorkItemSource_SubmitsOnlyOpaquePersistedWorkItemId()
+    {
+        var fixture = await Fixture.ConnectAsync(new HashSet<string>(["work_item.open_source"]));
+        fixture.Connection.Enqueue(Receipt("command-1", 5, Object(
+            ("source_type", new NativeJsonString("job_id")),
+            ("summary", new NativeJsonString("보고서를 저장했습니다.")))));
+
+        var result = await fixture.Coordinator.OpenWorkItemSourceAsync(
+            "work-1", CancellationToken.None);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("job_id", result.SourceType);
+        var request = fixture.Connection.Sent.Single();
+        Assert.AreEqual("work_item.open_source", request.CommandType);
+        Assert.AreEqual(1, request.Payload.Count);
+        Assert.AreEqual("work-1", ((NativeJsonString)request.Payload["id"]!).Value);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task OpenGoalSource_NavigatesUsingCanonicalReceiptSessionOnly()
+    {
+        var fixture = await Fixture.ConnectAsync(new HashSet<string>([
+            "work_item.open_source", "session.select",
+        ]));
+        fixture.Connection.Enqueue(Receipt("command-1", 5, Object(
+            ("source_type", new NativeJsonString("goal_slug")),
+            ("session_id", new NativeJsonString("session-2")),
+            ("summary", new NativeJsonString("보고서 제출")))));
+        fixture.Connection.Enqueue(Receipt("command-1", 6));
+
+        var result = await fixture.Coordinator.OpenWorkItemSourceAsync(
+            "work-stale-card", CancellationToken.None);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual("session-2", result.SessionId);
+        Assert.AreNotEqual("work-stale-card", result.SessionId);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
     public async Task InterruptConversation_WhenProjectionDisallowsInterrupt_NeverWritesTransport()
     {
         var fixture = await Fixture.ConnectAsync(
@@ -164,7 +205,6 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
 
     [DataTestMethod]
     [DataRow("chat.send")]
-    [DataRow("file.import")]
     [DataRow("approval.answer")]
     [DataRow("office.select")]
     [DataRow("office.open")]
@@ -249,6 +289,7 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
                         ("jail_name", new NativeJsonString("import-1.xlsx")),
                         ("sha256", new NativeJsonString(new string('a', 64))),
                         ("byte_count", new NativeJsonInteger(1200)))))));
+        fixture.Connection.Enqueue(Event(5, "command.completed", Object()));
 
         var submitted = await fixture.Coordinator.ImportAsync(
             new FileImportIntent(@"C:\input.xlsx"),
@@ -260,6 +301,34 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
         Assert.AreEqual("import-1", imported.ImportId);
         Assert.AreEqual("first-report.xlsx", imported.DisplayName);
         Assert.AreEqual(1200L, imported.ByteCount);
+        await fixture.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task Import_WaitsForCommandCompletionBeforeUsingItsCursorForNextImport()
+    {
+        var fixture = await Fixture.ConnectAsync(
+            new HashSet<string>(["file.import"]));
+        fixture.Connection.Enqueue(Receipt("command-1", 5, Object()));
+        fixture.Connection.Enqueue(Event(5, "command.accepted", Object()));
+        fixture.Connection.Enqueue(Event(6, "command.started", Object()));
+        fixture.Connection.Enqueue(Event(7, "office.updated", Object()));
+        fixture.Connection.Enqueue(Event(8, "command.completed", Object()));
+
+        Assert.IsTrue(await fixture.Coordinator.ImportAsync(
+            new FileImportIntent(@"C:\baseline.xlsx"),
+            CancellationToken.None));
+        fixture.Connection.Enqueue(Receipt("command-1", 9, Object()));
+        fixture.Connection.Enqueue(Event(9, "command.accepted", Object()));
+        fixture.Connection.Enqueue(Event(10, "command.started", Object()));
+        fixture.Connection.Enqueue(Event(11, "office.updated", Object()));
+        fixture.Connection.Enqueue(Event(12, "command.completed", Object()));
+
+        Assert.IsTrue(await fixture.Coordinator.ImportAsync(
+            new FileImportIntent(@"C:\candidate.xlsx"),
+            CancellationToken.None));
+        Assert.AreEqual(2, fixture.Connection.Sent.Count);
+        Assert.AreEqual(8, fixture.Connection.Sent[1].ExpectedCursor);
         await fixture.DisposeAsync();
     }
 
@@ -285,6 +354,7 @@ public sealed class ShellCoordinatorOfficeWorkflowTests
                         ("jail_name", new NativeJsonString("import-1.xlsx")),
                         ("sha256", new NativeJsonString(new string('a', 64))),
                         ("byte_count", new NativeJsonInteger(1200)))))));
+        fixture.Connection.Enqueue(Event(6, "command.completed", Object()));
 
         var submitted = await fixture.Coordinator.ImportAsync(
             new FileImportIntent(@"C:\input.xlsx"),

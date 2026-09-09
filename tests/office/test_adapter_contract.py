@@ -54,7 +54,13 @@ def test_service_inventory_has_verified_provenance_and_truthful_capabilities(
             }
             and capability["reason"]
             and capability["availability"]
+            and "public_entrypoint" in capability
             for capability in entry["capabilities"].values()
+        )
+        assert all(
+            capability["public_entrypoint"] is None
+            for capability in entry["capabilities"].values()
+            if capability["state"] == "unsupported"
         )
         assert entry["packages"]
         assert all(

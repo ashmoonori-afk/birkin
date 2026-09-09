@@ -13,8 +13,12 @@ internal static class ProviderOfficeJourney
     public static async Task RunAsync()
     {
         var repositoryRoot = FindRepositoryRoot();
-        var evidenceRoot = Path.Combine(
-            repositoryRoot, ".omo", "evidence", "native-windows-20260824", "remediation", "w6");
+        var configuredEvidenceRoot = Environment.GetEnvironmentVariable("BIRKIN_NATIVE_EVIDENCE_ROOT");
+        var evidenceRoot = string.IsNullOrWhiteSpace(configuredEvidenceRoot)
+            ? Path.Combine(
+                repositoryRoot,
+                ".omo", "evidence", "native-windows-20260824", "remediation", "w6")
+            : Path.Combine(configuredEvidenceRoot, "provider-office");
         var evidence = new ProviderOfficeEvidence(evidenceRoot);
         using var setupDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
         var bridge = await BridgeProcessHarness.StartAsync(setupDeadline.Token);
@@ -59,6 +63,7 @@ internal static class ProviderOfficeJourney
                         ["instance_id"] = ready.InstanceId,
                     });
 
+                    using var journeyDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(240));
                     var result = await ProviderOfficeJourneyFlow.RunAsync(
                         repositoryRoot,
                         bridge.TemporaryRoot,
@@ -66,7 +71,7 @@ internal static class ProviderOfficeJourney
                         evidence,
                         evidenceRoot,
                         invokeProvider: true,
-                        setupDeadline.Token);
+                        journeyDeadline.Token);
                     Assert.AreEqual(1, result.ProviderInvocations);
                     evidence.Record("provider-invoked", new Dictionary<string, object?>
                     {
