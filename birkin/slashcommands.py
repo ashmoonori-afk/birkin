@@ -693,7 +693,11 @@ def _save(session: Any, arg: str) -> None:
         print(f"{RED}Names starting with '{transcripts.AUTO_PREFIX}' are reserved "
               f"for auto-saved transcripts. Pick another name.{RESET}")
         return
-    path = config.sessions_dir() / f"{name}.json"
+    path = config.session_file(name)
+    if path is None:
+        print(f"{RED}Session names must be plain file names "
+              f"(no path separators or '..').{RESET}")
+        return
     path.write_text(json.dumps(session.agent.messages, indent=2, ensure_ascii=False),
                     encoding="utf-8")
     print(f"{DIM}Saved to {path}{RESET}")
@@ -703,8 +707,8 @@ def _load(session: Any, arg: str) -> None:
     if not arg:
         print(f"{RED}Give a session name (see /sessions).{RESET}")
         return
-    path = config.sessions_dir() / f"{arg}.json"
-    if not path.is_file():
+    path = config.session_file(arg)
+    if path is None or not path.is_file():
         print(f"{RED}No session {arg!r}.{RESET}")
         return
     session.agent.messages = json.loads(path.read_text(encoding="utf-8"))

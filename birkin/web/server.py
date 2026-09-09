@@ -372,6 +372,10 @@ def _get_workspace_hub() -> WorkspaceHub:
                     root=root,
                     handler_factory=factory,
                 )
+            # Same as the native bridge: durable journals from an earlier
+            # process must be listed, or a browser without the old session
+            # id in localStorage sees an empty workspace and starts over.
+            _workspace_hub.restore_existing()
     return _workspace_hub
 
 

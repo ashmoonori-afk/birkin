@@ -134,6 +134,13 @@ def _sheet_inventory(
             result["hidden_rows"].append({"locator": base, "reference": attribute(item, "r") or "", "hidden": True})
         elif kind == "col" and (attribute(item, "hidden") or "").lower() in {"1", "true"}:
             minimum, maximum = attribute(item, "min") or "0", attribute(item, "max") or "0"
+            if not (minimum.isdigit() and maximum.isdigit()):
+                raise DocumentError(
+                    DocumentErrorCode.PACKAGE_INVALID,
+                    "inspect",
+                    f"invalid hidden column bounds min={minimum!r} max={maximum!r}",
+                    details={"part_uri": part_uri},
+                )
             result["hidden_columns"].append({"locator": base, "min": int(minimum), "max": int(maximum), "hidden": True})
 
 

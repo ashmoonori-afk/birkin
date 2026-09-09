@@ -42,6 +42,10 @@ _AUTH_HEADER_RE = re.compile(
     r"(?i)\b(authorization|proxy-authorization|x-api-key|api-key)"
     r"(\s*[:=]\s*)(?:bearer\s+|basic\s+|token\s+)?[^\s,;]+")
 
+# A cookie header is one opaque credential; ``name=value; attrs`` carries no
+# recognisable prefix, so the whole header value is masked.
+_COOKIE_HEADER_RE = re.compile(r"(?im)^(\s*(?:set-cookie|cookie)\s*:\s*)[^\r\n]+")
+
 # Three base64url segments -- a JWT carries its own claims, so the whole thing
 # is the secret, not just the signature.
 _JWT_RE = re.compile(
@@ -105,6 +109,7 @@ def redact_sensitive_text(text: str) -> str:
         out = _URL_USERINFO_RE.sub(r"\1:" + SENTINEL + "@", out)
     if ":" in out or "=" in out:
         out = _AUTH_HEADER_RE.sub(r"\1\2" + SENTINEL, out)
+        out = _COOKIE_HEADER_RE.sub(r"\1" + SENTINEL, out)
         out = _SECRET_ASSIGN_RE.sub(_mask_assignment, out)
     return text if out == text else out
 

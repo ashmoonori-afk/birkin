@@ -42,23 +42,24 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
         memory=None,
     )
 
-    # Preload any requested skills' bodies directly into the prompt.
-    preloaded: list[tuple[str, str]] = []
-    skills = parent_ctx.skills
-    if skills and skill_names:
-        for nm in skill_names:
-            sk = skills.get(nm)
-            if sk:
-                preloaded.append((sk.name, sk.body()))
-
-    skills_index = skills.index() if skills else ""
-    system = promptgate.compose_subagent(
-        child_cfg,
-        skills_index=skills_index,
-        preloaded=preloaded or None,
-    )
-
+    # Everything after the reservation must release the lease on failure;
+    # a skill body that fails to read used to leak a concurrency slot.
     try:
+        # Preload any requested skills' bodies directly into the prompt.
+        preloaded: list[tuple[str, str]] = []
+        skills = parent_ctx.skills
+        if skills and skill_names:
+            for nm in skill_names:
+                sk = skills.get(nm)
+                if sk:
+                    preloaded.append((sk.name, sk.body()))
+
+        skills_index = skills.index() if skills else ""
+        system = promptgate.compose_subagent(
+            child_cfg,
+            skills_index=skills_index,
+            preloaded=preloaded or None,
+        )
         registry = build_registry(child_ctx)
         run = agentruns.register_run(task)
     except Exception:

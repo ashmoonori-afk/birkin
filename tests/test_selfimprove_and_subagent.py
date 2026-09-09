@@ -520,3 +520,40 @@ def test_subagent_setup_failure_releases_tree_lease(monkeypatch):
     with pytest.raises(RuntimeError, match="registry failed"):
         subagent_mod.run_subagent("cannot start", session.ctx)
     assert session.ctx.tree_budget.active == 0
+
+
+def test_skill_preload_failure_releases_concurrency_lease(monkeypatch):
+    """A skill body that fails to read used to leak the tree's only slot."""
+    from dataclasses import replace
+
+    from birkin import subagent as subagent_mod
+
+    class _BrokenSkill:
+        name = "broken"
+
+        def body(self) -> str:
+            raise FileNotFoundError("SKILL.md vanished")
+
+    class _Skills:
+        def get(self, name):
+            return _BrokenSkill() if name == "broken" else None
+
+        def index(self) -> str:
+            return ""
+
+    session = build_session({
+        "provider": "codex-cli",
+        "model": "",
+        "subagent_tree_max_concurrent": 1,
+    })
+    ctx = replace(session.ctx, skills=_Skills())
+    monkeypatch.setattr(
+        "birkin.agent.Agent.run",
+        lambda self, user_text, on_text=None, abort=None: "done",
+    )
+
+    with pytest.raises(FileNotFoundError):
+        subagent_mod.run_subagent("first", ctx, skill_names=["broken"])
+
+    assert session.ctx.tree_budget.active == 0
+    assert subagent_mod.run_subagent("second", session.ctx) == "done"

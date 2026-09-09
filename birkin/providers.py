@@ -530,8 +530,21 @@ def _generic_cli_completer(exe_name: str, argv_tail: list[str],
         if model and model_flag:
             argv += [model_flag, model]
         out, err, code = _run(argv, stdin=prompt, timeout=timeout)
-        return out.strip() or f"[provider-error] {exe_name}: {err.strip()[:300]}"
+        return _cli_reply(exe_name, out, err, code)
     return complete
+
+
+def _cli_reply(exe_name: str, out: str, err: str, code: int) -> str:
+    """Model text on success; a provider error on a nonzero exit.
+
+    A CLI that prints a partial answer or a diagnostic to stdout and then
+    exits nonzero has not produced a reply, so its stdout must not be
+    returned as one.
+    """
+    if code != 0:
+        detail = (err.strip() or out.strip())[:300]
+        return f"[provider-error] {exe_name} exited {code}: {detail}"
+    return out.strip() or f"[provider-error] {exe_name}: {err.strip()[:300]}"
 
 
 def gemini_completer(model: Optional[str] = None,
@@ -598,7 +611,7 @@ def local_completer(model: Optional[str] = None,
             return "[provider-error] ollama CLI not found"
         argv = [exe, "run", model or "llama3"]
         out, err, code = _run(argv, stdin=prompt, timeout=timeout)
-        return out.strip() or f"[provider-error] ollama: {err.strip()[:300]}"
+        return _cli_reply("ollama", out, err, code)
     return complete
 
 

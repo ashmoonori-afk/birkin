@@ -343,3 +343,20 @@ def test_shared_and_array_formula_edits_are_refused_without_touching_package(tmp
         _ = XlsxAdapter().patch_formula(source, output, {"sheet": "Data", "cell": "G1"}, "A1+2")
     assert caught.value.code is DocumentErrorCode.LOSSY_WRITE_BLOCKED
     assert not output.exists()
+
+
+def test_malformed_hidden_column_bounds_are_a_typed_package_error(tmp_path: Path) -> None:
+    """`int("x")` used to escape as a raw ValueError from inventory."""
+    source = _book(tmp_path / "source.xlsx")
+    with zipfile.ZipFile(source) as archive:
+        parts = {name: archive.read(name) for name in archive.namelist()}
+    parts["xl/worksheets/sheet1.xml"] = parts["xl/worksheets/sheet1.xml"].replace(
+        b'<col min="2" max="3" hidden="1"/>', b'<col min="x" max="3" hidden="1"/>'
+    )
+    broken = tmp_path / "broken.xlsx"
+    with zipfile.ZipFile(broken, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in parts.items():
+            archive.writestr(name, data)
+    with pytest.raises(DocumentError) as caught:
+        XlsxAdapter().operation_inventory(broken)
+    assert caught.value.code is DocumentErrorCode.PACKAGE_INVALID

@@ -435,3 +435,14 @@ def test_build_registry_disabled_tools_filtered(tmp_path):
     names = build_registry(ctx).names()
     assert "run_shell" not in names
     assert "read_file" in names
+
+
+def test_write_file_rejects_non_string_content_before_creating_file(tmp_path: Path):
+    """Schema-invalid content used to create an empty file, then fail on .encode()."""
+    ctx = _ctx(tmp_path)
+    write = next(t for t in files_mod.tools() if t.name == "write_file").fn
+
+    res = write({"path": "created.txt", "content": 123}, ctx)
+
+    assert res.is_error and "must be a string" in res.content
+    assert not (tmp_path / "created.txt").exists()

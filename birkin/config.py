@@ -617,6 +617,21 @@ def sessions_dir() -> Path:
     return d
 
 
+def session_file(name: str) -> Path | None:
+    """``sessions_dir()/<name>.json`` for a plain session stem, else ``None``.
+
+    User-supplied names such as ``../config`` or an absolute path must never
+    resolve outside the sessions directory (``/sessions save ../config`` would
+    otherwise overwrite ``config.json``).
+    """
+    stem = name.strip()
+    if not stem or stem in {".", ".."} or "\\" in stem or "/" in stem:
+        return None
+    if stem != Path(stem).name:
+        return None
+    return sessions_dir() / f"{stem}.json"
+
+
 def vault_dir(cfg: dict[str, Any] | None = None) -> Path:
     """Obsidian semantic-memory vault directory."""
     raw = (cfg or {}).get("vault_path") if cfg else None

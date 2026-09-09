@@ -339,3 +339,22 @@ def test_failed_validation_blocks_publication_without_runner_call() -> None:
         job.publish(output_name="final.docx")
     _assert_error_code(caught, DocumentErrorCode.PRECONDITION_FAILED)
     assert runner.publish_calls == 0
+
+
+def test_incomplete_rollback_authority_is_rejected_before_rolling_back() -> None:
+    """The runner used to roll the destination back and only then reject the
+    partial approval tuple, leaving the job claiming to be exported."""
+    job, runner = _job()
+    _advance_to_approval(job)
+    job.approve(approver="reviewer", approved_via="test:office-job")
+    job.execute()
+    job.validate()
+    job.publish(output_name="final.docx")
+    job.export(_request())
+
+    with pytest.raises(DocumentError) as caught:
+        job.rollback_export(approval_id="approval-only")
+
+    _assert_error_code(caught, DocumentErrorCode.PRECONDITION_FAILED)
+    assert runner.rollback_calls == 0
+    assert job.state is OfficeJobState.exported

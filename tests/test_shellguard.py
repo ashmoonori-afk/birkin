@@ -386,3 +386,27 @@ def test_outbound_uploads_need_confirmation(command):
 ])
 def test_plain_downloads_stay_allowed(command):
     assert shellguard.detect(command)[0] is None
+
+
+@pytest.mark.parametrize("command", [
+    "kill -9 -1; echo survived",
+    "kill -TERM -1 && echo survived",
+    "kill -9 -1 | cat",
+])
+def test_kill_everything_is_hardline_even_when_chained(command):
+    """The end-of-string anchor let `kill -9 -1; ...` fall through."""
+    assert shellguard.detect(command) == ("hardline", "kills every process")
+
+
+def test_kill_one_pid_with_hup_stays_allowed():
+    assert shellguard.detect("kill -1 4242")[0] is None
+
+
+def test_allowlist_is_case_sensitive():
+    """fnmatch folds case on Windows; an approval is for exactly one target."""
+    assert not shellguard.allowlisted(
+        "git push --force origin production",
+        ["git push --force origin Production"])
+    assert shellguard.allowlisted(
+        "git push --force origin Production",
+        ["git push --force origin Production"])
