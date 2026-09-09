@@ -283,14 +283,18 @@ class OfficeJob:
         if self._export is None:
             raise self._error(DocumentErrorCode.PRECONDITION_FAILED,
                               "export receipt is unavailable")
-        receipt = dict(self._runner.rollback_export(deepcopy(self._export)))
         binding = (approval_id, approved_by, approved_via)
-        if any(value is not None for value in binding):
-            if not all(isinstance(value, str) and value for value in binding):
-                raise self._error(
-                    DocumentErrorCode.PRECONDITION_FAILED,
-                    "rollback approval authority is incomplete",
-                )
+        bound = any(value is not None for value in binding)
+        # Validate the approval tuple before the destructive rollback runs;
+        # rejecting it afterwards left the destination already rolled back
+        # while the job still reported itself as exported.
+        if bound and not all(isinstance(value, str) and value for value in binding):
+            raise self._error(
+                DocumentErrorCode.PRECONDITION_FAILED,
+                "rollback approval authority is incomplete",
+            )
+        receipt = dict(self._runner.rollback_export(deepcopy(self._export)))
+        if bound:
             receipt.update(
                 {
                     "approval_id": approval_id,
