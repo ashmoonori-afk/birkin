@@ -47,7 +47,7 @@ Research or file import → result + evidence → proposed change
 
 ## Quick Start
 
-Birkin requires Python 3.10 or newer. The repository currently identifies as Birkin `0.4.431`. This is the source version, not a claim that the same version is installed on your machine or available as a signed public app.
+Birkin requires Python 3.10 or newer. The repository currently identifies as Birkin `0.4.432`. This is the source version, not a claim that the same version is installed on your machine or available as a signed public app.
 
 ### Windows PowerShell quick install
 
@@ -140,7 +140,7 @@ Office support is bounded document work, not arbitrary desktop-suite automation.
 
 ### Office Work OS v2
 
-This README publishes the registered runtime contract for Birkin `0.4.431`, `catalog_revision: 8`, and `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`. The machine publication is [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), with generated attribution in [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md).
+This README publishes the registered runtime contract for Birkin `0.4.432`, `catalog_revision: 8`, and `inventory_sha256: 54bb5a00d5370a69ec1c12e7e27ba72af51cfb11eb45dab912ab4ec10a008fd8`. The machine publication is [`provenance_manifest.json`](./birkin/office/adapters/provenance_manifest.json), with generated attribution in [`THIRD_PARTY_NOTICES.md`](./birkin/office/adapters/THIRD_PARTY_NOTICES.md).
 
 <!-- office-support-matrix:start -->
 | Format ID | Read/inspect | Create | Extract | Validate | Compare | Text convert | Surgical mutation | Render/recalc/forms |
