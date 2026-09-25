@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from .worker_request_boundary import object_fields, object_list
 from .worker_request_models import (
     DaedalusCreate,
@@ -25,6 +27,8 @@ from .worker_request_models import (
 )
 
 _MAX_TEXT = 4000
+# Same rule as moirai/trigger.parse: a workflow name, never a path.
+_SCRIPT_NAME = re.compile(r"[A-Za-z0-9_-]{1,80}")
 
 
 def _exact(
@@ -101,10 +105,12 @@ def parse_request(value: object) -> WorkerRequest:
             match action:
                 case "run":
                     _exact(raw, {"worker", "action", "script", "task"})
-                    return MoiraiRun(
-                        _text(raw["script"], "script"),
-                        _text(raw["task"], "task"),
-                    )
+                    script = _text(raw["script"], "script")
+                    if not _SCRIPT_NAME.fullmatch(script):
+                        raise WorkerRequestError(
+                            "script must be a workflow name, not a path"
+                        )
+                    return MoiraiRun(script, _text(raw["task"], "task"))
                 case "list":
                     _exact(raw, {"worker", "action"}, {"limit"})
                     limit = raw.get("limit", 10)

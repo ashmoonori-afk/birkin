@@ -104,8 +104,9 @@ def _deliver(job: dict[str, Any], text: str) -> str:
     tg = (cfg.get("channels") or {}).get("telegram") or {}
     # Outbound targets honor the same allowlist as inbound messages — a job
     # payload must not be able to exfiltrate run output to a stranger's chat.
-    allowed = [str(x) for x in (tg.get("allowed_chat_ids") or [])]
-    if allowed and chat not in allowed:
+    # An empty allowlist fails closed, like Slack/Discord and check-ins.
+    allowed = [str(x).strip() for x in (tg.get("allowed_chat_ids") or []) if str(x).strip()]
+    if not allowed or chat not in allowed:
         return "error: chat_id not in channels.telegram.allowed_chat_ids"
     token = os.environ.get("TELEGRAM_BOT_TOKEN") or tg.get("token") or ""
     if not token:
@@ -171,7 +172,7 @@ def _send_checkin(chat_id: str, text: str, markup: str) -> str | None:
     """
     cfg = config.load_config()
     tg = (cfg.get("channels") or {}).get("telegram") or {}
-    allowed = [str(x) for x in (tg.get("allowed_chat_ids") or [])]
+    allowed = [str(x).strip() for x in (tg.get("allowed_chat_ids") or []) if str(x).strip()]
     if not allowed or chat_id not in allowed:
         return None
     token = os.environ.get("TELEGRAM_BOT_TOKEN") or tg.get("token") or ""

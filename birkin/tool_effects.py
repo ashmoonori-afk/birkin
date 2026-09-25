@@ -36,6 +36,15 @@ EXTERNAL_DATA_TOOLS = frozenset(
         "browser_navigate",
         "browser_execute",
         "browser_evidence",
+        "m365_mail_read",
+        "m365_calendar_read",
+        "m365_meeting_prepare",
+        "m365_review_get",
+        "list_daily_briefings",
+        "search_office_sources",
+        "review_meeting_actions",
+        "analyze_workbook",
+        "spawn_subagent",
     }
 )
 

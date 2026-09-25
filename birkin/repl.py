@@ -101,6 +101,10 @@ def run_legacy(
             print(f"\n{ui.BOLD}you{RESET} > {line}")   # echo the carried message
         else:
             try:
+                slashcommands.announce_finished_summons()
+            except Exception:
+                pass  # a notice must never cost the user their prompt
+            try:
                 print()   # leading blank line, like the old input("\n…")
                 raw = inline_complete.prompt_with_completion(
                     f"{ui.BOLD}you{RESET} > ", hints, history=history)
@@ -266,6 +270,9 @@ def run_legacy(
             # A line typed during the reply (Enter-interrupt) becomes next input.
             pending = (getattr(live, "pending_line", "") or "").strip()
             session.agent.on_event = base_event
+            # The prompt closure drives this turn's listener and spinner; a
+            # later /summon outside any turn must not revive them.
+            session.ctx.shell_prompt_cb = None
     if owns_session:
         session.close()   # release the warm CLI process, if repl_warm_session
     print(f"{DIM}bye.{RESET}")

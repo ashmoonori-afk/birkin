@@ -347,6 +347,10 @@ def _restart_marker_path() -> Path:
     return config.birkin_home() / "restart_notice.json"
 
 
+# Telegram delivery sends at most 3500 characters; leave room for the notice.
+_SUMMON_PREVIEW_CHARS = 3200
+
+
 class Gateway:
     cfg: GatewayConfig
     session: Session
@@ -1014,14 +1018,36 @@ class Gateway:
         Only prompt-type jobs delivered to the current (already-trusted) chat
         are created — never shell, never another chat — so this cannot launder
         code execution or exfiltrate to a stranger. Callers gate on a trusted
-        channel first (remind is in PRIVILEGED_COMMANDS)."""
+        channel first (remind is in PRIVILEGED_COMMANDS). Local channels
+        (http/voice) have no delivery adapter, so they target the sole
+        allowlisted Telegram chat or refuse."""
         from .. import cron
 
-        _ = channel
+        normalized = str(channel or "").strip().lower()
+        via_telegram = ""
+        if normalized in _LOCAL_TRUSTED_CHANNELS:
+            chat_values = self._channel_settings("telegram").get("allowed_chat_ids")
+            allowed = [
+                str(value).strip()
+                for value in (chat_values if isinstance(chat_values, list) else [])
+                if str(value).strip()
+            ]
+            if len(allowed) != 1:
+                return (
+                    "이 채널에서는 리마인더를 보낼 곳이 없어요. Telegram 채팅 "
+                    "하나를 channels.telegram.allowed_chat_ids에 등록한 뒤 "
+                    "다시 시도해 주세요."
+                )
+            chat_id = allowed[0]
+            via_telegram = "Telegram으로 "
+        elif normalized != "telegram":
+            return "리마인더는 Telegram이나 이 기기에서만 등록할 수 있어요."
         arg = (arg or "").strip()
         if not arg or arg.lower() in ("list", "ls"):
             jobs = [
-                j for j in cron.load_jobs() if str(j.get("deliver_chat_id")) == chat_id
+                j for j in cron.load_jobs()
+                if str(j.get("deliver_channel") or "telegram") == "telegram"
+                and str(j.get("deliver_chat_id")) == chat_id
             ]
             if not jobs:
                 return "등록된 리마인더가 없어요. 예: /remind 09:00 오늘 할 일 정리해줘"
@@ -1037,7 +1063,11 @@ class Gateway:
         if parts[0].lower() in ("del", "delete", "rm") and len(parts) > 1:
             aid = parts[1].strip()
             job = next((j for j in cron.load_jobs() if j.get("id") == aid), None)
-            if not job or str(job.get("deliver_chat_id")) != chat_id:
+            if (
+                not job
+                or str(job.get("deliver_channel") or "telegram") != "telegram"
+                or str(job.get("deliver_chat_id")) != chat_id
+            ):
                 return "그 id의 리마인더를 찾지 못했어요 (본인 것만 삭제 가능)."
             try:
                 _ = cron.remove_job(aid)
@@ -1077,6 +1107,7 @@ class Gateway:
                 name="remind",
                 action_type="prompt",
                 value=prompt,
+                deliver_channel="telegram",
                 deliver_chat_id=chat_id,
                 schedule=spec,
             )
@@ -1085,7 +1116,7 @@ class Gateway:
         except ValueError as exc:
             return f"스케줄을 이해하지 못했어요: {exc}"
         return (
-            f"⏰ {cron.schedule_display(job)}에 알려드릴게요: "
+            f"⏰ {cron.schedule_display(job)}에 {via_telegram}알려드릴게요: "
             f'"{prompt[:60]}" (id {job["id"]}, 취소는 /remind del {job["id"]})'
         )
 
@@ -1120,6 +1151,80 @@ class Gateway:
             return "⚠ not found or already resolved"
         store.append_activity(f"approval[{aid}]: rejected via gateway")
         return "❌ rejected"
+
+    def summon_command(self, arg: str, channel: str, chat_id: str) -> str:
+        """Summon a specialist for THIS (already-trusted) chat.
+
+        ``/summon`` lists the roster, ``/summon <agent>`` describes one, and
+        ``/summon <agent> <task>`` starts it. The run gets its own thread,
+        abort, and task budget: it never holds the gateway lock and is not
+        cancelled by the chat's next message. When it finishes, the result is
+        pushed back to this chat through the allowlisted delivery path
+        (Telegram/Slack/Discord); other channels follow it with /agents and
+        /attach in ``birkin chat``. Callers gate on a trusted channel first
+        (summon is in PRIVILEGED_COMMANDS)."""
+        from dataclasses import replace as _replace
+
+        from .. import budget, scheduler, summon
+
+        parts = (arg or "").strip().split(maxsplit=1)
+        if not parts:
+            roster, _rejected = summon.load_roster()
+            lines = ["🧑‍💼 소환할 수 있는 에이전트:"]
+            lines += [
+                f"- {spec.name} — {spec.title}: {spec.description}"
+                for spec in sorted(roster.values(), key=lambda item: item.name)
+            ]
+            lines.append("사용법: /summon <에이전트> <할 일>")
+            return "\n".join(lines)
+        try:
+            spec = summon.get_agent(parts[0])
+        except summon.SummonError:
+            return (f"'{parts[0]}' 에이전트를 찾을 수 없어요. "
+                    "/summon 으로 목록을 확인하세요.")
+        if len(parts) == 1:
+            return (f"{spec.title} ({spec.name}) — {spec.description}\n"
+                    f"사용법: /summon {spec.name} <할 일>")
+        task = parts[1]
+        pushable = channel in {"telegram", "slack", "discord"}
+        ctx = _replace(
+            self.session.ctx,
+            abort=threading.Event(),
+            emit=None,
+            shell_prompt_cb=None,
+            tree_budget=budget.TreeBudget(self.cfg),
+        )
+
+        def work() -> None:
+            try:
+                text = summon.summon(spec.name, task, ctx)
+            except summon.SummonBudgetExceeded:
+                text = "토큰 예산을 다 써서 작업을 시작하지 못했어요."
+            except Exception as exc:
+                print(f"[gateway] summon {spec.name} failed: "
+                      f"{type(exc).__name__}: {exc}", flush=True)
+                text = ("작업을 끝내지 못했어요. birkin chat 에서 /agents 로 "
+                        "실행 기록을 확인하세요.")
+            if pushable:
+                if len(text) > _SUMMON_PREVIEW_CHARS:
+                    # The channel caps a message; say so instead of cutting
+                    # the result mid-sentence without a word.
+                    text = (text[:_SUMMON_PREVIEW_CHARS]
+                            + "\n\n… 결과가 길어 앞부분만 보냈어요. "
+                            "birkin chat 에서 /agents 로 전체 결과를 확인하세요.")
+                status = scheduler.deliver(f"{spec.title}", chat_id, text,
+                                           channel=channel)
+                if status != "sent":
+                    print(f"[gateway] summon delivery {status}", flush=True)
+
+        threading.Thread(target=work, name=f"birkin-summon-{spec.name}",
+                         daemon=True).start()
+        if pushable:
+            return (f"🧑‍💼 {spec.title}을(를) 소환했어요. "
+                    "끝나면 이 대화로 결과를 보내드릴게요.")
+        return (f"🧑‍💼 {spec.title}을(를) 소환했어요. 이 채널로는 결과를 "
+                "보낼 수 없어서, birkin chat 의 /agents 와 /attach 로 "
+                "확인해 주세요.")
 
     def deny_command(self, arg: str, *, actor_id: str, via: str) -> str:
         """/deny <id> <reason> — refuse, and tell the agent why."""

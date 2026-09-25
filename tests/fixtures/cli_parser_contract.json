@@ -222,7 +222,7 @@
       "namespace": {
         "audio": null,
         "background": false,
-        "background_timeout": 300.0,
+        "background_timeout": null,
         "background_workers": null,
         "command": "voice",
         "command_audio": "",
@@ -386,6 +386,40 @@
           "type": "callable",
           "value": "birkin.cli._cmd_worker_hook_qa"
         }
+      }
+    },
+    {
+      "argv": [
+        "summon"
+      ],
+      "namespace": {
+        "agent": null,
+        "command": "summon",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_summon"
+        },
+        "json": false,
+        "task": []
+      }
+    },
+    {
+      "argv": [
+        "summon",
+        "VALUE",
+        "VALUE"
+      ],
+      "namespace": {
+        "agent": "VALUE",
+        "command": "summon",
+        "func": {
+          "type": "callable",
+          "value": "birkin.cli._cmd_summon"
+        },
+        "json": false,
+        "task": [
+          "VALUE"
+        ]
       }
     },
     {
@@ -957,6 +991,7 @@
             "auth",
             "review",
             "worker-hook-qa",
+            "summon",
             "lineage",
             "harness",
             "working-memory",
@@ -1917,7 +1952,7 @@
           "dest": "background_timeout",
           "nargs": null,
           "choices": null,
-          "default": 300.0,
+          "default": null,
           "required": false
         }
       ]
@@ -2235,6 +2270,50 @@
           ],
           "default": null,
           "required": true
+        }
+      ]
+    },
+    {
+      "path": [
+        "summon"
+      ],
+      "actions": [
+        {
+          "option_strings": [
+            "-h",
+            "--help"
+          ],
+          "dest": "help",
+          "nargs": 0,
+          "choices": null,
+          "default": "==SUPPRESS==",
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "agent",
+          "nargs": "?",
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [],
+          "dest": "task",
+          "nargs": "*",
+          "choices": null,
+          "default": null,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--json"
+          ],
+          "dest": "json",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
         }
       ]
     },

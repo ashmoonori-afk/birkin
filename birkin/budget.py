@@ -38,6 +38,7 @@ class TreeBudgetLease:
             self.budget.reserved_tokens += actual_tokens - self.tokens
             self.budget.reserved_usd += actual_usd - self.usd
             self.budget.active -= 1
+            self.budget._live.pop(id(self), None)
         self.released = True
 
     def release(self) -> None:
@@ -54,15 +55,36 @@ class TreeBudget:
             cfg.get("subagent_tree_max_concurrent", 0) or 0
         )
         self.max_nodes = int(cfg.get("subagent_tree_max_nodes", 0) or 0)
-        seconds = float(
+        self._seconds = float(
             cfg.get("subagent_tree_deadline_seconds", 0.0) or 0.0
         )
-        self.deadline = time.monotonic() + seconds if seconds > 0 else None
+        self.deadline = (
+            time.monotonic() + self._seconds if self._seconds > 0 else None
+        )
         self.reserved_tokens = 0
         self.reserved_usd = 0.0
         self.active = 0
         self.nodes = 0
+        self._live: dict[int, TreeBudgetLease] = {}
         self._lock = threading.Lock()
+
+    def begin_tree(self) -> None:
+        """Start the budget for a new root task (one chat turn or summon).
+
+        The node cap, token/USD caps, and deadline bound one task tree, not
+        the lifetime of a REPL or gateway session, which used to refuse every
+        spawn after the 16th. Leases still held by detached children keep
+        counting toward concurrency and spend until they settle.
+        """
+        with self._lock:
+            self.nodes = 0
+            self.reserved_tokens = sum(
+                lease.tokens for lease in self._live.values())
+            self.reserved_usd = sum(
+                lease.usd for lease in self._live.values())
+            self.deadline = (
+                time.monotonic() + self._seconds if self._seconds > 0 else None
+            )
 
     def reserve(self, *, tokens: int = 0, usd: float = 0.0) -> TreeBudgetLease:
         tokens = max(0, int(tokens))
@@ -93,7 +115,9 @@ class TreeBudget:
             self.nodes += 1
             self.reserved_tokens += tokens
             self.reserved_usd += usd
-        return TreeBudgetLease(self, tokens, usd)
+            lease = TreeBudgetLease(self, tokens, usd)
+            self._live[id(lease)] = lease
+        return lease
 
     def expired(self) -> bool:
         return self.deadline is not None and time.monotonic() >= self.deadline

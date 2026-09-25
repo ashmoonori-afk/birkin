@@ -154,6 +154,8 @@ def dispatch_command_or_acquire(
             )
         if command == "remind":
             return CommandReply(gateway.remind_command(arg, channel, chat_id))
+        if command == "summon":
+            return CommandReply(gateway.summon_command(arg, channel, chat_id))
         if command in ("commitment", "checkin", "companion"):
             return CommandReply(
                 gateway.companion_command(command, arg, channel, chat_id)

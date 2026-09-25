@@ -139,10 +139,19 @@ _ALIASES = {  # model-id substring -> family
 }
 
 
-def family_of(model: Optional[str]) -> str:
+# Model names that mean "the backend's own default", not a model id (the
+# shipped config uses "default"). Which engine that is depends on the provider;
+# falling through to "neutral" silently stripped web and subagent tools.
+_BACKEND_DEFAULTS = frozenset({"default", "claude-code"})
+_PROVIDER_DEFAULT_FAMILY = {"codex-cli": "gpt", "local-cli": "local"}
+
+
+def family_of(model: Optional[str], provider: Optional[str] = None) -> str:
     if not model:
         return "sonnet"
     m = (model or "").lower()
+    if m.strip() in _BACKEND_DEFAULTS:
+        return _PROVIDER_DEFAULT_FAMILY.get(str(provider or ""), "sonnet")
     for needle, fam in _ALIASES.items():
         if needle in m:
             return fam
@@ -152,7 +161,7 @@ def family_of(model: Optional[str]) -> str:
 def resolve(model: Optional[str],
             cfg: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """Resolve a preset while keeping built-in tool restrictions monotonic."""
-    family = family_of(model)
+    family = family_of(model, (cfg or {}).get("provider"))
     preset = {**PRESETS[family], "family": family}
     denied = {str(name) for name in preset.get("deny_tools") or []}
     m = (model or "").lower()

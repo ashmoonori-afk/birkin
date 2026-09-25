@@ -706,8 +706,8 @@ def test_telegram_messages_interrupt_gateway_behind_dead_worker(monkeypatch):
     with pytest.raises(_StopPolling):
         ch.start(gateway)
 
-    assert gateway.interrupts == [
-        ("telegram", "42"), ("telegram", "42")]
+    # /pending is answered beside the turn; only "hello" interrupts.
+    assert gateway.interrupts == [("telegram", "42")]
     assert dead.join_calls == 0
     assert pending == ["42"]
     assert len(turns) == 1

@@ -145,6 +145,12 @@ _CONTROL_DIRS = {
     "companion": "~/.birkin/companion/ is the approval-gated check-in state — "
                  "propose changes with companion_propose instead of editing "
                  "its files.",
+    "agents": "files under ~/.birkin/agents/ define summonable agents and "
+              "their tool scope, so the file tools cannot write them; the "
+              "user edits them outside birkin.",
+    "harness": "~/.birkin/harness/ is approval-gated prompt state that every "
+               "session reads, so the file tools cannot write it; propose "
+               "changes through the harness review flow instead.",
 }
 _INTEGRITY_DIRS = {
     "pending": "~/.birkin/pending contains digest-bound approval records and cannot "
@@ -248,10 +254,21 @@ def _control_plane_error(p: Path, ctx: ToolContext) -> str:
                 f"schedules or authorises command execution, so the file "
                 f"tools cannot write it. Use the approval flow instead "
                 f"(propose_action), or edit it yourself outside birkin.")
+    # Compare case-insensitively: on a case-insensitive volume (macOS by
+    # default) "Harness/" names the same directory as "harness/".
+    home_key = str(home).casefold()
+    path_key = str(rp).casefold()
+    parts = (
+        tuple(Path(path_key[len(home_key):].lstrip("/\\")).parts)
+        if path_key.startswith(home_key) else ()
+    )
     for d, why in _CONTROL_DIRS.items():
-        root = home / d
-        if rp == root or root in rp.parents:
+        if parts[:1] == (d,):
             return f"protected: {why}"
+    # Per-session harness state (sessions/<key>/harness/) is injected into
+    # that session's system prompt exactly like the global one.
+    if len(parts) >= 3 and parts[0] == "sessions" and parts[2] == "harness":
+        return f"protected: {_CONTROL_DIRS['harness']}"
     return ""
 
 

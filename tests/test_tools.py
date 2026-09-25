@@ -437,6 +437,24 @@ def test_build_registry_disabled_tools_filtered(tmp_path):
     assert "read_file" in names
 
 
+def test_subagent_registry_excludes_skill_write_tools(tmp_path):
+    """Subagents keep load_skill but cannot persist skills (no durable writes)."""
+    from birkin.skills.manager import SkillManager
+
+    skills = SkillManager([(tmp_path / "skills", "user")])
+    parent = ToolContext(cfg={}, client=None, cwd=tmp_path, skills=skills, memory=None)
+    parent_names = set(build_registry(parent).names())
+    assert {"load_skill", "create_skill", "improve_skill"} <= parent_names
+
+    child = ToolContext(
+        cfg={}, client=None, cwd=tmp_path, skills=skills, memory=None, depth=1
+    )
+    child_names = set(build_registry(child).names())
+    assert "load_skill" in child_names
+    assert "create_skill" not in child_names
+    assert "improve_skill" not in child_names
+
+
 def test_write_file_rejects_non_string_content_before_creating_file(tmp_path: Path):
     """Schema-invalid content used to create an empty file, then fail on .encode()."""
     ctx = _ctx(tmp_path)

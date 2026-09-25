@@ -306,6 +306,14 @@ def add_pending(
         rec.update(details)
     if continuation is not None:
         rec["continuation"] = continuation
+    # An approval raised inside a subagent run belongs to that run, so the
+    # console can show which agent is waiting on it. Kept out of payload
+    # (executed) and origin (deduplicated on exact strings).
+    from .agentruns import active_run_id  # local: agentruns imports store
+
+    run_id = active_run_id()
+    if run_id and "agent_run_id" not in rec:
+        rec["agent_run_id"] = run_id
     _write_json(config.pending_dir() / f"{aid}.json", rec)
     return rec
 

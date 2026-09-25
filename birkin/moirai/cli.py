@@ -59,6 +59,30 @@ def resolve_script_path(name: str) -> Path:
     raise MoiraiError(f"워크플로우를 찾을 수 없습니다: {raw}")
 
 
+def resolve_trusted_script(name: str) -> Path:
+    """Resolve a workflow NAME against trusted roots only.
+
+    Approval-driven runs (``worker_invoke``) use this instead of
+    :func:`resolve_script_path`: only the bundled patterns and the user
+    scripts directory are searched, never the current directory, so a file
+    planted in the workspace under a workflow's name can never be what an
+    approval executes. The file tools cannot write the scripts directory.
+    """
+    raw = (name or "").strip()
+    if not raw or raw != Path(raw).name:
+        raise MoiraiError("워크플로우 이름만 지정할 수 있어요 (경로는 허용되지 않아요)")
+    bundled = bundled_dir()
+    for candidate in (bundled / raw, bundled / f"{raw}.py",
+                      bundled / f"{raw.replace('-', '_')}.py"):
+        if candidate.is_file():
+            return candidate
+    for candidate in (scripts_dir() / raw, scripts_dir() / f"{raw}.py"):
+        if candidate.is_file():
+            _refuse_shadowed(candidate)
+            return candidate
+    raise MoiraiError(f"워크플로우를 찾을 수 없습니다: {raw}")
+
+
 def _refuse_shadowed(path: Path) -> None:
     """Refuse a user script named after a bundled pattern."""
     if Path(os.path.realpath(path)).parent != Path(

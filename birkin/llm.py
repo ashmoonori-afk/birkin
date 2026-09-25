@@ -856,7 +856,9 @@ class LLMClient:
                     try:
                         content[idx]["input"] = json.loads(raw_json) if raw_json else {}
                     except json.JSONDecodeError:
+                        # Cut off (max_tokens) or malformed: never run as {}.
                         content[idx]["input"] = {}
+                        content[idx]["_truncated"] = True
             elif etype == "message_delta":
                 sr = event.get("delta", {}).get("stop_reason")
                 if sr:
@@ -953,14 +955,17 @@ class LLMClient:
             content.append({"type": "text", "text": text})
         for call in msg.get("tool_calls", []) or []:
             fn = call.get("function", {})
+            block = {"type": "tool_use", "id": call.get("id"),
+                     "name": fn.get("name"), "input": {}}
             try:
-                args = json.loads(fn.get("arguments") or "{}")
+                block["input"] = json.loads(fn.get("arguments") or "{}")
             except json.JSONDecodeError:
-                args = {}
-            content.append({"type": "tool_use", "id": call.get("id"),
-                            "name": fn.get("name"), "input": args})
+                block["_truncated"] = True
+            content.append(block)
         finish = choice.get("finish_reason", "stop")
-        stop_reason = "tool_use" if finish == "tool_calls" else "end_turn"
+        stop_reason = ("tool_use" if finish == "tool_calls"
+                       else "max_tokens" if finish == "length"
+                       else "end_turn")
         out: dict[str, Any] = {"role": "assistant", "content": content,
                                "stop_reason": stop_reason}
         if extracted:
@@ -1043,14 +1048,16 @@ class LLMClient:
         # dict preserves insertion (arrival) order — don't sort, since keys may
         # now mix int indices and str-id fallbacks, which sorted() can't compare.
         for slot in tools.values():
+            block = {"type": "tool_use", "id": slot["id"],
+                     "name": slot["name"], "input": {}}
             try:
-                args = json.loads("".join(slot["args"]) or "{}")
+                block["input"] = json.loads("".join(slot["args"]) or "{}")
             except json.JSONDecodeError:
-                args = {}
-            content.append({"type": "tool_use", "id": slot["id"],
-                            "name": slot["name"], "input": args})
+                block["_truncated"] = True
+            content.append(block)
         stop_reason = ("aborted" if finish == "aborted"
                        else "tool_use" if finish == "tool_calls"
+                       else "max_tokens" if finish == "length"
                        else "end_turn")
         out: dict[str, Any] = {"role": "assistant", "content": content,
                                "stop_reason": stop_reason}

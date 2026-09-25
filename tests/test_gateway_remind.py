@@ -100,3 +100,35 @@ def test_remind_add_and_delete_report_busy_without_mutating_on_lock_timeout(
     assert path.exists() is existed_before
     if existed_before:
         assert path.read_bytes() == bytes_before
+
+
+@pytest.mark.parametrize("channel", ["http", "voice"])
+def test_remind_from_local_channel_targets_sole_telegram_chat(
+        tmp_path, monkeypatch, channel):
+    from birkin import cron, scheduler
+    gw = _gateway(tmp_path, monkeypatch, tg_allowed=("123",))
+    out = gw.handle(channel, "default", "/remind 09:00 주간 보고서 초안")
+    assert "Telegram으로" in out
+    jobs = cron.load_jobs()
+    assert len(jobs) == 1
+    assert jobs[0]["deliver_channel"] == "telegram"
+    assert jobs[0]["deliver_chat_id"] == "123"
+    sent: list = []
+    monkeypatch.setattr(scheduler, "_send_telegram",
+                        lambda token, chat, text: sent.append(chat))
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tkn")
+    assert scheduler._deliver(jobs[0], "remember") == "sent"
+    assert sent == ["123"]
+    # /remind list from either channel sees the same job
+    assert jobs[0]["id"] in gw.handle("telegram", "123", "/remind list")
+    assert jobs[0]["id"] in gw.handle(channel, "default", "/remind list")
+
+
+@pytest.mark.parametrize("tg_allowed", [(), ("1", "2")])
+def test_remind_from_local_channel_refuses_without_single_target(
+        tmp_path, monkeypatch, tg_allowed):
+    from birkin import cron
+    gw = _gateway(tmp_path, monkeypatch, tg_allowed=tg_allowed)
+    out = gw.handle("http", "default", "/remind 09:00 x")
+    assert "보낼 곳이 없어요" in out
+    assert cron.load_jobs() == []

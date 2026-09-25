@@ -21,7 +21,7 @@ from .audio import (
     read_wav_mono,
 )
 from .config import VoiceConfig
-from .gateway import GatewayClient, GatewayVoiceError
+from .gateway import TIMEOUT_MESSAGE, GatewayClient, GatewayVoiceError
 from .mission import AudioSink, VoiceMissionService
 from .openai_voice import OpenAISTT, OpenAITTS
 from .styles import format_voice_command
@@ -156,6 +156,7 @@ def _run_background(
                 options.gateway_url,
                 session_id=options.session_id,
                 token=os.environ.get("BIRKIN_HTTP_TOKEN", ""),
+                timeout_seconds=options.gateway_timeout_seconds,
             ),
             tts=tts,
             sinks=sinks,
@@ -164,11 +165,17 @@ def _run_background(
         receipt = receipt_dir / f"{job.id}.json"
         print("FOREGROUND_ACK=queued", flush=True)
         print(f"BACKGROUND_RECEIPT={receipt}", flush=True)
+        # Wait at least as long as the gateway request itself may take.
+        wait_timeout = (
+            args.background_timeout
+            if args.background_timeout is not None
+            else options.gateway_timeout_seconds + 30
+        )
         try:
-            done = broker.wait(job.id, timeout=args.background_timeout)
-        except TimeoutError:
+            done = broker.wait(job.id, timeout=wait_timeout)
+        except TimeoutError as exc:
             wait_for_shutdown = False
-            raise
+            raise GatewayVoiceError(TIMEOUT_MESSAGE) from exc
     finally:
         broker.close(wait=wait_for_shutdown)
 
@@ -187,6 +194,7 @@ def _run_foreground(
         options.gateway_url,
         session_id=options.session_id,
         token=os.environ.get("BIRKIN_HTTP_TOKEN", ""),
+        timeout_seconds=options.gateway_timeout_seconds,
     )
     tts, sinks = _audio_delivery(args, options)
     filler = options.filler_text.strip()

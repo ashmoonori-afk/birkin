@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections import Counter, defaultdict
 from collections.abc import Callable
 from datetime import date, datetime
@@ -30,6 +31,9 @@ def _kind(value: object) -> str:
         return "number"
     if isinstance(value, str) and value.startswith("="):
         return "formula"
+    # openpyxl loads array and data-table formulas as objects, not "=" strings.
+    if type(value).__name__ in {"ArrayFormula", "DataTableFormula"}:
+        return "formula"
     return "text"
 
 
@@ -39,6 +43,20 @@ def _number(value: object) -> float | None:
 
 def _display(value: object) -> str:
     return value.isoformat() if isinstance(value, (date, datetime)) else "" if value is None else str(value)
+
+
+def _period_sort_key(value: object, key: str) -> tuple[int, object]:
+    # Dates and numbers sort natively; text sorts digit runs as integers (1월..12월, 2024-Q4 < 2025-Q1).
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return (-1, "")  # a blank period is never "previous" or "current"
+    if isinstance(value, (date, datetime)):
+        return (0, key)
+    if (number := _number(value)) is not None:
+        return (1, number)
+    # Digit runs compare by length then text (no int(): a cell may hold a
+    # digit run past Python's int-parsing limit).
+    parts = re.split(r"([0-9]+)", key)
+    return (2, tuple((0, len(digits := part.lstrip("0") or "0"), digits) if index % 2 else (1, 0, part.casefold()) for index, part in enumerate(parts)))
 
 
 def analyze_xlsx(
@@ -117,42 +135,62 @@ def analyze_xlsx(
             else:
                 seen[key] = row_number
         value_index = indexes.get(cast("str", value_column)) if value_column is not None else None
-        numeric = [
-            (row_number, number)
-            for row_number, values in rows
-            if value_index is not None and (number := _number(values[value_index])) is not None
-        ]
+        valued: list[tuple[int, list[object], float]] = []
+        cached_formula_cells: list[str] = []
+        excluded_formula_cells: list[str] = []
+        if value_index is not None:
+            for row_number, values in rows:
+                number = _number(values[value_index])
+                if _kind(values[value_index]) == "formula":
+                    coordinate = worksheet.cell(row_number, min_col + value_index).coordinate
+                    number = _number(cached_sheet.cell(row_number, min_col + value_index).value)
+                    (cached_formula_cells if number is not None else excluded_formula_cells).append(coordinate)
+                if number is not None:
+                    valued.append((row_number, values, number))
+        numeric = [(row_number, number) for row_number, _, number in valued]
         grouped: defaultdict[str, float] = defaultdict(float)
         grouped_cells: defaultdict[str, list[str]] = defaultdict(list)
         if group_by is not None and value_index is not None:
             group_index = indexes[cast("str", group_by)]
-            for row_number, values in rows:
-                number = _number(values[value_index])
-                if number is not None:
-                    key = _display(values[group_index])
-                    grouped[key] += number
-                    grouped_cells[key].append(worksheet.cell(row_number, min_col + value_index).coordinate)
+            for row_number, values, number in valued:
+                key = _display(values[group_index])
+                grouped[key] += number
+                grouped_cells[key].append(worksheet.cell(row_number, min_col + value_index).coordinate)
         periods: defaultdict[str, float] = defaultdict(float)
+        period_keys: dict[str, tuple[int, object]] = {}
         if compare_by is not None and value_index is not None:
             period_index = indexes[cast("str", compare_by)]
-            for _, values in rows:
-                number = _number(values[value_index])
-                if number is not None:
-                    periods[_display(values[period_index])] += number
-        ordered_periods = sorted(periods)
+            for _, values, number in valued:
+                key = _display(values[period_index])
+                periods[key] += number
+                period_keys.setdefault(key, _period_sort_key(values[period_index], key))
+        ordered_periods = [key for key in sorted(periods, key=period_keys.__getitem__) if period_keys[key][0] != -1]
         comparison = None
         if len(ordered_periods) >= 2:
             previous, current = ordered_periods[-2:]
-            comparison = {"previous": previous, "current": current, "previous_total": periods[previous], "current_total": periods[current], "delta": periods[current] - periods[previous]}
+            ranks = {period_keys[key][0] for key in ordered_periods}
+            ordering = {0: "chronological", 1: "numeric", 2: "natural_text"}[ranks.pop()] if len(ranks) == 1 else "mixed_type"
+            comparison = {"previous": previous, "current": current, "previous_total": periods[previous], "current_total": periods[current], "delta": periods[current] - periods[previous], "ordering": ordering}
+        total = sum(number for _, number in numeric)
+        if value_index is None:
+            total_paragraphs = ["합계: 미요청"]
+        else:
+            total_paragraphs = [f"부분 합계: {total}" if excluded_formula_cells else f"합계: {total}"]
+            if cached_formula_cells:
+                total_paragraphs.append(f"수식 {len(cached_formula_cells)}개는 저장된 계산값을 재계산 없이 사용함")
+            if excluded_formula_cells:
+                total_paragraphs.append(f"수식 {len(excluded_formula_cells)}개는 숫자 계산값이 저장되어 있지 않아 합계에서 제외됨")
         return {
-            "status": "reviewed",
+            "status": "needs_review" if excluded_formula_cells else "reviewed",
             "source_sha256": source_sha256,
             "selection": {"sheet": sheet, "range": cell_range, "included_rows": len(rows), "hidden_rows_excluded": hidden_excluded},
             "profile": {"types": dict(kinds), "formats": dict(formats), "blank_cells": kinds["blank"], "duplicates": duplicates},
             "aggregate": {
                 "value_column": value_column,
-                "sum": sum(number for _, number in numeric) if value_index is not None else None,
+                "sum": total if value_index is not None else None,
                 "evidence": [worksheet.cell(row, min_col + cast(int, value_index)).coordinate for row, _ in numeric] if value_index is not None else [],
+                "cached_formula_evidence": cached_formula_cells,
+                "excluded_formula_cells": excluded_formula_cells,
                 "groups": [{"key": key, "sum": grouped[key], "evidence": grouped_cells[key]} for key in sorted(grouped)],
                 "comparison": comparison,
             },
@@ -162,11 +200,12 @@ def analyze_xlsx(
                 "currency": "numeric value; number format reported separately",
                 "percentage": "stored numeric fraction; number format reported separately",
                 "numeric_strings": "kept as text and excluded from sums",
+                "formulas": "value_column formulas use the stored numeric cached value without recalculation; formulas without one are excluded and listed",
                 "hidden_rows": "included only when include_hidden_rows is true",
             },
             "report_content": {
                 "title": f"{sheet} 데이터 검토",
-                "paragraphs": [f"범위: {cell_range}", f"합계: {sum(number for _, number in numeric)}" if value_index is not None else "합계: 미요청"],
+                "paragraphs": [f"범위: {cell_range}", *total_paragraphs],
                 "table": [["그룹", "합계"], *[[key, str(grouped[key])] for key in sorted(grouped)]],
                 "list": [f"빈 셀: {kinds['blank']}", f"중복 행: {len(duplicates)}", "수식 재계산: 미실행"],
             },

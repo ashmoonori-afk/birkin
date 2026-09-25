@@ -86,7 +86,7 @@ Schema version: 1
 | `gateway_max_sessions` | `integer` | `8` | Most native-API gateway sessions kept live at once (SessionPool). Ignored by CLI providers. |
 | `gateway_session_ttl_s` | `integer` | `3600` | Seconds an idle native-API gateway session may sit before it is reclaimed. |
 | `gateway_polish_timeout` | `integer` | `90` | Seconds allowed for the gateway reply-polishing pass before the raw reply is kept. |
-| `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2}` | Birkin setting `voice`. |
+| `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2, "gateway_timeout_seconds": 330}` | Birkin setting `voice`. |
 | `voice.wake_phrase` | `string` | `"Daddy is home"` | Birkin setting `voice.wake_phrase`. |
 | `voice.gateway_url` | `string` | `""` | Birkin setting `voice.gateway_url`. |
 | `voice.session_id` | `string` | `"voice-local"` | Birkin setting `voice.session_id`. |
@@ -98,6 +98,7 @@ Schema version: 1
 | `voice.conversation_style` | `string` | `""` | Birkin setting `voice.conversation_style`. |
 | `voice.onboarding_complete` | `boolean` | `false` | Birkin setting `voice.onboarding_complete`. |
 | `voice.background_workers` | `integer` | `2` | Birkin setting `voice.background_workers`. |
+| `voice.gateway_timeout_seconds` | `integer` | `330` | Birkin setting `voice.gateway_timeout_seconds`. |
 | `autosave_transcripts` | `boolean` | `false` | Birkin setting `autosave_transcripts`. |
 | `autosave_redact_secrets` | `boolean` | `true` | Birkin setting `autosave_redact_secrets`. |
 | `autosave_max_chars` | `integer` | `4000` | Birkin setting `autosave_max_chars`. |

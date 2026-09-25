@@ -62,3 +62,15 @@ def test_malformed_lines_are_skipped():
     out = LLMClient._read_openai_stream(resp, got.append)
     assert got == ["ok"]
     assert out["content"] == [{"type": "text", "text": "ok"}]
+
+
+def test_length_finish_maps_to_max_tokens_and_marks_cut_tool_call():
+    resp = _sse(
+        {"choices": [{"delta": {"tool_calls": [
+            {"index": 0, "id": "call_1",
+             "function": {"name": "write_file", "arguments": '{"pa'}}]}}]},
+        {"choices": [{"delta": {}, "finish_reason": "length"}]},
+    )
+    out = LLMClient._read_openai_stream(resp, None)
+    assert out["stop_reason"] == "max_tokens"
+    assert out["content"][0]["_truncated"] is True

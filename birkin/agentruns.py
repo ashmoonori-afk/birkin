@@ -58,8 +58,12 @@ def _is_record(value: Any) -> bool:
             and isinstance(value.get("last_heartbeat"), str))
 
 
-def register_run(task: str, parent_id: str | None = None) -> dict[str, Any]:
-    """Create and persist a running record, returning a copy of it."""
+def register_run(task: str, parent_id: str | None = None,
+                 agent: str | None = None) -> dict[str, Any]:
+    """Create and persist a running record, returning a copy of it.
+
+    ``agent`` names the summoned specialist (``birkin.summon``), if any.
+    """
     run_id = uuid.uuid4().hex[:12]
     now = _now()
     rec: dict[str, Any] = {
@@ -71,6 +75,8 @@ def register_run(task: str, parent_id: str | None = None) -> dict[str, Any]:
         "last_heartbeat": now,
         "result": "",
     }
+    if agent:
+        rec["agent"] = str(agent)[:32]
     _write_json(_record_path(run_id), rec)
     return dict(rec)
 
@@ -281,6 +287,11 @@ def drain_messages(run_id: str) -> list[str]:
             except OSError:
                 pass
     return messages
+
+
+def active_run_id() -> str | None:
+    """The agent run whose work is executing in this context, if any."""
+    return _active_run_id.get()
 
 
 @contextlib.contextmanager

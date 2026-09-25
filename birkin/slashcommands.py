@@ -91,7 +91,7 @@ def _last_user_text(messages: list[dict[str, Any]]) -> str:
 # source: any command not listed here falls into "기타" so nothing is hidden.
 _HELP_GROUPS: list[tuple[str, list[str]]] = [
     ("세션·대화", ["new", "retry", "undo", "rollback", "compact", "clear",
-                 "sessions", "status", "agents", "attach", "send"]),
+                 "sessions", "status", "summon", "agents", "attach", "send"]),
     ("모델", ["model", "provider", "temp"]),
     ("기억", ["memory", "learn"]),
     ("스킬·도구", ["skills", "tools", "system", "mcp", "details"]),
@@ -482,8 +482,9 @@ def _agents(session: Any, arg: str) -> None:
     for run, depth in rows:
         prefix = "  " + "  " * depth
         age = int(run.get("heartbeat_age", 0))
+        label = f"[{run['agent']}] " if run.get("agent") else ""
         print(f"{prefix}{CYAN}{run['id'][:8]}{RESET}  "
-              f"{run['status']:<8}  {run['task'][:36]:<36}  "
+              f"{run['status']:<8}  {(label + run['task'])[:36]:<36}  "
               f"{DIM}hb {age}s ago{RESET}")
 
 
@@ -524,10 +525,129 @@ def _send(session: Any, arg: str) -> None:
         print(f"{RED}Usage: /send <run-id> <message>{RESET}")
         return
     run = _find_agent_run(parts[0])
+    if run is not None and run["status"] != "running":
+        # A finished run never drains its inbox; queueing would only claim a
+        # delivery that cannot happen.
+        print(f"{RED}{run['id'][:8]} 실행은 이미 끝나서 메시지를 전달할 수 "
+              f"없어요. 새 작업은 /summon 으로 시작하세요.{RESET}")
+        return
     if run is None or not agentruns.append_message(run["id"], parts[1].strip()):
         print(f"{RED}No run {parts[0]!r}. See /agents.{RESET}")
         return
     print(f"{GREEN}Queued for {run['id'][:8]}.{RESET}")
+
+
+# Background summons started with /summon --bg in this process: run id ->
+# specialist title. The REPL announces each once it finishes, so delegated
+# work reports back instead of waiting for the user to remember /attach.
+_BACKGROUND_SUMMONS: dict[str, str] = {}
+_ANNOUNCE_PREVIEW_CHARS = 280
+
+
+def announce_finished_summons() -> None:
+    """Print a short completion notice for finished background summons."""
+    from . import agentruns
+    for run_id, title in list(_BACKGROUND_SUMMONS.items()):
+        run = agentruns.get_run(run_id)
+        if run is not None and run["status"] == "running":
+            continue
+        _BACKGROUND_SUMMONS.pop(run_id, None)
+        if run is None:
+            continue
+        if run["status"] == "done":
+            preview = " ".join(str(run.get("result") or "").split())
+            if len(preview) > _ANNOUNCE_PREVIEW_CHARS:
+                preview = preview[:_ANNOUNCE_PREVIEW_CHARS] + "…"
+            print(f"{GREEN}✓ {title} 작업이 끝났어요.{RESET} "
+                  f"{DIM}/attach {run_id[:8]} 로 전체 결과를 볼 수 있어요.{RESET}")
+            if preview:
+                print(f"  {preview}")
+        else:
+            print(f"{RED}✗ {title} 작업이 실패했어요.{RESET} "
+                  f"{DIM}/attach {run_id[:8]} 로 기록을 확인하세요.{RESET}")
+
+
+def _print_roster() -> None:
+    from . import summon
+    roster, rejected = summon.load_roster()
+    print(f"{BOLD}소환할 수 있는 에이전트{RESET}")
+    for spec in sorted(roster.values(), key=lambda item: item.name):
+        mark = f" {DIM}(사용자 정의){RESET}" if spec.source == "user" else ""
+        print(f"  {CYAN}{spec.name:<15}{RESET} {spec.title}{mark}")
+        print(f"  {'':<15} {DIM}{spec.description}{RESET}")
+    for file_name, reason in sorted(rejected.items()):
+        print(f"{YELLOW}  {file_name}: 정의가 올바르지 않아 건너뛰었어요 "
+              f"(세부: {reason}){RESET}")
+    print(f"{DIM}사용법: /summon <에이전트> <할 일>  ·  "
+          f"백그라운드: /summon --bg <에이전트> <할 일>{RESET}")
+
+
+def _print_agent(spec: Any) -> None:
+    print(f"{BOLD}{spec.title}{RESET} ({spec.name})")
+    print(spec.description)
+    print(f"{DIM}도구 그룹: {', '.join(spec.tools)}{RESET}")
+    if spec.skills:
+        print(f"{DIM}미리 불러오는 스킬: {', '.join(spec.skills)}{RESET}")
+    print(f"{DIM}최대 턴: {spec.max_turns}"
+          f"{'  ·  모델: ' + spec.model if spec.model else ''}{RESET}")
+
+
+@command("summon", "Summon a named specialist agent to handle a task.",
+         "/summon [--bg] [agent] [task]")
+def _summon(session: Any, arg: str) -> None:
+    from . import summon
+    text = arg.strip()
+    background = False
+    head, _sep, rest = text.partition(" ")
+    if head == "--bg":
+        background, text = True, rest.strip()
+    parts = text.split(maxsplit=1)
+    if not parts:
+        _print_roster()
+        return
+    try:
+        spec = summon.get_agent(parts[0])
+    except summon.SummonError as exc:
+        print(f"{RED}'{parts[0]}' 에이전트를 찾을 수 없어요. "
+              f"/summon 으로 목록을 확인하세요.{RESET}")
+        print(f"{DIM}세부: {exc}{RESET}")
+        return
+    if len(parts) == 1:
+        _print_agent(spec)
+        return
+    ctx = getattr(session, "ctx", None)
+    if ctx is None:
+        print(f"{RED}이 세션에서는 에이전트를 소환할 수 없어요.{RESET}")
+        return
+    print(f"{DIM}{spec.title}({spec.name})을(를) 소환했어요"
+          f"{' — 백그라운드에서 진행합니다' if background else ''}…{RESET}")
+    abort = getattr(ctx, "abort", None)
+    if not background and abort is not None:
+        abort.clear()  # a new command: drop a stale Esc from an earlier turn
+    try:
+        result = summon.summon(spec.name, parts[1], ctx, detach=background)
+    except KeyboardInterrupt:
+        print(f"\n{YELLOW}소환을 중단했어요.{RESET}")
+        return
+    except summon.SummonBudgetExceeded as exc:
+        print(f"{RED}토큰 예산을 다 써서 지금은 소환할 수 없어요. "
+              f"/budget 으로 사용량을 확인하세요.{RESET}")
+        print(f"{DIM}세부: {exc}{RESET}")
+        return
+    except Exception as exc:
+        print(f"{RED}{spec.title}이(가) 작업을 끝내지 못했어요. "
+              f"/agents 에서 실행 기록을 확인하세요.{RESET}")
+        print(f"{DIM}세부: {type(exc).__name__}: {str(exc)[:200]}{RESET}")
+        return
+    run_id = summon.detached_run_id(result) if background else ""
+    if run_id:
+        _BACKGROUND_SUMMONS[run_id] = spec.title
+        print(f"{GREEN}백그라운드에서 실행 중이에요.{RESET} "
+              f"/attach {run_id[:8]} 로 따라가고, "
+              f"/send {run_id[:8]} <메시지> 로 방향을 바꿀 수 있어요. "
+              "끝나면 여기서 알려드릴게요.")
+        return
+    print(result)
 
 
 @command("details", "Toggle verbose tool traces (full input + result snippet).",
@@ -668,7 +788,7 @@ def _permission(session: Any, arg: str) -> None:
                   f"gateway stays sandboxed.{RESET}")
     elif len(sub) == 2 and sub[0] in ("add", "remove"):
         cat = sub[1]
-        if sub[0] == "add" and cat in ("shell", "cron"):
+        if sub[0] == "add" and cat in ("shell", "cron", "worker"):
             print(f"{YELLOW}⚠ auto-approving '{cat}' lets the unattended nightly "
                     f"routine run it without asking (incl. shell at the "
                     f"configured Morpheus time).{RESET}")

@@ -42,7 +42,12 @@ def argv(request: WorkerRequest) -> tuple[str, ...]:
                 sort_keys=True,
                 separators=(",", ":"),
             )
-            return (*prefix, "moirai", "run", script, "--args", args_json, "--defaults")
+            # Pin the approved name to a trusted file here: the child's own
+            # lookup would also search its current directory.
+            from .moirai.cli import resolve_trusted_script
+
+            path = str(resolve_trusted_script(script))
+            return (*prefix, "moirai", "run", path, "--args", args_json, "--defaults")
         case MoiraiList(limit=limit):
             return (*prefix, "moirai", "list", "--limit", str(limit))
         case MoiraiStatus(run_id=run_id):

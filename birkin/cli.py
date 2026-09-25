@@ -862,7 +862,7 @@ def _cmd_permission(args: argparse.Namespace) -> int:
     cfg = config.load_config()
     auto = list(cfg.get("auto_approve", []))
     if args.add:
-        if args.add in ("shell", "cron"):
+        if args.add in ("shell", "cron", "worker"):
             print(
                 "⚠  Warning: auto-approving '" + args.add + "' lets the agent "
                 "and the unattended nightly routine run it WITHOUT asking — "
@@ -1387,6 +1387,72 @@ def _cmd_runs(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_summon(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from . import summon
+    from .runtime import ConfigError, build_session
+
+    if not args.agent:
+        roster, rejected = summon.load_roster()
+        specs = sorted(roster.values(), key=lambda spec: spec.name)
+        if args.json:
+            print(_json.dumps({
+                "agents": [spec.summary() for spec in specs],
+                "rejected": rejected,
+            }, ensure_ascii=False, indent=2))
+            return 0
+        print("소환할 수 있는 에이전트:")
+        for spec in specs:
+            mark = " (사용자 정의)" if spec.source == "user" else ""
+            print(f"  {spec.name:<15} {spec.title}{mark} — {spec.description}")
+        for file_name, reason in sorted(rejected.items()):
+            print(f"  ! {file_name}: 정의가 올바르지 않아 건너뛰었어요 "
+                  f"(세부: {reason})")
+        print('사용법: birkin summon <에이전트> "<할 일>"')
+        return 0
+    try:
+        spec = summon.get_agent(args.agent)
+    except summon.SummonError as exc:
+        print(f"'{args.agent}' 에이전트를 찾을 수 없어요. "
+              "birkin summon 으로 목록을 확인하세요.", file=sys.stderr)
+        print(f"세부: {exc}", file=sys.stderr)
+        return 2
+    task = " ".join(args.task).strip()
+    if not task:
+        if args.json:
+            print(_json.dumps(spec.summary(), ensure_ascii=False, indent=2))
+            return 0
+        print(f"{spec.title} ({spec.name}) — {spec.description}")
+        print(f"도구 그룹: {', '.join(spec.tools)}")
+        if spec.skills:
+            print(f"미리 불러오는 스킬: {', '.join(spec.skills)}")
+        print(f"최대 턴: {spec.max_turns}")
+        return 0
+    try:
+        session = build_session()
+    except ConfigError as exc:
+        print("모델 설정을 불러오지 못해 소환할 수 없어요. "
+              "birkin setup 으로 설정을 확인하세요.", file=sys.stderr)
+        print(f"세부: {exc}", file=sys.stderr)
+        return 1
+    try:
+        result = summon.summon(spec.name, task, session.ctx)
+    except summon.SummonBudgetExceeded as exc:
+        print("토큰 예산을 다 써서 지금은 소환할 수 없어요. "
+              "birkin budget 으로 사용량을 확인하세요.", file=sys.stderr)
+        print(f"세부: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:
+        print(f"{spec.title}이(가) 작업을 끝내지 못했어요.", file=sys.stderr)
+        print(f"세부: {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr)
+        return 1
+    finally:
+        session.close()
+    print(result)
+    return 0
+
+
 def _cmd_budget(args: argparse.Namespace) -> int:
     from . import budget, config
     from .ui import BOLD, CYAN, DIM, RED, RESET
@@ -1499,6 +1565,7 @@ def build_parser() -> argparse.ArgumentParser:
         "_cmd_sessions": _cmd_sessions,
         "_cmd_setup": _cmd_setup,
         "_cmd_skills": _cmd_skills,
+        "_cmd_summon": _cmd_summon,
         "_cmd_tools": _cmd_tools,
         "_cmd_trace": _cmd_trace,
         "_cmd_update": _cmd_update,

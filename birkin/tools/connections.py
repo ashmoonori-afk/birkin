@@ -3,10 +3,58 @@
 from __future__ import annotations
 
 import json
+import unicodedata
+from collections.abc import Mapping
+from datetime import datetime
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .. import approvals
 from ..m365_connection import READ_SCOPES, WRITE_SCOPES, status
 from ._types import Tool, ToolContext, ToolInput, ToolResult
+
+
+def visible_text(value: object) -> str:
+    # Control and format characters (newline, bidi override, zero-width) are
+    # shown as escapes, so a name cannot fake the rest of the review line or
+    # flip how an attachment's extension reads.
+    return "".join(
+        f"\\u{ord(char):04x}" if unicodedata.category(char) in {"Cc", "Cf"}
+        else char
+        for char in str(value)
+    )
+
+
+def _joined(value: object) -> str:
+    return ", ".join(visible_text(item) for item in value) if isinstance(value, list) else ""
+
+
+def mail_send_review_text(draft: Mapping[str, object]) -> str:
+    """Every recipient and attachment name of an outbound mail, never the bytes."""
+    parts = [f"받는 사람 {_joined(draft.get('to'))}"]
+    for key, label in (("cc", "참조"), ("bcc", "숨은 참조")):
+        if _joined(draft.get(key)):
+            parts.append(f"{label} {_joined(draft.get(key))}")
+    raw_attachments = draft.get("attachments")
+    attachments = raw_attachments if isinstance(raw_attachments, list) else []
+    if attachments:
+        names = _joined([item.get("name", "") if isinstance(item, Mapping) else "" for item in attachments])
+        parts.append(f"첨부 {len(attachments)}개({names})")
+    return " · ".join(parts)
+
+
+def calendar_event_review_text(draft: Mapping[str, object]) -> str:
+    """Local time range and every attendee address of a calendar change."""
+    start, end, zone_name = str(draft.get("start", "")), str(draft.get("end", "")), str(draft.get("timezone", ""))
+    try:
+        zone = ZoneInfo(zone_name)
+        first, last = (datetime.fromisoformat(value).astimezone(zone) for value in (start, end))
+        start, end = first.strftime("%Y-%m-%d %H:%M"), last.strftime("%Y-%m-%d %H:%M")
+    except (ValueError, ZoneInfoNotFoundError):
+        pass
+    attendees = draft.get("attendees")
+    count = len(attendees) if isinstance(attendees, list) else 0
+    who = f"참석자 {count}명: {_joined(attendees)}" if count else "참석자 없음"
+    return f"{start}–{end} ({zone_name}) · {who}"
 
 
 def _status(_data: ToolInput, _ctx: ToolContext) -> ToolResult:
@@ -46,7 +94,7 @@ def _mail_send(data: ToolInput, ctx: ToolContext) -> ToolResult:
     queued = approvals.propose(
         category="mail_send",
         title=f"메일 발송 확인: {draft['subject']}",
-        description=f"{draft['from_account']} 계정에서 {', '.join(draft['to'])}에게 메일을 발송합니다.",
+        description=f"{draft['from_account']} 계정에서 메일을 발송합니다. {mail_send_review_text(draft)}",
         payload={**draft, "draft_id": draft["id"]},
         cfg={},
         origin=ctx.record_source,
@@ -87,7 +135,7 @@ def _calendar_apply(data: ToolInput, ctx: ToolContext) -> ToolResult:
     queued = approvals.propose(
         category="calendar_event",
         title=f"일정 {draft['action']} 확인: {draft['subject']}",
-        description=f"{draft['start']}–{draft['end']} · 참석자 {len(draft['attendees'])}명",
+        description=calendar_event_review_text(draft),
         payload={**draft, "draft_id": draft["id"]},
         cfg={}, origin=ctx.record_source,
     )

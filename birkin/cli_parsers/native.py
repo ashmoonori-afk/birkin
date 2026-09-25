@@ -216,7 +216,8 @@ def register_services_and_voice(
     p_voice.add_argument(
         "--background-timeout",
         type=float,
-        default=300.0,
-        help="seconds to wait for this one-shot background result",
+        default=None,
+        help="seconds to wait for this one-shot background result "
+        "(default: voice.gateway_timeout_seconds + 30)",
     )
     p_voice.set_defaults(func=handlers["_cmd_voice"])

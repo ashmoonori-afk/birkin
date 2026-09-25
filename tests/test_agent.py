@@ -240,3 +240,56 @@ def test_untrusted_turn_compaction_does_not_persist_lineage(monkeypatch):
 
     assert agent.run("hello", trusted=False) == "done"
     assert snapshots == []
+
+
+def test_truncated_tool_input_is_not_executed():
+    class Truncating(FakeClient):
+        def complete(self, **kw):
+            if not self.systems:
+                self.systems.append(kw["system"])
+                return {"role": "assistant", "stop_reason": "max_tokens",
+                        "content": [
+                            {"type": "tool_use", "id": "ok", "name": "read_file",
+                             "input": {"path": "a"}},
+                            {"type": "tool_use", "id": "cut",
+                             "name": "create_skill", "input": {},
+                             "_truncated": True}]}
+            return super().complete(**kw)
+
+    client = Truncating([{"type": "text", "text": "done"}])
+    reg = FakeRegistry()
+    agent = Agent(client=client, system="BASE", registry=reg, max_turns=5)
+    assert agent.run("do it") == "done"
+
+    assert reg.calls == ["read_file"]
+    results = agent.messages[2]["content"]
+    assert [b["tool_use_id"] for b in results] == ["ok", "cut"]
+    assert results[0]["is_error"] is False
+    assert results[1]["is_error"] is True
+    assert results[1]["content"].startswith("output_truncated:")
+    # The private marker never goes back to the provider.
+    assert all("_truncated" not in b for b in agent.messages[1]["content"])
+
+
+def test_call_cut_off_after_its_name_is_not_executed_either():
+    # At max_tokens a tool_use with no argument text yet never fails JSON
+    # parsing, so it carries no marker; the stop reason still identifies it.
+    class CutAfterName(FakeClient):
+        def complete(self, **kw):
+            if not self.systems:
+                self.systems.append(kw["system"])
+                return {"role": "assistant", "stop_reason": "max_tokens",
+                        "content": [
+                            {"type": "tool_use", "id": "cut",
+                             "name": "create_skill", "input": {}}]}
+            return super().complete(**kw)
+
+    reg = FakeRegistry()
+    agent = Agent(client=CutAfterName([{"type": "text", "text": "done"}]),
+                  system="BASE", registry=reg, max_turns=5)
+    assert agent.run("do it") == "done"
+
+    assert reg.calls == []
+    (result,) = agent.messages[2]["content"]
+    assert result["is_error"] is True
+    assert result["content"].startswith("output_truncated:")

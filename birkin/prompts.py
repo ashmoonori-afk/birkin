@@ -65,10 +65,31 @@ waiting in silence. One line — don't narrate every step.
 - Load a skill (load_skill) whenever a cataloged skill matches the task.
 - Delegate large, self-contained, or parallelizable work to spawn_subagent so \
 this conversation stays focused. Give subagents a complete brief.
+- When a named specialist fits (spawn_subagent's agent list), summon it with \
+spawn_subagent's agent field instead of briefing an anonymous helper.
 - If you discover a reusable procedure, call create_skill so it persists. \
 Refine an existing skill with improve_skill.
 - Record durable facts about the user or project with the remember tool.
 - Never fabricate results. If unsure, say so and investigate."""
+
+# Tools the shared guidance names. A prompt for a registry that lacks one
+# (subagents have no memory; summoned specialists have a narrow scope) leaves
+# that guidance out instead of promising a call that would fail.
+GUIDED_TOOLS = (
+    "spawn_subagent", "load_skill", "create_skill", "improve_skill",
+    "remember",
+)
+DELEGATION_CLAUSE = (
+    ", and you can delegate focused sub-tasks to isolated subagents"
+)
+
+
+def _guidance_without(omit: frozenset[str]) -> str:
+    return "\n".join(
+        line for line in _TOOL_GUIDANCE.splitlines()
+        if not (line.startswith("- ") and any(name in line for name in omit))
+    )
+
 
 UI_COMPONENT_POLICY_OPEN = "<ui-component-policy>"
 UI_COMPONENT_POLICY_CLOSE = "</ui-component-policy>"
@@ -131,12 +152,15 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
                         role: str = "main", extra: str = "",
                         preloaded: Optional[list[tuple[str, str]]] = None,
                         persona: str = "", profile_block: str = "",
-                        harness_block: str = "") -> str:
+                        harness_block: str = "",
+                        omit_tools: frozenset[str] = frozenset()) -> str:
     # The user's SOUL.md persona (when set) replaces the default identity slot;
     # everything else (tool guidance, skills, memory) is appended as usual.
     clean = local_environment_policy.strip_markers
     identity_text = clean(persona.strip()) if persona else ""
     identity = identity_text or _IDENTITY
+    if "spawn_subagent" in omit_tools:
+        identity = identity.replace(DELEGATION_CLAUSE, "")
     parts: list[str] = [identity]
     if profile_block:
         parts.append(clean(profile_block))
@@ -151,7 +175,7 @@ def build_system_prompt(*, skills_index: str = "", memory_block: str = "",
     if workspace:
         parts.append(workspace)
 
-    parts.append(_TOOL_GUIDANCE)
+    parts.append(_guidance_without(omit_tools) if omit_tools else _TOOL_GUIDANCE)
 
     if skills_index:
         parts.append("## Available skills (call load_skill for full instructions)\n"
