@@ -342,7 +342,7 @@ def test_a_source_swapped_for_a_fifo_after_verification_does_not_hang(
     digest = _sha256(source)
     verified_sha256 = local_import._bounded_sha256
 
-    def swap_after_hashing(descriptor: int) -> str:
+    def swap_after_hashing(descriptor: int) -> tuple[str, int]:
         hashed = verified_sha256(descriptor)
         source.unlink()
         os.mkfifo(source)
@@ -371,6 +371,83 @@ def test_a_source_swapped_for_a_fifo_after_verification_does_not_hang(
     body, is_error = outcome[0]
     assert not is_error, body
     assert cast("dict[str, str]", body["artifact"])["content_hash"] == digest
+
+
+class _GrowingSourceOs:
+    """``os`` for the Office service: grows the source at one of its seeks
+    and counts the source bytes the service reads."""
+
+    def __init__(self, source: Path, grow: Callable[[], None], grow_at_seek: int) -> None:
+        metadata = source.stat()
+        self._source = (metadata.st_dev, metadata.st_ino)
+        self._grow = grow
+        self._grow_at_seek = grow_at_seek
+        self._seeks = 0
+        self.source_bytes_read = 0
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(os, name)
+
+    def _is_source(self, descriptor: int) -> bool:
+        metadata = os.fstat(descriptor)
+        return (metadata.st_dev, metadata.st_ino) == self._source
+
+    def lseek(self, descriptor: int, position: int, how: int) -> int:
+        if self._is_source(descriptor):
+            self._seeks += 1
+            if self._seeks == self._grow_at_seek:
+                self._grow()
+        return os.lseek(descriptor, position, how)
+
+    def read(self, descriptor: int, length: int) -> bytes:
+        chunk = os.read(descriptor, length)
+        if self._is_source(descriptor):
+            self.source_bytes_read += len(chunk)
+        return chunk
+
+
+@pytest.mark.parametrize("phase", ["after_hash", "before_rehash", "before_copy"])
+def test_a_source_that_grows_after_verification_is_read_only_to_its_verified_size(
+    home: Path, cwd: Path, monkeypatch: pytest.MonkeyPatch, phase: str
+) -> None:
+    # Given: a writer that already holds the verified file open appends to it
+    # right after it was hashed, before the copy path re-hashes it, or before
+    # the copy itself.
+    from birkin.office import service as office_service
+
+    source = build_docx_template(cwd / "report.docx")
+    verified_size = source.stat().st_size
+    writer = os.open(source, os.O_WRONLY | os.O_APPEND)
+
+    def grow() -> None:
+        _ = os.write(writer, b"\0" * (3 * 1024 * 1024))
+
+    growing_os = _GrowingSourceOs(
+        source, grow, {"before_rehash": 1, "before_copy": 2}.get(phase, 0)
+    )
+    monkeypatch.setattr(office_service, "os", growing_os)
+    if phase == "after_hash":
+        verified_sha256 = local_import._bounded_sha256
+
+        def grow_after_hashing(descriptor: int) -> tuple[str, int]:
+            verified = verified_sha256(descriptor)
+            grow()
+            return verified
+
+        monkeypatch.setattr(local_import, "_bounded_sha256", grow_after_hashing)
+
+    # When: the import runs.
+    try:
+        body, is_error = _call(_registry(cwd), "local_document_import", {"path": "report.docx"})
+    finally:
+        os.close(writer)
+
+    # Then: it fails as a changed source, having read at most one byte past
+    # the verified size in each pass, and publishes no draft.
+    assert is_error, body
+    assert cast("dict[str, object]", body["error"])["code"] == "SOURCE_CHANGED"
+    assert growing_os.source_bytes_read <= 2 * (verified_size + 1)
+    assert _drafts(home) == []
 
 
 def test_telegram_upload_and_drop_folder_files_import(home: Path, cwd: Path) -> None:

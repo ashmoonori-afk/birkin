@@ -22,25 +22,20 @@ def _flatten(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _linked_run_id(record: dict[str, Any]) -> str:
-    """The run store.add_pending stamped on the approval, never the payload's."""
+    """The run store.add_pending stamped on the approval, never the payload's.
+
+    The run listing, the run detail and the approval list all use this one
+    rule, as the native workspace projection does, so a model-written
+    ``payload.run_id`` or an origin string never ties an approval to a run.
+    """
     linked = record.get("agent_run_id")
     return linked if isinstance(linked, str) else ""
-
-
-def _approval_run_id(record: dict[str, Any]) -> str:
-    # payload.run_id is model-written, so it never places an approval under
-    # a run; origin is set by the proposing code.
-    linked = _linked_run_id(record)
-    if linked:
-        return linked
-    origin = str(record.get("origin") or "")
-    return origin.removeprefix("agent:") if origin.startswith("agent:") else ""
 
 
 def _pending_by_run() -> dict[str, list[dict[str, Any]]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for approval in approvals.reviewable_pending():
-        run_id = _approval_run_id(approval)
+        run_id = _linked_run_id(approval)
         if run_id:
             grouped.setdefault(run_id, []).append(approval)
     return grouped

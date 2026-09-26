@@ -6,7 +6,7 @@ import hashlib
 import os
 import stat
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -41,8 +41,25 @@ from .validation import ValidationResult, validate_document
 from .xlsx_analysis import analyze_xlsx
 
 
+_IMPORT_CHUNK_BYTES = 1024 * 1024
+
+
 class _InspectAdapter(Protocol):
     def inspect(self, path: Path) -> Mapping[str, object]: ...
+
+
+def _bounded_chunks(source_fd: int, size: int, message: str) -> Iterator[bytes]:
+    """Read ``source_fd`` to its end, but never more than ``size`` bytes.
+
+    One byte past ``size`` means the file grew after it was verified, so the
+    read stops there instead of following a writer that keeps appending.
+    """
+    remaining = size
+    while chunk := os.read(source_fd, min(_IMPORT_CHUNK_BYTES, remaining + 1)):
+        if len(chunk) > remaining:
+            raise DocumentError(DocumentErrorCode.SOURCE_CHANGED, "import", message)
+        remaining -= len(chunk)
+        yield chunk
 
 
 class DocumentService:
@@ -159,12 +176,14 @@ class DocumentService:
         expected_sha256: str,
         output_name: str,
         reuse_identical: bool = False,
+        expected_size: int | None = None,
     ) -> dict[str, object]:
         """Copy an already-verified open file into the document jail.
 
         The caller keeps ``source_fd``; it is read from its start, so the
         copy is of the file the caller verified, not whatever its path names
-        now.
+        now. Neither pass reads past the verified size (``expected_size``,
+        or the size the file has on entry): a file that grew changed.
         """
         metadata = os.fstat(source_fd)
         if not stat.S_ISREG(metadata.st_mode):
@@ -173,9 +192,18 @@ class DocumentService:
                 "import",
                 "registered import is not a regular file",
             )
+        size = metadata.st_size
+        if expected_size is not None and size != expected_size:
+            raise DocumentError(
+                DocumentErrorCode.SOURCE_CHANGED,
+                "import",
+                "registered import changed before document copy",
+            )
         _ = os.lseek(source_fd, 0, os.SEEK_SET)
         digest = hashlib.sha256()
-        while chunk := os.read(source_fd, 1024 * 1024):
+        for chunk in _bounded_chunks(
+            source_fd, size, "registered import changed before document copy"
+        ):
             digest.update(chunk)
         if digest.hexdigest() != expected_sha256:
             raise DocumentError(
@@ -192,7 +220,9 @@ class DocumentService:
             )
             copied = hashlib.sha256()
             try:
-                while chunk := os.read(source_fd, 1024 * 1024):
+                for chunk in _bounded_chunks(
+                    source_fd, size, "registered import changed during document copy"
+                ):
                     copied.update(chunk)
                     view = memoryview(chunk)
                     while view:

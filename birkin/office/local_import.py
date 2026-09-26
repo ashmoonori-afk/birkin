@@ -136,7 +136,8 @@ def _is_birkin_state(real_path: Path, home: Path) -> bool:
     )
 
 
-def _bounded_sha256(descriptor: int) -> str:
+def _bounded_sha256(descriptor: int) -> tuple[str, int]:
+    """The file's SHA-256 and byte count, read within the import limit."""
     if os.fstat(descriptor).st_size > MAX_IMPORT_BYTES:
         raise _error(
             DocumentErrorCode.LIMIT_EXCEEDED, "source file exceeds the import byte limit"
@@ -151,7 +152,7 @@ def _bounded_sha256(descriptor: int) -> str:
                 "source file exceeds the import byte limit",
             )
         digest.update(chunk)
-    return digest.hexdigest()
+    return digest.hexdigest(), total
 
 
 def _safe_stem(path: Path) -> str:
@@ -198,14 +199,18 @@ def import_local_document(
                 "파일을 일반 복사본으로 만든 뒤 다시 가져오세요.",
                 "hard_link",
             )
-        digest = _bounded_sha256(descriptor)
+        digest, size = _bounded_sha256(descriptor)
         output_name = f"{_safe_stem(candidate)}-{digest[:12]}{suffix}"
         # Copy from the verified descriptor: re-opening the path would follow
         # whatever a concurrent writer put there, such as a FIFO that blocks.
+        # The copy reads no more than the verified size, which the limit
+        # above bounds, so a writer that still holds the file open cannot
+        # make it copy more.
         imported = service.import_descriptor(
             descriptor,
             suffix=suffix,
             expected_sha256=digest,
+            expected_size=size,
             output_name=output_name,
             reuse_identical=True,
         )

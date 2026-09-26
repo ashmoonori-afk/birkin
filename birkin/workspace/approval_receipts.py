@@ -141,6 +141,7 @@ def approval_turn_context(
     or a success. ``presented`` is the outcome the user was shown; an
     action that may have run (an unconfirmed mail send) keeps its words.
     """
+    model_outcome = outcome
     if outcome == "approved":
         executed = approval_text.approve_outcome(
             resolved, {"ok": True, "result": result_text}
@@ -160,6 +161,10 @@ def approval_turn_context(
     elif presented is not None and presented.ui_state == "action_needed":
         # Calling it a failure would invite the model to repeat the action.
         summary = presented.summary
+        if outcome == "rejected_by_authority":
+            # The wire outcome stays as is; the model is told the action may
+            # have run, not that it was refused.
+            model_outcome = "outcome_unknown"
     else:
         summary = "승인된 작업을 완료하지 못했습니다."
         if error:
@@ -167,6 +172,6 @@ def approval_turn_context(
     return (
         f'<approval-outcome lang="ko" '
         f'approval_id="{escape(approval_id, quote=True)}" '
-        f'outcome="{escape(outcome, quote=True)}">'
+        f'outcome="{escape(model_outcome, quote=True)}">'
         f"{escape(summary)}</approval-outcome>"
     )

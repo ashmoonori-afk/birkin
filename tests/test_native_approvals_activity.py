@@ -243,6 +243,45 @@ def test_approved_command_that_exited_non_zero_is_not_shown_as_succeeded() -> No
     assert passed["ui_state"] == "succeeded"
 
 
+def test_a_superseded_approval_is_terminal_while_unfinished_workflows_need_the_user() -> None:
+    from birkin.moirai import outcome as moirai_outcome
+
+    # Given: an Office approval its overwrite follow-up replaced, and two
+    # approved workflows that did not report completion.
+    superseded = approval_item({
+        "id": "abc123def463", "category": "office_job", "title": "보고서 저장",
+        "status": "error", "failure_code": "OUTPUT_EXISTS",
+        "follow_up_approval_id": "abc123def464",
+        "payload": {"proposal_digest": "a" * 64},
+    })
+    waiting = approval_item({
+        "id": "abc123def465", "category": "moirai", "title": "워크플로",
+        "status": "approved",
+        "action_receipt": moirai_outcome.render(
+            {"status": "waiting_input", "run_id": "r1"}, name="hard"
+        ),
+        "payload": {},
+    })
+    unconfirmed = approval_item({
+        "id": "abc123def466", "category": "moirai", "title": "워크플로",
+        "status": "approved",
+        "action_receipt": "moirai: hard-task completed — 에이전트 2",
+        "payload": {},
+    })
+
+    # Then: the follow-up card is what still needs the user, so the replaced
+    # one is a terminal failure; a workflow that stopped short still needs them.
+    assert superseded["result_code"] == "follow_up_required"
+    assert superseded["follow_up_approval_id"] == "abc123def464"
+    assert superseded["ui_state"] == "failed"
+    assert (waiting["result_code"], waiting["ui_state"]) == (
+        "workflow_waiting", "action_needed"
+    )
+    assert (unconfirmed["result_code"], unconfirmed["ui_state"]) == (
+        "workflow_unconfirmed", "action_needed"
+    )
+
+
 def test_snapshot_projects_office_approval_trust_details(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

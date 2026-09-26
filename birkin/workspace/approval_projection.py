@@ -130,7 +130,11 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
         outcome = approval_text.record_outcome(record)
         item["result_summary"] = outcome.summary
         item["result_code"] = outcome.code
-        if outcome.ui_state:
+        if outcome.code == "follow_up_required":
+            # The follow-up approval is the card that still needs the user;
+            # the record it replaced is a terminal failure.
+            item["ui_state"] = "failed"
+        elif outcome.ui_state:
             item["ui_state"] = outcome.ui_state
     resolved_at = record.get("resolved_at")
     if isinstance(resolved_at, str) and resolved_at:

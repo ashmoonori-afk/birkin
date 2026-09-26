@@ -426,13 +426,18 @@ def test_workspace_approval_of_an_accepted_send_is_unconfirmed_not_failed(
     )
 
     assert result["state"] == "accepted" and result["recheckable"] is True
+    assert result["outcome"] == "rejected_by_authority"
     answered = next(payload for kind, payload in emitted if kind == "approval.answered")
+    assert answered["outcome"] == "rejected_by_authority"
     assert answered["result_code"] == "E_APPROVAL_OUTCOME_UNKNOWN"
     assert str(answered["result_summary"]).startswith("Microsoft 365가 요청을 접수했지만")
     assert answered["ui_state"] == "action_needed"
     context = str(getattr(adapter, "_pending_approval_context"))
     assert "완료하지 못했습니다" not in context
     assert "발송 처리는 아직 확인되지 않았습니다" in context
+    # The model must not read the unconfirmed send as refused and resend it.
+    assert 'outcome="outcome_unknown"' in context
+    assert "rejected_by_authority" not in context
     assert graph.sends == 1
 
 
