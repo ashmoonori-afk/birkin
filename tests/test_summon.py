@@ -794,6 +794,19 @@ def test_a_run_without_text_reads_in_korean_on_every_terminal_surface(
     assert captured.out == ""          # stdout carries only a result
 
 
+def test_cli_summon_answer_matching_the_notice_copy_stays_on_stdout(
+        monkeypatch, capsys):
+    from birkin import cli
+
+    # A real answer is a result even when its text equals the notice copy.
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None:
+                        summon.NO_TEXT_COPY)
+
+    assert cli.main(["summon", "meeting-scribe", "정리"]) == 0
+    assert capsys.readouterr().out.strip() == summon.NO_TEXT_COPY
+
+
 def test_send_refuses_a_finished_run():
     rec = agentruns.register_run("done already")
     agentruns.finish_run(rec["id"], "done", "x")

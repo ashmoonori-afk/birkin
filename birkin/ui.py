@@ -474,9 +474,10 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
             state["depth"] += 1
         elif event == "subagent.done":
             state["depth"] = max(0, state["depth"] - 1)
-            # run_subagent flags a failed run with is_error, moirai with its
-            # error text (never shown), the workspace adapter with its state.
-            failed = (payload.get("is_error") or payload.get("error")
+            # run_subagent flags a failed run with is_error, moirai with an
+            # error key (never shown; its text may be empty), the workspace
+            # adapter with its state.
+            failed = (payload.get("is_error") or "error" in payload
                       or payload.get("state") == "failed")
             mark = f"{RED}✗{RESET}{DIM}" if failed else "⇱"
             label = _summary(payload) or (

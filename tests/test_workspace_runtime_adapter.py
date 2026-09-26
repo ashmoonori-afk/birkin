@@ -1619,8 +1619,11 @@ def test_failed_agent_run_and_research_step_report_failure() -> None:
     )
     adapter.runtime_event("subagent.start", {"task": "[collect] 시장 조사"})
     adapter.runtime_event("subagent.done", {"error": "Traceback boom"})
+    # A step that raised TimeoutError() carries an empty error text.
+    adapter.runtime_event("subagent.done", {"error": ""})
 
-    (_agent_type, agent), (_start_type, start), (_step_type, step) = emitted
+    (_agent_type, agent), (_start_type, start), (_step_type, step), (
+        _silent_type, silent) = emitted
     assert agent["summary"] == "하위 에이전트가 작업을 마치지 못했습니다."
     assert agent["ui_state"] == agent["state"] == "failed"
     assert start["summary"] == "하위 작업을 시작했습니다."
@@ -1630,6 +1633,8 @@ def test_failed_agent_run_and_research_step_report_failure() -> None:
     assert step["summary"] == "하위 작업을 완료하지 못했습니다."
     assert step["ui_state"] == step["state"] == "failed"
     assert "boom" not in str(step)
+    assert silent["summary"] == "하위 작업을 완료하지 못했습니다."
+    assert silent["ui_state"] == silent["state"] == "failed"
 
 
 def test_child_internal_events_are_not_journaled() -> None:

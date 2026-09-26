@@ -70,19 +70,22 @@ def test_child_tool_events_nest_under_the_subagent():
 
 def test_failed_subagent_reads_as_a_failure_not_done():
     # run_subagent marks a failed run with is_error, moirai with its error
-    # text, and the workspace adapter with state="failed" plus its summary.
+    # text (empty for TimeoutError()), and the workspace adapter with
+    # state="failed" plus its summary.
     out = _drive([
         ("subagent.start", {"task": "[worker-1] 표 합계 검증"}),
         ("subagent.done", {"error": "RateLimitError: 429"}),
+        ("subagent.start", {"task": "[worker-2] 출처 확인"}),
+        ("subagent.done", {"error": ""}),
         ("subagent.start", {"task": "보고서 초안", "id": "r1"}),
         ("subagent.done", {"chars": 0, "id": "r1", "is_error": True}),
         ("subagent.done", {"runtime_event": "subagent.done", "state": "failed",
                            "summary": "리서처 에이전트가 작업을 마치지 못했습니다."}),
     ])
     done = [ln for ln in out.splitlines() if "⇲" not in ln and ln.strip()]
-    assert len(done) == 3 and all("✗" in ln for ln in done), done
+    assert len(done) == 4 and all("✗" in ln for ln in done), done
     assert "하위 에이전트 완료" not in out
-    assert out.count("하위 에이전트가 작업을 마치지 못했습니다") == 2
+    assert out.count("하위 에이전트가 작업을 마치지 못했습니다") == 3
     assert "리서처 에이전트가 작업을 마치지 못했습니다." in out
     assert "RateLimitError" not in out
 

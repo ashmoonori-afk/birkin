@@ -375,13 +375,18 @@ def detached_run_id(result: str) -> str:
 NO_TEXT_COPY = "결과 텍스트가 없습니다."
 
 
+def has_text(result: object) -> bool:
+    """Whether a finished run returned text, judged on the raw result rather
+    than on ``run_subagent``'s no-text stand-in or an empty result."""
+    from .subagent import NO_TEXT_RESULT  # local: subagent imports tools
+
+    return str(result or "").strip() not in ("", NO_TEXT_RESULT)
+
+
 def result_text(result: object) -> str:
     """A finished run's result as a person sees it: the text itself, or Korean
     copy for ``run_subagent``'s no-text stand-in or an empty result."""
-    from .subagent import NO_TEXT_RESULT  # local: subagent imports tools
-
-    text = str(result or "")
-    return NO_TEXT_COPY if text.strip() in ("", NO_TEXT_RESULT) else text
+    return str(result or "") if has_text(result) else NO_TEXT_COPY
 
 
 def summon(name: str, task: str, parent_ctx: Any, *, detach: bool = False,

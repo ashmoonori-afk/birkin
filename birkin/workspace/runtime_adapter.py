@@ -423,8 +423,9 @@ class RuntimeWorkspaceAdapter:
             return
         raw_id = payload.get("id")
         run_id = raw_id if isinstance(raw_id, str) and raw_id else ""
+        # moirai's error text may be empty (TimeoutError()); the key marks it.
         failed = event == "subagent.done" and (
-            bool(payload.get("is_error")) or bool(payload.get("error"))
+            bool(payload.get("is_error")) or "error" in payload
         )
         state = uistate.from_runtime(event, is_error=failed).state
         safe: dict[str, object] = {
