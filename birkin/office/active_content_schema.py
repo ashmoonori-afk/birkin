@@ -27,7 +27,18 @@ PATCH_OPERATION_SCHEMA: dict[str, object] = {
     "oneOf": [
         {
             "type": "object",
-            "properties": {"field": {"type": "string"}, "value": {}},
+            "properties": {
+                "field": {
+                    "type": "string",
+                    "description": (
+                        "DOCX: content-control tag from inspect_document "
+                        "structure.inventory.content_controls[].id, or a simple "
+                        "field id from structure.inventory.fields[].id; HWPX: "
+                        "field id or name from structure.inventory.fields[].aliases."
+                    ),
+                },
+                "value": {},
+            },
             "required": ["field", "value"],
             "additionalProperties": False,
         },

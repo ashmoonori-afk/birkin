@@ -225,6 +225,14 @@ def run(output_dir: Path) -> dict[str, object]:
     if not search["results"]:
         raise AssertionError("search_office_sources returned no live evidence")
 
+    incoming = office_home / "artifacts" / "incoming"
+    incoming.mkdir()
+    dropped = incoming / "dropped.docx"
+    _ = shutil.copyfile(paths["docx"], dropped)
+    imported = cast(dict[str, str], call("local_document_import", {"path": str(dropped)})["artifact"])
+    if imported["content_hash"] != sha256(dropped):
+        raise AssertionError("local_document_import changed the imported bytes")
+
     inventory = cast(list[dict[str, object]], call("list_document_adapters", {})["adapters"])
     meeting_draft = call("review_meeting_actions", {
         "notes": "민지는 견적을 확인한다. 기한은 정하지 않았다.",

@@ -61,7 +61,7 @@ format, Birkin routes to `office-documents` and asks exactly
 
 ## Registered tools and arguments
 
-The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `m365_document_import`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
+The exact registered set is `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `local_document_import`, `m365_document_import`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, and `office_rollback_request`.
 
 | Tool | Required arguments | Important optional arguments/behavior |
 |---|---|---|
@@ -72,6 +72,7 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `review_meeting_actions` | `notes`, `candidates` | Requires exact source evidence, preserves unknown owner/due date, separates suggested dates, deduplicates, and returns an unpersisted confirmation draft. |
 | `list_work_items` | none | Optional `timezone_name`; groups durable all-day items into today, overdue, missing owner/date, and recent completion. |
 | `work_item_request` | `action` | Approval-gated create, meeting confirmation, update, or completion with conversation/document/goal/job source links. |
+| `local_document_import` | `path` | Copies one DOCX, XLSX, PPTX, PDF, or HWPX file from the current working folder, `BIRKIN_HOME/uploads` (Telegram attachments), or `BIRKIN_HOME/office/artifacts/incoming` into managed drafts and returns its artifact. The original is only read; paths outside those folders, symbolic links, other Birkin state, other formats, and files over 64 MiB are refused. Re-importing identical bytes returns the existing draft. |
 | `m365_document_import` | `drive_item_id` | Imports through an allowed Microsoft 365 connection. Registration is tested; the live connection path was not verified by the local Office acceptance run. |
 | `search_office_sources` | `query`, `sources` | Searches only live, access-granted current-work, selected-folder, or allowed-connection artifacts and returns exact extraction locators and versions. |
 | `list_office_batches` | none | Lists per-file success and failure results without collapsing partial failure. |
@@ -82,14 +83,14 @@ The exact registered set is `list_document_adapters`, `inspect_document`, `extra
 | `compare_documents` | `left`, `right` | Returns separate byte, semantic, package, and visual claims. |
 | `render_artifact` | `artifact` | `output_format` is `structured_preview`, `pdf`, `png`, or `thumbnail`; `page` is optional. |
 | `validate_artifact` | `artifact` | Reports package, schema-root, formula, openability, security, and fidelity layers. |
-| `office_job_request` | `request`, `outcome`, `destination`, plus either `format` + `content` or `source` + `operations` | Source-free DOCX/XLSX/PPTX/PDF/HWPX creation queues `office_create`; existing-document mutation queues `office_job`. Only canonical approval execution may create, mutate, or export. |
+| `office_job_request` | `request`, `outcome`, `destination`, plus either `format` + `content` or `source` + `operations` | Source-free DOCX/XLSX/PPTX/PDF/HWPX creation queues `office_create`; existing-document mutation queues `office_job`. DOCX content-control/simple-field and HWPX field operations (`{"field": ..., "value": ...}`) and PPTX placeholder operations are replayed at request time, so the approval shows each target's exact current text; an unknown, duplicate, or unsupported target is refused before approval. Only canonical approval execution may create, mutate, or export. |
 | `office_rollback_request` | `job_id` | Queues a second high-risk approval for one HMAC-authenticated, unexpired export receipt. |
 
-The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`. Their machine metadata requires the same nine-tool set.
+The seven synchronized skill IDs are `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, and `korean-hwp-documents`. Their machine metadata requires exactly the registered tool set above.
 
 ## Workspace input jail
 
-`BIRKIN_HOME/office` is the dedicated document workspace jail, separate from configuration, vault, session, and native bootstrap files. Every source and HWPX template URI must be an absolute regular file inside it and its bytes must match `content_hash`. For example, with `BIRKIN_HOME=/workspace/.birkin`, first copy or import inputs under `/workspace/.birkin/office/artifacts/incoming`. `/workspace/source.docx`, `/tmp/source.docx`, and symlink escapes are rejected.
+`BIRKIN_HOME/office` is the dedicated document workspace jail, separate from configuration, vault, session, and native bootstrap files. Every source and HWPX template URI must be an absolute regular file inside it and its bytes must match `content_hash`. For example, with `BIRKIN_HOME=/workspace/.birkin`, first copy or import inputs under `/workspace/.birkin/office/artifacts/incoming`, or call `local_document_import` for a file in the current working folder or a Telegram attachment. As source URIs, `/workspace/source.docx`, `/tmp/source.docx`, and symlink escapes are rejected.
 
 The durable job journal remains at `BIRKIN_HOME/office/jobs`. A pending job created with a source outside the dedicated Office jail is not migrated or resumed: re-import the source into `BIRKIN_HOME/office` and submit a new approval proposal. This fail-closed rule prevents legacy source descriptors from reaching configuration or vault files.
 

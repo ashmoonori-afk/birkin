@@ -5,9 +5,12 @@ from __future__ import annotations
 import math
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypedDict, runtime_checkable
 
 from .errors import DocumentError, DocumentErrorCode
+
+if TYPE_CHECKING:
+    from .operation_targets import ResolvedTarget
 
 
 @runtime_checkable
@@ -128,10 +131,6 @@ def _location(node: _SourceNode) -> str:
         if isinstance(sheet, str) and sheet:
             return f"{sheet}!{cell}"
         return cell
-    slide_part = node.locator.get("slide_part")
-    placeholder = node.locator.get("placeholder_idx")
-    if isinstance(slide_part, str) and isinstance(placeholder, int):
-        return f"{slide_part} placeholder {placeholder}"
     format_name = node.locator.get("format")
     index = node.locator.get("index")
     if isinstance(format_name, str) and format_name and isinstance(index, int):
@@ -139,14 +138,42 @@ def _location(node: _SourceNode) -> str:
     raise _precondition("matched preview node has no human-readable location")
 
 
+def _resolved_after(operation: Mapping[str, object]) -> str:
+    value = operation.get("value")
+    if not isinstance(value, str):
+        raise _precondition("resolved operation value must be a string")
+    return value
+
+
 def summarize_operations(
-    preview: Mapping[str, object], operations: Sequence[Mapping[str, object]]
+    preview: Mapping[str, object],
+    operations: Sequence[Mapping[str, object]],
+    *,
+    resolved: Sequence[ResolvedTarget | None] | None = None,
 ) -> list[PreviewSummary]:
-    """Summarize operations only when their source nodes prove every value."""
-    nodes = _nodes(preview)
+    """Summarize operations only when their source nodes prove every value.
+
+    ``resolved`` carries exact targets replayed by the apply-time resolvers;
+    those operations need no preview node and may clear a value.
+    """
+    if resolved is not None and len(resolved) != len(operations):
+        raise _precondition("resolved targets must match the operations")
+    nodes: list[_SourceNode] | None = None
     summaries: list[PreviewSummary] = []
-    for operation in operations:
+    for position, operation in enumerate(operations):
+        target = None if resolved is None else resolved[position]
+        if target is not None:
+            summaries.append(
+                {
+                    "location": target.location,
+                    "before": target.before,
+                    "after": _resolved_after(operation),
+                }
+            )
+            continue
         selector, after = _operation_selector(operation)
+        if nodes is None:
+            nodes = _nodes(preview)
         node = _node_for(nodes, selector)
         location = _location(node)
         summaries.append(

@@ -28,6 +28,27 @@ from .pptx_types import (
 )
 
 
+def placeholder_parts(
+    parts: dict[str, bytes],
+    slide_part: str,
+    placeholder_idx: int,
+    value: str,
+    expected_text: str | None,
+) -> tuple[bytes, str, bytes]:
+    """Replace one placeholder's text in memory; return the slide XML, old text, and shape."""
+    xml = parts.get(slide_part)
+    if xml is None or re.fullmatch(r"ppt/slides/slide\d+\.xml", slide_part) is None:
+        raise DocumentError(DocumentErrorCode.NODE_NOT_FOUND, "locate", "slide part not found")
+    matches = [
+        (slide_part, start, end, block)
+        for start, end, block in element_blocks(xml, b"p:sp")
+        if attribute_equals(block, b"p:ph", b"idx", str(placeholder_idx))
+    ]
+    _, start, end, block = require_one(matches, "PPTX placeholder index")
+    changed, previous = splice_fragmented_text(xml, start, end, value, expected_text=expected_text)
+    return changed, previous, block
+
+
 class PptxAdapter:
     format: str = "pptx"
 
@@ -87,16 +108,7 @@ class PptxAdapter:
         if isinstance(placeholder_idx, bool) or placeholder_idx < 0:
             raise DocumentError(DocumentErrorCode.INVALID_INPUT, "locate", "placeholder_idx must be non-negative")
         parts, digest = package_parts(source, expected_source_sha256)
-        xml = parts.get(slide_part)
-        if xml is None or re.fullmatch(r"ppt/slides/slide\d+\.xml", slide_part) is None:
-            raise DocumentError(DocumentErrorCode.NODE_NOT_FOUND, "locate", "slide part not found")
-        matches = [
-            (slide_part, start, end, block)
-            for start, end, block in element_blocks(xml, b"p:sp")
-            if attribute_equals(block, b"p:ph", b"idx", str(placeholder_idx))
-        ]
-        _, start, end, block = require_one(matches, "PPTX placeholder index")
-        changed, previous = splice_fragmented_text(xml, start, end, value, expected_text=expected_text)
+        changed, previous, block = placeholder_parts(parts, slide_part, placeholder_idx, value, expected_text)
         replacements = {slide_part: changed}
         _ = clone_package(source, output, replacements)
         try:

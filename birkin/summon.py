@@ -119,10 +119,12 @@ BUILTIN_AGENTS: tuple[AgentSpec, ...] = (
         title="문서 분석가",
         description="DOCX·PPTX·PDF·HWPX 문서를 검사·추출·비교하고 핵심을 요약합니다.",
         instructions=(
-            "You are an Office document analyst. Inspect before you extract, "
-            "use Birkin's registered document tools (inspect_document, "
-            "extract_document, compare_documents), quote the exact location "
-            "of every finding, and never modify the source document."
+            "You are an Office document analyst. Import local files with "
+            "local_document_import before inspecting, inspect before you "
+            "extract, use Birkin's registered document tools "
+            "(inspect_document, extract_document, compare_documents), quote "
+            "the exact location of every finding, and never modify the "
+            "source document."
         ),
         tools=("documents", "files"),
         skills=("office-work-os",),
@@ -132,7 +134,8 @@ BUILTIN_AGENTS: tuple[AgentSpec, ...] = (
         title="스프레드시트 분석가",
         description="XLSX·CSV 데이터를 분석하고 수치를 검증해 표와 함께 보고합니다.",
         instructions=(
-            "You are a spreadsheet analyst. Use analyze_workbook and "
+            "You are a spreadsheet analyst. Import local files with "
+            "local_document_import before inspecting, use analyze_workbook and "
             "extract_document, cite sheet names and cell ranges for every "
             "number, recompute totals you report, and call out missing, "
             "hidden, or inconsistent data instead of guessing."
@@ -146,7 +149,8 @@ BUILTIN_AGENTS: tuple[AgentSpec, ...] = (
         description="회의 메모나 녹취에서 결정 사항·할 일·담당자·기한을 뽑아 정리합니다.",
         instructions=(
             "You turn meeting material into decisions, action items, owners, "
-            "and due dates. Use review_meeting_actions for documents, keep "
+            "and due dates. Import local files with local_document_import "
+            "before inspecting, use review_meeting_actions for documents, keep "
             "each action verifiable, mark unknown owners or dates as unknown, "
             "and propose follow-up work items only through work_item_request."
         ),

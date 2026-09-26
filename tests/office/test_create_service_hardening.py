@@ -10,7 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from birkin.office.coordinator import _semantic_summaries
+from birkin.office.coordinator import (
+    OfficeCaller,
+    OfficeCoordinator,
+    OfficeMutationRequest,
+)
 from birkin.office.create_approval import OfficeCreationCoordinator
 from birkin.office.create_contract import (
     OfficeCreationCaller,
@@ -26,6 +30,7 @@ from birkin.office.retention import purge_expired_office_state
 from birkin.office.service import DocumentService
 from birkin.office.service_types import ArtifactRef
 from birkin.office.service_workspace import DocumentWorkspace
+from tests.office.fixture_builders import build_pptx_template
 
 _JOB_ID = "b" * 32
 _CREATION_JOB_ID = "c" * 32
@@ -117,41 +122,58 @@ def test_creation_request_rejects_oversized_plan_before_journaling(
     assert not creation_jobs.exists() or not list(creation_jobs.glob("*.json"))
 
 
-def test_semantic_summary_accepts_title_placeholder_and_empty_value() -> None:
-    # Given: a single-node preview and an operation on placeholder index 0.
-    preview = {
-        "preview": {
-            "nodes": [
-                {
-                    "source_locator": {"format": "pptx", "index": 1},
-                    "kind": "placeholder",
-                    "text": "Old title",
-                }
-            ]
-        }
-    }
+def _placeholder_request(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: dict[str, object],
+) -> OfficeMutationRequest:
+    home = tmp_path / "home"
+    office_home = home / "office"
+    office_home.mkdir(parents=True)
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    source = build_pptx_template(office_home / "deck.pptx")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    return OfficeMutationRequest(
+        request_text="deck.pptx 발표 자료의 개체 틀 내용을 비워 주세요",
+        source={"content_hash": digest, "uri": str(source)},
+        outcome="개체 틀 비우기",
+        operations=(operation,),
+        destination=_caller_root(tmp_path) / "cleared.pptx",
+    )
 
-    summaries = _semantic_summaries(preview, ({"placeholder_idx": 0, "value": ""},))
 
-    # Then: index 0 is a real location and the cleared value survives.
-    assert summaries == [{"location": "0", "before": "Old title", "after": ""}]
+def test_placeholder_summary_is_exact_and_keeps_an_empty_value(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Given: a real deck whose placeholder 7 holds text, cleared by the request.
+    request = _placeholder_request(
+        tmp_path, monkeypatch, {"placeholder_idx": 7, "value": ""}
+    )
+    coordinator = OfficeCoordinator(
+        OfficeCaller(allowlist_root=_caller_root(tmp_path), actor="tester")
+    )
+
+    # When: the job is planned.
+    approval = coordinator.request(request)
+
+    # Then: the summary names the slide and shows the placeholder's own text.
+    assert approval["semantic_summaries"] == [
+        {"location": "pptx slide 1 placeholder 7", "before": "PLACEHOLDER", "after": ""}
+    ]
 
 
-def test_semantic_summary_rejects_an_operation_without_a_location() -> None:
-    preview = {
-        "preview": {
-            "nodes": [
-                {
-                    "source_locator": {"format": "pptx", "index": 1},
-                    "kind": "placeholder",
-                    "text": "Old title",
-                }
-            ]
-        }
-    }
+def test_placeholder_request_without_a_location_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    request = _placeholder_request(tmp_path, monkeypatch, {"value": "New title"})
+    coordinator = OfficeCoordinator(
+        OfficeCaller(allowlist_root=_caller_root(tmp_path), actor="tester")
+    )
 
     with pytest.raises(DocumentError) as raised:
-        _ = _semantic_summaries(preview, ({"value": "New title"},))
+        _ = coordinator.request(request)
 
     assert raised.value.code is DocumentErrorCode.INVALID_INPUT
 

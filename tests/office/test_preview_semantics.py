@@ -7,8 +7,9 @@ from pathlib import Path
 import pytest
 
 from birkin.office.errors import DocumentError, DocumentErrorCode
+from birkin.office.operation_targets import ResolvedTarget
 from birkin.office.presentation import format_preview_replacement
-from birkin.office.preview_semantics import summarize_operations
+from birkin.office.preview_semantics import PreviewSummary, summarize_operations
 from birkin.office.service import DocumentService
 
 
@@ -127,3 +128,50 @@ def test_summaries_fail_closed_when_operations_cannot_match_preview_nodes(
 
     # Then: the semantic preview refuses to invent values.
     assert caught.value.code is DocumentErrorCode.PRECONDITION_FAILED
+
+
+def test_resolved_targets_describe_field_operations_without_preview_nodes() -> None:
+    # Given: exact targets replayed by the apply-time resolvers, one clearing a field.
+    preview = {"preview": {"nodes": []}}
+    operations = [
+        {"field": "customer", "value": "홍길동"},
+        {"field": "date", "value": ""},
+    ]
+    resolved = [
+        ResolvedTarget("hwpx field customer", "PLACEHOLDER"),
+        ResolvedTarget("hwpx field date", "2026-09-01"),
+    ]
+
+    # When: the operations are summarized with those targets.
+    summaries = summarize_operations(preview, operations, resolved=resolved)
+
+    # Then: each summary is exact and an empty value survives.
+    assert summaries == [
+        {"location": "hwpx field customer", "before": "PLACEHOLDER", "after": "홍길동"},
+        {"location": "hwpx field date", "before": "2026-09-01", "after": ""},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("location", "before", "after", "expected"),
+    [
+        ("docx paragraph 2", "A", "B", "DOCX 2번째 문단 변경: A → B"),
+        ("pptx slide_paragraph 3", "A", "B", "PPTX 3번째 문단 변경: A → B"),
+        (
+            "docx field customer",
+            "PLACEHOLDER",
+            "홍길동",
+            "DOCX 필드 'customer' 변경: PLACEHOLDER → 홍길동",
+        ),
+        ("hwpx field date", "", "2026-09-26", "HWPX 필드 'date' 변경: (빈 값) → 2026-09-26"),
+        ("pptx slide 2 placeholder 1", "본문", "새 본문", "슬라이드 2 개체 틀 1 변경: 본문 → 새 본문"),
+        ("Revenue!B2", "42", "77", "Revenue!B2 변경: 42 → 77"),
+        ("docx field customer", "A", "", "DOCX 필드 'customer' 변경: A → (빈 값)"),
+    ],
+)
+def test_replacement_locations_are_translated_for_the_korean_review_surface(
+    location: str, before: str, after: str, expected: str
+) -> None:
+    summary: PreviewSummary = {"location": location, "before": before, "after": after}
+
+    assert format_preview_replacement(summary) == expected

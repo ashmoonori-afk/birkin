@@ -63,6 +63,8 @@ _ATTACHMENT_RE = re.compile(
     + r"path=([\"'])(.+?)\1[ \t]*/?>[ \t]*(?:\n|$)"
 )
 _MAX_DOCUMENT_BYTES: Final = 50 * 1024 * 1024
+# Attachments local_document_import accepts (office.local_import.SUPPORTED_SUFFIXES).
+_OFFICE_SUFFIXES: Final = frozenset({".docx", ".xlsx", ".pptx", ".pdf", ".hwpx"})
 MAX_PUBLIC_WORKERS: Final = 4
 _BUSY_REPLY: Final = "Birkin is busy; try again shortly."
 # How long a worker waits for the poll loop to ack the dispatched batch's
@@ -1340,6 +1342,12 @@ class TelegramChannel(Channel):
             note = (
                 f"[사용자가 음성 메시지를 보냈습니다: {path}. 음성-텍스트 "
                 f"변환(STT)은 아직 설정돼 있지 않아 내용은 읽을 수 없어요.]"
+            )
+        elif Path(path).suffix.lower() in _OFFICE_SUFFIXES:
+            note = (
+                f"[사용자가 파일을 보냈습니다: {path}. Office 문서라면 "
+                f"local_document_import 도구로 먼저 가져온 뒤 inspect_document로 "
+                f"확인하세요. 원본은 수정하지 마세요.]"
             )
         else:
             note = (

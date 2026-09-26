@@ -6,7 +6,7 @@ import hashlib
 import os
 import stat
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -28,6 +28,8 @@ from .extract_contract import (
 )
 from .inspect_contract import build_inspection, verify_identity
 from .meeting_actions import review_meeting_actions
+from .operation_targets import ResolvedTarget, needs_replay, resolve_operation_targets
+from .path_security import canonical_name
 from .render_contract import render_document
 from .service_create import convert_document as convert_document_operation
 from .service_create import create_document as create_document_operation
@@ -120,8 +122,13 @@ class DocumentService:
         *,
         expected_sha256: str,
         output_name: str,
+        reuse_identical: bool = False,
     ) -> dict[str, object]:
-        """Copy one authority-validated import into the document jail."""
+        """Copy one authority-validated import into the document jail.
+
+        With ``reuse_identical``, an existing draft of the same name and
+        exactly the expected bytes is returned instead of an output collision.
+        """
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
@@ -150,7 +157,6 @@ class DocumentService:
                     "import",
                     "registered import changed before document copy",
                 )
-            output = self._workspace.output_path(output_name, source.suffix.lower())
 
             def write(target: Path) -> None:
                 _ = os.lseek(source_fd, 0, os.SEEK_SET)
@@ -176,7 +182,13 @@ class DocumentService:
                         "registered import changed during document copy",
                     )
 
-            copied_sha256 = self._workspace.atomic_publish(output, write)
+            try:
+                output = self._workspace.output_path(output_name, source.suffix.lower())
+                copied_sha256 = self._workspace.atomic_publish(output, write)
+            except DocumentError as exc:
+                if not reuse_identical or exc.code is not DocumentErrorCode.OUTPUT_EXISTS:
+                    raise
+                return self._identical_import(output_name, expected_sha256, exc)
         finally:
             os.close(source_fd)
         artifact = self._workspace.artifact(output)
@@ -187,6 +199,30 @@ class DocumentService:
                 "artifact_id": artifact["artifact_id"],
                 "sha256": copied_sha256,
                 "copied": True,
+            },
+        }
+
+    def _identical_import(
+        self, output_name: str, expected_sha256: str, collision: DocumentError
+    ) -> dict[str, object]:
+        wanted = canonical_name(output_name)
+        try:
+            existing = next(
+                (item for item in self._workspace.drafts.iterdir() if canonical_name(item.name) == wanted),
+                None,
+            )
+            artifact = None if existing is None else self._workspace.artifact(existing)
+        except (DocumentError, OSError) as exc:
+            raise collision from exc
+        if artifact is None or artifact["content_hash"] != expected_sha256:
+            raise collision
+        return {
+            "artifact": artifact,
+            "receipt": {
+                "operation": "document_import",
+                "artifact_id": artifact["artifact_id"],
+                "sha256": expected_sha256,
+                "copied": False,
             },
         }
 
@@ -343,6 +379,23 @@ class DocumentService:
                 cast("dict[str, object]", rendered["receipt"])["output_artifact"] = output_artifact
                 return rendered
             return render_document(path, fmt, digest, output_format=output_format, page=page)
+
+    def resolve_operation_targets(
+        self,
+        source: Mapping[str, object],
+        operations: Sequence[Mapping[str, object]],
+    ) -> list[ResolvedTarget | None]:
+        """Replay field and placeholder operations against one verified snapshot."""
+        # The snapshot keeps the source suffix, so skip its copy when no
+        # operation of that format needs replay.
+        if not needs_replay(self._format(Path(str(source.get("uri", "")))), operations):
+            return [None] * len(operations)
+        with self._workspace.artifact_snapshot(source) as path:
+            fmt = self._format(path)
+            self._require_content(path, fmt)
+            return resolve_operation_targets(
+                path, fmt, self._workspace.hash_file(path), operations
+            )
 
     def fill_template(
         self,

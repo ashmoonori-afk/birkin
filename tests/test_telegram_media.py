@@ -41,6 +41,27 @@ def test_photo_becomes_a_path_turn_with_caption(monkeypatch, tmp_path):
     assert "파일을 보냈습니다" in out and "f.jpg" in out    # local path handed off
 
 
+def test_office_document_note_points_at_local_import(monkeypatch, tmp_path):
+    ch = _ch(monkeypatch, tmp_path)
+    monkeypatch.setattr(ch, "_download_media",
+                        lambda fid: str(tmp_path / "uploads" / "d_보고서.DOCX"))
+    out = ch._compose_media_text({"document": {"file_id": "d", "file_size": 10}})
+    assert "파일을 보냈습니다" in out and "d_보고서.DOCX" in out
+    assert "local_document_import" in out and "inspect_document" in out
+
+
+def test_photo_note_does_not_suggest_office_import(monkeypatch, tmp_path):
+    ch = _ch(monkeypatch, tmp_path)
+    out = ch._compose_media_text({"photo": [{"file_id": "L", "file_size": 9000}]})
+    assert "local_document_import" not in out
+
+
+def test_office_suffixes_match_what_local_import_accepts():
+    from birkin.office.local_import import SUPPORTED_SUFFIXES
+
+    assert telegram._OFFICE_SUFFIXES == SUPPORTED_SUFFIXES
+
+
 def test_voice_notes_stt_is_unset(monkeypatch, tmp_path):
     ch = _ch(monkeypatch, tmp_path)
     out = ch._compose_media_text({"voice": {"file_id": "v", "file_size": 1000}})
