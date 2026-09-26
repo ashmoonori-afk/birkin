@@ -10,7 +10,7 @@ import urllib.request
 from collections.abc import Mapping
 from typing import Any
 
-from .m365_connection import STATE_NEXT_STEPS, record_sync_result, state_label, status, verified_approval_identity
+from .m365_connection import STATE_NEXT_STEPS, approval_identity, record_sync_result, state_label, status, verified_approval_identity
 from .http_transport import open_no_redirect
 
 ORIGIN = "https://graph.microsoft.com/v1.0"
@@ -145,7 +145,11 @@ _UNVERIFIED_ACCOUNT = "Microsoft 365 계정과 조직을 확인하지 못했습�
 def verified_graph_client() -> GraphClient:
     """Client for reads; the first read after connect or reauthentication verifies the signed-in account and organization."""
     client = graph_client(allow_unverified=True)
-    if status()["state"] == "verification_required":
+    # Decide from the stored identity, not the state string: a transient
+    # failure during verification reports sync_failed, not verification_required.
+    try:
+        _ = approval_identity()
+    except ValueError:
         try:
             _ = verified_approval_identity(client)
         except ValueError as exc:

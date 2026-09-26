@@ -247,3 +247,75 @@ def test_status_tool_adds_korean_label(tmp_path: Path, monkeypatch) -> None:
     body = json.loads(registry.execute("m365_connection_status", {}).content)
 
     assert body["state"] == "not_connected" and body["state_label"] == "연결되지 않음"
+
+
+def _busy_then_graph(monkeypatch, *, remote_id: str) -> list[str]:
+    """Real GraphClient: the first /me is a transient 503, later /me answers as remote_id."""
+    import io
+    import urllib.error
+
+    from birkin.m365_graph import ORIGIN
+
+    paths: list[str] = []
+    busy = [True]
+
+    class Response(io.BytesIO):
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            self.close()
+
+    def opener(request, *, timeout):
+        path = request.full_url.removeprefix(ORIGIN).split("?")[0]
+        paths.append(path)
+        if path == "/me" and busy:
+            busy.clear()
+            raise urllib.error.HTTPError(request.full_url, 503, "busy", {}, None)
+        bodies = {
+            "/me": {"id": remote_id, "userPrincipalName": "ada@example.com"},
+            "/organization": {"value": [{"id": "tenant-1"}]},
+            "/me/messages": {"value": [{"id": "m1"}]},
+            "/me/calendarView": {"value": [{"id": "e1"}]},
+        }
+        return Response(json.dumps(bodies[path]).encode())
+
+    monkeypatch.setattr("birkin.m365_graph.open_no_redirect", opener)
+    return paths
+
+
+def test_transient_failure_during_verification_never_reads_unverified(tmp_path: Path, monkeypatch) -> None:
+    from birkin.m365_connection import apply_approved
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("BIRKIN_M365_TOKEN", "secret-value")
+    apply_approved({"action": "connect", "account_id": "user-1", "account_name": "Ada@Example.com", "scopes": ["Mail.Read", "Calendars.Read"], "secret_env": "BIRKIN_M365_TOKEN"})
+    registry = build_registry(ToolContext(cfg={}, client=None, cwd=tmp_path), include={"connections"})
+    paths = _busy_then_graph(monkeypatch, remote_id="someone-else")
+
+    first = registry.execute("m365_mail_read", {})
+    assert first.is_error and status()["state"] == "sync_failed"
+    second = registry.execute("m365_mail_read", {})
+    calendar = registry.execute("m365_calendar_read", {"start": "2026-09-26T00:00:00+00:00", "end": "2026-09-27T00:00:00+00:00"})
+
+    assert second.is_error and "계정과 조직을 확인하지 못했습니다" in second.content
+    assert calendar.is_error and "계정과 조직을 확인하지 못했습니다" in calendar.content
+    assert not {"/me/messages", "/me/calendarView"} & set(paths)
+    assert status()["state"] == "verification_required"
+
+
+def test_transient_failure_during_verification_recovers_on_next_read(tmp_path: Path, monkeypatch) -> None:
+    from birkin.m365_connection import apply_approved
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("BIRKIN_M365_TOKEN", "secret-value")
+    apply_approved({"action": "connect", "account_id": "user-1", "account_name": "Ada@Example.com", "scopes": ["Mail.Read"], "secret_env": "BIRKIN_M365_TOKEN"})
+    registry = build_registry(ToolContext(cfg={}, client=None, cwd=tmp_path), include={"connections"})
+    paths = _busy_then_graph(monkeypatch, remote_id="user-1")
+
+    assert registry.execute("m365_mail_read", {}).is_error
+    second = registry.execute("m365_mail_read", {})
+
+    assert not second.is_error and json.loads(second.content)["messages"] == [{"id": "m1"}]
+    assert paths == ["/me", "/me", "/organization", "/me/messages"]
+    assert status()["state"] == "connected"
