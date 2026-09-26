@@ -420,6 +420,64 @@ def test_keyboard_interrupt_finishes_the_durable_record(monkeypatch):
     assert agentruns.list_runs()[0]["status"] == "error"
 
 
+def _recording_emit(session, *, fail_on=None):
+    events = []
+
+    def emit(event, payload):
+        events.append((event, payload))
+        if event == fail_on:
+            raise RuntimeError("view failed")
+
+    session.ctx.emit = emit
+    return events
+
+
+def test_attached_summon_reports_its_title_to_the_parent_view(monkeypatch):
+    session = _session()
+    events = _recording_emit(session)
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "ok")
+
+    assert summon.summon("sheet-analyst", "분기 매출 분석", session.ctx) == "ok"
+
+    (start_event, start), (done_event, done) = events
+    run_id = agentruns.list_runs()[0]["id"]
+    assert (start_event, done_event) == ("subagent.start", "subagent.done")
+    for payload in (start, done):
+        assert payload["id"] == run_id
+        assert payload["agent"] == "sheet-analyst"
+        assert payload["agent_title"] == "스프레드시트 분석가"
+    assert "is_error" not in done
+    assert agentruns.get_run(run_id)["agent_title"] == "스프레드시트 분석가"
+
+
+def test_failed_attached_summon_closes_its_activity_row(monkeypatch):
+    def boom(self, text, on_text=None, abort=None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("birkin.agent.Agent.run", boom)
+    session = _session()
+    events = _recording_emit(session)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        summon.summon("sheet-analyst", "분기 매출 분석", session.ctx)
+
+    run_id = agentruns.list_runs()[0]["id"]
+    assert [event for event, _payload in events] == [
+        "subagent.start", "subagent.done"]
+    assert events[-1][1] == {
+        "chars": 0, "id": run_id, "agent": "sheet-analyst",
+        "agent_title": "스프레드시트 분석가", "is_error": True,
+    }
+    assert agentruns.get_run(run_id)["status"] == "error"
+
+    # A view that fails while closing the row never masks the run's error.
+    failing = _session()
+    _recording_emit(failing, fail_on="subagent.done")
+    with pytest.raises(RuntimeError, match="boom"):
+        summon.summon("sheet-analyst", "분기 매출 분석", failing.ctx)
+
+
 # -- tree budget per task ----------------------------------------------------
 
 def test_tree_budget_caps_one_task_not_the_whole_session():

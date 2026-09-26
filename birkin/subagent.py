@@ -8,6 +8,7 @@ isolated and side-effect-light. Results are returned to the caller as text.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import threading
@@ -207,7 +208,9 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
             available_tools=set(registry.names()),
         )
         specialist_name = specialist.name if specialist is not None else None
-        run = agentruns.register_run(task, agent=specialist_name)
+        specialist_title = getattr(specialist, "title", None) or None
+        run = agentruns.register_run(task, agent=specialist_name,
+                                     title=specialist_title)
     except Exception:
         if lease is not None:
             lease.release()
@@ -250,10 +253,12 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
     if emit:
         emit("subagent.start", {
             "task": task[:200], "id": run_id, "agent": specialist_name,
+            "agent_title": specialist_title,
         })
 
     def execute() -> str:
         result = ""
+        failed = False
         done = threading.Event()
         timer: threading.Timer | None = None
         if parent_ctx.tree_budget is not None:
@@ -291,6 +296,7 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
         except BaseException as exc:
             # BaseException: a Ctrl-C in the REPL must not leave the durable
             # record "running" until it goes stale.
+            failed = True
             agentruns.finish_run(run_id, "error", f"{type(exc).__name__}: {exc}")
             raise
         finally:
@@ -313,8 +319,19 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
                 )
             except OSError:
                 pass  # accounting must not mask the run's own outcome
+            if failed and emit:
+                # A live view that saw subagent.start must also see the run
+                # end; a failing view must not replace the run's own error.
+                with contextlib.suppress(Exception):
+                    emit("subagent.done", {
+                        "chars": 0, "id": run_id, "agent": specialist_name,
+                        "agent_title": specialist_title, "is_error": True,
+                    })
         if emit:
-            emit("subagent.done", {"chars": len(result), "id": run_id})
+            emit("subagent.done", {
+                "chars": len(result), "id": run_id, "agent": specialist_name,
+                "agent_title": specialist_title,
+            })
         return result
 
     if not detach:

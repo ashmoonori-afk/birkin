@@ -89,3 +89,51 @@ def llm_status_summary(status: LLMStatus) -> str:
     if status.reason == "network":
         return "네트워크 연결을 기다리고 있습니다. 자동으로 다시 시도합니다."
     return "제공자 응답을 기다리고 있습니다. 자동으로 다시 시도합니다."
+
+
+_AGENT_SUFFIX: Final = "에이전트"
+_AGENT_TITLE_MAX_CHARS: Final = 60
+_UNNAMED_AGENT: Final = "하위 에이전트"
+
+_AGENT_RUN_COPY: Final[dict[tuple[str, bool], str]] = {
+    ("subagent.start", False): "{label}가 작업을 시작했습니다.",
+    ("subagent.done", False): "{label}가 작업을 마쳤습니다.",
+    ("subagent.done", True): "{label}가 작업을 마치지 못했습니다.",
+}
+
+_UNLINKED_RUN_COPY: Final[dict[tuple[str, bool], str]] = {
+    ("subagent.start", False): "하위 작업을 시작했습니다.",
+    ("subagent.done", False): "하위 작업을 완료했습니다.",
+    ("subagent.done", True): "하위 작업을 완료하지 못했습니다.",
+}
+
+
+def agent_run_label(title: object) -> str:
+    """Name a summoned agent by its bounded display title, in Korean."""
+    text = (
+        " ".join(title.split())[:_AGENT_TITLE_MAX_CHARS]
+        if isinstance(title, str)
+        else ""
+    )
+    if not text:
+        return _UNNAMED_AGENT
+    return text if text.endswith(_AGENT_SUFFIX) else f"{text} {_AGENT_SUFFIX}"
+
+
+def agent_run_summary(
+    event: str,
+    *,
+    linked: bool,
+    title: object,
+    failed: bool,
+) -> str:
+    """Korean activity copy for a subagent lifecycle event.
+
+    A linked run (one with a durable run id) is named by its agent title; an
+    unlinked research step is a generic sub-task. Task text, machine names
+    and error text never appear here.
+    """
+    key = (event, failed and event == "subagent.done")
+    if linked:
+        return _AGENT_RUN_COPY[key].format(label=agent_run_label(title))
+    return _UNLINKED_RUN_COPY[key]

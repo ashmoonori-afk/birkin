@@ -37,7 +37,11 @@ from ..office.service import DocumentService
 from ..runtime import Session, build_session
 
 from . import approval_authority
-from .decision_text import llm_status_summary, provider_failure
+from .decision_text import (
+    agent_run_summary,
+    llm_status_summary,
+    provider_failure,
+)
 from .approval_receipts import (
     OfficeReceiptProjection,
     approval_turn_context,
@@ -317,6 +321,9 @@ class RuntimeWorkspaceAdapter:
         if event == "computer_use":
             self._computer_event(payload)
             return
+        if event.startswith("subagent."):
+            self._subagent_progress(event, payload)
+            return
         if event == "office_progress":
             _ = self._emit(
                 "progress.updated",
@@ -339,8 +346,6 @@ class RuntimeWorkspaceAdapter:
         event_type = {
             "tool_start": "tool.started",
             "tool_end": "tool.completed",
-            "subagent.start": "task.updated",
-            "subagent.done": "task.updated",
             "compact": "progress.updated",
             "steer": "progress.updated",
         }.get(event, "progress.updated")
@@ -353,8 +358,6 @@ class RuntimeWorkspaceAdapter:
                 if is_error
                 else "도구 실행을 완료했습니다."
             ),
-            "subagent.start": "백그라운드 작업을 시작했습니다.",
-            "subagent.done": "백그라운드 작업을 완료했습니다.",
             "compact": "대화 컨텍스트를 정리했습니다.",
             "steer": "실행 방향을 업데이트했습니다.",
         }.get(event, "진행 상태가 업데이트되었습니다.")
@@ -408,6 +411,48 @@ class RuntimeWorkspaceAdapter:
                     if isinstance(value, str) and value in allowed:
                         safe["runtime_diagnostic"][key] = value
         _ = self._emit(event_type, safe)
+
+    def _subagent_progress(
+        self,
+        event: str,
+        payload: dict[str, object],
+    ) -> None:
+        # A child's own tool calls stay on its durable run trail (/attach);
+        # the workspace shows only when the summoned agent starts and ends.
+        if event not in {"subagent.start", "subagent.done"}:
+            return
+        raw_id = payload.get("id")
+        run_id = raw_id if isinstance(raw_id, str) and raw_id else ""
+        failed = event == "subagent.done" and (
+            bool(payload.get("is_error")) or bool(payload.get("error"))
+        )
+        state = uistate.from_runtime(event, is_error=failed).state
+        safe: dict[str, object] = {
+            "progress_id": (
+                f"agent-run:{run_id}"
+                if run_id
+                else f"runtime:{event}:operation"
+            ),
+            "runtime_event": event,
+            "summary": agent_run_summary(
+                event,
+                linked=bool(run_id),
+                title=payload.get("agent_title"),
+                failed=failed,
+            ),
+            "state": state,
+            "status": state,
+            "ui_state": (
+                "failed"
+                if failed
+                else "succeeded"
+                if event == "subagent.done"
+                else "running"
+            ),
+        }
+        if run_id:
+            safe["agent_run_id"] = run_id
+        _ = self._emit("progress.updated", safe)
 
     def _refresh_review_panels(self) -> None:
         from ..work_items import projected_rows

@@ -30,6 +30,18 @@ def test_register_get_heartbeat_and_finish_run():
     assert done["result"] == result[-agentruns.RESULT_TAIL_CHARS:]
 
 
+def test_agent_title_is_collapsed_bounded_and_kept_only_with_an_agent():
+    titled = agentruns.register_run("t", agent="x", title="  계약\n검토자 ")
+    assert titled["agent_title"] == "계약 검토자"
+    assert agentruns.get_run(titled["id"])["agent_title"] == "계약 검토자"
+
+    assert "agent_title" not in agentruns.register_run("t", title="계약 검토자")
+    assert "agent_title" not in agentruns.register_run("t", agent="x", title="  ")
+
+    long = agentruns.register_run("t", agent="x", title="가" * 100)
+    assert long["agent_title"] == "가" * agentruns.AGENT_TITLE_MAX_CHARS == "가" * 60
+
+
 def test_progress_trail_is_bounded_and_follow_streams_new_lines():
     rec = agentruns.register_run("watch me")
     for index in range(agentruns.EVENT_TRAIL_MAX + 5):

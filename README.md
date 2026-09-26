@@ -202,6 +202,8 @@ In `birkin chat`, `/summon <agent> <task>` runs in the foreground and `/summon -
 
 In `birkin web`, the 작업 (Tasks) panel lists the summonable agents and how to start one, and shows each summoned run with its agent, elapsed time, and result; a live run can be steered, paused before its next step, or resumed. The list refreshes every 30 seconds while the panel is open or a run is still live. An approval raised by a summoned agent names that agent and its run and links to the run.
 
+In the desktop apps and the browser workspace, a specialist the model summons shows its start and finish in the activity list under its title, and an approval raised by a summoned agent names that agent as the requester.
+
 Add your own specialist as `BIRKIN_HOME/agents/<name>.md`:
 
 ```markdown

@@ -82,6 +82,7 @@ struct ConversationControlsTests {
             ]
         )
         #expect(rows.map(\.kind) == [.user, .assistant, .approval, .question, .tool, .receipt, .failure, .interrupted])
+        #expect(rows.map(\.title) == ["사용자", "Birkin", "승인 필요", "질문", "진행", "작업 영수증", "실패", "중단됨"])
         #expect(rows[1].state == .streaming)
         #expect(rows[6].failure?.code == "E_PROVIDER")
     }

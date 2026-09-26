@@ -16,11 +16,13 @@ from birkin.computer_use.capability_types import (
 )
 from birkin.computer_use.runtime import UnavailableBackend
 from birkin.llm import LLMError, LLMStatus
+from birkin.native.projection import public_workspace_event
 from birkin.office.adapters.catalog import supported_formats
 from birkin.workspace import approval_authority
 from birkin.runtime import Session
 from birkin.workspace import WorkspaceEvent, WorkspaceService, runtime_adapter
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
+from birkin.workspace.snapshot import reduce_snapshot
 
 
 @final
@@ -1503,12 +1505,134 @@ def test_event_type_table_pin() -> None:
         "tool.started",
         "tool.completed",
         "tool.failed",
-        "task.updated",
-        "task.updated",
+        "progress.updated",
+        "progress.updated",
         "progress.updated",
         "progress.updated",
         "progress.updated",
     ]
+
+
+_AGENT_RUN_ID = "abc123def456"
+
+
+def _agent_lifecycle(adapter: RuntimeWorkspaceAdapter) -> None:
+    adapter.runtime_event(
+        "subagent.start",
+        {
+            "task": "분기 매출 시트 분석",
+            "id": _AGENT_RUN_ID,
+            "agent": "sheet-analyst",
+            "agent_title": "스프레드시트 분석가",
+        },
+    )
+    adapter.runtime_event(
+        "subagent.done",
+        {
+            "chars": 12,
+            "id": _AGENT_RUN_ID,
+            "agent": "sheet-analyst",
+            "agent_title": "스프레드시트 분석가",
+        },
+    )
+
+
+def test_summoned_agent_lifecycle_is_named_korean_activity() -> None:
+    adapter, emitted = _runtime_adapter()
+
+    _agent_lifecycle(adapter)
+
+    assert [event_type for event_type, _payload in emitted] == [
+        "progress.updated",
+        "progress.updated",
+    ]
+    (_start_type, start), (_done_type, done) = emitted
+    assert start["summary"] == "스프레드시트 분석가 에이전트가 작업을 시작했습니다."
+    assert done["summary"] == "스프레드시트 분석가 에이전트가 작업을 마쳤습니다."
+    assert [start["ui_state"], done["ui_state"]] == ["running", "succeeded"]
+    for payload in (start, done):
+        assert payload["progress_id"] == f"agent-run:{_AGENT_RUN_ID}"
+        assert payload["agent_run_id"] == _AGENT_RUN_ID
+        assert payload["state"] in uistate.UI_STATES
+        assert payload["status"] == payload["state"]
+        assert "sheet-analyst" not in str(payload)
+        assert "분기 매출" not in str(payload)
+
+
+def test_failed_agent_run_and_research_step_report_failure() -> None:
+    adapter, emitted = _runtime_adapter()
+
+    adapter.runtime_event(
+        "subagent.done",
+        {"chars": 0, "id": _AGENT_RUN_ID, "is_error": True},
+    )
+    adapter.runtime_event("subagent.start", {"task": "[collect] 시장 조사"})
+    adapter.runtime_event("subagent.done", {"error": "Traceback boom"})
+
+    (_agent_type, agent), (_start_type, start), (_step_type, step) = emitted
+    assert agent["summary"] == "하위 에이전트가 작업을 마치지 못했습니다."
+    assert agent["ui_state"] == agent["state"] == "failed"
+    assert start["summary"] == "하위 작업을 시작했습니다."
+    assert start["progress_id"] == "runtime:subagent.start:operation"
+    assert "agent_run_id" not in start
+    assert "시장 조사" not in str(start)
+    assert step["summary"] == "하위 작업을 완료하지 못했습니다."
+    assert step["ui_state"] == step["state"] == "failed"
+    assert "boom" not in str(step)
+
+
+def test_child_internal_events_are_not_journaled() -> None:
+    adapter, emitted = _runtime_adapter()
+
+    adapter.runtime_event(
+        "subagent.tool_start",
+        {"name": "analyze_workbook", "input": {"path": "/Users/me/a.xlsx"}},
+    )
+    adapter.runtime_event(
+        "subagent.tool_end",
+        {"name": "analyze_workbook", "is_error": False},
+    )
+    adapter.runtime_event("subagent.subagent.start", {"id": _AGENT_RUN_ID})
+
+    assert emitted == []
+
+
+def test_agent_activity_reduces_into_activity_not_work_items() -> None:
+    events: list[WorkspaceEvent] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        event = WorkspaceEvent(
+            protocol_version=1,
+            session_id="agent-session",
+            cursor=len(events) + 1,
+            event_id=f"event-{len(events) + 1}",
+            type=event_type,
+            timestamp="2026-09-26T00:00:00Z",
+            actor_id="native:test",
+            command_id="command-1",
+            payload=payload,
+        )
+        events.append(event)
+        return event
+
+    adapter = RuntimeWorkspaceAdapter("agent-session", emit)
+    _agent_lifecycle(adapter)
+
+    panels = {
+        panel.key: panel.items
+        for panel in reduce_snapshot("agent-session", tuple(events)).panels
+    }
+    assert panels["tasks_runs"] == ()
+    assert [
+        (item["summary"], item["ui_state"]) for item in panels["activity_logs"]
+    ] == [
+        ("스프레드시트 분석가 에이전트가 작업을 시작했습니다.", "running"),
+        ("스프레드시트 분석가 에이전트가 작업을 마쳤습니다.", "succeeded"),
+    ]
+    for event in events:
+        public = public_workspace_event(event)["payload"]
+        assert isinstance(public, dict)
+        assert cast(dict[str, object], public)["summary"] == event.payload["summary"]
 
 
 def test_runtime_adapter_registers_the_working_memory_command(tmp_path: Path) -> None:

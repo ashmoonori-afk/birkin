@@ -7,7 +7,8 @@ from threading import Event, Lock
 
 import pytest
 
-from birkin import approvals, config, store
+from birkin import agentruns, approvals, config, store
+from birkin.native.projection import public_native_mapping
 from birkin.workspace import approval_authority
 from birkin.workspace.approval_projection import approval_item
 from birkin.workspace.contracts import WorkspaceCommand
@@ -265,6 +266,47 @@ def test_snapshot_projects_office_approval_trust_details(
     assert item["rejection_result"] == (
         "Rejecting leaves the source unchanged and writes no output."
     )
+
+
+def test_agent_linked_approval_names_the_summoned_agent_as_requester(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    run = agentruns.register_run(
+        "분기 매출 분석", agent="sheet-analyst", title="스프레드시트 분석가"
+    )
+    for pending_id, details in (
+        ("a9e171000001", {"agent_run_id": run["id"]}),
+        ("a9e171000002", {"agent_run_id": "ffffffffffff"}),
+        ("a9e171000003", None),
+    ):
+        _ = store.add_pending(
+            pending_id=pending_id, category="work_item", title="후속 업무 생성",
+            description="", payload={"action": "create"}, origin="test",
+            details=details,
+        )
+    _ = store.add_pending(
+        pending_id="a9e171000004", category="office_job", title="Save workbook",
+        description="",
+        payload={"proposal_digest": "a" * 64, "proposer": "native:session-1"},
+        origin="test",
+    )
+    service = WorkspaceService(root=tmp_path / "journal", session_id="session-1", handlers={})
+    snapshot = service.snapshot()
+    items = {
+        str(item["id"]): item
+        for item in next(
+            panel for panel in snapshot.panels if panel.key == "approvals"
+        ).items
+    }
+
+    assert items["a9e171000001"]["requester"] == "스프레드시트 분석가 에이전트"
+    assert items["a9e171000002"]["requester"] == "하위 에이전트"
+    assert "requester" not in items["a9e171000003"]
+    assert items["a9e171000004"]["requester"] == "native:session-1"
+    public = json.dumps(public_native_mapping(snapshot.to_json()), ensure_ascii=False)
+    assert "스프레드시트 분석가 에이전트" in public
+    assert "sheet-analyst" not in public
 
 
 def test_live_approval_event_preserves_risk_and_sealed_state() -> None:

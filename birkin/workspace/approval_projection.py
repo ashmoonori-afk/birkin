@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from typing import TypeGuard, cast
 
-from birkin import approval_text, approvals, config, risk, store
+from birkin import agentruns, approval_text, approvals, config, risk, store
 
 from .contracts import json_object
 from .approval_receipts import OfficeReceiptProjection
+from .decision_text import agent_run_label
 
 
 def _is_object_mapping(value: object) -> TypeGuard[dict[str, object]]:
@@ -150,6 +151,9 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
         overwrite_approved = payload.get("overwrite_approved")
         if isinstance(overwrite_approved, bool):
             item["overwrite_approved"] = overwrite_approved
+    agent_requester = _agent_requester(record)
+    if agent_requester is not None:
+        item["requester"] = agent_requester
     expires_at = record.get("expires_at")
     if isinstance(expires_at, str) and expires_at:
         item["expires_at"] = expires_at
@@ -191,6 +195,21 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
                 }
             )
     return item
+
+
+def _agent_requester(record: dict[str, object]) -> str | None:
+    """Name the summoned agent whose run raised this approval, if any.
+
+    Presentation only: the proposer stays in the sealed payload and digest.
+    """
+    run_id = record.get("agent_run_id")
+    if not isinstance(run_id, str) or not run_id:
+        return None
+    run: dict[str, object] | None = agentruns.get_run(run_id)
+    title: object = None
+    if run is not None:
+        title = run.get("agent_title") or run.get("agent")
+    return agent_run_label(title)
 
 
 def _ui_state(status: str) -> str:

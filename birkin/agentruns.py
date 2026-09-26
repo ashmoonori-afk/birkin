@@ -14,6 +14,7 @@ from . import config
 from .store import _read_json, _write_json, file_lock
 
 TASK_MAX_CHARS = 500
+AGENT_TITLE_MAX_CHARS = 60
 RESULT_TAIL_CHARS = 4000
 STALE_AFTER_SECONDS = 180
 # A bounded progress trail is what makes /attach an attach rather than a record
@@ -59,10 +60,12 @@ def _is_record(value: Any) -> bool:
 
 
 def register_run(task: str, parent_id: str | None = None,
-                 agent: str | None = None) -> dict[str, Any]:
+                 agent: str | None = None,
+                 title: str | None = None) -> dict[str, Any]:
     """Create and persist a running record, returning a copy of it.
 
-    ``agent`` names the summoned specialist (``birkin.summon``), if any.
+    ``agent`` names the summoned specialist (``birkin.summon``), if any, and
+    ``title`` is its display title, kept only alongside ``agent``.
     """
     run_id = uuid.uuid4().hex[:12]
     now = _now()
@@ -77,6 +80,9 @@ def register_run(task: str, parent_id: str | None = None,
     }
     if agent:
         rec["agent"] = str(agent)[:32]
+        label = " ".join(str(title or "").split())[:AGENT_TITLE_MAX_CHARS]
+        if label:
+            rec["agent_title"] = label
     _write_json(_record_path(run_id), rec)
     return dict(rec)
 
