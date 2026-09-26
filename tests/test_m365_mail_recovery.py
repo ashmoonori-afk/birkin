@@ -8,8 +8,16 @@ from pathlib import Path
 
 import pytest
 
-from birkin import approval_execution_recovery, config, store
+from birkin import (
+    approval_dispatch,
+    approval_execution,
+    approval_execution_helper,
+    approval_execution_recovery,
+    config,
+    store,
+)
 from birkin.approval_execution_journal import ExecutionJournal, authority_digest
+from birkin.approval_execution_state import JournalPhase
 from birkin.m365_graph import GraphError
 from birkin.m365_mail import (
     _observed_state,
@@ -18,6 +26,7 @@ from birkin.m365_mail import (
     execute_approved_send,
     reconcile_approved_send,
 )
+from birkin.workspace.approval_projection import approval_item
 
 
 @pytest.fixture(autouse=True)
@@ -334,6 +343,205 @@ def test_manual_needs_review_is_terminal_even_if_remote_later_matches() -> None:
     assert graph.creates == graph.sends == 0
     assert first_record == second_record
     assert ExecutionJournal(approval_id).load().phase.value == "action_outcome_unknown"
+
+
+def _queued_send(draft: dict[str, object]) -> str:
+    proposal = store.add_pending(
+        category="mail_send", title="Send", description="",
+        payload={"draft_id": draft["id"], "content_sha256": draft["content_sha256"]},
+        origin="test",
+    )
+    return str(proposal["id"])
+
+
+def _dispatch(category: str, payload: dict[str, object], *args: object, **kwargs: object) -> str:
+    del args, kwargs
+    return approval_dispatch.execute_action(category, payload)
+
+
+def _approve(approval_id: str) -> dict[str, object]:
+    return approval_execution.approve(
+        approval_id, _dispatch, approved_by="human:test", approved_via="test",
+    )
+
+
+@pytest.mark.parametrize("observation", [True, GraphError("not observable")])
+def test_approved_send_that_graph_only_accepted_is_an_unknown_outcome(
+    monkeypatch: pytest.MonkeyPatch, observation: bool | Exception,
+) -> None:
+    graph = Graph202(observation)
+    monkeypatch.setattr("birkin.m365_mail.graph_client", lambda: graph)
+    approval_id = _queued_send(_draft())
+
+    result = _approve(approval_id)
+
+    assert result["ok"] is False
+    assert result["state"] == "accepted" and result["recheckable"] is True
+    assert str(result["error"]).startswith("Microsoft 365가 요청을 접수했지만")
+    record = store.get_pending(approval_id)
+    assert record is not None and record["status"] == "action_outcome_unknown"
+    item = approval_item(record)
+    assert item["ui_state"] == "action_needed" and item["recheckable"] is True
+    assert item["mail_recheck_state"] == "accepted"
+    assert ExecutionJournal(approval_id).load().phase is JournalPhase.ACTION_OUTCOME_UNKNOWN
+
+    graph.observation = False
+    rechecked = approval_execution_recovery.recheck_unknown_mail_send(
+        approval_id, client=graph,
+    )
+
+    assert rechecked["state"] == "submitted"
+    confirmed = store.get_pending(approval_id)
+    assert confirmed is not None and confirmed["status"] == "approved"
+    assert graph.sends == 1
+
+
+def test_approved_send_observed_as_submitted_is_still_a_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = Graph202(False)
+    monkeypatch.setattr("birkin.m365_mail.graph_client", lambda: graph)
+    approval_id = _queued_send(_draft())
+
+    result = _approve(approval_id)
+
+    assert result["ok"] is True
+    assert json.loads(str(result["result"]))["state"] == "submitted"
+    record = store.get_pending(approval_id)
+    assert record is not None and record["status"] == "approved"
+    assert ExecutionJournal(approval_id).load().phase is JournalPhase.SUCCEEDED
+
+
+def test_sent_mail_that_differs_from_approval_is_never_a_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = Graph202(False, corrupt_sent=True)
+    monkeypatch.setattr("birkin.m365_mail.graph_client", lambda: graph)
+    approval_id = _queued_send(_draft())
+
+    result = _approve(approval_id)
+
+    assert result["ok"] is False
+    assert result["state"] == "needs_review" and result["recheckable"] is False
+    assert "Outlook 보낸 편지함" in str(result["error"])
+    record = store.get_pending(approval_id)
+    assert record is not None and record["status"] == "action_outcome_unknown"
+    assert approval_item(record)["recheckable"] is False
+    gets = graph.message_gets
+
+    rechecked = approval_execution_recovery.recheck_unknown_mail_send(
+        approval_id, client=graph,
+    )
+
+    assert rechecked["state"] == "needs_review"
+    assert graph.message_gets == gets
+
+
+def test_helper_process_records_an_accepted_send_as_unknown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = Graph202(True)
+    monkeypatch.setattr("birkin.m365_mail.graph_client", lambda: graph)
+    approval_id = _queued_send(_draft())
+    assert approval_execution.claim(
+        approval_id, approved_by="human:test", approved_via="test",
+    ) == {"ok": True}
+    record = store.get_pending(approval_id)
+    assert record is not None
+    journal = ExecutionJournal(approval_id)
+    journal.arm(authority_digest(record), "mail_send", record["payload"])
+    journal.ready()
+    _ = store.resolve_pending(approval_id, "executing")
+
+    assert approval_execution_helper.run(approval_id, "local") == 0
+
+    record = store.get_pending(approval_id)
+    assert record is not None and record["status"] == "action_outcome_unknown"
+    assert record["mail_recheck_state"] == "accepted"
+    assert record["recheckable"] is True
+    projected = approval_execution_recovery.recover_one(approval_id)
+    assert projected is not None
+    assert projected["ok"] is False and projected["state"] == "accepted"
+    assert graph.sends == 1
+
+
+def test_reprojection_keeps_a_later_manual_recheck_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = Graph202(True)
+    monkeypatch.setattr("birkin.m365_mail.graph_client", lambda: graph)
+    approval_id = _queued_send(_draft())
+    assert _approve(approval_id)["state"] == "accepted"
+    graph.observation = False
+    graph.corrupt_sent = True
+    rechecked = approval_execution_recovery.recheck_unknown_mail_send(
+        approval_id, client=graph,
+    )
+    assert rechecked["state"] == "needs_review"
+
+    # Startup recovery re-projects every terminal journal, whose result is
+    # still the original "accepted" receipt.
+    projected = approval_execution_recovery.recover_one(approval_id)
+
+    assert projected is not None and projected["state"] == "needs_review"
+    record = store.get_pending(approval_id)
+    assert record is not None
+    assert record["mail_recheck_state"] == "needs_review"
+    assert record["recheckable"] is False
+
+
+def test_unconfirmed_send_is_not_reported_failed_when_projection_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = Graph202(True)
+    monkeypatch.setattr("birkin.m365_mail.graph_client", lambda: graph)
+    approval_id = _queued_send(_draft())
+    real_resolve = store.resolve_pending
+
+    def failing_resolve(aid: str, status: str, *args: object, **kwargs: object) -> object:
+        if status == "action_outcome_unknown":
+            raise PermissionError("forced state file contention")
+        return real_resolve(aid, status, *args, **kwargs)
+
+    monkeypatch.setattr(store, "resolve_pending", failing_resolve)
+    result = _approve(approval_id)
+
+    assert result["ok"] is False and result["state"] == "accepted"
+    assert "action failed" not in str(result["error"])
+    record = store.get_pending(approval_id)
+    assert record is not None and record["status"] == "executing"
+
+    monkeypatch.setattr(store, "resolve_pending", real_resolve)
+    recovered = approval_execution_recovery.recover_one(approval_id)
+
+    assert recovered is not None and recovered["state"] == "accepted"
+    record = store.get_pending(approval_id)
+    assert record is not None and record["status"] == "action_outcome_unknown"
+    assert graph.sends == 1
+
+
+def test_legacy_mail_receipt_without_submission_migrates_to_unknown() -> None:
+    draft = _draft()
+    approval_id = _queued_send(draft)
+    _ = store.resolve_pending(approval_id, "executing")
+    record = store.get_pending(approval_id)
+    assert record is not None
+    store.write_action_receipt(approval_id, {
+        "version": 1,
+        "status": "action_committed",
+        "approval_id": approval_id,
+        "authority_digest": authority_digest(record),
+        "result": json.dumps({"remote_id": "draft-1", "state": "accepted"}),
+    })
+
+    result = approval_execution_recovery.recover_one(approval_id)
+
+    assert result is not None
+    assert result["ok"] is False and result["state"] == "accepted"
+    assert ExecutionJournal(approval_id).load().phase is JournalPhase.ACTION_OUTCOME_UNKNOWN
+    migrated = store.get_pending(approval_id)
+    assert migrated is not None and migrated["status"] == "action_outcome_unknown"
+    assert migrated["mail_recheck_state"] == "accepted"
 
 
 def test_non_draft_observation_must_still_match_approved_content() -> None:

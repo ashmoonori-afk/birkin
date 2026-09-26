@@ -26,7 +26,7 @@ Birkin's mandatory runtime dependencies are `httpx`, `pydantic`, `psutil`, `tzda
 - **Research with an audit trail.** Collect public sources, separate source-backed claims from inference and unresolved questions, and keep citations attached to the result.
 - **Inspect and prepare Office work.** Read, extract, compare, validate, create, or make bounded copy-on-write changes to DOCX, XLSX, PPTX, PDF, and HWPX files.
 - **Review before execution.** See the source, destination, exact change, overwrite decision, risk, and approval state before a consequential action runs.
-- **Recover without guessing.** Durable jobs and receipts distinguish completed, partial, failed, and outcome-unknown states. Uncertain mail delivery is checked before any retry.
+- **Recover without guessing.** Durable jobs and receipts distinguish completed, partial, failed, and outcome-unknown states. Uncertain mail delivery is checked before any retry. An approved mail that Microsoft 365 only accepted is not reported as sent: it stays outcome-unknown until a recheck observes the submitted message.
 - **Keep internal state local by default.** Sessions, memory, approvals, and audit state stay under `BIRKIN_HOME`. A configured model provider may receive request content, and Microsoft 365 is contacted only when connected.
 - **Choose your surface.** Start in the terminal or local Web workspace. Native Windows and macOS clients use the same Python authority.
 - **Summon a specialist.** Hand a task to a named agent such as `sheet-analyst` or `meeting-scribe`, with its own instructions and a narrower toolset, from chat, the CLI, or a trusted Telegram chat.

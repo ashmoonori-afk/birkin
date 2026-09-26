@@ -17,6 +17,7 @@ from birkin.approval_execution_journal import (
 )
 from birkin.approval_execution_helper import project_terminal
 from birkin.approval_execution_state import JournalPhase
+from birkin.workspace.approval_projection import approval_items
 
 
 def _proposal() -> dict[str, object]:
@@ -293,6 +294,41 @@ def test_mail_attempt_recovery_only_reconciles_existing_remote_id(
 
     assert recovered == {"ok": True, "result": '{"state": "submitted"}'}
     assert calls == [{"draft_id": "d" * 32, "content_sha256": "a" * 64}]
+
+
+def test_unverifiable_mail_attempt_recovers_as_visible_needs_review(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    proposal = store.add_pending(
+        category="mail_send", title="Send", description="",
+        payload={"draft_id": "d" * 32, "content_sha256": "a" * 64}, origin="test",
+    )
+    approval_id = str(proposal["id"])
+    journal = ExecutionJournal(approval_id)
+    journal.arm(authority_digest(proposal), "mail_send", proposal["payload"])
+    journal.ready()
+    journal.helper_started(owner_pid=999_999, owner_token="dead")
+    journal.commit_attempt(owner_pid=999_999, owner_token="dead")
+    _ = store.resolve_pending(approval_id, "executing")
+
+    def no_remote_id(payload: object, client: object = None) -> str:
+        del payload, client
+        raise ValueError("mail send attempt has no durable remote id")
+
+    monkeypatch.setattr("birkin.m365_mail.reconcile_approved_send", no_remote_id)
+
+    recovered = approval_execution_recovery.recover_one(approval_id)
+
+    assert recovered is not None
+    assert recovered["ok"] is False
+    assert recovered["state"] == "needs_review" and recovered["recheckable"] is False
+    assert journal.load().phase is JournalPhase.ACTION_OUTCOME_UNKNOWN
+    record = store.get_pending(approval_id)
+    assert record is not None and record["status"] == "action_outcome_unknown"
+    assert record["mail_recheck_state"] == "needs_review"
+    assert approval_id in [str(item["id"]) for item in approval_items()]
 
 
 def test_final_replace_contention_recovers_without_reexecuting(
