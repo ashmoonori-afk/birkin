@@ -5,6 +5,7 @@ import platform
 import plistlib
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import cast
 
@@ -12,6 +13,37 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "native" / "packaged_journey.sh"
+
+# DiskImages reports short-lived contention (for example an image that
+# `hdiutil create` has only just released) as EAGAIN or EBUSY. Only those are
+# retried; any other hdiutil failure is returned on the first attempt.
+_HDIUTIL_TRANSIENT = ("Resource temporarily unavailable", "Resource busy")
+_HDIUTIL_ATTEMPTS = 5
+
+
+def _hdiutil(*args: str) -> subprocess.CompletedProcess[bytes]:
+    attempt = 1
+    while True:
+        completed = subprocess.run(
+            ["/usr/bin/hdiutil", *args],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+        stderr = completed.stderr.decode(errors="replace")
+        if (
+            completed.returncode == 0
+            or attempt == _HDIUTIL_ATTEMPTS
+            or not any(marker in stderr for marker in _HDIUTIL_TRANSIENT)
+        ):
+            return completed
+        time.sleep(attempt)
+        attempt += 1
+
+
+def _detach(mount: str) -> None:
+    if _hdiutil("detach", mount).returncode != 0:
+        _ = _hdiutil("detach", "-force", mount)
 
 
 @pytest.mark.skipif(
@@ -52,39 +84,20 @@ exit 73
     _ = helper.chmod(0o755)
     _ = app.chmod(0o755)
     image = tmp_path / "Birkin-Journey-Test.dmg"
-    create = subprocess.run(
-        [
-            "/usr/bin/hdiutil",
-            "create",
-            "-volname",
-            f"Birkin-Journey-{os.getpid()}",
-            "-srcfolder",
-            str(source),
-            "-format",
-            "UDZO",
-            "-ov",
-            str(image),
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-        timeout=30,
+    create = _hdiutil(
+        "create",
+        "-volname",
+        f"Birkin-Journey-{os.getpid()}",
+        "-srcfolder",
+        str(source),
+        "-format",
+        "UDZO",
+        "-ov",
+        str(image),
     )
-    assert create.returncode == 0, create.stderr
+    assert create.returncode == 0, create.stderr.decode()
 
-    attach = subprocess.run(
-        [
-            "/usr/bin/hdiutil",
-            "attach",
-            "-nobrowse",
-            "-readonly",
-            "-plist",
-            str(image),
-        ],
-        capture_output=True,
-        check=False,
-        timeout=30,
-    )
+    attach = _hdiutil("attach", "-nobrowse", "-readonly", "-plist", str(image))
     assert attach.returncode == 0, attach.stderr.decode()
     payload = cast(dict[str, object], plistlib.loads(attach.stdout))
     entities_value = payload.get("system-entities")
@@ -125,12 +138,7 @@ exit 73
             Path(mount).resolve()
         )
     finally:
-        _ = subprocess.run(
-            ["/usr/bin/hdiutil", "detach", mount],
-            capture_output=True,
-            check=False,
-            timeout=30,
-        )
+        _detach(mount)
 
 
 @pytest.mark.skipif(
@@ -160,38 +168,20 @@ def test_journey_rejects_app_from_writable_disk_image(tmp_path: Path) -> None:
     helper.chmod(0o755)
     app.chmod(0o755)
     image = tmp_path / "Birkin-Journey-Writable.dmg"
-    create = subprocess.run(
-        [
-            "/usr/bin/hdiutil",
-            "create",
-            "-volname",
-            f"Birkin-Writable-{os.getpid()}",
-            "-srcfolder",
-            str(source),
-            "-format",
-            "UDRW",
-            "-ov",
-            str(image),
-        ],
-        capture_output=True,
-        check=False,
-        text=True,
-        timeout=30,
+    create = _hdiutil(
+        "create",
+        "-volname",
+        f"Birkin-Writable-{os.getpid()}",
+        "-srcfolder",
+        str(source),
+        "-format",
+        "UDRW",
+        "-ov",
+        str(image),
     )
-    assert create.returncode == 0, create.stderr
+    assert create.returncode == 0, create.stderr.decode()
 
-    attach = subprocess.run(
-        [
-            "/usr/bin/hdiutil",
-            "attach",
-            "-nobrowse",
-            "-plist",
-            str(image),
-        ],
-        capture_output=True,
-        check=False,
-        timeout=30,
-    )
+    attach = _hdiutil("attach", "-nobrowse", "-plist", str(image))
     assert attach.returncode == 0, attach.stderr.decode()
     payload = cast(dict[str, object], plistlib.loads(attach.stdout))
     entities_value = payload.get("system-entities")
@@ -227,9 +217,4 @@ def test_journey_rejects_app_from_writable_disk_image(tmp_path: Path) -> None:
         assert result.returncode == 2, result.stdout + result.stderr
         assert "read-only" in result.stderr
     finally:
-        _ = subprocess.run(
-            ["/usr/bin/hdiutil", "detach", mount],
-            capture_output=True,
-            check=False,
-            timeout=30,
-        )
+        _detach(mount)
