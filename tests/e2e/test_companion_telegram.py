@@ -117,7 +117,9 @@ def test_blocked_path_keeps_the_next_action(bot, monkeypatch):
 
 
 def test_snooze_moves_the_next_check_in(bot, monkeypatch):
-    rec = _ready()
+    # No quiet window: a real-clock tap near 22:00 KST would otherwise land
+    # inside one and be moved to its end, which test_companion covers.
+    rec = _ready(quiet_hours={"start": "00:00", "end": "00:00"})
     scheduler.run_checkins(now=BASE + timedelta(minutes=1), send=bot.send)
     _tap(_channel(bot, monkeypatch), rec["id"], "snooze")
     after = companion.get_commitment(rec["id"])
