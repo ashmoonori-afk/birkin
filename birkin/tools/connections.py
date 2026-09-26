@@ -9,7 +9,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .. import approvals
-from ..m365_connection import READ_SCOPES, WRITE_SCOPES, status
+from ..m365_connection import READ_SCOPES, STATE_NEXT_STEPS, WRITE_SCOPES, request_error, state_label, status
 from ._types import Tool, ToolContext, ToolInput, ToolResult
 
 
@@ -58,15 +58,34 @@ def calendar_event_review_text(draft: Mapping[str, object]) -> str:
 
 
 def _status(_data: ToolInput, _ctx: ToolContext) -> ToolResult:
-    return ToolResult(json.dumps(status(), ensure_ascii=False))
+    current = status()
+    state = str(current["state"])
+    return ToolResult(json.dumps({**current, "state_label": state_label(state), "next_step": STATE_NEXT_STEPS.get(state, "")}, ensure_ascii=False))
+
+
+_REQUEST_REFUSALS = {
+    "write_scope_on_connect": "처음 연결할 때는 읽기 권한(User.Read, Mail.Read, Calendars.Read, Files.Read)만 요청할 수 있습니다. 메일 발송 같은 쓰기 권한은 연결한 뒤 재인증으로 요청하세요. 승인 요청은 만들지 않았습니다.",
+    "unsupported_scope": "지원하지 않는 Microsoft 365 권한이 포함되어 있습니다. 권한 목록을 확인한 뒤 다시 요청하세요. 승인 요청은 만들지 않았습니다.",
+    "missing_account": "연결에 필요한 계정 ID, 계정 이름, 토큰 환경 변수 이름을 모두 입력하세요. 승인 요청은 만들지 않았습니다.",
+    "not_connected": "연결된 Microsoft 365 계정이 없습니다. 먼저 연결을 요청하세요. 승인 요청은 만들지 않았습니다.",
+    "unsupported_action": "지원하지 않는 Microsoft 365 연결 작업입니다. 연결, 연결 해제, 재인증 중 하나를 요청하세요.",
+}
+_ACTION_LABELS = {"connect": "연결", "revoke": "연결 해제", "reauthenticate": "재인증"}
 
 
 def _request(data: ToolInput, ctx: ToolContext) -> ToolResult:
-    action = str(data.get("action", ""))
+    code = request_error(data)
+    if code is not None:
+        return ToolResult(json.dumps({"ok": False, "error_code": code, "message": _REQUEST_REFUSALS[code]}, ensure_ascii=False), is_error=True)
+    parts = [f"Microsoft 365 {_ACTION_LABELS[str(data['action'])]}"]
+    if data.get("account_name"):
+        parts.append(f"계정 {visible_text(data['account_name'])}")
+    if _joined(data.get("scopes")):
+        parts.append(f"권한 {_joined(data.get('scopes'))}")
     queued = approvals.propose(
         category="connection",
         title="Microsoft 365 연결 변경 확인",
-        description=f"{action} 작업과 계정·읽기 범위를 확인한 뒤 연결 설정을 반영합니다.",
+        description=" · ".join(parts) + ". 승인하면 연결 설정에 반영합니다.",
         payload=dict(data),
         cfg={},
         origin=ctx.record_source,
@@ -145,12 +164,12 @@ def _calendar_apply(data: ToolInput, ctx: ToolContext) -> ToolResult:
 def _meeting_prepare(data: ToolInput, _ctx: ToolContext) -> ToolResult:
     from urllib.parse import quote
 
-    from ..m365_graph import graph_client
+    from ..m365_graph import verified_graph_client
     from ..office.coordinator_data import canonical_office_home
     from ..office.search import search_sources
     from ..office.service import DocumentService
 
-    event = graph_client().request("GET", f"/me/events/{quote(str(data['event_id']), safe='')}")
+    event = verified_graph_client().request("GET", f"/me/events/{quote(str(data['event_id']), safe='')}")
     subject = str(event.get("subject", ""))
     service = DocumentService(canonical_office_home())
     evidence = search_sources(subject, data["sources"], extract=service.extract_document, limit=data.get("limit", 10)) if subject else {"results": []}
@@ -255,7 +274,10 @@ def tools() -> list[Tool]:
             },
             "required": ["action"],
             "additionalProperties": False,
-            "allOf": [{"if": {"properties": {"action": {"const": "connect"}}}, "then": {"required": ["account_id", "account_name", "scopes", "secret_env"]}}],
+            "allOf": [{"if": {"properties": {"action": {"const": "connect"}}}, "then": {
+                "required": ["account_id", "account_name", "scopes", "secret_env"],
+                "properties": {"scopes": {"type": "array", "minItems": 1, "uniqueItems": True, "items": {"type": "string", "enum": sorted(READ_SCOPES)}}},
+            }}],
         }, _request),
         Tool("m365_mail_read", "Read a bounded unread Microsoft 365 message projection for summarization.", {"type": "object", "properties": {"unread_only": {"type": "boolean"}, "limit": {"type": "integer", "minimum": 1, "maximum": 100}}, "additionalProperties": False}, _mail_read),
         Tool("m365_mail_draft", "Create a local new, reply, reply-all, or forward draft with hash-bound attachments.", draft_schema, _mail_draft),

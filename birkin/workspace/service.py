@@ -33,6 +33,16 @@ from ..work_items import projected_rows as projected_work_items
 CommandHandler = Callable[[dict[str, JsonValue]], dict[str, JsonValue]]
 EventListener = Callable[[WorkspaceEvent], None]
 
+_CONNECTION_UI_STATES = {
+    "connected": "completed",
+    "verification_required": "waiting_dependency",
+    "reauthentication_required": "waiting_human",
+    "token_expired": "expired",
+    "sync_failed": "failed",
+    "revoked": "idle",
+    "not_connected": "idle",
+}
+
 
 @final
 class WorkspaceService:
@@ -282,16 +292,22 @@ class WorkspaceService:
             panel.items for panel in snapshot.panels if panel.key == "files_evidence"
         )
         work_rows = projected_work_items()
+        from ..m365_connection import STATE_NEXT_STEPS, state_label
         from ..m365_connection import status as connection_status
 
         connection = connection_status()
         account = cast("dict[str, object] | None", connection.get("account"))
+        state = str(connection["state"])
+        label = state_label(state)
+        next_step = STATE_NEXT_STEPS.get(state, "")
         connection_row = {
             "id": "connection:microsoft-365",
             "kind": "connection",
             "summary": f"Microsoft 365 · {account.get('name') if account else '연결되지 않음'}",
-            "description": " · ".join(cast("list[str]", connection.get("scopes", []))),
+            "description": " · ".join([label, *cast("list[str]", connection.get("scopes", []))]),
+            "detail": label + (f" · {next_step}" if next_step else ""),
             "status": connection["state"],
+            "ui_state": _CONNECTION_UI_STATES.get(state, "unknown"),
         }
         from ..daily_briefing import latest as latest_briefings
 

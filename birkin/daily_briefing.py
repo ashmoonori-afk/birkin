@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from . import config, cron, store
 from .m365_calendar import calendar_view
 from .m365_connection import status as connection_status
-from .m365_graph import GraphError
+from .m365_graph import GraphError, verified_graph_client
 from .m365_mail import list_messages
 from .work_items import grouped
 
@@ -34,6 +34,14 @@ def generate(job: dict[str, Any], *, now: datetime | None = None) -> dict[str, o
     calendar: list[object] = []
     mail: list[object] = []
     connection = connection_status()
+    if connection["state"] == "verification_required":
+        # The first read after connect or reauthentication verifies the
+        # account; a mismatch keeps the state and its reason below.
+        try:
+            _ = verified_graph_client()
+        except GraphError:
+            pass
+        connection = connection_status()
     if connection["state"] in {"connected", "sync_failed"}:
         try:
             calendar = calendar_view(basis.isoformat(), (basis + timedelta(days=1)).isoformat())["events"]

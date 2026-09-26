@@ -36,8 +36,31 @@ def test_korean_requests_mostly_miss_the_keyword_router(mgr):
 
 
 def test_curation_routes_in_korean_now(mgr):
-    for query in ("메모리 정리", "벌트 정리해줘"):
+    for query in ("메모리 정리", "벌트 정리해줘", "기억 정리해줘",
+                  "노트를 정리해줘", "메모리를 정리해줘"):
         assert "memory-curation" in [s.name for s in mgr.route(query, limit=3)], query
+
+
+def test_generic_korean_requests_do_not_route_to_unrelated_skills(mgr):
+    for query in ("고객사에 보낼 답장 정리 해줘", "내일 오전 9시에 알림 설정 해줘",
+                  "지난주 매출 분석 해줘", "이 계약서 검토 해줘", "팀 일정 정리해줘",
+                  "자료 조사 해줘", "회의록 정리해줘", "두 문서 버전 비교해줘"):
+        routed = {s.name for s in mgr.route(query, limit=3)}
+        assert not routed & {"memory-curation", "neurosis"}, query
+
+
+def test_korean_body_match_needs_two_terms(tmp_path):
+    from birkin.skills.manager import SkillManager
+
+    skill = tmp_path / "report-tidy"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: report-tidy\ndescription: tidy weekly documents\n---\n\n"
+        "예: 보고서 정리해줘\n", encoding="utf-8")
+    manager = SkillManager([(tmp_path, "user")])
+
+    assert manager.route("일정 정리해줘") == []
+    assert [s.name for s in manager.route("보고서를 정리해줘")] == ["report-tidy"]
 
 
 # -- the fallback ----------------------------------------------------------
@@ -79,6 +102,13 @@ def test_unrouted_request_still_gets_the_catalog(mgr):
     assert "neurosis" in s.agent.system, "the index must name real skills"
 
 
+def test_misrouted_korean_request_keeps_the_catalog(mgr):
+    s = _Session(mgr).session
+    s._build_cli_system("이 계약서 검토 해줘")
+    assert "birkin skills available" in s.agent.system
+    assert "Skill: memory-curation" not in s.agent.system
+
+
 def test_routed_request_does_not_pay_for_the_index(mgr):
     s = _Session(mgr).session
     s._build_cli_system("review this code")        # routes fine
@@ -94,6 +124,9 @@ def test_every_cli_turn_carries_skills_one_way_or_the_other(mgr):
         has_routed = "Birkin routed skill" in s.agent.system or \
             "## Skill:" in s.agent.system or len(s.agent.system) > 2000
         assert has_index or has_routed, query
+    s._build_cli_system("회의록 정리해줘")
+    assert "birkin skills available" in s.agent.system, \
+        "a generic Korean request must not pass by misrouting to curation"
 
 
 # -- the gate that let it ship --------------------------------------------

@@ -317,7 +317,8 @@ class Session:
                     self.ctx.cwd, "before CLI turn")
         if self._use_warm() and trusted:
             reply = self._warm_ask(
-                text, on_text, on_progress=on_progress, session_id=session_id)
+                text, on_text, on_progress=on_progress, session_id=session_id,
+                route_query=route_query)
             if record_turn:
                 self._record_turn(
                     text,
@@ -410,6 +411,7 @@ class Session:
         *,
         on_progress: Optional[Callable[[dict], None]] = None,
         session_id: str | None = None,
+        route_query: str | None = None,
     ) -> str:
         if self._warm is None:
             self._warm = self._build_warm()
@@ -420,6 +422,7 @@ class Session:
         return self._warm.ask(
             self._prepare_cli_turn(
                 text,
+                route_query=route_query,
                 skill_state=self._warm_skill_state,
                 session_id=session_id,
             ),

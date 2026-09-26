@@ -10,7 +10,7 @@ import urllib.request
 from collections.abc import Mapping
 from typing import Any
 
-from .m365_connection import record_sync_result, status
+from .m365_connection import STATE_NEXT_STEPS, record_sync_result, state_label, status, verified_approval_identity
 from .http_transport import open_no_redirect
 
 ORIGIN = "https://graph.microsoft.com/v1.0"
@@ -129,7 +129,8 @@ def graph_client(*, allow_unverified: bool = False) -> GraphClient:
     connection = status()
     allowed = {"connected", "sync_failed"} | ({"verification_required"} if allow_unverified else set())
     if connection["state"] not in allowed:
-        raise GraphError(f"Microsoft 365 connection is {connection['state']}")
+        state = connection["state"]
+        raise GraphError(f"Microsoft 365를 사용할 수 없습니다({state_label(state)}). {STATE_NEXT_STEPS.get(str(state), '')}".strip())
     from . import store, config
 
     raw = store._read_json(config.connections_path(), {})
@@ -138,4 +139,18 @@ def graph_client(*, allow_unverified: bool = False) -> GraphClient:
     return GraphClient(os.environ.get(secret_env, "") if isinstance(secret_env, str) else "", track_health=True)
 
 
-__all__ = ["GraphClient", "GraphError", "GraphUncertainError", "graph_client"]
+_UNVERIFIED_ACCOUNT = "Microsoft 365 계정과 조직을 확인하지 못했습니다. 연결한 계정이 로그인한 계정과 같은지 확인한 뒤 재인증을 요청하세요."
+
+
+def verified_graph_client() -> GraphClient:
+    """Client for reads; the first read after connect or reauthentication verifies the signed-in account and organization."""
+    client = graph_client(allow_unverified=True)
+    if status()["state"] == "verification_required":
+        try:
+            _ = verified_approval_identity(client)
+        except ValueError as exc:
+            raise GraphError(_UNVERIFIED_ACCOUNT) from exc
+    return client
+
+
+__all__ = ["GraphClient", "GraphError", "GraphUncertainError", "graph_client", "verified_graph_client"]
