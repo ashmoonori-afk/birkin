@@ -1048,6 +1048,7 @@ def test_approval_answer_event_carries_execution_receipt(
                 "receipt": "exit 0: approved",
                 "result_summary": "승인한 작업을 완료했습니다.",
                 "result_code": "approved",
+                "ui_state": "succeeded",
             },
         ),
         ("workspace.refreshed", {"approval_requests": [], "work_items": []}),
@@ -1196,7 +1197,19 @@ def test_an_approved_command_that_failed_is_not_reported_as_completed(
     context = _approval_context(adapter)
     assert "완료되었습니다" not in context
     assert "종료 코드 2" in context
-    assert _answered_payload(emitted)["result_code"] == "command_failed"
+    answered = _answered_payload(emitted)
+    assert answered["result_code"] == "command_failed"
+    assert answered["ui_state"] == "failed"
+    events = (
+        _event("approval.requested", {"approval_id": record["id"]}),
+        _event("approval.answered", answered),
+    )
+    (item,) = next(
+        panel.items
+        for panel in reduce_snapshot("test-session", events).panels
+        if panel.key == "approvals"
+    )
+    assert item["ui_state"] == "failed"
 
 
 def test_chat_completion_refreshes_provider_created_work_item_approval(

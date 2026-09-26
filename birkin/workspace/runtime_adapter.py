@@ -1274,12 +1274,14 @@ class RuntimeWorkspaceAdapter:
         presented = _answer_presentation(result, current, receipt_text)
         event_payload["result_summary"] = presented.summary
         event_payload["result_code"] = presented.code
+        if presented.ui_state:
+            # The card state must agree with the summary: an approved command
+            # that exited non-zero is not a success.
+            event_payload["ui_state"] = presented.ui_state
         if result["outcome"] == "answered_elsewhere" and current is not None:
             # The record was resolved on another surface; show what actually
             # happened to it instead of a generic failure.
             event_payload["resolved_status"] = str(current.get("status") or "")
-            if presented.ui_state:
-                event_payload["ui_state"] = presented.ui_state
         _ = self._emit("approval.answered", event_payload)
         if receipt_projection is not None:
             _ = self._emit(
@@ -1308,6 +1310,7 @@ class RuntimeWorkspaceAdapter:
             str(error) if isinstance(error, str) else None,
             resolved=current,
             result_text=receipt_text,
+            presented=presented,
         )
         return {str(key): value for key, value in result.items()}
 

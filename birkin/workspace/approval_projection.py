@@ -125,10 +125,13 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
         item["target"] = target
     if status != "pending":
         # What actually happened, in the same words every surface uses; the
-        # raw execution error stays out of the summary.
+        # raw execution error stays out of the summary, and the card state
+        # agrees with it.
         outcome = approval_text.record_outcome(record)
         item["result_summary"] = outcome.summary
         item["result_code"] = outcome.code
+        if outcome.ui_state:
+            item["ui_state"] = outcome.ui_state
     resolved_at = record.get("resolved_at")
     if isinstance(resolved_at, str) and resolved_at:
         item["resolved_at"] = resolved_at

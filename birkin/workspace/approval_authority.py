@@ -63,8 +63,16 @@ def decide(
         and (was_already_resolved or lost_pending_race or rejected_after_race)
     ):
         return {"outcome": "answered_elsewhere", "approval_id": aid}
-    return {
+    refused: dict[str, object] = {
         "outcome": "rejected_by_authority",
         "approval_id": aid,
         "error": str(result.get("error") or "approval could not be resolved")[:300],
     }
+    state = result.get("state")
+    recheckable = result.get("recheckable")
+    if isinstance(state, str) and isinstance(recheckable, bool):
+        # A mail send that ran but was not confirmed: keep what tells it
+        # apart from a failure, or the user is told to retry and resend it.
+        refused["state"] = state[:64]
+        refused["recheckable"] = recheckable
+    return refused

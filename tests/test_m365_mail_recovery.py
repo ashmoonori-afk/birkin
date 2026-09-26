@@ -396,6 +396,46 @@ def test_approved_send_that_graph_only_accepted_is_an_unknown_outcome(
     assert graph.sends == 1
 
 
+def test_workspace_approval_of_an_accepted_send_is_unconfirmed_not_failed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+) -> None:
+    from birkin import approvals
+    from birkin.workspace import WorkspaceEvent
+    from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
+
+    graph = Graph202(True)
+    monkeypatch.setattr("birkin.m365_mail.graph_client", lambda: graph)
+    monkeypatch.setattr(approvals, "execute_action", _dispatch)
+    approval_id = _queued_send(_draft())
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return WorkspaceEvent(
+            protocol_version=1, session_id="mail-session", cursor=len(emitted),
+            event_id=f"event-{len(emitted)}", type=event_type,
+            timestamp="2026-09-26T00:00:00Z", actor_id="web:test",
+            command_id="command-1", payload=payload,
+        )
+
+    adapter = RuntimeWorkspaceAdapter(
+        "mail-session", emit, workspace_root=tmp_path / "workspace",
+    )
+    result = adapter.handlers()["approval.answer"](
+        {"approval_id": approval_id, "decision": "approve"}
+    )
+
+    assert result["state"] == "accepted" and result["recheckable"] is True
+    answered = next(payload for kind, payload in emitted if kind == "approval.answered")
+    assert answered["result_code"] == "E_APPROVAL_OUTCOME_UNKNOWN"
+    assert str(answered["result_summary"]).startswith("Microsoft 365가 요청을 접수했지만")
+    assert answered["ui_state"] == "action_needed"
+    context = str(getattr(adapter, "_pending_approval_context"))
+    assert "완료하지 못했습니다" not in context
+    assert "발송 처리는 아직 확인되지 않았습니다" in context
+    assert graph.sends == 1
+
+
 def test_approved_send_observed_as_submitted_is_still_a_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

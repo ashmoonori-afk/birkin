@@ -226,6 +226,23 @@ def test_resolved_approval_item_carries_korean_outcome_without_raw_error() -> No
     assert rejected["result_summary"] == "거부했습니다. 작업은 실행되지 않습니다."
 
 
+def test_approved_command_that_exited_non_zero_is_not_shown_as_succeeded() -> None:
+    failed = approval_item({
+        "id": "abc123def461", "category": "shell", "title": "테스트",
+        "status": "approved", "action_receipt": "[exit 1] 3 failed",
+        "payload": {"command": "pytest"},
+    })
+    passed = approval_item({
+        "id": "abc123def462", "category": "shell", "title": "테스트",
+        "status": "approved", "action_receipt": "[exit 0] ok",
+        "payload": {"command": "pytest"},
+    })
+
+    assert failed["result_code"] == "command_failed"
+    assert failed["ui_state"] == "failed"
+    assert passed["ui_state"] == "succeeded"
+
+
 def test_snapshot_projects_office_approval_trust_details(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

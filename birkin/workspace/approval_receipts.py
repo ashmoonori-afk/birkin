@@ -131,13 +131,15 @@ def approval_turn_context(
     *,
     resolved: Mapping[str, object] | None = None,
     result_text: str = "",
+    presented: approval_text.ApprovalOutcomeText | None = None,
 ) -> str:
     """The Korean outcome the next model turn sees for one approval answer.
 
     ``resolved`` is the record as it stands after the decision; with it an
     answer another surface already gave, or an approved command that exited
     non-zero, is reported as what actually happened instead of as a failure
-    or a success.
+    or a success. ``presented`` is the outcome the user was shown; an
+    action that may have run (an unconfirmed mail send) keeps its words.
     """
     if outcome == "approved":
         executed = approval_text.approve_outcome(
@@ -155,6 +157,9 @@ def approval_turn_context(
         summary = approval_text.resolved_elsewhere(resolved).summary
     elif outcome == "follow_up_required":
         summary = approval_text.FOLLOW_UP
+    elif presented is not None and presented.ui_state == "action_needed":
+        # Calling it a failure would invite the model to repeat the action.
+        summary = presented.summary
     else:
         summary = "승인된 작업을 완료하지 못했습니다."
         if error:
