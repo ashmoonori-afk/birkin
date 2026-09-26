@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import platform
 import plistlib
+import re
 import subprocess
 import sys
 import time
@@ -49,12 +50,7 @@ def _hdiutil(
 
 def _release_image(image: Path) -> None:
     """Detach every device DiskImages still has attached for this image."""
-    info = subprocess.run(
-        ["/usr/bin/hdiutil", "info", "-plist"],
-        capture_output=True,
-        check=False,
-        timeout=30,
-    )
+    info = _hdiutil("info", "-plist")
     if info.returncode != 0:
         return
     payload = cast(dict[str, object], plistlib.loads(info.stdout))
@@ -77,9 +73,14 @@ def _release_image(image: Path) -> None:
                 device := cast(dict[str, object], entity).get("dev-entry"), str
             )
         ]
-        if not devices:
+        # The image's own disk is listed first; an APFS image adds a
+        # synthesized container disk that detaching the image releases too.
+        whole_disk = next(
+            (device for device in devices if re.fullmatch(r"/dev/disk\d+", device)),
+            None,
+        )
+        if whole_disk is None:
             continue
-        whole_disk = min(devices, key=len)
         if _hdiutil("detach", whole_disk).returncode != 0:
             _ = _hdiutil("detach", "-force", whole_disk)
 
