@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import unicodedata
 import zipfile
 from collections.abc import Callable
@@ -303,6 +304,73 @@ def test_a_drop_folder_redirected_into_birkin_state_is_refused(
     assert is_error, body
     error = cast("dict[str, object]", body["error"])
     assert cast("dict[str, object]", error["details"])["reason"] == "birkin_state"
+
+
+@pytest.mark.parametrize("folder", ["workspace", "uploads"])
+def test_a_hard_link_to_birkin_state_is_refused(
+    home: Path, cwd: Path, folder: str
+) -> None:
+    # Given: a Birkin state file with an Office suffix, hard-linked into an
+    # import root where its path alone looks like a user file.
+    state = home / "memory" / "private.docx"
+    state.parent.mkdir(parents=True)
+    _ = build_docx_template(state)
+    root = cwd if folder == "workspace" else home / "uploads"
+    root.mkdir(exist_ok=True)
+    os.link(state, root / "leak.docx")
+
+    # When: the model imports the link.
+    body, is_error = _call(
+        _registry(cwd), "local_document_import", {"path": str(root / "leak.docx")}
+    )
+
+    # Then: the second name for the same file is refused without a draft.
+    assert is_error, body
+    error = cast("dict[str, object]", body["error"])
+    assert error["code"] == "PERMISSION_DENIED"
+    assert cast("dict[str, object]", error["details"])["reason"] == "hard_link"
+    assert _drafts(home) == []
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are POSIX-only")
+def test_a_source_swapped_for_a_fifo_after_verification_does_not_hang(
+    home: Path, cwd: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: a concurrent writer replaces the verified file with a FIFO right
+    # after it has been hashed.
+    source = build_docx_template(cwd / "report.docx")
+    digest = _sha256(source)
+    verified_sha256 = local_import._bounded_sha256
+
+    def swap_after_hashing(descriptor: int) -> str:
+        hashed = verified_sha256(descriptor)
+        source.unlink()
+        os.mkfifo(source)
+        return hashed
+
+    monkeypatch.setattr(local_import, "_bounded_sha256", swap_after_hashing)
+    outcome: list[tuple[dict[str, object], bool]] = []
+    worker = threading.Thread(
+        target=lambda: outcome.append(
+            _call(_registry(cwd), "local_document_import", {"path": "report.docx"})
+        ),
+        daemon=True,
+    )
+
+    # When: the import runs.
+    worker.start()
+    worker.join(10)
+    try:
+        # Then: the copy comes from the verified file, never the FIFO.
+        assert not worker.is_alive()
+    finally:
+        if worker.is_alive():
+            # Release the blocked reader so it does not outlive the test.
+            os.close(os.open(source, os.O_WRONLY | os.O_NONBLOCK))
+            worker.join(10)
+    body, is_error = outcome[0]
+    assert not is_error, body
+    assert cast("dict[str, str]", body["artifact"])["content_hash"] == digest
 
 
 def test_telegram_upload_and_drop_folder_files_import(home: Path, cwd: Path) -> None:

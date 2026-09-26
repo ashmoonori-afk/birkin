@@ -141,56 +141,80 @@ class DocumentService:
                 "registered import is unavailable",
             ) from exc
         try:
-            metadata = os.fstat(source_fd)
-            if not stat.S_ISREG(metadata.st_mode):
-                raise DocumentError(
-                    DocumentErrorCode.PERMISSION_DENIED,
-                    "import",
-                    "registered import is not a regular file",
-                )
-            digest = hashlib.sha256()
-            while chunk := os.read(source_fd, 1024 * 1024):
-                digest.update(chunk)
-            if digest.hexdigest() != expected_sha256:
+            return self.import_descriptor(
+                source_fd,
+                suffix=source.suffix,
+                expected_sha256=expected_sha256,
+                output_name=output_name,
+                reuse_identical=reuse_identical,
+            )
+        finally:
+            os.close(source_fd)
+
+    def import_descriptor(
+        self,
+        source_fd: int,
+        *,
+        suffix: str,
+        expected_sha256: str,
+        output_name: str,
+        reuse_identical: bool = False,
+    ) -> dict[str, object]:
+        """Copy an already-verified open file into the document jail.
+
+        The caller keeps ``source_fd``; it is read from its start, so the
+        copy is of the file the caller verified, not whatever its path names
+        now.
+        """
+        metadata = os.fstat(source_fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise DocumentError(
+                DocumentErrorCode.PERMISSION_DENIED,
+                "import",
+                "registered import is not a regular file",
+            )
+        _ = os.lseek(source_fd, 0, os.SEEK_SET)
+        digest = hashlib.sha256()
+        while chunk := os.read(source_fd, 1024 * 1024):
+            digest.update(chunk)
+        if digest.hexdigest() != expected_sha256:
+            raise DocumentError(
+                DocumentErrorCode.SOURCE_CHANGED,
+                "import",
+                "registered import changed before document copy",
+            )
+
+        def write(target: Path) -> None:
+            _ = os.lseek(source_fd, 0, os.SEEK_SET)
+            target_fd = os.open(
+                target,
+                os.O_WRONLY | getattr(os, "O_BINARY", 0),
+            )
+            copied = hashlib.sha256()
+            try:
+                while chunk := os.read(source_fd, 1024 * 1024):
+                    copied.update(chunk)
+                    view = memoryview(chunk)
+                    while view:
+                        written = os.write(target_fd, view)
+                        view = view[written:]
+                os.fsync(target_fd)
+            finally:
+                os.close(target_fd)
+            if copied.hexdigest() != expected_sha256:
                 raise DocumentError(
                     DocumentErrorCode.SOURCE_CHANGED,
                     "import",
-                    "registered import changed before document copy",
+                    "registered import changed during document copy",
                 )
 
-            def write(target: Path) -> None:
-                _ = os.lseek(source_fd, 0, os.SEEK_SET)
-                target_fd = os.open(
-                    target,
-                    os.O_WRONLY | getattr(os, "O_BINARY", 0),
-                )
-                copied = hashlib.sha256()
-                try:
-                    while chunk := os.read(source_fd, 1024 * 1024):
-                        copied.update(chunk)
-                        view = memoryview(chunk)
-                        while view:
-                            written = os.write(target_fd, view)
-                            view = view[written:]
-                    os.fsync(target_fd)
-                finally:
-                    os.close(target_fd)
-                if copied.hexdigest() != expected_sha256:
-                    raise DocumentError(
-                        DocumentErrorCode.SOURCE_CHANGED,
-                        "import",
-                        "registered import changed during document copy",
-                    )
-
-            try:
-                output = self._workspace.output_path(output_name, source.suffix.lower())
-                copied_sha256 = self._workspace.atomic_publish(output, write)
-            except DocumentError as exc:
-                if not reuse_identical or exc.code is not DocumentErrorCode.OUTPUT_EXISTS:
-                    raise
-                return self._identical_import(output_name, expected_sha256, exc)
-        finally:
-            os.close(source_fd)
+        try:
+            output = self._workspace.output_path(output_name, suffix.lower())
+            copied_sha256 = self._workspace.atomic_publish(output, write)
+        except DocumentError as exc:
+            if not reuse_identical or exc.code is not DocumentErrorCode.OUTPUT_EXISTS:
+                raise
+            return self._identical_import(output_name, expected_sha256, exc)
         artifact = self._workspace.artifact(output)
         return {
             "artifact": artifact,

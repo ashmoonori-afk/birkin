@@ -21,14 +21,18 @@ def _flatten(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return flat
 
 
-def _approval_run_id(record: dict[str, Any]) -> str:
+def _linked_run_id(record: dict[str, Any]) -> str:
+    """The run store.add_pending stamped on the approval, never the payload's."""
     linked = record.get("agent_run_id")
-    if isinstance(linked, str) and linked:
+    return linked if isinstance(linked, str) else ""
+
+
+def _approval_run_id(record: dict[str, Any]) -> str:
+    # payload.run_id is model-written, so it never places an approval under
+    # a run; origin is set by the proposing code.
+    linked = _linked_run_id(record)
+    if linked:
         return linked
-    payload = record.get("payload")
-    candidate = payload.get("run_id") if isinstance(payload, dict) else None
-    if isinstance(candidate, str):
-        return candidate
     origin = str(record.get("origin") or "")
     return origin.removeprefix("agent:") if origin.startswith("agent:") else ""
 
@@ -163,13 +167,14 @@ def control_run(run_id: str, action: Any, text: Any = "") -> tuple[int, dict[str
 def annotate_approvals(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Name the summoned run that raised each approval, when it still exists.
 
-    Only an id that resolves to a durable run record is honoured, so a stray
-    ``payload.run_id`` cannot label an approval with an agent that never ran.
+    Only the run link store.add_pending set is honoured, as in the native
+    workspace projection, so a model-written ``payload.run_id`` cannot label
+    an approval with an agent, even one that did run.
     """
     labels: dict[str, tuple[str, str]] | None = None
     runs: dict[str, dict[str, Any] | None] = {}
     for item in items:
-        run_id = _approval_run_id(item)
+        run_id = _linked_run_id(item)
         if not run_id:
             continue
         if run_id not in runs:

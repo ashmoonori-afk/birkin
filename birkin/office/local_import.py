@@ -189,16 +189,28 @@ def import_local_document(
     # a symlink, "..", or non-regular file below the root is refused.
     descriptor = open_regular(real_path, real_root)
     try:
+        # The state check above judges the path, not the file: a hard link
+        # is a second name for a file that may live in Birkin state.
+        if os.fstat(descriptor).st_nlink > 1:
+            raise _error(
+                DocumentErrorCode.PERMISSION_DENIED,
+                "하드 링크로 연결된 파일은 가져올 수 없습니다. "
+                "파일을 일반 복사본으로 만든 뒤 다시 가져오세요.",
+                "hard_link",
+            )
         digest = _bounded_sha256(descriptor)
+        output_name = f"{_safe_stem(candidate)}-{digest[:12]}{suffix}"
+        # Copy from the verified descriptor: re-opening the path would follow
+        # whatever a concurrent writer put there, such as a FIFO that blocks.
+        imported = service.import_descriptor(
+            descriptor,
+            suffix=suffix,
+            expected_sha256=digest,
+            output_name=output_name,
+            reuse_identical=True,
+        )
     finally:
         os.close(descriptor)
-    output_name = f"{_safe_stem(candidate)}-{digest[:12]}{suffix}"
-    imported = service.import_document(
-        real_path,
-        expected_sha256=digest,
-        output_name=output_name,
-        reuse_identical=True,
-    )
     return {
         **imported,
         "source_filename": unicodedata.normalize("NFC", candidate.name),

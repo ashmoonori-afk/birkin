@@ -179,7 +179,7 @@ Office 기능은 범위가 정해진 문서 작업이며 데스크톱 Office 프
 
 동기화된 skill ID는 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
 
-입력은 `BIRKIN_HOME/office`에 격리됩니다. `BIRKIN_HOME=/workspace/.birkin`이면 `/workspace/.birkin/office/artifacts/incoming` 아래로 가져옵니다. `local_document_import`는 현재 작업 폴더, 텔레그램 첨부 폴더(`BIRKIN_HOME/uploads`), `BIRKIN_HOME/office/artifacts/incoming`에 있는 Office 파일 하나를 원본을 바꾸지 않고 격리 경로로 복사합니다. 이 범위 밖의 경로, 심볼릭 링크, 그 밖의 Birkin 내부 파일은 거부합니다. 양식 필드(DOCX 콘텐츠 컨트롤과 HWPX 필드의 `{"field": ..., "value": ...}`)와 PPTX 개체 틀은 `office_job_request`로 채울 수 있으며, 승인 화면에는 대상마다 현재 텍스트가 그대로 표시됩니다. 추출은 `max_text_bytes`를 받고 변환에는 명시적인 `loss_budget`이 필요하며 semantic render는 `output_format: "structured_preview"`를 사용합니다. PDF만 한 페이지 이미지를 조건부로 render할 수 있고, 지원하지 않는 다른 visual 요청은 `RENDER_UNAVAILABLE`을 반환합니다.
+입력은 `BIRKIN_HOME/office`에 격리됩니다. `BIRKIN_HOME=/workspace/.birkin`이면 `/workspace/.birkin/office/artifacts/incoming` 아래로 가져옵니다. `local_document_import`는 현재 작업 폴더, 텔레그램 첨부 폴더(`BIRKIN_HOME/uploads`), `BIRKIN_HOME/office/artifacts/incoming`에 있는 Office 파일 하나를 원본을 바꾸지 않고 격리 경로로 복사합니다. 이 범위 밖의 경로, 심볼릭 링크, 하드 링크로 연결된 파일, 그 밖의 Birkin 내부 파일은 거부합니다. 양식 필드(DOCX 콘텐츠 컨트롤과 HWPX 필드의 `{"field": ..., "value": ...}`)와 PPTX 개체 틀은 `office_job_request`로 채울 수 있으며, 승인 화면에는 대상마다 현재 텍스트가 그대로 표시됩니다. 추출은 `max_text_bytes`를 받고 변환에는 명시적인 `loss_budget`이 필요하며 semantic render는 `output_format: "structured_preview"`를 사용합니다. PDF만 한 페이지 이미지를 조건부로 render할 수 있고, 지원하지 않는 다른 visual 요청은 `RENDER_UNAVAILABLE`을 반환합니다.
 
 정확한 인자, provenance, 제한, 거부 조건은 [버전이 지정된 Office 지원 계약](./docs/office-support.md#office-work-os-v2)에 있습니다.
 

@@ -339,8 +339,8 @@ def _description(name: str) -> str:
             "Pass the returned artifact as source to inspect_document, "
             "extract_document, analyze_workbook, compare_documents, or "
             "office_job_request. The original file is never modified; "
-            "symlinks, paths outside those folders, and other Birkin state "
-            "are refused."
+            "symlinks, hard-linked files, paths outside those folders, and "
+            "other Birkin state are refused."
         )
     description = f"Office Work OS: {name.replace('_', ' ')}."
     if name in _ARTIFACT_SOURCE_TOOLS:
