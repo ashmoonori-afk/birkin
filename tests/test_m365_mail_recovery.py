@@ -465,6 +465,36 @@ def test_helper_process_records_an_accepted_send_as_unknown(
     assert graph.sends == 1
 
 
+def test_crashed_committed_send_recovers_accepted_receipt_as_recheckable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    graph = Graph202(True)
+    monkeypatch.setattr("birkin.m365_mail.graph_client", lambda: graph)
+    draft = _draft()
+    assert json.loads(execute_approved_send(draft, client=graph))["state"] == "accepted"
+    approval_id = _queued_send(draft)
+    record = store.get_pending(approval_id)
+    assert record is not None
+    journal = ExecutionJournal(approval_id)
+    journal.arm(authority_digest(record), "mail_send", record["payload"])
+    journal.ready()
+    journal.helper_started(owner_pid=999_999, owner_token="dead")
+    journal.commit_attempt(owner_pid=999_999, owner_token="dead")
+    _ = store.resolve_pending(approval_id, "executing")
+
+    recovered = approval_execution_recovery.recover_one(approval_id)
+
+    assert recovered is not None
+    assert recovered["ok"] is False
+    assert recovered["state"] == "accepted" and recovered["recheckable"] is True
+    assert journal.load().phase is JournalPhase.ACTION_OUTCOME_UNKNOWN
+    record = store.get_pending(approval_id)
+    assert record is not None and record["status"] == "action_outcome_unknown"
+    assert record["mail_recheck_state"] == "accepted"
+    assert record["recheckable"] is True
+    assert graph.sends == 1
+
+
 def test_reprojection_keeps_a_later_manual_recheck_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
