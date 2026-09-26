@@ -775,6 +775,20 @@ def rollback(
 _UNATTENDED_GLOBAL_AUTO = frozenset({"memory", "skill_note"})
 
 
+def _unattended_may_apply(edit: dict[str, Any], state: dict[str, Any]) -> bool:
+    """The nightly run adds notes; it may change or remove only its own.
+
+    An entry a human approved (or anything else wrote) keeps needing a human,
+    so a steered night cannot quietly reword or delete a user's rule.
+    """
+    if str(edit["action"]).strip().lower() == "create":
+        return True
+    kind = str(edit["kind"]).strip().lower()
+    eid = str(edit.get("id") or slug(edit.get("title", ""), kind))
+    existing = (state.get("entries") or {}).get(kind, {}).get(eid)
+    return existing is None or existing.get("source") == "morpheus"
+
+
 def auto_kinds(cfg: dict[str, Any] | None) -> set[str]:
     raw = (cfg or {}).get("harness_auto_approve")
     if raw is None:
@@ -798,6 +812,8 @@ def submit(
     An edit whose kind is not in ``harness_auto_approve`` is queued for
     ``birkin review`` and is NOT written now; a structurally invalid edit is
     rejected outright rather than queued, so a human never reviews garbage.
+    The unattended global path (origin ``morpheus``) narrows that further: see
+    ``_UNATTENDED_GLOBAL_AUTO`` and :func:`_unattended_may_apply`.
     """
     from . import approvals
 
@@ -805,10 +821,24 @@ def submit(
     max_edits = int(cfg.get("harness_max_edits") or MAX_EDITS)
     raw_edits = proposal.get("edits")
     edits = list(raw_edits)[:max_edits] if isinstance(raw_edits, list) else []
+    unattended = scope != "local" and origin == "morpheus"
+    current: dict[str, Any] | None = None
     if scope == "local":
         auto = auto_kinds(cfg)
-    elif origin == "morpheus":
+    elif unattended:
+        from .persistence_safety import unsafe_persistence_reason
+
         auto = auto_kinds(cfg) & _UNATTENDED_GLOBAL_AUTO
+        # The summary and expected outcome are rendered into every session's
+        # prompt as the refinement history, so they get the same screen as
+        # edit content; a hit sends the whole proposal to a human.
+        if unsafe_persistence_reason(
+            proposal.get("summary"),
+            proposal.get("rationale"),
+            proposal.get("expectedOutcome"),
+        ):
+            auto = set()
+        current = load(scope, session_id=session_id)
     else:
         auto = set()
 
@@ -823,7 +853,7 @@ def submit(
             rejected.append({**record, "applied": False, "error": error})
             continue
         kind = str(edit["kind"]).strip().lower()
-        if kind in auto:
+        if kind in auto and (current is None or _unattended_may_apply(edit, current)):
             auto_edits.append(edit)
             continue
         label = edit.get("title") or edit.get("id") or kind
@@ -849,7 +879,10 @@ def submit(
 
     applied: dict[str, Any] | None = None
     if auto_edits:
-        current = load(scope, session_id=session_id)
+        # The snapshot the ownership check read is the baseline, so an entry a
+        # human touched since then is dropped rather than overwritten.
+        if current is None:
+            current = load(scope, session_id=session_id)
         applied = apply(
             current,
             {**proposal, "edits": auto_edits},

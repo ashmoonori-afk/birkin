@@ -8,6 +8,7 @@ scheduler, and the channel is exercised without a network.
 from __future__ import annotations
 
 import json
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -260,7 +261,30 @@ def test_commitment_lists_a_missed_check_in_with_recovery(bot, monkeypatch):
     out = Gateway(config.load_config()).companion_command(
         "commitment", "", "telegram", CHAT)
     assert "[놓침]" in out
+    assert f"birkin companion answer {rec['id']} --do snooze" in out
     assert f"birkin companion answer {rec['id']} --do stop" in out
+
+
+def test_a_late_snooze_tap_cannot_add_a_second_pending_check_in(bot,
+                                                                monkeypatch):
+    from birkin.gateway.core import Gateway
+    missed = _ready(expiry_minutes=60)
+    scheduler.run_checkins(now=BASE + timedelta(hours=3), send=bot.send)
+    assert companion.get_commitment(missed["id"])["status"] == "missed"
+    fresh = companion.add_candidate(context_id=CTX, outcome="장소 예약",
+                                    source_ref=f"{CTX}:100")
+    companion.activate(fresh["id"],
+                       check_in_at=(BASE + timedelta(hours=4)).isoformat(),
+                       tz_name="Asia/Seoul", utc_offset_minutes=540)
+
+    _tap(_channel(bot, monkeypatch), missed["id"], "snooze")
+
+    assert bot.acks[-1] == telegram._COMPANION_TOASTS["context_busy"]
+    assert companion.get_commitment(missed["id"])["status"] == "missed"
+    out = Gateway(config.load_config()).companion_command(
+        "commitment", "", "telegram", CHAT)
+    assert f"birkin companion answer {missed['id']} --do snooze" not in out
+    assert f"birkin companion answer {missed['id']} --do stop" in out
 
 
 def test_checkin_status_hints_at_a_utc_mismatch(bot, monkeypatch):
@@ -275,3 +299,22 @@ def test_checkin_status_hints_at_a_utc_mismatch(bot, monkeypatch):
     assert companion.get_policy()["timezone"] == "Asia/Seoul"
     out = gateway.companion_command("checkin", "", "telegram", CHAT)
     assert "/checkin on" not in out
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset") or not companion.tz_available(),
+                    reason="needs POSIX tzset and an IANA tz database")
+def test_checkin_status_does_not_hint_on_a_utc_alias_machine(bot, monkeypatch):
+    """/etc/localtime -> Etc/UTC is UTC: no hint, and /checkin on keeps UTC."""
+    from birkin.gateway.core import Gateway
+    companion.set_policy(enabled=True, timezone="UTC", utc_offset_minutes=0)
+    gateway = Gateway(config.load_config())
+    try:
+        with monkeypatch.context() as patch:
+            patch.setenv("TZ", "Etc/UTC")
+            time.tzset()
+            out = gateway.companion_command("checkin", "", "telegram", CHAT)
+            gateway.companion_command("checkin", "on", "telegram", CHAT)
+    finally:
+        time.tzset()
+    assert "/checkin on" not in out and "Etc/UTC" not in out
+    assert companion.get_policy()["timezone"] == "UTC"

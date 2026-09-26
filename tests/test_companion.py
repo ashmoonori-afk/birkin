@@ -702,6 +702,31 @@ def test_a_missed_commitment_can_be_rescheduled():
     assert moved["status"] == "active"
 
 
+def test_a_missed_commitment_cannot_retake_a_busy_context_slot():
+    _setup(expiry_minutes=60)
+    missed = _active()
+    companion.claim_checkin(missed["id"], now=BASE + timedelta(hours=3))
+    assert companion.get_commitment(missed["id"])["status"] == "missed"
+    fresh = _active(BASE + timedelta(hours=4), outcome="Book the venue",
+                    source="telegram:12345:100")
+
+    with pytest.raises(companion.CompanionError) as snoozed:
+        companion.answer(missed["id"], "snooze",
+                         now=BASE + timedelta(hours=3, minutes=10))
+    assert snoozed.value.code == "context_busy"
+    with pytest.raises(companion.CompanionError) as moved:
+        companion.reschedule(
+            missed["id"], check_in_at=(BASE + timedelta(days=1)).isoformat())
+    assert moved.value.code == "context_busy"
+    assert companion.get_commitment(missed["id"])["status"] == "missed"
+
+    send = _Sender()
+    assert scheduler.run_checkins(now=BASE + timedelta(hours=4, minutes=6),
+                                  send=send) == 1
+    assert fresh["outcome"] in send.sent[0]
+    assert companion.answer(missed["id"], "stop")["status"] == "stopped"
+
+
 def test_kst_policy_morning_check_in_is_sent_when_quiet_hours_end():
     _setup(expiry_minutes=360)
     rec = _active(datetime(2026, 9, 26, 7, 0, tzinfo=KST))
@@ -762,7 +787,51 @@ def test_local_zone_reads_the_machine_zone(monkeypatch):
         time.tzset()
 
 
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs POSIX tzset")
+@_TZDB
+def test_a_utc_alias_machine_zone_reads_as_utc(monkeypatch):
+    """Linux images link /etc/localtime to Etc/UTC; that is still UTC."""
+    try:
+        with monkeypatch.context() as patch:
+            patch.setenv("TZ", "Etc/UTC")
+            time.tzset()
+            assert companion.local_zone() == ("UTC", 0)
+            companion.set_policy(timezone="UTC", utc_offset_minutes=0)
+            assert companion.set_policy(enabled=True)["timezone"] == "UTC"
+    finally:
+        time.tzset()
+
+
 # -- copy ------------------------------------------------------------------
+
+@pytest.mark.parametrize("zone,offset,at,label", [
+    # The UTC default beside the user's own +09:00 (a CLI activation without
+    # --tz, or any commitment activated before the policy adopted a zone).
+    ("UTC", 540, "2026-10-28T00:00:00+00:00", "10월 28일 09:00"),
+    # A Z timestamp captures offset 0, which never overrides a named zone.
+    pytest.param("Asia/Seoul", 0, "2026-10-28T00:00:00+00:00",
+                 "10월 28일 09:00", marks=_TZDB),
+    # Captured in summer, shown in winter: the named zone keeps its DST rules.
+    pytest.param("America/New_York", -240, "2026-11-10T14:00:00+00:00",
+                 "11월 10일 09:00", marks=_TZDB),
+])
+def test_wall_clock_uses_the_zone_that_matches_the_captured_offset(
+        zone, offset, at, label):
+    record = {"check_in_at": at, "timezone": zone, "utc_offset_minutes": offset}
+    assert companion.local_time_label(record) == label
+
+
+def test_a_cli_style_activation_shows_the_users_own_offset():
+    _setup()
+    rec = companion.add_candidate(context_id=CTX, outcome="Send it",
+                                  source_ref=SOURCE)
+    rec = companion.activate(rec["id"],
+                             check_in_at="2026-10-28T09:00:00+09:00")
+    assert (rec["timezone"], rec["utc_offset_minutes"]) == ("UTC", 540)
+    assert "· 예정 시각: 10월 28일 09:00" in companion.why_message(rec)
+    res = companion.answer(rec["id"], "snooze", snooze_minutes=60,
+                           now=datetime(2026, 9, 26, 15, 10, tzinfo=KST))
+    assert "9월 26일 16:10에 다시 물어볼게요" in res["message"]
 
 def test_errors_carry_stable_codes():
     _setup()

@@ -1066,6 +1066,9 @@ class Gateway:
                 "지금 따라가고 있는 약속이 없어요. "
                 "`birkin companion add` 로 등록할 수 있어요."
             )
+        # A chat holds one pending commitment, so a missed one can be asked
+        # again only while no other is pending.
+        busy = any(r["status"] in ("active", "snoozed") for r in records)
         lines: list[str] = []
         for record in records:
             lines.append(
@@ -1075,9 +1078,13 @@ class Gateway:
                 lines.append(f"  다음 할 일: {record.get('next_action')}")
             lines.append(f"  예정: {companion_module.local_time_label(record)}")
             if record["status"] == "missed":
-                lines.append(
-                    "  예정 시각이 지나 묻지 못했어요. 다시 물어보게 하려면 "
+                retry = "" if busy else (
+                    "다시 물어보게 하려면 "
                     + f"`birkin companion answer {record['id']} --do snooze`, "
+                )
+                lines.append(
+                    "  예정 시각이 지나 묻지 못했어요. "
+                    + retry
                     + f"정리하려면 `birkin companion answer {record['id']} "
                     + "--do stop` 을 실행해 주세요."
                 )

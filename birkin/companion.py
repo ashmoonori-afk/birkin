@@ -155,11 +155,17 @@ def _valid_zone(name: str, offset_minutes: int, moment: datetime) -> bool:
     return offset is not None and int(offset.total_seconds() // 60) == offset_minutes
 
 
+# Names a tz database gives UTC itself; a machine linked to one is on UTC.
+_UTC_ALIASES = frozenset({"UTC", "Etc/UTC", "UCT", "Etc/UCT", "Universal",
+                          "Etc/Universal", "Zulu", "Etc/Zulu", "GMT", "Etc/GMT"})
+
+
 def local_zone(now: datetime | None = None) -> tuple[str, int]:
     """This machine's zone as ``(name, utc_offset_minutes)``, stdlib only.
 
     The IANA name comes from ``TZ`` or the ``/etc/localtime`` link, and is kept
-    only when it agrees with the machine's current offset. Windows without
+    only when it agrees with the machine's current offset. Any UTC alias
+    (``Etc/UTC`` on most Linux images) is reported as ``UTC``. Windows without
     ``tzdata`` has neither, so the name falls back to a ``UTC+09:00`` label:
     :func:`resolve_tz` cannot resolve it and uses the captured offset, the same
     documented fallback activation relies on.
@@ -175,7 +181,7 @@ def local_zone(now: datetime | None = None) -> tuple[str, int]:
         candidates.append(link.split("/zoneinfo/", 1)[1])
     for name in candidates:
         if name and _valid_zone(name, offset, moment):
-            return name, offset
+            return ("UTC" if name in _UTC_ALIASES else name), offset
     if not offset:
         return "UTC", 0
     sign = "+" if offset > 0 else "-"
@@ -449,14 +455,7 @@ def activate(commitment_id: str, *, check_in_at: str, tz_name: str = "UTC",
         context = state["contexts"].get(record["context_id"])
         if not context or context.get("state") != "active":
             raise CompanionError("context is not bound and active")
-        clash = [
-            other for other in state["commitments"].values()
-            if other["context_id"] == record["context_id"]
-            and other["id"] != record["id"] and other["status"] in _PENDING
-        ]
-        if clash:
-            raise CompanionError(
-                f"context already has an active commitment: {clash[0]['id']}")
+        _require_free_slot(state, record)
         record.update({"status": "active", "check_in_at": _iso(when),
                        "timezone": str(tz_name),
                        "utc_offset_minutes": int(utc_offset_minutes),
@@ -496,6 +495,21 @@ def _check_transition(current: str, target: str) -> None:
     if target not in _TRANSITIONS.get(current, frozenset()):
         raise CompanionError(f"invalid transition {current} -> {target}",
                              code="invalid_transition")
+
+
+def _require_free_slot(state: dict[str, Any], record: dict[str, Any]) -> None:
+    """One pending commitment per context (MVP): activating, re-asking or
+    rescheduling another one cannot quietly start a second stream of
+    check-ins."""
+    clash = [
+        other for other in state["commitments"].values()
+        if other["context_id"] == record["context_id"]
+        and other["id"] != record["id"] and other["status"] in _PENDING
+    ]
+    if clash:
+        raise CompanionError(
+            f"context already has an active commitment: {clash[0]['id']}",
+            code="context_busy")
 
 
 def correct(commitment_id: str, *, outcome: str = "", next_action: str = "",
@@ -804,6 +818,8 @@ def answer(commitment_id: str, action: str, *, source_ref: str = "",
                 f"{open_checkin.get('answer')!r}", code="already_answered")
         target = _ACTION_STATUS[verb]
         _check_transition(record["status"], target)
+        if target in _PENDING and record["status"] not in _PENDING:
+            _require_free_slot(state, record)
         # Keyed before the mutation below: a snooze moves check_in_at, and the
         # marker has to identify the check-in that was actually answered.
         answered_key = open_checkin.get("key") or checkin_key(record)
@@ -856,6 +872,8 @@ def reschedule(commitment_id: str, *, check_in_at: str,
             raise CompanionError(
                 f"invalid transition {record['status']} -> active",
                 code="invalid_transition")
+        if record["status"] not in _PENDING:
+            _require_free_slot(state, record)
         record.update({"status": "active", "check_in_at": _iso(when),
                        "policy_version": int(state["policy"].get("version", 1)),
                        "checkin": None, "updated_at": _iso(moment)})
@@ -867,18 +885,39 @@ def reschedule(commitment_id: str, *, check_in_at: str,
     return record
 
 
-def _display_tz(tz_name: Any, offset_minutes: Any) -> tzinfo:
+def _display_tz(tz_name: Any, offset_minutes: Any, moment: datetime) -> tzinfo:
+    """The zone ``moment`` is shown in.
+
+    The stored name is often just the ``UTC`` default (a CLI activation without
+    ``--tz``, a policy never adopted) while the offset came from the user's own
+    ``+09:00``. So the named zone is used only when it agrees with the captured
+    offset at ``moment`` or half a year either side (DST); otherwise the
+    captured offset wins. A zero offset is what a ``Z`` timestamp gives, so it
+    never overrides a named zone.
+    """
     try:
-        return resolve_tz(str(tz_name or "UTC"), offset_minutes)
+        offset = _parse_fixed_offset(offset_minutes or 0)
     except CompanionError:   # a malformed stored offset must not break copy
-        return timezone.utc
+        offset = 0
+    zone = resolve_tz(str(tz_name or "UTC"), offset)
+    if not offset:
+        return zone
+    for shift in (0, -182, 182):
+        try:
+            probe = (moment + timedelta(days=shift)).astimezone(zone)
+        except OverflowError:   # a far-off stored time must not break copy
+            continue
+        delta = probe.utcoffset() or timedelta(0)
+        if int(delta.total_seconds() // 60) == offset:
+            return zone
+    return timezone(timedelta(minutes=offset))
 
 
 def _wall_clock(value: Any, tz_name: Any, offset_minutes: Any) -> str:
     moment = parse_iso(value) if value else None
     if moment is None:
         return "-"
-    local = moment.astimezone(_display_tz(tz_name, offset_minutes))
+    local = moment.astimezone(_display_tz(tz_name, offset_minutes, moment))
     return f"{local.month}월 {local.day}일 {local.hour:02d}:{local.minute:02d}"
 
 
@@ -893,7 +932,8 @@ def _asked_phrase(record: dict[str, Any], now: datetime | None) -> str:
     created = parse_iso(record.get("created_at"))
     if created is None:
         return "이전에"
-    zone = _display_tz(record.get("timezone"), record.get("utc_offset_minutes"))
+    zone = _display_tz(record.get("timezone"), record.get("utc_offset_minutes"),
+                       created)
     asked = created.astimezone(zone).date()
     days = ((now or _utcnow()).astimezone(zone).date() - asked).days
     if days <= 0:
@@ -989,7 +1029,7 @@ def propose_checkin(*, outcome: str, check_in_at: str,
     status = approvals.propose(
         category="companion",
         title=f"후속 확인 예약: {candidate['outcome'][:60]}",
-        description=(f"{at_label}에 {_channel_label(ctx_id)}로 진행 상황을 "
+        description=(f"{at_label}에 {_channel_label(ctx_id)}으로 진행 상황을 "
                      f"여쭤볼게요. 다음 할 일: "
                      f"{candidate['next_action'] or '-'}"),
         payload={"commitment_id": candidate["id"],
