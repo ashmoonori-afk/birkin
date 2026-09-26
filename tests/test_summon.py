@@ -720,6 +720,80 @@ def test_foreground_summon_shows_child_steps_and_a_result_header():
     assert "None" not in out and "\x1b" not in out
 
 
+def test_summon_progress_follows_only_its_own_run_across_threads(
+        monkeypatch):
+    # research_run's moirai workers and a nested subagent emit their own
+    # subagent.* events through the child's sink, from pool threads.
+    from birkin import slashcommands as sc, ui
+
+    monkeypatch.setattr(ui, "plain_mode", lambda: False)    # a TTY
+    spinners = []
+
+    class _Recorded(ui.Spinner):
+        def start(self):
+            spinners.append(self)
+            super().start()
+
+    monkeypatch.setattr(ui, "Spinner", _Recorded)
+    progress = sc.SummonProgress(summon.get_agent("researcher"))
+    lanes = 4
+    barrier = threading.Barrier(lanes)
+
+    def lane(index):
+        barrier.wait()
+        progress.emit("subagent.start", {"task": f"[worker-{index}] 조사"})
+        progress.emit("subagent.start", {"task": "하위", "id": f"n{index}"})
+        progress.emit("subagent.tool_start", {"name": "web_search"})
+        progress.emit("subagent.done", {"chars": 1})
+
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            with progress:
+                progress.emit("subagent.start", {"task": "조사", "id": "own"})
+                threads = [threading.Thread(target=lane, args=(index,))
+                           for index in range(lanes)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+        live = [s for s in spinners
+                if s._thread is not None and s._thread.is_alive()]
+    finally:
+        for spinner in spinners:
+            spinner._stop.set()
+    out = buf.getvalue()
+
+    assert out.count("에이전트에게 맡겼어요") == 1, out
+    assert out.count("→ web_search") == lanes
+    assert spinners and not live
+
+
+def test_a_run_without_text_reads_in_korean_on_every_terminal_surface(
+        monkeypatch, capsys):
+    from birkin import cli
+
+    session = _session()
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "")
+
+    front = _slash("/summon planner 계획", session)
+    (run,) = agentruns.list_runs()
+    attach = _slash(f"/attach {run['id'][:8]}", session)
+    finished = _wait_for_finish(monkeypatch)
+    _slash("/summon --bg researcher 조사", session)
+    assert finished.wait(5)
+    notice = _announce()
+    assert cli.main(["summon", "meeting-scribe", "정리"]) == 0
+    captured = capsys.readouterr()
+
+    for out in (front, attach, notice, captured.err):
+        assert "결과 텍스트가 없습니다." in out, out
+    for out in (front, attach, notice, captured.err, captured.out):
+        assert "returned no text" not in out, out
+    assert captured.out == ""          # stdout carries only a result
+
+
 def test_send_refuses_a_finished_run():
     rec = agentruns.register_run("done already")
     agentruns.finish_run(rec["id"], "done", "x")

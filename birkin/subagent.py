@@ -26,6 +26,9 @@ _BLOCKED_POLL_SECONDS = 1.0
 # An image block's base64 payload says nothing about its token cost; count a
 # fixed allowance instead so a screenshot does not dominate the estimate.
 _IMAGE_CHARS = 6400
+# Stands in for a run that ended without text. The parent model reads it, so it
+# stays English; people see ``summon.result_text``'s Korean copy instead.
+NO_TEXT_RESULT = "(subagent returned no text)"
 
 
 def _block_chars(block: Any) -> int:
@@ -307,7 +310,7 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
                 and parent_ctx.tree_budget.expired()
             ):
                 raise RuntimeError("subagent tree deadline exceeded")
-            result = raw_result or "(subagent returned no text)"
+            result = raw_result or NO_TEXT_RESULT
             agentruns.finish_run(run_id, "done", result)
         except BaseException as exc:
             # BaseException: a Ctrl-C in the REPL must not leave the durable

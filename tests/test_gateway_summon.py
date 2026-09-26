@@ -93,3 +93,24 @@ def test_long_summon_results_say_they_were_shortened(tmp_path, monkeypatch):
     assert done.wait(5)
     assert len(delivered["text"]) < 3500
     assert "앞부분만 보냈어요" in delivered["text"]
+
+
+def test_a_summon_without_text_reports_it_in_korean(tmp_path, monkeypatch):
+    from birkin import scheduler, summon
+
+    gw = _gateway(tmp_path, monkeypatch)
+    delivered = {}
+    done = threading.Event()
+    # run_subagent's stand-in when the agent returned no text.
+    monkeypatch.setattr(summon, "summon",
+                        lambda *a, **k: "(subagent returned no text)")
+
+    def fake_deliver(name, chat_id, text, *, channel="telegram"):
+        delivered["text"] = text
+        done.set()
+        return "sent"
+
+    monkeypatch.setattr(scheduler, "deliver", fake_deliver)
+    gw.handle("telegram", "42", "/summon researcher 조사")
+    assert done.wait(5)
+    assert delivered["text"] == "결과 텍스트가 없습니다."

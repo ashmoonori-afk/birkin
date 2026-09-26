@@ -1292,7 +1292,7 @@ class Gateway:
 
         def work() -> None:
             try:
-                text = summon.summon(spec.name, task, ctx)
+                text = summon.result_text(summon.summon(spec.name, task, ctx))
             except summon.SummonBudgetExceeded:
                 text = "토큰 예산을 다 써서 작업을 시작하지 못했어요."
             except Exception as exc:

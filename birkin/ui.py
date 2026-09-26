@@ -474,8 +474,15 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
             state["depth"] += 1
         elif event == "subagent.done":
             state["depth"] = max(0, state["depth"] - 1)
-            label = _summary(payload) or "하위 에이전트 완료"
-            sys.stdout.write(f"{DIM}{_pad()}⇱ {label}{RESET}\n")
+            # run_subagent flags a failed run with is_error, moirai with its
+            # error text (never shown), the workspace adapter with its state.
+            failed = (payload.get("is_error") or payload.get("error")
+                      or payload.get("state") == "failed")
+            mark = f"{RED}✗{RESET}{DIM}" if failed else "⇱"
+            label = _summary(payload) or (
+                "하위 에이전트가 작업을 마치지 못했습니다" if failed
+                else "하위 에이전트 완료")
+            sys.stdout.write(f"{DIM}{_pad()}{mark} {label}{RESET}\n")
         elif event == "checkpoint":
             # Teach /undo the moment there's something to undo (lazygit shows
             # the commit key right after you stage). Was silent before.

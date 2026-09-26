@@ -372,6 +372,18 @@ def detached_run_id(result: str) -> str:
     return match.group(1) if match else ""
 
 
+NO_TEXT_COPY = "결과 텍스트가 없습니다."
+
+
+def result_text(result: object) -> str:
+    """A finished run's result as a person sees it: the text itself, or Korean
+    copy for ``run_subagent``'s no-text stand-in or an empty result."""
+    from .subagent import NO_TEXT_RESULT  # local: subagent imports tools
+
+    text = str(result or "")
+    return NO_TEXT_COPY if text.strip() in ("", NO_TEXT_RESULT) else text
+
+
 def summon(name: str, task: str, parent_ctx: Any, *, detach: bool = False,
            reserve_tokens: int = 0, reserve_usd: float = 0.0) -> str:
     """Run ``task`` with the named specialist and return its result text.

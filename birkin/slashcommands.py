@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import threading
 import time
 from dataclasses import dataclass, field, is_dataclass, replace
 from datetime import datetime
@@ -603,7 +604,7 @@ def _trail_text(line: str) -> str:
 @command("attach", "실행 중인 에이전트를 따라가고 결과를 봐요.",
          "/attach <실행 ID>")
 def _attach(session: Any, arg: str) -> None:
-    from . import agentruns
+    from . import agentruns, summon
     run = _resolve_run(arg.strip(), "/attach <실행 ID>")
     if run is None:
         return
@@ -638,8 +639,9 @@ def _attach(session: Any, arg: str) -> None:
             print(f"{DIM}세부: {ui.fit(_flat(result), 200)}{RESET}")
         return
     print(f"{BOLD}{_run_label(final)}{RESET} {DIM}· {took}{RESET}")
-    if result and final["status"] == "done":
-        print(f"\n{ui.render_markdown(ui.printable_block(result))}")
+    if final["status"] == "done":
+        shown = summon.result_text(result)
+        print(f"\n{ui.render_markdown(ui.printable_block(shown))}")
 
 
 @command("send", "실행 중인 에이전트에게 메시지를 보내 방향을 바꿔요.",
@@ -682,7 +684,7 @@ def announce_finished_summons() -> None:
     /summon --bg or the model's spawn_subagent started it, so delegated work
     reports back instead of waiting for the user to remember /attach.
     """
-    from . import agentruns
+    from . import agentruns, summon
     titles: dict[str, str] | None = None
     for run_id in agentruns.detached_here():
         run = agentruns.get_run(run_id)
@@ -699,9 +701,9 @@ def announce_finished_summons() -> None:
             print(f"{GREEN}✓ {title} 작업이 끝났어요{RESET} {DIM}· {took}  "
                   f"/attach {run_id[:8]} 로 결과를 볼 수 있어요.{RESET}")
             # The stored result keeps its head, where the conclusion is.
-            preview = ui.fit(_flat(run.get("result")), _ANNOUNCE_PREVIEW_CELLS)
-            if preview:
-                print(f"  {preview}")
+            preview = ui.fit(_flat(summon.result_text(run.get("result"))),
+                             _ANNOUNCE_PREVIEW_CELLS)
+            print(f"  {preview}")
         else:
             print(f"{RED}✗ {title} 작업이 실패했어요{RESET} {DIM}· {took}  "
                   f"/attach {run_id[:8]} 로 기록을 확인하세요.{RESET}")
@@ -791,9 +793,12 @@ class SummonProgress:
     never claims it started), one line per child tool call, and keeps a
     spinner with the elapsed time between them. ``stream=None`` writes to the
     current stdout, styled; another stream gets plain lines. Used as a
-    context manager around the summon, so the spinner always stops. The
-    agent emits from its own thread only (``Agent._run_parallel``), so no
-    lock is needed.
+    context manager around the summon, so the spinner always stops.
+
+    The child's tools share this sink: research_run's moirai workers and a
+    nested subagent emit their own ``subagent.*`` events, from pool threads.
+    So only the first ``subagent.start`` that carries a run id is this run's
+    (moirai's carry none), and a lock serializes the spinner and the lines.
     """
 
     def __init__(self, spec: Any, *, stream: Any = None,
@@ -805,9 +810,12 @@ class SummonProgress:
         self._use_spinner = spinner
         self._spinner: ui.Spinner | None = None
         self._active = False
+        self._run_id = ""
+        self._lock = threading.Lock()
         self.started_at = time.monotonic()
 
     def _spin(self, on: bool) -> None:
+        # Callers hold self._lock.
         if self._spinner is not None:
             self._spinner.stop()
             self._spinner = None
@@ -817,18 +825,23 @@ class SummonProgress:
             self._spinner.start()
 
     def __enter__(self) -> "SummonProgress":
-        self.started_at = time.monotonic()
-        self._active = True
-        self._spin(True)
+        with self._lock:
+            self.started_at = time.monotonic()
+            self._active = True
+            self._spin(True)
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        self._active = False
-        self._spin(False)
+        with self._lock:
+            self._active = False
+            self._spin(False)
 
     def emit(self, event: str, payload: dict[str, Any]) -> None:
         name = ui.printable(payload.get("name") or "도구")
+        run_id = payload.get("id")
         if event == "subagent.start":
+            if not isinstance(run_id, str) or not run_id:
+                return
             line = (f"{self._title}({self._name}) 에이전트에게 맡겼어요. "
                     "끝날 때까지 기다려요 · Ctrl-C 로 중단")
         elif event == "subagent.tool_start":
@@ -839,9 +852,15 @@ class SummonProgress:
             line = "  ↪ 보낸 메시지를 반영했어요"
         else:
             return
-        self._spin(False)
-        print(f"{self._dim}{line}{self._reset}", file=self._stream, flush=True)
-        self._spin(True)
+        with self._lock:
+            if event == "subagent.start":
+                if self._run_id:
+                    return          # a nested run, not this one
+                self._run_id = run_id
+            self._spin(False)
+            print(f"{self._dim}{line}{self._reset}", file=self._stream,
+                  flush=True)
+            self._spin(True)
 
     def done_line(self) -> str:
         took = ui.duration_ko(time.monotonic() - self.started_at)
@@ -922,7 +941,7 @@ def _summon(session: Any, arg: str) -> None:
                   "끝나면 여기서 알려드릴게요.")
         return
     print(progress.done_line())
-    print(ui.render_markdown(ui.printable_block(result)))
+    print(ui.render_markdown(ui.printable_block(summon.result_text(result))))
 
 
 @command("details", "Toggle verbose tool traces (full input + result snippet).",

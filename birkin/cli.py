@@ -1467,7 +1467,10 @@ def _cmd_summon(args: argparse.Namespace) -> int:
     finally:
         session.close()
     print(progress.done_line(), file=sys.stderr)
-    print(result)
+    shown = summon.result_text(result)
+    # "No text" is a notice, not a result, so a redirected stdout stays empty.
+    out = sys.stderr if shown == summon.NO_TEXT_COPY else sys.stdout
+    print(shown, file=out)
     return 0
 
 
