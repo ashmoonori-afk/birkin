@@ -308,6 +308,36 @@ def test_pptx_placeholder_on_a_later_slide_names_that_slide(office: Path) -> Non
     ]
 
 
+def test_pptx_slide_order_is_read_once_for_every_touched_slide(
+    office: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from birkin.office import operation_targets
+
+    # Given: a two-slide deck and a counted slide inventory.
+    source = _two_slide_deck(office / "deck.pptx")
+    inventory = operation_targets.presentation_inventory
+    calls: list[int] = []
+
+    def counted(parts: dict[str, bytes]) -> object:
+        calls.append(len(parts))
+        return inventory(parts)
+
+    monkeypatch.setattr(operation_targets, "presentation_inventory", counted)
+
+    # When: one request touches placeholders on both slides.
+    summaries = _request(office, source, "deck.pptx 발표 자료 본문을 바꿔줘", [
+        {"locator": {"slide_part": "ppt/slides/slide2.xml", "placeholder_idx": 1}, "value": "새 둘째"},
+        {"locator": {"slide_part": "ppt/slides/slide1.xml", "placeholder_idx": 1}, "value": "새 첫째"},
+    ])
+
+    # Then: both slides are numbered from a single inventory pass.
+    assert summaries == [
+        {"location": "pptx slide 2 placeholder 1", "before": "둘째 본문", "after": "새 둘째"},
+        {"location": "pptx slide 1 placeholder 1", "before": "첫 본문", "after": "새 첫째"},
+    ]
+    assert len(calls) == 1
+
+
 def test_pptx_placeholder_before_is_its_own_text_not_the_slide(office: Path) -> None:
     source = _raw_deck(office / "raw.pptx")
 

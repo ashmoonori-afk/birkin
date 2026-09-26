@@ -7,7 +7,7 @@ import unicodedata
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 from openpyxl import Workbook
@@ -250,6 +250,41 @@ def test_birkin_state_is_never_imported_from_a_parent_workspace(
     error = cast("dict[str, object]", body["error"])
     assert error["code"] == "PERMISSION_DENIED"
     assert cast("dict[str, object]", error["details"])["reason"] == "birkin_state"
+
+
+def test_an_alias_spelling_of_birkin_home_is_refused_by_identity(
+    home: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: a folder whose spelling the text check cannot match but which
+    # the filesystem resolves to BIRKIN_HOME, as NTFS does for the 8.3
+    # short name BIRKIN~1 or macOS for a firmlinked data-volume path.
+    home.mkdir()
+    alias = tmp_path / "BIRKIN~1"
+    target = alias / "office" / "artifacts" / "export-backups" / "x.docx"
+    target.parent.mkdir(parents=True)
+    _ = build_docx_template(target)
+    aliased = alias.resolve()
+    real_stat = os.stat
+
+    def resolving_stat(path: Any, *args: Any, **kwargs: Any) -> os.stat_result:
+        if not isinstance(path, int) and Path(path) == aliased:
+            path = home
+        return real_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "stat", resolving_stat)
+
+    # When: the model names the backup through the alias spelling.
+    body, is_error = _call(
+        _registry(tmp_path),
+        "local_document_import",
+        {"path": "BIRKIN~1/office/artifacts/export-backups/x.docx"},
+    )
+
+    # Then: native identity, not spelling, marks it as Birkin state.
+    assert is_error, body
+    error = cast("dict[str, object]", body["error"])
+    assert cast("dict[str, object]", error["details"])["reason"] == "birkin_state"
+    assert _drafts(home) == []
 
 
 @_POSIX_ONLY

@@ -88,12 +88,44 @@ def _within(path: tuple[str, ...], root: tuple[str, ...]) -> bool:
     return path[: len(root)] == root
 
 
+def _identity(path: Path, *, follow_symlinks: bool = True) -> tuple[int, int] | None:
+    try:
+        metadata = os.stat(path, follow_symlinks=follow_symlinks)
+    except OSError:
+        return None
+    return metadata.st_dev, metadata.st_ino
+
+
+def _is_birkin_state_by_identity(real_path: Path, home: Path) -> bool:
+    # An alias the text does not match, such as a Windows 8.3 short name or
+    # a macOS firmlink, still opens the same directory, so walk the parents
+    # by native identity. The nearest Birkin-owned directory decides. A drop
+    # folder counts only as itself, never through a redirecting link.
+    home_identity = _identity(home)
+    if home_identity is None:
+        return False
+    drops = {
+        _identity(home.joinpath(*folder), follow_symlinks=False)
+        for folder in _BIRKIN_DROP_FOLDERS
+    }
+    drops.discard(None)
+    for directory in real_path.parents:
+        identity = _identity(directory)
+        if identity in drops:
+            return False
+        if identity == home_identity:
+            return True
+    return False
+
+
 def _is_birkin_state(real_path: Path, home: Path) -> bool:
     # Compare NFC-casefolded components: on a case- or normalization-
     # insensitive volume another spelling still names the same directory.
     def key(path: Path) -> tuple[str, ...]:
         return tuple(canonical_name(part) for part in path.parts)
 
+    if _is_birkin_state_by_identity(real_path, home):
+        return True
     real_home = home.resolve()
     path = key(real_path)
     if not _within(path, key(real_home)):

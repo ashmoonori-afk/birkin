@@ -80,10 +80,7 @@ def _hwpx(
     return targets
 
 
-def _slide_number(parts: dict[str, bytes], slide_part: str) -> int:
-    ordered = [
-        slide["part_uri"] for slide in presentation_inventory(parts)["slides"]
-    ]
+def _slide_number(ordered: list[str], slide_part: str) -> int:
     if slide_part in ordered:
         return ordered.index(slide_part) + 1
     match = _SLIDE_NUMBER.fullmatch(slide_part)
@@ -98,6 +95,11 @@ def _pptx(
     path: Path, source_sha256: str, operations: Sequence[Mapping[str, object]]
 ) -> list[ResolvedTarget | None]:
     parts, _ = package_parts(path, source_sha256)
+    # Slide order comes from presentation.xml and its relationships, which a
+    # placeholder splice never changes, so one inventory serves every slide.
+    ordered = [
+        slide["part_uri"] for slide in presentation_inventory(parts)["slides"]
+    ]
     numbers: dict[str, int] = {}
     targets: list[ResolvedTarget | None] = []
     for operation in operations:
@@ -116,7 +118,7 @@ def _pptx(
         ):
             raise _precondition("PPTX placeholder operation is malformed")
         if slide_part not in numbers:
-            numbers[slide_part] = _slide_number(parts, slide_part)
+            numbers[slide_part] = _slide_number(ordered, slide_part)
         changed, previous, _block = placeholder_parts(
             parts, slide_part, index, _text(operation, "value"), None
         )
