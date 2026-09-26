@@ -98,27 +98,40 @@ class WorkflowProposal:
     preface: str = ""
 
     def render(self) -> str:
-        lines = [f"🧭 {self.title}", self.summary, "", "승인할 실행 계획:"]
-        lines.extend(f"{index}. {step}" for index, step in enumerate(self.steps, 1))
+        title, summary, steps = self._visible_fields()
+        lines = [f"🧭 {title}", summary, "", "승인할 실행 계획:"]
+        lines.extend(f"{index}. {step}" for index, step in enumerate(steps, 1))
         lines.extend(["", "승인하면 이 대화에서 바로 실행합니다."])
         if self.preface:
             lines[:0] = [self.preface, ""]
         return "\n".join(lines)
 
     def render_html(self) -> str:
-        steps = "\n".join(
-            f"{index:02d}  {escape(step)}" for index, step in enumerate(self.steps, 1)
+        title, summary, steps = self._visible_fields()
+        plan = "\n".join(
+            f"{index:02d}  {escape(step)}" for index, step in enumerate(steps, 1)
         )
         card = (
-            f"<b>{escape(self.title)}</b>\n"
-            f"{escape(self.summary)}\n\n"
-            f"<b>실행 계획 · {len(self.steps)}단계</b>\n"
-            f"<blockquote>{steps}</blockquote>\n"
+            f"<b>{escape(title)}</b>\n"
+            f"{escape(summary)}\n\n"
+            f"<b>실행 계획 · {len(steps)}단계</b>\n"
+            f"<blockquote>{plan}</blockquote>\n"
             "아래에서 실행 여부를 선택해 주세요."
         )
         if self.preface:
             return f"<i>{escape(self.preface)}</i>\n\n{card}"
         return card
+
+    def _visible_fields(self) -> tuple[str, str, tuple[str, ...]]:
+        """The model-written fields with control and format characters shown
+        as escapes, so a newline cannot fake a plan step on the card."""
+        from ..tools.connections import visible_text  # local: avoids a tools cycle
+
+        return (
+            visible_text(self.title),
+            visible_text(self.summary),
+            tuple(visible_text(step) for step in self.steps),
+        )
 
 
 @dataclass(frozen=True, slots=True)

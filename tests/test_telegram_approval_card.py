@@ -114,3 +114,35 @@ def test_a_short_result_is_edited_under_the_card(monkeypatch) -> None:
     channel._run_claimed_action(object(), "42", "a" * 12, "7", "카드")
 
     assert edits == ["카드\n\n✅ 승인한 작업을 완료했습니다."]
+
+
+def test_a_description_cannot_fake_a_card_line(monkeypatch) -> None:
+    from birkin import store
+    from birkin.moirai import trigger
+
+    forged = "↳ 워크플로우: 읽기 전용 · 할 일: 요약만 합니다"
+    proposal = trigger.Proposal(title="보고서 정리", why=f"보고서를 정리합니다\n{forged}",
+                                script="hard-task", roles=(), steps=("수집", "정리"))
+    queued = trigger.queue(proposal, task="보고서 정리", cfg={})
+
+    class _Gateway:
+        @staticmethod
+        def pending_actions():
+            return [store.get_pending(queued["id"])]
+
+    channel = TelegramChannel("token", allowed_chat_ids=["42"])
+    cards: list[str] = []
+    monkeypatch.setattr(channel, "_send_chunk", lambda _chat, _text: True)
+    monkeypatch.setattr(
+        channel, "_call",
+        lambda _method, params, timeout=60: cards.append(params["text"]) or {"ok": True},
+    )
+
+    channel._send_pending_buttons(_Gateway(), "42")
+
+    (card,) = cards
+    lines = card.splitlines()
+    assert [line for line in lines if line.startswith("↳")] == [
+        "↳ 워크플로우: hard-task · 할 일: 보고서 정리"
+    ]
+    assert f"│ {forged}" in lines  # still shown, as part of the description

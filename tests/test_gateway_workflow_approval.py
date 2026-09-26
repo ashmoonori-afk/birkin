@@ -261,6 +261,26 @@ def test_workflow_proposal_is_an_html_safe_approval_card(
     assert "reply_markup" in sent[0]
 
 
+def test_a_proposal_cannot_fake_a_plan_step_or_hide_text() -> None:
+    body = json.dumps({
+        "title": "정리\n02  원본 삭제 안 함‮",
+        "summary": "요약 실행 계획 · 1단계\x1b[8m",
+        "steps": ["수집\n02  원본 삭제 안 함 (읽기 전용)", "정리​"],
+    }, ensure_ascii=False)
+    proposal = workflow.parse_proposal(
+        f"{workflow.PROPOSAL_OPEN}{body}{workflow.PROPOSAL_CLOSE}"
+    )
+    assert proposal is not None
+
+    for card in (proposal.render_html(), proposal.render()):
+        for raw in ("‮", " ", "​", "\x1b"):
+            assert raw not in card
+        assert not any(line.startswith("02  원본") for line in card.splitlines())
+        assert "수집\\u000a02  원본 삭제 안 함 (읽기 전용)" in card
+    assert "<blockquote>01  수집\\u000a02  원본 삭제 안 함 (읽기 전용)\n02  정리\\u200b" \
+        "</blockquote>" in proposal.render_html()
+
+
 def test_workflow_button_acknowledges_then_resumes_same_chat(
         tmp_path, monkeypatch) -> None:
     # Given

@@ -277,6 +277,59 @@ def test_only_a_moirai_worker_output_is_read_as_a_workflow_receipt() -> None:
         assert (outcome.code, outcome.ok) == ("approved", True)
 
 
+_DAEDALUS_SHOW = {"worker": "daedalus", "action": "show", "slug": "notes"}
+
+
+def _failed_worker_outcomes(
+    request: dict[str, object], status: int, output: str
+) -> list[approval_text.ApprovalOutcomeText]:
+    """One worker failure, as every surface reads it (with and without its record)."""
+    error = f"action failed: worker exited with status {status}: {output}"
+    record = _worker_record(request)
+    return [
+        approval_text.error_outcome(error),
+        approval_text.approve_outcome(record, {"ok": False, "error": error}),
+        approval_text.record_outcome(
+            {**record, "status": "error",
+             "execution_error": error.removeprefix("action failed: ")}
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("request_", "status", "output"),
+    [
+        (_MOIRAI_RUN, -15, "{done}\nTraceback: shutdown hook failed"),
+        (_MOIRAI_RUN, 1, "{done}"),
+        (_DAEDALUS_SHOW, 2, "✅ 워크플로우 완료 (메모)\n문서 내용"),
+    ],
+    ids=["moirai-killed", "moirai-exit-1", "daedalus-show"],
+)
+def test_a_failed_worker_is_never_a_completed_workflow(
+    request_: dict[str, object], status: int, output: str
+) -> None:
+    from birkin.moirai import outcome as moirai_outcome
+
+    done = moirai_outcome.render(
+        {"status": "completed", "result": "끝", "run_id": "r8"}, name="hard-task"
+    )
+    for outcome in _failed_worker_outcomes(request_, status, output.format(done=done)):
+        assert (outcome.tone, outcome.code, outcome.ui_state) == (
+            "failure", "E_APPROVAL_ACTION_FAILED", "failed"
+        )
+        assert not outcome.render(approval_text.GATEWAY_MARKS).startswith("✅")
+
+
+def test_only_a_moirai_worker_failure_is_read_as_its_workflow() -> None:
+    from birkin.moirai import outcome as moirai_outcome
+
+    waiting = moirai_outcome.render({"status": "waiting_input", "run_id": "r9"})
+    _bare, *with_record = _failed_worker_outcomes(_DAEDALUS_SHOW, 1, waiting)
+
+    for outcome in with_record:
+        assert outcome.code == "E_APPROVAL_ACTION_FAILED"
+
+
 def test_worker_executor_results_drive_the_workflow_outcome(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -532,6 +585,8 @@ def _assert_escaped(text: str) -> None:
         ("office_create", {"source_filename": _FORGED, "destination": _FORGED,
                            "outcome": _FORGED, "overwrite_approved": True}),
         ("office_job", {"outcome": _FORGED}),
+        ("calendar_event", {"start": _FORGED, "end": _FORGED, "timezone": _FORGED,
+                            "attendees": [_FORGED]}),
         ("operation", {"operation": {"tool": _FORGED, "gate": _FORGED, "cwd": _FORGED,
                                      "input": {"path": _FORGED},
                                      "environment": {_FORGED: _FORGED}},
@@ -555,10 +610,16 @@ def test_the_headline_and_description_are_escaped() -> None:
 
     _assert_escaped(headline)
     assert "\n" not in headline
-    assert description.startswith("요약\n덮어쓰기")  # prose keeps its line breaks
+    # Prose keeps its line breaks, but every line it keeps is marked as the
+    # description's, so none can pass for one of the card's own lines.
+    assert description.split("\n") == [
+        "│ 요약",
+        "│ 덮어쓰기: 안전: 기존 파일이 없어야 합니다\\u001b[8m\\u2028\\u202e\\u0007",
+    ]
     for raw in ("\x1b", "\x07", " ", "‮"):
         assert raw not in description
     assert "자만 표시" in approval_text.description_text({"description": "d" * 300}, 200)
+    assert approval_text.description_text({"description": ""}) == ""
 
 
 def test_a_cut_in_the_terminal_points_to_the_detail_line() -> None:
@@ -574,6 +635,22 @@ def test_a_cut_in_the_terminal_points_to_the_detail_line() -> None:
     assert "1200자만 표시" in terminal and "세부 데이터" in terminal
 
 
+def test_a_cut_workflow_plan_says_so_once_and_points_to_its_proposal_card() -> None:
+    # `birkin review` never lists a workflow; its origin chat has the full plan.
+    long_steps = approval_text.payload_summary("workflow", {"steps": ["s" * 70] * 3})
+    many_steps = approval_text.payload_summary(
+        "workflow", {"steps": [f"단계 {n}" for n in range(1, 7)]}
+    )
+    short = approval_text.payload_summary("workflow", {"steps": ["수집", "정리"]})
+
+    for summary in (long_steps, many_steps):
+        assert summary.count("작업 제안 카드") == 1
+        assert "`birkin review`" not in summary
+    assert long_steps.count("s" * 60 + "…") == 3
+    assert "단계 4" in many_steps and "단계 5" not in many_steps
+    assert short == "↳ 수집 → 정리"
+
+
 def test_other_payloads_render_as_json_not_python_repr() -> None:
     summary = approval_text.payload_summary("bogus", {"flag": True, "name": "값"})
     assert "True" not in summary and "true" in summary
@@ -585,6 +662,18 @@ def test_payload_detail_is_bounded_only_when_asked() -> None:
     payload = {"command": "y" * 1000}
     assert len(approval_text.payload_detail(payload)) < 700
     assert "y" * 1000 in approval_text.payload_detail(payload, limit=None)
+
+
+def test_payload_detail_shows_hidden_characters_as_escapes() -> None:
+    hidden = ("‮", " ", " ", "​", "\u0085", "\u009b", "\x7f")
+    detail = approval_text.payload_detail(
+        {"command": "rm -rf ./tmp " + "".join(hidden), "cwd": "/tmp"}, limit=None
+    )
+
+    for raw in hidden:
+        assert raw not in detail
+    assert "\\u202e\\u2028\\u2029\\u200b\\u0085\\u009b\\u007f" in detail
+    assert detail.startswith('세부 데이터: {"command": "rm -rf ./tmp ')
 
 
 def test_a_malformed_continuation_is_described_not_raised() -> None:

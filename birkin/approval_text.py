@@ -184,16 +184,26 @@ def headline(record: Mapping[str, object]) -> str:
     return f"{risk_label(risk.risk_for(category))} · {label} — {title}"
 
 
+# Opens every description line: no card line starts with it, so a
+# model-written description cannot pass for the card's own "↳ …" or
+# "덮어쓰기: …" lines.
+_DESCRIPTION_MARK: Final = "│ "
+
+
 def description_text(
     record: Mapping[str, object],
     limit: int | None = None,
     *,
     where: Where = "chat",
 ) -> str:
-    """The record's own explanation, escaped; as prose it keeps its line breaks."""
-    return _card_preview(
+    """The record's own explanation, escaped; as prose it keeps its line
+    breaks, and every line it keeps is marked as the description's."""
+    text = _card_preview(
         record.get("description") or "", limit, keep_newlines=True, where=where
     )
+    if not text:
+        return ""
+    return "\n".join(f"{_DESCRIPTION_MARK}{line}" for line in text.split("\n"))
 
 
 def _visible(value: object) -> str:
@@ -313,6 +323,7 @@ _FULL_TEXT_HINTS: Final[dict[Where, str]] = {
     "chat": "전체 내용은 `birkin review` 또는 웹 승인 화면에서 확인하세요",
     "terminal": "전체 내용은 아래 '세부 데이터' 줄에서 확인하세요",
 }
+_WORKFLOW_CUT: Final = "계획의 일부만 표시 · 전체 계획은 이 대화의 작업 제안 카드에서 확인하세요"
 
 
 def _card_preview(
@@ -377,9 +388,15 @@ def payload_summary(
     if category == "workflow":
         raw_steps = payload.get("steps")
         steps = raw_steps if isinstance(raw_steps, list) else []
-        return "↳ " + " → ".join(
-            _card_preview(step, 60, where=where) for step in steps[:4]
+        shown = [_visible(step) for step in steps[:4]]
+        line = "↳ " + " → ".join(
+            f"{step[:60]}…" if len(step) > 60 else step for step in shown
         )
+        if len(steps) <= len(shown) and all(len(step) <= 60 for step in shown):
+            return line
+        # One notice for the whole plan. `birkin review` never lists a
+        # workflow; the proposal card in its origin chat has every step.
+        return f"{line} ({_WORKFLOW_CUT})"
     if category == "operation":
         return _operation_summary(payload)
     if category == "mail_send":
@@ -401,8 +418,12 @@ def payload_summary(
 
 
 def payload_detail(payload: object, limit: int | None = 600) -> str:
-    """The full request data as a labelled, optionally bounded detail line."""
-    text = _json_text(payload)
+    """The full request data as a labelled, optionally bounded detail line.
+
+    JSON already escapes newlines and C0 controls; the format characters,
+    line separators and C1 controls it leaves raw are shown as escapes too.
+    """
+    text = _visible(_json_text(payload))
     if limit is not None and len(text) > limit:
         text = f"{text[:limit]}… (전체 {len(text)}자)"
     return f"세부 데이터: {text}"
@@ -602,11 +623,14 @@ def _exit_outcome(
     )
 
 
-def error_outcome(error: object) -> ApprovalOutcomeText:
+def error_outcome(
+    error: object, *, record: Mapping[str, object] | None = None
+) -> ApprovalOutcomeText:
     """Map a stable approval error (text or a result dict) to Korean copy.
 
     The raw error never becomes the summary: unknown text falls back to a
-    bounded Korean message with ``E_APPROVAL_UNKNOWN``.
+    bounded Korean message with ``E_APPROVAL_UNKNOWN``. With the ``record``,
+    only a moirai run|resume worker's failure is read as its workflow.
     """
     if isinstance(error, Mapping):
         if isinstance(error.get("follow_up_approval_id"), str):
@@ -633,10 +657,15 @@ def error_outcome(error: object) -> ApprovalOutcomeText:
     if raw.startswith(_ACTION_FAILED_PREFIX):
         detail = raw[len(_ACTION_FAILED_PREFIX):].strip()
         # A worker's moirai run that is waiting or failed exits non-zero with
-        # its rendered outcome as the output.
+        # its rendered outcome as the output. A worker that failed never
+        # completed its workflow, whatever it printed first.
         worker = _WORKER_EXITED.match(detail)
-        workflow = _worker_workflow_outcome(worker.group(1)) if worker else None
-        if workflow is not None:
+        workflow = (
+            _worker_workflow_outcome(worker.group(1))
+            if worker is not None and (record is None or _is_moirai_worker_run(record))
+            else None
+        )
+        if workflow is not None and not workflow.ok:
             return workflow
         # A replayed operation fails with the tool's own "[exit N]" output.
         match = _EXIT.match(detail)
@@ -815,7 +844,7 @@ def approve_outcome(
             and record.get("status") != "pending"
         ):
             return resolved_elsewhere(record)
-        return error_outcome(result)
+        return error_outcome(result, record=record)
     status = result.get("status")
     if not isinstance(status, str):
         status = str((record or {}).get("status") or "")
@@ -928,7 +957,7 @@ def record_outcome(record: Mapping[str, object]) -> ApprovalOutcomeText:
         detail = str(record.get("execution_error") or "")
         if not detail.startswith(_ACTION_FAILED_PREFIX):
             detail = f"{_ACTION_FAILED_PREFIX} {detail}"
-        return error_outcome(detail)
+        return error_outcome(detail, record=record)
     return resolved_elsewhere(record)
 
 

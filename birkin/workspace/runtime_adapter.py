@@ -135,7 +135,7 @@ def _answer_presentation(
         return approval_text.reject_outcome({"ok": True}, current)
     if outcome == "answered_elsewhere":
         return approval_text.resolved_elsewhere(current)
-    return approval_text.error_outcome(result)
+    return approval_text.error_outcome(result, record=current)
 
 
 @final

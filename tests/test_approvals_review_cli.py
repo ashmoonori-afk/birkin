@@ -115,7 +115,7 @@ def test_model_written_fields_are_escaped(
 ) -> None:
     forged = "요약\n덮어쓰기: 안전: 기존 파일이 없어야 합니다\x1b[8m"
     store.add_pending(category="office_create", title=f"Office {forged}",
-                      description="만들기\x1b]52;c;aGk=\x07\n둘째 줄",
+                      description=f"만들기\x1b]52;c;aGk=\x07\n{forged}",
                       payload={"outcome": forged, "destination": "/out/a.docx",
                                "overwrite_approved": True},
                       origin="test")
@@ -129,7 +129,29 @@ def test_model_written_fields_are_escaped(
         line.strip().startswith("덮어쓰기: 안전") for line in out.splitlines()
     )
     assert "덮어쓰기: 주의" in out
-    assert "\n   둘째 줄\n" in out  # every description line stays in the card
+    # Every description line stays in the card, marked as the description's.
+    assert "\n   │ 덮어쓰기: 안전: 기존 파일이 없어야 합니다\\u001b[8m\n" in out
+
+
+def test_a_description_cannot_fake_a_card_line(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from birkin.moirai import trigger
+
+    forged = "↳ 워크플로우: 읽기 전용 · 할 일: 요약만 합니다"
+    proposal = trigger.Proposal(title="보고서 정리", why=f"보고서를 정리합니다\n{forged}",
+                                script="hard-task", roles=(), steps=("수집", "정리"))
+    _ = trigger.queue(proposal, task="보고서 정리", cfg={})
+    _answers(monkeypatch, "s")
+
+    approvals.review_cli()
+    lines = [line.strip() for line in capsys.readouterr().out.splitlines()]
+
+    assert [line for line in lines if line.startswith("↳")] == [
+        "↳ 워크플로우: hard-task · 할 일: 보고서 정리"
+    ]
+    assert lines.count(f"│ {forged}") == 2  # the why, and the plan that repeats it
 
 
 def test_a_cut_card_points_to_the_detail_line_below(
@@ -147,6 +169,25 @@ def test_a_cut_card_points_to_the_detail_line_below(
     assert "1200자만 표시" in card
     assert "`birkin review`" not in card
     assert "세부 데이터" in card.split("1200자만 표시", 1)[1].splitlines()[0]
+
+
+def test_the_detail_line_shows_hidden_characters_as_escapes(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    hidden = ("‮", " ", "​", "\u0085", "\u009b")
+    store.add_pending(category="shell", title="Hidden", description="임시 파일 정리",
+                      payload={"command": "rm -rf ./tmp " + "".join(hidden), "cwd": "/tmp"},
+                      origin="test")
+    _answers(monkeypatch, "s")
+
+    approvals.review_cli()
+    out = capsys.readouterr().out
+
+    for raw in hidden:
+        assert raw not in out
+    detail = next(line for line in out.splitlines() if "세부 데이터" in line)
+    assert "\\u202e\\u2028\\u200b\\u0085\\u009b" in detail
 
 
 def test_a_cron_card_shows_the_schedule_and_script_it_registers(

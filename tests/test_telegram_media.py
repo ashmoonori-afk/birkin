@@ -103,6 +103,53 @@ def test_the_native_document_registry_offers_both_tools(monkeypatch, tmp_path):
     assert gw_core.Gateway({"provider": "anthropic"}).can_import_documents()
 
 
+@pytest.mark.parametrize("imports", [True, False])
+def test_the_poll_loop_names_the_import_tools_only_when_the_gateway_has_them(
+        monkeypatch, tmp_path, imports):
+    ch = _ch(monkeypatch, tmp_path)
+    monkeypatch.setattr(ch, "_download_media",
+                        lambda fid: str(tmp_path / "uploads" / "d_보고서.docx"))
+    updates = [{"update_id": 10, "message": {
+        "chat": {"id": 42, "type": "private"}, "from": {"id": 42},
+        "document": {"file_id": "d", "file_size": 10}}}]
+    turns: list[str] = []
+
+    class _Gateway:
+        def command_menu(self):
+            return []
+
+        def take_restart_greeting(self, _channel):
+            return None
+
+        def interrupt(self, _channel, _chat_id):
+            return False
+
+        def can_import_documents(self):
+            return imports
+
+    def fake_call(method, _params, timeout=30):
+        if method != "getUpdates":
+            return {}
+        if not updates:
+            raise KeyboardInterrupt
+        return {"result": [updates.pop()]}
+
+    monkeypatch.setattr(ch, "_redeliver_pending", lambda: 0)
+    monkeypatch.setattr(telegram, "restore_stranded_claims", lambda: 0)
+    monkeypatch.setattr(ch, "_call", fake_call)
+    monkeypatch.setattr(ch, "_start_public_worker",
+                        lambda _registry, _key, target, _args=(): target() or object())
+    monkeypatch.setattr(ch, "_run_turn",
+                        lambda _gateway, _chat, text, *_a, **_k: turns.append(text))
+
+    with pytest.raises(KeyboardInterrupt):
+        ch.start(_Gateway())
+
+    (text,) = turns
+    assert "d_보고서.docx" in text
+    assert ("local_document_import" in text) is imports
+
+
 def test_photo_note_does_not_suggest_office_import(monkeypatch, tmp_path):
     ch = _ch(monkeypatch, tmp_path)
     out = ch._compose_media_text({"photo": [{"file_id": "L", "file_size": 9000}]})

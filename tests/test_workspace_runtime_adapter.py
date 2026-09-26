@@ -1212,6 +1212,44 @@ def test_an_approved_command_that_failed_is_not_reported_as_completed(
     assert item["ui_state"] == "failed"
 
 
+def test_only_a_moirai_worker_failure_is_answered_as_its_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from birkin.moirai import outcome as moirai_outcome
+    from birkin.worker_request import DaedalusShow, approval_payload
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        category="worker", title="show", description="",
+        payload=approval_payload(DaedalusShow("notes")), origin="test",
+    )
+    waiting = moirai_outcome.render({"status": "waiting_input", "run_id": "r9"})
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        del decision, reason, on_event
+        return {
+            "outcome": "rejected_by_authority",
+            "approval_id": approval_id,
+            "error": f"action failed: worker exited with status 1: {waiting}",
+        }
+
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    adapter, emitted = _answering_adapter()
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": cast(str, record["id"]), "decision": "approve"}
+    )
+
+    assert _answered_payload(emitted)["result_code"] == "E_APPROVAL_ACTION_FAILED"
+
+
 def test_chat_completion_refreshes_provider_created_work_item_approval(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

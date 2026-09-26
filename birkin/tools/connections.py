@@ -55,7 +55,8 @@ def calendar_event_review_text(draft: Mapping[str, object]) -> str:
     attendees = draft.get("attendees")
     count = len(attendees) if isinstance(attendees, list) else 0
     who = f"참석자 {count}명: {_joined(attendees)}" if count else "참석자 없음"
-    return f"{start}–{end} ({zone_name}) · {who}"
+    # A value that did not parse is shown as it came, escaped like any other.
+    return f"{visible_text(start)}–{visible_text(end)} ({visible_text(zone_name)}) · {who}"
 
 
 def _status(_data: ToolInput, _ctx: ToolContext) -> ToolResult:
