@@ -500,7 +500,7 @@ def test_native_office_job_request_queues_current_canonical_proposal(
     assert events.index(recorded_event) == events.index(answered_event) + 1
     assert recorded_event.command_id == "approve-office-job"
     assert recorded_event.payload == {
-        "summary": "Office export completed",
+        "summary": "Office 내보내기를 완료했습니다.",
         "approval_id": approval_id,
         "artifact_id": published_artifact["artifact_id"],
         "diff_id": "diff-office-journey",

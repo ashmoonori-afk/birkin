@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from birkin import companion, config, scheduler
+from birkin.gateway.channels import telegram
 from birkin.gateway.channels.telegram import TelegramChannel
 
 KST = timezone(timedelta(hours=9))
@@ -179,7 +180,7 @@ def test_a_tap_from_another_chat_cannot_close_the_commitment(bot, monkeypatch):
     monkeypatch.setattr(channel, "_call", bot.call)
     _tap(channel, rec["id"], "done", chat="999")
     assert companion.get_commitment(rec["id"])["status"] == "active"
-    assert "unauthorized" in bot.acks[-1]
+    assert telegram._UNAUTHORIZED_TOAST in bot.acks[-1]
 
 
 def test_tap_on_a_closed_commitment_shows_korean_toast(bot, monkeypatch):

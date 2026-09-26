@@ -1022,10 +1022,157 @@ def test_approval_answer_event_carries_execution_receipt(
                 "decision": "approve",
                 "outcome": "approved",
                 "receipt": "exit 0: approved",
+                "result_summary": "승인한 작업을 완료했습니다.",
+                "result_code": "approved",
             },
         ),
         ("workspace.refreshed", {"approval_requests": [], "work_items": []}),
     ]
+
+
+def _answering_adapter() -> tuple[
+    RuntimeWorkspaceAdapter, list[tuple[str, dict[str, object]]]
+]:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    return RuntimeWorkspaceAdapter("answer-session", emit), emitted
+
+
+def _approval_context(adapter: RuntimeWorkspaceAdapter) -> str:
+    return cast(str, getattr(adapter, "_pending_approval_context"))
+
+
+def _answered_payload(
+    emitted: list[tuple[str, dict[str, object]]],
+) -> dict[str, object]:
+    return next(payload for kind, payload in emitted if kind == "approval.answered")
+
+
+@pytest.mark.parametrize(
+    ("resolution", "status", "ui_state"),
+    [
+        ("approve", "approved", "succeeded"),
+        ("reject", "rejected", "blocked"),
+        ("error", "error", "failed"),
+    ],
+)
+def test_an_approval_answered_on_another_surface_reports_what_happened(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    resolution: str,
+    status: str,
+    ui_state: str,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+
+    def execute_action(
+        _category: str,
+        _payload: dict[str, object],
+        cfg: object = None,
+        on_event: object = None,
+    ) -> str:
+        del cfg, on_event
+        return "executed"
+
+    monkeypatch.setattr(approvals, "execute_action", execute_action)
+    record = store.add_pending(
+        category="memory", title="note", description="", payload={}, origin="test"
+    )
+    approval_id = cast(str, record["id"])
+    if resolution == "approve":
+        assert approvals.approve(
+            approval_id, approved_by="human:telegram:1", approved_via="gateway:telegram"
+        )["ok"] is True
+    elif resolution == "reject":
+        assert approvals.reject(
+            approval_id, rejected_by="human:telegram:1", rejected_via="gateway:telegram"
+        )["ok"] is True
+    else:
+        _ = store.resolve_pending(approval_id, "error")
+    adapter, emitted = _answering_adapter()
+
+    result = adapter.handlers()["approval.answer"](
+        {"approval_id": approval_id, "decision": "approve"}
+    )
+
+    assert result == {"outcome": "answered_elsewhere", "approval_id": approval_id}
+    context = _approval_context(adapter)
+    assert 'outcome="answered_elsewhere"' in context
+    if resolution != "error":
+        assert "완료하지 못했습니다" not in context
+        assert "텔레그램" in context
+    answered = _answered_payload(emitted)
+    assert answered["result_code"] == "answered_elsewhere"
+    assert answered["resolved_status"] == status
+    assert answered["ui_state"] == ui_state
+
+
+def test_an_overwrite_follow_up_is_not_reported_as_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin import approval_text
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        del decision, reason, on_event
+        return {
+            "outcome": "follow_up_required",
+            "approval_id": approval_id,
+            "follow_up_approval_id": "fedcba987654",
+            "question": "overwrite?",
+        }
+
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    adapter, emitted = _answering_adapter()
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": "abc123def456", "decision": "approve"}
+    )
+
+    assert approval_text.FOLLOW_UP in _approval_context(adapter)
+    assert _answered_payload(emitted)["result_code"] == "follow_up_required"
+
+
+def test_an_approved_command_that_failed_is_not_reported_as_completed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        category="shell", title="run", description="",
+        payload={"command": "false"}, origin="test",
+    )
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        del decision, reason, on_event
+        return {"outcome": "approved", "approval_id": approval_id, "receipt": "[exit 2] boom"}
+
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    adapter, emitted = _answering_adapter()
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": cast(str, record["id"]), "decision": "approve"}
+    )
+
+    context = _approval_context(adapter)
+    assert "완료되었습니다" not in context
+    assert "종료 코드 2" in context
+    assert _answered_payload(emitted)["result_code"] == "command_failed"
 
 
 def test_chat_completion_refreshes_provider_created_work_item_approval(

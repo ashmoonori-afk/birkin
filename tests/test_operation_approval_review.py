@@ -189,11 +189,11 @@ def test_telegram_operation_summary_keeps_review_critical_fields() -> None:
     summary = _payload_summary("operation", payload)
 
     # Then: critical authorization fields remain visible after input preview.
-    assert "tool: run_shell" in summary
-    assert "gate: powershell_execution_policy" in summary
-    assert "cwd: C:/workspace" in summary
+    assert "run_shell" in summary
+    assert "powershell_execution_policy" in summary
+    assert "C:/workspace" in summary
     assert "PSExecutionPolicyPreference=Bypass" in summary
-    assert "digest: abcdef0123456789" in summary
+    assert "abcdef0123456789" in summary
     assert len(summary) < 3500
 
 

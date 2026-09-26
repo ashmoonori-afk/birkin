@@ -64,7 +64,8 @@ def test_gateway_slash_new_resets_chat(gateway):
     g.handle("http", "u1", "first")
     assert g._chats[("http", "u1")]   # non-empty
     msg = g.handle("http", "u1", "/new")
-    assert "new conversation" in msg.lower()
+    from birkin.gateway.turn_support import NEW_CONVERSATION_REPLY
+    assert msg == NEW_CONVERSATION_REPLY
     assert g._chats[("http", "u1")] == []
 
 

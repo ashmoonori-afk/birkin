@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 from birkin.gateway.channels.telegram import TelegramChannel
 from birkin.gateway.core import Gateway
+from birkin.gateway.turn_support import TURN_INTERRUPTED_REPLY
 
 
 class _EmptyInterruptedSession:
@@ -88,4 +89,4 @@ def test_telegram_labels_empty_interrupted_turn(
     worker.join(timeout=10)
 
     assert not worker.is_alive()
-    assert sent == ["(interrupted :o)"]
+    assert sent == [TURN_INTERRUPTED_REPLY]

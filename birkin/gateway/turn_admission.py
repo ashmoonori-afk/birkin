@@ -6,6 +6,8 @@ from dataclasses import replace
 
 from .. import neurosis
 from .turn_support import (
+    OMO_RESTRICTED_REPLY,
+    PRIVILEGED_COMMAND_REPLY,
     PRIVILEGED_COMMANDS,
     UNTRUSTED_CHANNEL_REPLY,
     TurnContract,
@@ -28,20 +30,14 @@ def admit_turn(
     if not TurnContract.channel_trusted(gateway, channel, chat_id, sender_id):
         print(f"[gateway] denied untrusted {channel}:{chat_id}", flush=True)
         if normalized == "/omo" or normalized.startswith("/omo "):
-            return Rejected(
-                "OMO control is restricted to configured Telegram chat IDs."
-            )
+            return Rejected(OMO_RESTRICTED_REPLY)
         return Rejected(UNTRUSTED_CHANNEL_REPLY)
 
     command, command_arg = match_command(normalized)
     if command in PRIVILEGED_COMMANDS and not TurnContract.command_trusted(
         gateway, channel
     ):
-        return Rejected(
-            "This command is restricted. Set "
-            + "channels.telegram.allowed_chat_ids so only you can run "
-            + "privileged commands."
-        )
+        return Rejected(PRIVILEGED_COMMAND_REPLY)
     request = TurnRequest(
         channel=channel,
         chat_id=str(chat_id),

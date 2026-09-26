@@ -287,6 +287,37 @@ def _office_summary(payload: Mapping[str, object]) -> str:
     return ("↳ " + "\n".join(lines)) if lines else ""
 
 
+_CARD_PREVIEW_CHARS: Final = 1200
+
+
+def _card_preview(
+    value: object,
+    limit: int = _CARD_PREVIEW_CHARS,
+    *,
+    keep_newlines: bool = False,
+) -> str:
+    """Escaped, bounded text for a one-tap card; a cut always says so.
+
+    Control and format characters (newline, bidi override, zero-width) are
+    shown as escapes so a value cannot fake the following card lines or hide
+    a suffix; ``keep_newlines`` keeps real line breaks for prose such as a
+    mail body.
+    """
+    from .tools.connections import visible_text
+
+    raw = str(value)
+    if keep_newlines:
+        text = "\n".join(visible_text(line) for line in raw.split("\n"))
+    else:
+        text = visible_text(raw)
+    if len(text) <= limit:
+        return text
+    return (
+        f"{text[:limit]}… (전체 {len(text)}자 중 {limit}자만 표시 · 전체 내용은 "
+        "`birkin review` 또는 웹 승인 화면에서 확인하세요)"
+    )
+
+
 def payload_summary(
     category: str,
     payload: Mapping[str, object],
@@ -299,14 +330,15 @@ def payload_summary(
     that already shows the full data passes ``fallback=False`` to skip it.
     """
     if category == "shell":
-        return f"↳ 실행: {str(payload.get('command', ''))[:200]}"
-    if category == "cron":
-        hour, minute = payload.get("hour", "?"), payload.get("minute", 0)
-        target = payload.get("deliver_chat_id")
+        cwd = _card_preview(payload.get("cwd") or "")
         return (
-            f"↳ 매일 {hour}:{str(minute).zfill(2)} {str(payload.get('value', ''))[:120]}"
-            + (f" → 채팅 {target}" if target else "")
+            f"↳ 실행: {_card_preview(payload.get('command', ''))}\n"
+            f"작업 폴더: {cwd or '지정 안 됨(Birkin 실행 위치)'}"
         )
+    if category == "cron":
+        from .cron_review import cron_review_lines
+
+        return "↳ " + "\n".join(cron_review_lines(payload))
     if category == "skill":
         return f"↳ 스킬: {str(payload.get('name', payload.get('title', '')))[:120]}"
     if category == "moirai":
@@ -323,10 +355,8 @@ def payload_summary(
     if category == "mail_send":
         from .tools.connections import mail_send_review_text
 
-        return (
-            f"↳ {mail_send_review_text(payload)}\n"
-            f"본문: {str(payload.get('body', ''))[:200]}"
-        )
+        body = _card_preview(payload.get("body", ""), 600, keep_newlines=True)
+        return f"↳ {mail_send_review_text(payload)}\n본문: {body}"
     if category == "calendar_event":
         from .tools.connections import calendar_event_review_text
 
@@ -335,7 +365,7 @@ def payload_summary(
         return _office_summary(payload)
     if not fallback or not payload:
         return ""
-    return f"↳ 세부 데이터: {_json_text(payload)[:200]}"
+    return f"↳ 세부 데이터: {_card_preview(_json_text(payload))}"
 
 
 def payload_detail(payload: object, limit: int | None = 600) -> str:

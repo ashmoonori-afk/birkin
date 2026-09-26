@@ -28,9 +28,9 @@ from typing import Final, Protocol, TypeAlias, TypeGuard
 
 from typing_extensions import override
 
-from ... import config
+from ... import approval_text, config, risk
 from ...codex_session import codex_activity_label
-from ..turn_support import TURN_ERROR_REPLY, match_command
+from ..turn_support import TURN_EMPTY_REPLY, TURN_ERROR_REPLY, match_command
 from ..workflow import (
     WorkflowProposal,
     finish as finish_workflow,
@@ -66,7 +66,8 @@ _MAX_DOCUMENT_BYTES: Final = 50 * 1024 * 1024
 # Attachments local_document_import accepts (office.local_import.SUPPORTED_SUFFIXES).
 _OFFICE_SUFFIXES: Final = frozenset({".docx", ".xlsx", ".pptx", ".pdf", ".hwpx"})
 MAX_PUBLIC_WORKERS: Final = 4
-_BUSY_REPLY: Final = "Birkin is busy; try again shortly."
+_BUSY_REPLY: Final = "지금 다른 작업을 처리하고 있어요. 잠시 후 다시 시도해 주세요."
+_UNAUTHORIZED_TOAST: Final = "이 요청을 처리할 권한이 없습니다."
 # How long a worker waits for the poll loop to ack the dispatched batch's
 # offset before it re-execs anyway (see TelegramChannel._poll_acked).
 _RESTART_ACK_TIMEOUT: Final = 5.0
@@ -254,67 +255,9 @@ def verify_token(token: str) -> tuple[bool, str]:
     return True, str(result.get("username", "?"))
 
 
-def _payload_summary(category: str, payload: JsonObject) -> str:
-    """The consequential part of a proposal, so a one-tap approve isn't blind
-    (the CLI review shows the full payload; the button flow must too)."""
-    if category == "shell":
-        return f"↳ 실행: {str(payload.get('command', ''))[:200]}"
-    if category == "cron":
-        h, m = payload.get("hour", "?"), payload.get("minute", 0)
-        tgt = payload.get("deliver_chat_id")
-        return f"↳ 매일 {h}:{str(m).zfill(2)} {str(payload.get('value', ''))[:120]}" + (
-            f" → chat {tgt}" if tgt else ""
-        )
-    if category == "skill":
-        return f"↳ 스킬: {str(payload.get('name', payload.get('title', '')))[:120]}"
-    if category == "moirai":
-        return (f"↳ 워크플로우: {str(payload.get('script', ''))[:80]} · "
-                f"할 일: {str(payload.get('task', ''))[:120]}")
-    if category == "workflow":
-        raw_steps = payload.get("steps")
-        steps: list[JsonValue] = raw_steps if isinstance(raw_steps, list) else []
-        return "↳ " + " → ".join(str(step)[:60] for step in steps[:4])
-    if category == "operation":
-        operation = payload.get("operation")
-        if not _is_json_object(operation):
-            return "↳ operation: invalid payload"
-        tool = str(operation.get("tool", "?"))
-        gate = str(operation.get("gate", "?"))
-        cwd = str(operation.get("cwd", "?"))
-        raw_input = json.dumps(
-            operation.get("input", {}),
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        preview = raw_input[:1200]
-        if len(raw_input) > len(preview):
-            preview += f"… ({len(raw_input)} chars)"
-        environment = operation.get("environment")
-        env_summary = ""
-        if _is_json_object(environment):
-            env_summary = ", ".join(
-                f"{key}={value}" for key, value in sorted(environment.items())
-            )
-        digest = str(payload.get("digest", ""))[:16]
-        lines = [
-            f"↳ tool: {tool}",
-            f"gate: {gate}",
-            f"cwd: {cwd}",
-            f"input: {preview}",
-        ]
-        if env_summary:
-            lines.append(f"environment: {env_summary}")
-        lines.append(f"digest: {digest}")
-        return "\n".join(lines)
-    if category == "mail_send":
-        from ...tools.connections import mail_send_review_text
-
-        return f"↳ {mail_send_review_text(payload)}\n본문: {str(payload.get('body', ''))[:200]}"
-    if category == "calendar_event":
-        from ...tools.connections import calendar_event_review_text
-
-        return f"↳ {calendar_event_review_text(payload)}"
-    return f"↳ {str(payload)[:200]}" if payload else ""
+# The consequential part of a proposal, so a one-tap approve isn't blind; the
+# shared Korean summary is also what `birkin review` prints.
+_payload_summary = approval_text.payload_summary
 
 
 class _Streamer:
@@ -814,7 +757,7 @@ class TelegramChannel(Channel):
             else:
                 delivered = self._send_reply(chat_id, visible) is not False
         elif not paths:
-            delivered = self._send_reply(chat_id, "(no reply)") is not False
+            delivered = self._send_reply(chat_id, TURN_EMPTY_REPLY) is not False
         for path in paths:
             if not self._send_document(chat_id, path):
                 delivered = False
@@ -985,7 +928,7 @@ class TelegramChannel(Channel):
             self._answer_callback(cq_id, "이미 삭제된 약속이에요")
             return
         if record.get("context_id") != f"telegram:{chat_id}":
-            self._answer_callback(cq_id, "unauthorized")
+            self._answer_callback(cq_id, _UNAUTHORIZED_TOAST)
             return
         try:
             result = _invoke_companion_answer(
@@ -1026,28 +969,29 @@ class TelegramChannel(Channel):
                     continue
             items.append(record)
         if not items:
-            _ = self._send_chunk(chat_id, "📭 No pending approvals.")
+            _ = self._send_chunk(chat_id, f"📭 {approval_text.EMPTY_QUEUE}")
             return
-        _ = self._send_chunk(chat_id, f"📋 {len(items)} pending approval(s):")
+        _ = self._send_chunk(
+            chat_id, f"📋 {approval_text.queue_heading(len(items))}:"
+        )
         for rec in items[:10]:
             raw_category = rec.get("category")
             category = raw_category if isinstance(raw_category, str) else ""
             raw_payload = rec.get("payload")
             payload = _json_object(raw_payload)
             text = (
-                f"[{category}] {rec.get('title')}\n"
+                f"{risk.label(risk.risk_for(category))} {approval_text.headline(rec)}\n"
                 f"{str(rec.get('description', ''))[:200]}\n"
                 f"{_payload_summary(category, payload)}"
             )
+            params: dict[str, TelegramParam] = {"chat_id": chat_id, "text": text}
+            if approval_text.needs_answers(rec):
+                # A question is answered, never approved: buttons could only fail.
+                params["text"] = f"{text.rstrip()}\n{approval_text.NEEDS_ANSWERS}"
+            else:
+                params["reply_markup"] = self._approval_markup(str(rec.get("id", "")))
             try:
-                _ = self._call(
-                    "sendMessage",
-                    {
-                        "chat_id": chat_id,
-                        "text": text,
-                        "reply_markup": self._approval_markup(str(rec.get("id", ""))),
-                    },
-                )
+                _ = self._call("sendMessage", params)
             except Exception as exc:
                 print(f"[telegram] pending send error: {exc}")
 
@@ -1089,7 +1033,10 @@ class TelegramChannel(Channel):
         chat_type = str(chat.get("type", ""))
         if not self.allowed_chat_ids:
             # An OPEN bot must not allow one-tap approval of queued actions.
-            self._answer_callback(cq_id, "approvals need allowed_chat_ids")
+            self._answer_callback(
+                cq_id,
+                "승인 버튼을 쓰려면 먼저 channels.telegram.allowed_chat_ids를 설정하세요.",
+            )
             return
         # Approval is privileged, so gate on WHO tapped, not just the chat:
         # in an allowlisted group any member could otherwise approve. The
@@ -1098,9 +1045,9 @@ class TelegramChannel(Channel):
         if not self._sender_authorized(chat_id, from_id, chat_type, privileged=True):
             self._answer_callback(
                 cq_id,
-                "approvals in groups need allowed_sender_ids"
+                "그룹에서 승인하려면 channels.telegram.allowed_sender_ids를 설정하세요."
                 if chat_id in self.allowed_chat_ids and not self.allowed_sender_ids
-                else "unauthorized",
+                else _UNAUTHORIZED_TOAST,
             )
             return
         if ":" not in data:
@@ -1588,7 +1535,7 @@ class TelegramChannel(Channel):
         else:
             delivered = self._deliver_reply(
                 chat_id,
-                reply or "(no reply)",
+                reply or TURN_EMPTY_REPLY,
                 streamer=streamer,
                 allow_attachments=trusted_chat,
             )
@@ -1641,7 +1588,7 @@ class TelegramChannel(Channel):
         obligation = delivery.record("telegram", chat_id, reply or "")
         trusted_chat = bool(self.allowed_chat_ids and chat_id in self.allowed_chat_ids)
         if self._deliver_reply(
-            chat_id, reply or "(no reply)", allow_attachments=trusted_chat
+            chat_id, reply or TURN_EMPTY_REPLY, allow_attachments=trusted_chat
         ):
             delivery.clear(obligation)
 

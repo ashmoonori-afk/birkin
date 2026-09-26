@@ -16,6 +16,7 @@ from .turn_model_session import (
 )
 from .turn_support import (
     TELEGRAM_EXECUTION_POLICY,
+    TURN_EMPTY_REPLY,
     TURN_ERROR_REPLY,
     TURN_INTERRUPTED_REPLY,
     TURN_PARTIAL_SUFFIX,
@@ -91,7 +92,7 @@ def run_model_turn(
     if lease.interrupted.is_set() and not reply:
         reply = TURN_INTERRUPTED_REPLY
     complete_turn(gateway, request, lease.persistent, reply, started)
-    return reply or "(no reply)"
+    return reply or TURN_EMPTY_REPLY
 
 
 def _prepare_model_input(

@@ -1204,6 +1204,12 @@ class Handler(BaseHTTPRequestHandler):
         for item in items:
             item["risk"] = risk_mod.risk_for(item.get("category", ""))
             item["ui_state"] = uistate.from_approval(item).state
+            payload = item.get("payload")
+            if item.get("category") == "cron" and isinstance(payload, dict):
+                from ..cron_review import cron_review_lines
+
+                # What will actually register, not the model's summary.
+                item["target"] = " · ".join(cron_review_lines(payload))
         self._json(items)
 
     def _handle_public_get(self, get_route: GetRoute) -> None:

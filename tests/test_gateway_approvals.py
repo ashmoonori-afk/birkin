@@ -5,6 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from birkin import approval_text
+from birkin.gateway.turn_admission import PRIVILEGED_COMMAND_REPLY
+
 
 def _gateway(tmp_path, monkeypatch, tg_allowed=("42",)):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
@@ -31,8 +34,9 @@ def test_pending_command_lists_and_is_privileged(tmp_path, monkeypatch):
     out = gw.handle("telegram", "42", "/pending")
     assert rec["id"] in out and "test action" in out
     # untrusted channel (open bot) is refused
+    assert "[memory]" not in out
     gw2 = _gateway(tmp_path, monkeypatch, tg_allowed=())
-    assert "restricted" in gw2.handle("telegram", "99", "/pending").lower()
+    assert gw2.handle("telegram", "99", "/pending") == PRIVILEGED_COMMAND_REPLY
 
 
 def test_resolve_action_roundtrip(tmp_path, monkeypatch):
@@ -55,13 +59,15 @@ def test_resolve_action_roundtrip(tmp_path, monkeypatch):
     )
     assert out_b.startswith("❌")
     assert store.list_pending() == []          # both resolved
-    # double-resolve is safe
-    assert "⚠" in gw.resolve_action(
+    # double-resolve is safe, and says the record was already approved
+    again = gw.resolve_action(
         a["id"],
         approve=True,
         actor_id="human:telegram:42",
         via="gateway:telegram",
     )
+    assert again == approval_text.resolved_elsewhere(store.get_pending(a["id"])).render()
+    assert "✅" not in again
 
 
 def test_gateway_approves_sealed_native_operation(
@@ -153,6 +159,8 @@ def test_open_bot_cannot_tap_approve(tmp_path, monkeypatch):
                                          "message_id": 1, "text": "x"}})
     from birkin import store
     assert len(store.list_pending()) == 1       # open bot may not approve
+    toast = next(p for m, p in calls if m == "answerCallbackQuery")["text"]
+    assert "allowed_chat_ids" in toast
 
 
 def test_approval_markup_shape():
@@ -166,32 +174,42 @@ def test_approval_markup_shape():
     assert len(kb2["inline_keyboard"][0][0]["callback_data"]) <= 64
 
 
+def _queue_workflow():
+    from birkin import store
+    return store.add_pending(category="moirai", title="보고서 작성",
+                             description="hard task",
+                             payload={"script": "hard-task", "task": "보고서"},
+                             origin="test")
+
+
 def test_approved_result_is_not_cut_at_500_chars(tmp_path, monkeypatch):
     """A workflow report is the receipt; a silent cut at 500 hid the answer."""
     from birkin import approvals
     gw = _gateway(tmp_path, monkeypatch)
+    rec = _queue_workflow()
     monkeypatch.setattr(
         approvals, "approve",
         lambda aid, **_kw: {"ok": True, "result": "가" * 1500})
 
-    out = gw.resolve_action("abc123abc123", approve=True,
+    out = gw.resolve_action(rec["id"], approve=True,
                             actor_id="human:telegram:42",
                             via="gateway:telegram")
 
-    assert out.startswith("✅ 승인됨")
+    assert out.startswith("✅")
     assert "가" * 1500 in out
 
 
 def test_an_over_long_approved_result_says_it_was_cut(tmp_path, monkeypatch):
     from birkin import approvals
     gw = _gateway(tmp_path, monkeypatch)
+    rec = _queue_workflow()
     monkeypatch.setattr(
         approvals, "execute_claimed",
         lambda aid, on_event=None: {"ok": True, "result": "가" * 5000})
 
-    out = gw.execute_claimed_action("abc123abc123")
+    out = gw.execute_claimed_action(rec["id"])
 
-    assert out.startswith("✅ 승인됨")
+    assert out.startswith("✅")
     assert "결과가 길어" in out
     assert len(out) <= 3300
 
@@ -202,7 +220,8 @@ def test_claimed_action_reply_is_korean(tmp_path, monkeypatch):
     monkeypatch.setattr(approvals, "claim", lambda aid, **_kw: {"ok": True})
 
     assert gw.claim_action("abc123abc123", actor_id="human:telegram:42",
-                           via="gateway:telegram") == ("✅ 승인됨 — 실행 중", True)
+                           via="gateway:telegram") == (
+        f"⏳ {approval_text.CLAIMED}", True)
 
 
 def test_moirai_approval_card_shows_the_workflow_and_task():

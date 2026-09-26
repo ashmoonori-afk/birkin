@@ -78,6 +78,10 @@ def propose(
     parsed_continuation = (
         worker_hooks.validate(continuation) if continuation is not None else None
     )
+    if category == "cron":
+        # Refuse a schedule the grammar cannot parse before anyone is asked
+        # to approve it; the model sees the error and can re-emit a valid one.
+        _ = approval_dispatch.cron_registration(payload or {})
     auto = (
         category != "operation"
         and continuation is None

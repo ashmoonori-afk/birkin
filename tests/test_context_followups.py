@@ -3,6 +3,7 @@ from __future__ import annotations
 import types
 
 from birkin.gateway import core as gw_core
+from birkin.gateway.turn_support import NEW_CONVERSATION_REPLY
 
 
 def _fake_session():
@@ -116,9 +117,7 @@ def test_slash_new_clears_followup_anchor(monkeypatch, tmp_path):
     gateway = gw_core.Gateway(_trusted_telegram_config())
 
     gateway.handle("telegram", "42", "npm 설치가 EBUSY로 실패했어")
-    assert gateway.handle("telegram", "42", "/new") == (
-        "Started a new conversation."
-    )
+    assert gateway.handle("telegram", "42", "/new") == NEW_CONVERSATION_REPLY
     gateway.handle("telegram", "42", "쉽게 설명해")
 
     sent = fake.agent.messages[-1]["content"][0]["text"]

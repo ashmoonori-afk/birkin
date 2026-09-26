@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from birkin.gateway import core
+from birkin.gateway.turn_admission import PRIVILEGED_COMMAND_REPLY
+
 
 class _FakeSession:
     def __init__(self):
@@ -40,7 +43,7 @@ def test_restart_gateway_clears_sessions_and_rebuilds(tmp_path, monkeypatch):
 
     out = gw.handle("http", "c1", "/restart-gateway")
 
-    assert "restart" in out.lower()
+    assert out == core.SOFT_RESTART_REPLY
     assert fake.closed is True  # warm session torn down
     assert len(gw._claude_sessions) == 0  # all warm sessions cleared
     assert gw._chats == {}  # conversations reset
@@ -51,7 +54,7 @@ def test_restart_gateway_clears_sessions_and_rebuilds(tmp_path, monkeypatch):
 def test_restart_alias(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     out = gw.handle("http", "c1", "/restart")
-    assert "restart" in out.lower()
+    assert out == core.SOFT_RESTART_REPLY
 
 
 def test_restart_reloads_cli_access_safety(tmp_path, monkeypatch):
@@ -98,7 +101,8 @@ def test_hard_restart_sets_flag_without_execing(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch)
     assert gw.pending_hard_restart is False
     out = gw.handle("http", "c1", "/hard-restart")
-    assert "hard restart" in out.lower()
+    from birkin.gateway.turn_commands import HARD_RESTART_REPLY
+    assert out == HARD_RESTART_REPLY
     assert gw.pending_hard_restart is True  # flagged, NOT yet re-executed
 
 
@@ -149,7 +153,7 @@ def test_hyphen_restart_gateway_actually_restarts(tmp_path, monkeypatch):
     """Regression: '/restart-gateway' (with the dash) must be recognised."""
     gw = _gateway(tmp_path, monkeypatch)
     out = gw.handle("http", "c1", "/restart-gateway")
-    assert "restart" in out.lower()
+    assert out == core.SOFT_RESTART_REPLY
     assert gw.pending_hard_restart is False  # soft, not hard
 
 
@@ -162,6 +166,7 @@ def test_command_menu_valid_for_telegram():
     for m in menu:  # Telegram requires [a-z0-9_], 1-32 chars + a description
         assert re.fullmatch(r"[a-z0-9_]{1,32}", m["command"]), m["command"]
         assert m["description"].strip()
+        assert len(m["description"]) <= 256  # Bot API limit
 
 
 def test_do_hard_restart_reexecs_birkin_gateway_on_posix(tmp_path, monkeypatch):
@@ -221,7 +226,7 @@ def test_soft_restart_reply_includes_greeting(tmp_path, monkeypatch):
 
     gw = _gateway(tmp_path, monkeypatch)
     out = gw.handle("http", "c1", "/restart")
-    assert "restarted" in out.lower() and _BACK_GREETING in out
+    assert out == core.SOFT_RESTART_REPLY and _BACK_GREETING in out
 
 
 # -- /update (remote code pull + auto restart) -----------------------------
@@ -266,10 +271,10 @@ def test_privileged_commands_refused_on_open_telegram(tmp_path, monkeypatch):
         "/neurosis inspect shared state",
     ):
         out = gw.handle("telegram", "999", cmd)
-        assert "restricted" in out.lower(), cmd
+        assert out == PRIVILEGED_COMMAND_REPLY, cmd
     assert gw.pending_hard_restart is False
     # loopback HTTP stays local/trusted — unaffected by the telegram gate.
-    assert "restricted" not in gw.handle("http", "c1", "/restart").lower()
+    assert gw.handle("http", "c1", "/restart") != PRIVILEGED_COMMAND_REPLY
 
 
 def test_update_no_restart_when_already_latest(tmp_path, monkeypatch):

@@ -6,7 +6,7 @@ import re
 import sys
 import threading
 import time
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
@@ -21,7 +21,7 @@ from typing import (
 
 from typing_extensions import NotRequired, override
 
-from .. import config, models, pools, promptgate, security, store
+from .. import approval_text, config, models, pools, promptgate, security, store
 from ..approval_execution_codec import JSONValue
 from ..claude_session import ClaudeStreamSession
 from ..codex_session import CodexAppServerSession
@@ -330,6 +330,15 @@ _BACK_GREETING: Final = "다시 왔습니다 👋 무엇을 도와드릴까요?"
 _RESTART_GREETING: Final = (
     "✅ 재시작 완료! 코드·설정을 새로 반영했어요. " + _BACK_GREETING
 )
+SOFT_RESTART_REPLY: Final = (
+    "♻️ 게이트웨이를 다시 시작했어요 — 설정, 페르소나, 기억, 스킬을 "
+    + "다시 불러오고 대화 세션을 비웠습니다.\n\n"
+    + _BACK_GREETING
+)
+RESTART_CONFIG_ERROR_REPLY: Final = (
+    "⚠ 설정 파일에 오류가 있어 재시작하지 못했어요. "
+    + "설정을 고친 뒤 /restart 를 다시 보내 주세요."
+)
 
 
 def _split_schedule(arg: str) -> tuple[dict[str, JSONValue] | None, str]:
@@ -364,17 +373,36 @@ def _restart_marker_path() -> Path:
 _SUMMON_PREVIEW_CHARS = 3200
 
 
-def _approved_reply(result: str) -> str:
-    """An approval's outcome for chat, cut only with a word about it.
+def _outcome_reply(outcome: approval_text.ApprovalOutcomeText) -> str:
+    """An approval's Korean outcome for chat, cut only with a word about it.
 
-    The result is the receipt itself (a workflow report, a command's output);
-    a silent cut hides the part the approver was waiting for.
+    The detail can be the receipt itself (a workflow report, a command's
+    output); a silent cut hides the part the approver was waiting for.
     """
-    text = f"✅ 승인됨 — {result}"
+    text = outcome.render(limit=sys.maxsize)
     if len(text) <= _SUMMON_PREVIEW_CHARS:
         return text
     return (text[:_SUMMON_PREVIEW_CHARS]
             + "\n\n… 결과가 길어 앞부분만 보여드려요.")
+
+
+def _approve_reply(aid: str, out: Mapping[str, object]) -> str:
+    """Read one approve result against the record as it stands afterwards.
+
+    A failure is logged with its stable code and the bounded raw error; the
+    chat only ever sees the Korean explanation.
+    """
+    from ..workspace.redaction import bounded_error_text
+
+    outcome = approval_text.approve_outcome(store.get_pending(aid), out)
+    if not outcome.ok:
+        raw = str(out.get("error") or out.get("result") or "")
+        print(
+            f"[gateway] approval {aid} not completed: {outcome.code}: "
+            + bounded_error_text(raw),
+            flush=True,
+        )
+    return _outcome_reply(outcome)
 
 
 class Gateway:
@@ -703,13 +731,10 @@ class Gateway:
         try:
             self.session = build_session(cfg)
         except ConfigError as exc:
-            return f"[restart] config error: {exc}"
+            print(f"[gateway] restart config error: {exc}", flush=True)
+            return RESTART_CONFIG_ERROR_REPLY
         self.prewarm()  # rebuild the spare from the RELOADED config
-        return (
-            "♻️ Gateway restarted — reloaded config, persona, memory and "
-            + "skills; warm sessions cleared (conversations start fresh).\n\n"
-            + _BACK_GREETING
-        )
+        return SOFT_RESTART_REPLY
 
     def load_restart_notice(self, notice: dict[str, JSONValue]) -> None:
         self._restart_notice = notice
@@ -961,15 +986,17 @@ class Gateway:
         reviewable: list[dict[str, JSONValue]] = approvals.reviewable_pending()
         items = risk_module.sort_by_risk(reviewable)
         if not items:
-            return "📭 No pending approvals."
-        lines = [f"📋 {len(items)} pending approval(s):"]
+            return f"📭 {approval_text.EMPTY_QUEUE}"
+        lines = [f"📋 {approval_text.queue_heading(len(items))}:"]
         for rec in items[:10]:
-            lines.append(
-                f"- [{rec.get('category')}] {rec.get('title')} (id {rec.get('id')})"
-            )
+            line = f"- {approval_text.headline(rec)} (id {rec.get('id')})"
+            if approval_text.needs_answers(rec):
+                line += " · 답변 필요"
+            lines.append(line)
         lines.append(
-            "Approve/reject in the CLI with `birkin review` — or "
-            + "tap the buttons if your channel shows them."
+            "승인·거부는 버튼이 보이는 채널에서 누르거나 터미널에서 "
+            + "`birkin review`로 처리하세요. 거부 사유를 남기려면 "
+            + "/deny <id> <이유>를 보내세요."
         )
         return "\n".join(lines)
 
@@ -1184,19 +1211,18 @@ class Gateway:
                 approved_by=actor_id,
                 approved_via=via,
             )
-            if not out.get("ok"):
-                return f"⚠ {out.get('error', 'approve failed')}"
-            store.append_activity(f"approval[{aid}]: approved via gateway")
-            return _approved_reply(f"{out.get('result', '')}")
+            if out.get("ok"):
+                store.append_activity(f"approval[{aid}]: approved via gateway")
+            return _approve_reply(aid, out)
         out = approvals.reject(
             aid,
             rejected_by=actor_id,
             rejected_via=via,
         )
         if not out.get("ok"):
-            return "⚠ not found or already resolved"
+            return approval_text.reject_outcome(out, store.get_pending(aid)).render()
         store.append_activity(f"approval[{aid}]: rejected via gateway")
-        return "❌ rejected"
+        return f"❌ {approval_text.REJECTED}"
 
     def summon_command(self, arg: str, channel: str, chat_id: str) -> str:
         """Summon a specialist for THIS (already-trusted) chat.
@@ -1287,7 +1313,7 @@ class Gateway:
             rejected_via=via,
         )
         if not out.get("ok"):
-            return "⚠ not found or already resolved"
+            return approval_text.reject_outcome(out, store.get_pending(aid)).render()
         store.append_activity(
             f"approval[{aid}]: rejected via gateway"
             + (f" — {reason[:120]}" if reason else "")
@@ -1306,14 +1332,18 @@ class Gateway:
         via: str,
     ) -> tuple[str, bool]:
         from .. import approvals
+
         out = approvals.claim(
             aid,
             approved_by=actor_id,
             approved_via=via,
         )
         if not out.get("ok"):
-            return f"⚠ {out.get('error', 'approve failed')}", False
-        return "✅ 승인됨 — 실행 중", True
+            outcome = approval_text.approve_outcome(store.get_pending(aid), out)
+            return outcome.render(), False
+        # No check mark before the action ran: the Telegram channel replaces
+        # this line with the final outcome once execution finishes.
+        return f"⏳ {approval_text.CLAIMED}", True
 
     def execute_claimed_action(
         self, aid: str, on_progress: ProgressCallback = None
@@ -1342,10 +1372,9 @@ class Gateway:
         out = approvals.execute_claimed(
             aid, on_event=_on_event if on_progress is not None else None
         )
-        if not out.get("ok"):
-            return f"⚠ {out.get('error', 'approve failed')}"
-        store.append_activity(f"approval[{aid}]: approved via gateway")
-        return _approved_reply(f"{out.get('result', '')}")
+        if out.get("ok"):
+            store.append_activity(f"approval[{aid}]: approved via gateway")
+        return _approve_reply(aid, out)
 
     def restore_action_claim(self, aid: str) -> None:
         from .. import approvals

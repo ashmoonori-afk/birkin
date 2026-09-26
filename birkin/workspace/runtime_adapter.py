@@ -12,7 +12,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
-from .. import approvals, config, risk, store, transcripts, uistate, workbench
+from .. import (
+    approval_text,
+    approvals,
+    config,
+    risk,
+    store,
+    transcripts,
+    uistate,
+    workbench,
+)
 from ..browser_aside_control import BrowserControlAuthority
 from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
@@ -104,6 +113,22 @@ def _external_item(
         "ui_state": state,
         "kind": kinds.get(panel_key, panel_key),
     }
+
+
+def _answer_presentation(
+    result: Mapping[str, object],
+    current: Mapping[str, object] | None,
+    receipt: str,
+) -> approval_text.ApprovalOutcomeText:
+    """Korean copy and a stable code for one workspace approval answer."""
+    outcome = result.get("outcome")
+    if outcome == "approved":
+        return approval_text.approve_outcome(current, {"ok": True, "result": receipt})
+    if outcome == "rejected":
+        return approval_text.reject_outcome({"ok": True}, current)
+    if outcome == "answered_elsewhere":
+        return approval_text.resolved_elsewhere(current)
+    return approval_text.error_outcome(result)
 
 
 @final
@@ -1196,6 +1221,17 @@ class RuntimeWorkspaceAdapter:
             question = result.get("question")
             if isinstance(question, str):
                 event_payload["question"] = question
+        current: dict[str, object] | None = store.get_pending(approval_id)
+        receipt_text = receipt if isinstance(receipt, str) else ""
+        presented = _answer_presentation(result, current, receipt_text)
+        event_payload["result_summary"] = presented.summary
+        event_payload["result_code"] = presented.code
+        if result["outcome"] == "answered_elsewhere" and current is not None:
+            # The record was resolved on another surface; show what actually
+            # happened to it instead of a generic failure.
+            event_payload["resolved_status"] = str(current.get("status") or "")
+            if presented.ui_state:
+                event_payload["ui_state"] = presented.ui_state
         _ = self._emit("approval.answered", event_payload)
         if receipt_projection is not None:
             _ = self._emit(
@@ -1222,6 +1258,8 @@ class RuntimeWorkspaceAdapter:
             str(result["outcome"]),
             receipt_projection,
             str(error) if isinstance(error, str) else None,
+            resolved=current,
+            result_text=receipt_text,
         )
         return {str(key): value for key, value in result.items()}
 

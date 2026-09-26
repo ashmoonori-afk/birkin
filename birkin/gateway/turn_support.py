@@ -172,7 +172,17 @@ def ask_session(
 
 _LOCAL_TRUSTED_CHANNELS = frozenset({"http", "local", "repl", "voice"})
 
-UNTRUSTED_CHANNEL_REPLY = "⛔ This channel sender is not authorized."
+UNTRUSTED_CHANNEL_REPLY = "⛔ 이 대화에서는 Birkin을 사용할 권한이 없습니다."
+
+PRIVILEGED_COMMAND_REPLY = (
+    "⛔ 신뢰 채널에서만 쓸 수 있는 명령입니다. "
+    "channels.telegram.allowed_chat_ids에 이 채팅을 등록한 뒤 다시 시도하세요."
+)
+
+OMO_RESTRICTED_REPLY = (
+    "OMO 제어는 channels.telegram.allowed_chat_ids에 등록된 "
+    "Telegram 채팅에서만 쓸 수 있습니다."
+)
 
 _PERSISTENT_PROVIDERS = ("claude-cli", "codex-cli")
 
@@ -195,7 +205,11 @@ TURN_PARTIAL_SUFFIX = (
     "\n\n⏱️ 시간 제한에 걸려 여기까지만 받았어요. 이어서 하려면 다시 물어봐 주세요."
 )
 
-TURN_INTERRUPTED_REPLY = "(interrupted :o)"
+TURN_INTERRUPTED_REPLY = "(요청을 중단했어요)"
+
+TURN_EMPTY_REPLY = "(응답이 비어 있어요. 다시 시도해 주세요.)"
+
+NEW_CONVERSATION_REPLY = "새 대화를 시작했어요."
 
 _TELEGRAM_EXECUTION_POLICY = (
     "<gateway-execution-policy>\n"

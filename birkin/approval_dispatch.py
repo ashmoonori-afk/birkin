@@ -71,6 +71,47 @@ class _HarnessExecutor(Protocol):
     def apply_approved_edit(self, payload: dict[str, Any]) -> str: ...
 
 
+def cron_registration(payload: dict[str, Any]) -> dict[str, Any]:
+    """The exact ``cron.add_job`` arguments an approved cron payload registers.
+
+    Review surfaces render from this same normalisation, so what a reviewer
+    approves is what gets scheduled. A schedule the grammar cannot parse is
+    refused instead of silently becoming a daily 09:00 job.
+    """
+
+    def clock(value: Any, default: int, maximum: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(0, min(maximum, parsed))
+
+    def optional_text(value: Any) -> str | None:
+        text = str(value).strip() if value is not None else ""
+        return text or None
+
+    schedule = payload.get("schedule")
+    if schedule and cron.parse_schedule(str(schedule)) is None:
+        raise ValueError(
+            f"unrecognized schedule: {str(schedule)!r}; use 'HH:MM', "
+            "'매일 HH:MM', '매주 <요일> HH:MM', 'every 30m', '30분마다', "
+            "or a 5-field cron expression such as '0 9 * * 1-5'"
+        )
+    return {
+        "name": payload.get("name", "job"),
+        "hour": clock(payload.get("hour", 9), 9, 23),
+        "minute": clock(payload.get("minute", 0), 0, 59),
+        "action_type": payload.get("type", "prompt"),
+        "value": payload.get("value", ""),
+        "deliver_chat_id": payload.get("deliver_chat_id"),
+        "deliver_channel": str(payload.get("deliver_channel") or "telegram"),
+        "schedule": str(schedule) if schedule else None,
+        "monitor_url": optional_text(payload.get("monitor_url")),
+        "monitor_script": optional_text(payload.get("monitor_script")),
+        "max_bytes": payload.get("max_bytes"),
+    }
+
+
 def execute_action(
     category: str,
     payload: dict[str, Any],
@@ -79,35 +120,7 @@ def execute_action(
     """Carry out an action that already has durable approval authority."""
     configured = options or DispatchOptions()
     if category == "cron":
-
-        def clock(value: Any, default: int, maximum: int) -> int:
-            try:
-                parsed = int(value)
-            except (TypeError, ValueError):
-                parsed = default
-            return max(0, min(maximum, parsed))
-
-        schedule = payload.get("schedule")
-        if schedule and cron.parse_schedule(str(schedule)) is None:
-            schedule = None
-
-        def optional_text(value: Any) -> str | None:
-            text = str(value).strip() if value is not None else ""
-            return text or None
-
-        job = cron.add_job(
-            name=payload.get("name", "job"),
-            hour=clock(payload.get("hour", 9), 9, 23),
-            minute=clock(payload.get("minute", 0), 0, 59),
-            action_type=payload.get("type", "prompt"),
-            value=payload.get("value", ""),
-            deliver_chat_id=payload.get("deliver_chat_id"),
-            deliver_channel=str(payload.get("deliver_channel") or "telegram"),
-            schedule=str(schedule) if schedule else None,
-            monitor_url=optional_text(payload.get("monitor_url")),
-            monitor_script=optional_text(payload.get("monitor_script")),
-            max_bytes=payload.get("max_bytes"),
-        )
+        job = cron.add_job(**cron_registration(payload))
         return (
             f"Registered cron job '{job['name']}' at "
             f"{cron.schedule_display(job)} (id {job['id']})."

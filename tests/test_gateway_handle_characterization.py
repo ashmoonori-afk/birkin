@@ -9,6 +9,7 @@ import pytest
 
 from birkin import store, transcripts
 from birkin.gateway import core as gateway_core
+from birkin.gateway import turn_admission
 
 
 class _Session:
@@ -128,7 +129,7 @@ def test_privileged_command_denial_stops_before_dispatch(gateway_factory) -> Non
 
     reply = gateway.handle("telegram", "public", "/restart")
 
-    assert "restricted" in reply.lower()
+    assert reply == turn_admission.PRIVILEGED_COMMAND_REPLY
     assert events == []
 
 

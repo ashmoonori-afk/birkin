@@ -435,6 +435,13 @@ def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(
     assert sorted(outcomes) == ["answered_elsewhere", "approved"]
     assert loser_result == {"outcome": "answered_elsewhere", "approval_id": record["id"]}
     assert winner_result["outcome"] == "approved"
+    loser_event = next(
+        payload
+        for kind, payload in emitted
+        if kind == "approval.answered" and payload["outcome"] == "answered_elsewhere"
+    )
+    assert loser_event["result_code"] == "answered_elsewhere"
+    assert loser_event["ui_state"] != "failed"
 
 
 def test_snapshot_distinguishes_requested_effective_policy_and_pending_requests(

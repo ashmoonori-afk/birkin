@@ -95,10 +95,19 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
             and all(char in "0123456789abcdef" for char in payload["content_sha256"])
         )
     )
+    description = str(record.get("description") or "")
+    if category == "cron" and _is_object_mapping(payload):
+        from birkin.cron_review import cron_review_lines
+
+        # The model writes title and description; the reviewer must also see
+        # the schedule, action type and command that will actually register.
+        description = "\n".join(
+            [*cron_review_lines(payload), *([description] if description else [])]
+        )
     item: dict[str, object] = {
         "id": str(record.get("id") or ""),
         "summary": str(record.get("title") or category or "Approval"),
-        "description": str(record.get("description") or ""),
+        "description": description,
         "category": category,
         "status": status,
         "risk": risk.risk_for(category),
