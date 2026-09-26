@@ -674,16 +674,43 @@ def _office_outcome(
 
 def _workflow_outcome(text: str) -> ApprovalOutcomeText:
     # The workflow receipt is already Korean user copy (moirai.outcome.render):
-    # its status line starts with the completion icon, and the report itself
-    # is what the approver was waiting for.
-    if text.startswith(("❌", "⏹")):
+    # its status line carries the run's completion, and the report itself is
+    # what the approver was waiting for. Only a complete run is a success.
+    from .moirai.outcome import receipt_completion
+
+    state = receipt_completion(text)
+    if state == "complete":
+        return ApprovalOutcomeText(
+            "success", "approved", "승인한 워크플로를 실행했습니다.", text, "succeeded"
+        )
+    if state == "partial":
+        return ApprovalOutcomeText(
+            "failure",
+            "workflow_partial",
+            "승인한 워크플로가 일부만 완료되었습니다. 실패한 부분을 확인하세요.",
+            text,
+            "action_needed",
+        )
+    if state == "waiting":
+        return ApprovalOutcomeText(
+            "progress",
+            "workflow_waiting",
+            "승인한 워크플로가 질문에 대한 답을 기다리고 있습니다.",
+            text,
+            "action_needed",
+        )
+    if state:
         return _failure(
             "workflow_failed",
             "승인한 워크플로를 끝까지 실행하지 못했습니다. 결과를 확인하세요.",
             text,
         )
     return ApprovalOutcomeText(
-        "success", "approved", "승인한 워크플로를 실행했습니다.", text, "succeeded"
+        "info",
+        "workflow_unconfirmed",
+        "승인한 워크플로의 완료 여부를 확인할 수 없습니다. 결과를 확인하세요.",
+        text,
+        "action_needed",
     )
 
 

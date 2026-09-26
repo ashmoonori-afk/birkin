@@ -64,6 +64,18 @@ def completion(out: Mapping[str, Any]) -> str:
     return "complete"
 
 
+def receipt_completion(text: str) -> str:
+    """The completion a rendered receipt's status line shows, or "".
+
+    An approval keeps only the rendered text, so this reads the icon
+    ``render`` put first; a text it did not render yields "".
+    """
+    for state, icon in _ICONS.items():
+        if text.startswith(icon.rstrip("\ufe0f")):
+            return state
+    return ""
+
+
 def exit_code(out: Mapping[str, Any]) -> int:
     """0 when at least part of the work got done, 1 otherwise."""
     return 0 if completion(out) in ("complete", "partial") else 1

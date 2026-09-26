@@ -182,6 +182,12 @@ def _queue_workflow():
                              origin="test")
 
 
+def _complete_report(body: str) -> str:
+    # The status line moirai.outcome.render puts first; only a complete run
+    # reads as a success.
+    return f"✅ 워크플로우 완료 (hard-task)\n\n{body}"
+
+
 def test_approved_result_is_not_cut_at_500_chars(tmp_path, monkeypatch):
     """A workflow report is the receipt; a silent cut at 500 hid the answer."""
     from birkin import approvals
@@ -189,7 +195,7 @@ def test_approved_result_is_not_cut_at_500_chars(tmp_path, monkeypatch):
     rec = _queue_workflow()
     monkeypatch.setattr(
         approvals, "approve",
-        lambda aid, **_kw: {"ok": True, "result": "가" * 1500})
+        lambda aid, **_kw: {"ok": True, "result": _complete_report("가" * 1500)})
 
     out = gw.resolve_action(rec["id"], approve=True,
                             actor_id="human:telegram:42",
@@ -205,7 +211,8 @@ def test_an_over_long_approved_result_says_it_was_cut(tmp_path, monkeypatch):
     rec = _queue_workflow()
     monkeypatch.setattr(
         approvals, "execute_claimed",
-        lambda aid, on_event=None: {"ok": True, "result": "가" * 5000})
+        lambda aid, on_event=None: {"ok": True,
+                                   "result": _complete_report("가" * 5000)})
 
     out = gw.execute_claimed_action(rec["id"])
 

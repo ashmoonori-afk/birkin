@@ -165,6 +165,42 @@ def test_a_workflow_receipt_is_delivered_as_the_detail() -> None:
     assert (failed.code, failed.ok) == ("workflow_failed", False)
 
 
+@pytest.mark.parametrize(
+    ("run", "expected"),
+    [
+        ({"status": "completed", "completion": "partial", "failures": 3},
+         ("failure", "workflow_partial", "action_needed")),
+        ({"status": "waiting_input"},
+         ("progress", "workflow_waiting", "action_needed")),
+        ({"status": "aborted"}, ("failure", "workflow_failed", "failed")),
+        ({"status": "completed", "result": "끝"}, ("success", "approved", "succeeded")),
+    ],
+)
+def test_only_a_complete_workflow_carries_a_check_mark(
+    run: dict[str, object], expected: tuple[str, str, str]
+) -> None:
+    from birkin.moirai import outcome as moirai_outcome
+
+    report = moirai_outcome.render({**run, "run_id": "r3"}, name="hard")
+    outcome = approval_text.approve_outcome(
+        {"category": "moirai", "status": "approved"}, {"ok": True, "result": report}
+    )
+    rendered = outcome.render(marks=approval_text.TERMINAL_MARKS, limit=2400)
+
+    assert (outcome.tone, outcome.code, outcome.ui_state) == expected
+    assert outcome.detail == report
+    assert rendered.startswith("✓") is (expected[0] == "success")
+
+
+def test_an_unrecognised_workflow_receipt_is_not_a_success() -> None:
+    outcome = approval_text.approve_outcome(
+        {"category": "moirai", "status": "approved"},
+        {"ok": True, "result": "moirai: hard-task completed — 에이전트 2"},
+    )
+    assert (outcome.tone, outcome.code, outcome.ok) == ("info", "workflow_unconfirmed", False)
+    assert _HANGUL.search(outcome.summary)
+
+
 def _office_record() -> dict[str, object]:
     return {
         "id": "abcdef012345",

