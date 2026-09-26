@@ -68,6 +68,9 @@ _OFFICE_SUFFIXES: Final = frozenset({".docx", ".xlsx", ".pptx", ".pdf", ".hwpx"}
 MAX_PUBLIC_WORKERS: Final = 4
 _BUSY_REPLY: Final = "지금 다른 작업을 처리하고 있어요. 잠시 후 다시 시도해 주세요."
 _UNAUTHORIZED_TOAST: Final = "이 요청을 처리할 권한이 없습니다."
+# An approval card edited with its result stays under Telegram's 4096 cap.
+_EDIT_CHARS: Final = 4000
+_RESULT_BELOW: Final = "⬇ 결과가 길어 아래 메시지로 보냈어요."
 # How long a worker waits for the poll loop to ack the dispatched batch's
 # offset before it re-execs anyway (see TelegramChannel._poll_acked).
 _RESTART_ACK_TIMEOUT: Final = 5.0
@@ -134,6 +137,10 @@ class _TrustCheck(Protocol):
     def __call__(self, channel: str) -> bool: ...
 
 
+class _DocumentImporter(Protocol):
+    def can_import_documents(self) -> bool: ...
+
+
 class _ProgressChannel(Protocol):
     def progress_holder(self, chat_id: str) -> dict[str, object]: ...
     def typing_target(
@@ -173,6 +180,15 @@ def _is_action_resolver(value: object) -> TypeGuard[_ActionResolver]:
 
 def _is_action_claimer(value: object) -> TypeGuard[_ActionClaimer]:
     return callable(getattr(value, "claim_action", None))
+
+
+def _is_document_importer(value: object) -> TypeGuard[_DocumentImporter]:
+    return callable(getattr(value, "can_import_documents", None))
+
+
+def _document_tools(gateway: object) -> bool:
+    """Whether the gateway's model turns can import and inspect a document."""
+    return _is_document_importer(gateway) and gateway.can_import_documents() is True
 
 
 def _command_is_trusted(gateway: ChannelGateway) -> bool:
@@ -982,7 +998,7 @@ class TelegramChannel(Channel):
             payload = _json_object(raw_payload)
             text = (
                 f"{risk.label(risk.risk_for(category))} {approval_text.headline(rec)}\n"
-                f"{str(rec.get('description', ''))[:200]}\n"
+                f"{approval_text.description_text(rec, 200)}\n"
                 f"{_payload_summary(category, payload)}"
             )
             params: dict[str, TelegramParam] = {"chat_id": chat_id, "text": text}
@@ -1196,8 +1212,18 @@ class TelegramChannel(Channel):
         finally:
             stop.set()
             pinger.join(timeout=16)
-        if message_id:
-            _ = self._edit(chat_id, message_id, f"{original}\n\n{result}"[:4000])
+        if not message_id:
+            return
+        edited = f"{original}\n\n{result}"
+        if len(edited) <= _EDIT_CHARS:
+            _ = self._edit(chat_id, message_id, edited)
+            return
+        # Card and result do not fit one message: a cut would silently drop
+        # the result's own cut notice, so the result goes out on its own.
+        _ = self._edit(
+            chat_id, message_id, f"{original}\n\n{_RESULT_BELOW}"[:_EDIT_CHARS]
+        )
+        _ = self._send_plain(chat_id, result)
 
     def _answer_callback(self, cq_id: str, text: str) -> None:
         try:
@@ -1260,10 +1286,15 @@ class TelegramChannel(Channel):
             print(f"[telegram] media download failed: {exc}")
             return None
 
-    def _compose_media_text(self, msg: JsonObject) -> str | None:
+    def _compose_media_text(
+        self, msg: JsonObject, *, document_tools: bool = False
+    ) -> str | None:
         """Turn an inbound attachment into a text turn the agent can act on:
         download it and hand the agent the local path (a vision-capable CLI
-        reads an image directly). Returns None if there's no media."""
+        reads an image directly). Returns None if there's no media.
+
+        ``document_tools`` says the turn can call local_document_import and
+        inspect_document; only then does an Office note name them."""
         media = self._incoming_media(msg)
         if media is None:
             return None
@@ -1294,7 +1325,7 @@ class TelegramChannel(Channel):
                 f"[사용자가 음성 메시지를 보냈습니다: {path}. 음성-텍스트 "
                 f"변환(STT)은 아직 설정돼 있지 않아 내용은 읽을 수 없어요.]"
             )
-        elif Path(path).suffix.lower() in _OFFICE_SUFFIXES:
+        elif document_tools and Path(path).suffix.lower() in _OFFICE_SUFFIXES:
             note = (
                 f"[사용자가 파일을 보냈습니다: {path}. Office 문서라면 "
                 f"local_document_import 도구로 먼저 가져온 뒤 inspect_document로 "
@@ -1717,7 +1748,9 @@ class TelegramChannel(Channel):
                     continue
                 if not text:
                     # No text — maybe an attachment (photo/voice/document). P2-1
-                    text = self._compose_media_text(msg) or ""
+                    text = self._compose_media_text(
+                        msg, document_tools=_document_tools(gateway)
+                    ) or ""
                 if not text:
                     continue
                 # Status and bookkeeping commands must not kill the turn (or

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import types
+
+import pytest
 
 from birkin.gateway.channels import telegram
 from birkin.gateway.channels.telegram import TelegramChannel
@@ -45,9 +48,59 @@ def test_office_document_note_points_at_local_import(monkeypatch, tmp_path):
     ch = _ch(monkeypatch, tmp_path)
     monkeypatch.setattr(ch, "_download_media",
                         lambda fid: str(tmp_path / "uploads" / "d_보고서.DOCX"))
-    out = ch._compose_media_text({"document": {"file_id": "d", "file_size": 10}})
+    out = ch._compose_media_text({"document": {"file_id": "d", "file_size": 10}},
+                                 document_tools=True)
     assert "파일을 보냈습니다" in out and "d_보고서.DOCX" in out
     assert "local_document_import" in out and "inspect_document" in out
+
+
+def test_office_note_names_no_tool_the_session_cannot_call(monkeypatch, tmp_path):
+    ch = _ch(monkeypatch, tmp_path)
+    monkeypatch.setattr(ch, "_download_media",
+                        lambda fid: str(tmp_path / "uploads" / "d_보고서.docx"))
+    out = ch._compose_media_text({"document": {"file_id": "d", "file_size": 10}})
+    assert "d_보고서.docx" in out and "파일 읽기" in out
+    assert "local_document_import" not in out and "inspect_document" not in out
+
+
+def _registry_session(*names):
+    registry = types.SimpleNamespace(specs=lambda: [{"name": name} for name in names])
+    return types.SimpleNamespace(cfg={}, agent=types.SimpleNamespace(registry=registry))
+
+
+@pytest.mark.parametrize(
+    ("provider", "names", "expected"),
+    [
+        ("anthropic", ("local_document_import", "inspect_document"), True),
+        ("anthropic", ("inspect_document",), False),
+        ("codex-cli", ("local_document_import", "inspect_document"), False),
+        ("claude-cli", ("local_document_import", "inspect_document"), False),
+    ],
+)
+def test_only_a_native_registry_with_both_tools_imports_documents(
+        monkeypatch, provider, names, expected):
+    from birkin.gateway import core as gw_core
+
+    session = _registry_session(*names)
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: session)
+    gateway = gw_core.Gateway({"provider": provider, "gateway_prewarm": False})
+
+    assert gateway.can_import_documents() is expected
+    assert telegram._document_tools(gateway) is expected
+    assert telegram._document_tools(object()) is False
+
+
+def test_the_native_document_registry_offers_both_tools(monkeypatch, tmp_path):
+    from birkin.gateway import core as gw_core
+    from birkin.tools import build_registry
+    from birkin.tools._types import ToolContext
+
+    registry = build_registry(ToolContext(cfg={}, client=None, cwd=tmp_path),
+                              include={"documents"})
+    session = types.SimpleNamespace(cfg={}, agent=types.SimpleNamespace(registry=registry))
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: session)
+
+    assert gw_core.Gateway({"provider": "anthropic"}).can_import_documents()
 
 
 def test_photo_note_does_not_suggest_office_import(monkeypatch, tmp_path):

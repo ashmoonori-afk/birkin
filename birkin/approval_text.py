@@ -23,6 +23,9 @@ from typing import Final, Literal
 from . import risk
 
 Tone = Literal["success", "failure", "rejected", "info", "progress"]
+# Where a card is read: a chat card (Telegram) or `birkin review`, which
+# prints the full request data on its own line below the card.
+Where = Literal["chat", "terminal"]
 
 # -- labels -------------------------------------------------------------------
 
@@ -177,8 +180,26 @@ def needs_answers(record: Mapping[str, object]) -> bool:
 def headline(record: Mapping[str, object]) -> str:
     category = str(record.get("category") or "")
     label = category_label(category)
-    title = str(record.get("title") or "").strip() or label
+    title = _visible(str(record.get("title") or "").strip()) or label
     return f"{risk_label(risk.risk_for(category))} · {label} — {title}"
+
+
+def description_text(
+    record: Mapping[str, object],
+    limit: int | None = None,
+    *,
+    where: Where = "chat",
+) -> str:
+    """The record's own explanation, escaped; as prose it keeps its line breaks."""
+    return _card_preview(
+        record.get("description") or "", limit, keep_newlines=True, where=where
+    )
+
+
+def _visible(value: object) -> str:
+    from .tools.connections import visible_text
+
+    return visible_text(value)
 
 
 def _redacted(value: str) -> str:
@@ -242,16 +263,16 @@ def _operation_summary(payload: Mapping[str, object]) -> str:
     operation = payload.get("operation")
     if not isinstance(operation, Mapping):
         return "↳ 요청 데이터가 올바르지 않습니다."
-    tool = str(operation.get("tool", "?"))
+    tool = _visible(operation.get("tool", "?"))
     gate = str(operation.get("gate", "?"))
-    cwd = str(operation.get("cwd", "?"))
-    raw_input = _json_text(operation.get("input", {}))
+    cwd = _visible(operation.get("cwd", "?"))
+    raw_input = _visible(_json_text(operation.get("input", {})))
     preview = raw_input[:1200]
     if len(raw_input) > len(preview):
         preview += f"… (전체 {len(raw_input)}자)"
     lines = [
         f"↳ 도구: {tool}",
-        f"차단 단계: {gate_label(gate)} ({gate})",
+        f"차단 단계: {gate_label(gate)} ({_visible(gate)})",
         f"작업 폴더: {cwd}",
         f"입력: {preview}",
     ]
@@ -260,7 +281,7 @@ def _operation_summary(payload: Mapping[str, object]) -> str:
         lines.append(
             "환경 변수: "
             + ", ".join(
-                f"{key}={value}"
+                f"{_visible(key)}={_visible(value)}"
                 for key, value in sorted(environment.items(), key=lambda item: str(item[0]))
             )
         )
@@ -268,17 +289,17 @@ def _operation_summary(payload: Mapping[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _office_summary(payload: Mapping[str, object]) -> str:
+def _office_summary(payload: Mapping[str, object], where: Where) -> str:
     lines: list[str] = []
     source = payload.get("source_filename")
     if isinstance(source, str) and source:
-        lines.append(f"원본: {source}")
+        lines.append(f"원본: {_card_preview(source, where=where)}")
     destination = payload.get("destination")
     if isinstance(destination, str) and destination:
-        lines.append(f"저장 위치: {destination}")
+        lines.append(f"저장 위치: {_card_preview(destination, where=where)}")
     outcome = payload.get("outcome")
     if isinstance(outcome, str) and outcome:
-        lines.append(f"작업: {outcome[:200]}")
+        lines.append(f"작업: {_card_preview(outcome, 200, where=where)}")
     overwrite = payload.get("overwrite_approved")
     if overwrite is True:
         lines.append("덮어쓰기: 주의: 기존 파일을 덮어쓸 수 있습니다")
@@ -288,33 +309,37 @@ def _office_summary(payload: Mapping[str, object]) -> str:
 
 
 _CARD_PREVIEW_CHARS: Final = 1200
+_FULL_TEXT_HINTS: Final[dict[Where, str]] = {
+    "chat": "전체 내용은 `birkin review` 또는 웹 승인 화면에서 확인하세요",
+    "terminal": "전체 내용은 아래 '세부 데이터' 줄에서 확인하세요",
+}
 
 
 def _card_preview(
     value: object,
-    limit: int = _CARD_PREVIEW_CHARS,
+    limit: int | None = _CARD_PREVIEW_CHARS,
     *,
     keep_newlines: bool = False,
+    where: Where = "chat",
 ) -> str:
     """Escaped, bounded text for a one-tap card; a cut always says so.
 
     Control and format characters (newline, bidi override, zero-width) and
     line/paragraph separators are shown as escapes so a value cannot fake the
     following card lines or hide a suffix; ``keep_newlines`` keeps real line
-    breaks for prose such as a mail body.
+    breaks for prose such as a mail body. The cut notice points to where
+    ``where`` shows the full text.
     """
-    from .tools.connections import visible_text
-
     raw = str(value)
     if keep_newlines:
-        text = "\n".join(visible_text(line) for line in raw.split("\n"))
+        text = "\n".join(_visible(line) for line in raw.split("\n"))
     else:
-        text = visible_text(raw)
-    if len(text) <= limit:
+        text = _visible(raw)
+    if limit is None or len(text) <= limit:
         return text
     return (
-        f"{text[:limit]}… (전체 {len(text)}자 중 {limit}자만 표시 · 전체 내용은 "
-        "`birkin review` 또는 웹 승인 화면에서 확인하세요)"
+        f"{text[:limit]}… (전체 {len(text)}자 중 {limit}자만 표시 · "
+        f"{_FULL_TEXT_HINTS[where]})"
     )
 
 
@@ -323,16 +348,18 @@ def payload_summary(
     payload: Mapping[str, object],
     *,
     fallback: bool = True,
+    where: Where = "chat",
 ) -> str:
     """The consequential part of a proposal, so a one-tap approve isn't blind.
 
     Categories without a dedicated summary fall back to bounded JSON; a surface
     that already shows the full data passes ``fallback=False`` to skip it.
+    Every model-written value is escaped, so it cannot fake a card line.
     """
     if category == "shell":
-        cwd = _card_preview(payload.get("cwd") or "")
+        cwd = _card_preview(payload.get("cwd") or "", where=where)
         return (
-            f"↳ 실행: {_card_preview(payload.get('command', ''))}\n"
+            f"↳ 실행: {_card_preview(payload.get('command', ''), where=where)}\n"
             f"작업 폴더: {cwd or '지정 안 됨(Birkin 실행 위치)'}"
         )
     if category == "cron":
@@ -340,32 +367,37 @@ def payload_summary(
 
         return "↳ " + "\n".join(cron_review_lines(payload))
     if category == "skill":
-        return f"↳ 스킬: {str(payload.get('name', payload.get('title', '')))[:120]}"
+        name = payload.get("name", payload.get("title", ""))
+        return f"↳ 스킬: {_card_preview(name, 120, where=where)}"
     if category == "moirai":
         return (
-            f"↳ 워크플로우: {str(payload.get('script', ''))[:80]} · "
-            f"할 일: {str(payload.get('task', ''))[:120]}"
+            f"↳ 워크플로우: {_card_preview(payload.get('script', ''), 80, where=where)} · "
+            f"할 일: {_card_preview(payload.get('task', ''), 120, where=where)}"
         )
     if category == "workflow":
         raw_steps = payload.get("steps")
         steps = raw_steps if isinstance(raw_steps, list) else []
-        return "↳ " + " → ".join(str(step)[:60] for step in steps[:4])
+        return "↳ " + " → ".join(
+            _card_preview(step, 60, where=where) for step in steps[:4]
+        )
     if category == "operation":
         return _operation_summary(payload)
     if category == "mail_send":
         from .tools.connections import mail_send_review_text
 
-        body = _card_preview(payload.get("body", ""), 600, keep_newlines=True)
+        body = _card_preview(
+            payload.get("body", ""), 600, keep_newlines=True, where=where
+        )
         return f"↳ {mail_send_review_text(payload)}\n본문: {body}"
     if category == "calendar_event":
         from .tools.connections import calendar_event_review_text
 
         return f"↳ {calendar_event_review_text(payload)}"
     if category in {"office_job", "office_create"}:
-        return _office_summary(payload)
+        return _office_summary(payload, where)
     if not fallback or not payload:
         return ""
-    return f"↳ 세부 데이터: {_card_preview(_json_text(payload))}"
+    return f"↳ 세부 데이터: {_card_preview(_json_text(payload), where=where)}"
 
 
 def payload_detail(payload: object, limit: int | None = 600) -> str:
@@ -528,6 +560,8 @@ _ACTION_NEEDED_CODES: Final = frozenset({
     "E_APPROVAL_FINALIZE_PENDING",
 })
 _EXIT: Final = re.compile(r"\[exit (-?\d+)\]\s?(.*)\Z", re.S)
+# worker_executor.WorkerExecutionError for a worker that exited non-zero.
+_WORKER_EXITED: Final = re.compile(r"worker exited with status -?\d+: (.*)\Z", re.S)
 _OUTPUT_CHARS: Final = 300
 _IN_PROGRESS: Final = frozenset({"approving", "executing", "resuming"})
 
@@ -597,8 +631,15 @@ def error_outcome(error: object) -> ApprovalOutcomeText:
         if raw.startswith(prefix):
             return _failure(*mapped)
     if raw.startswith(_ACTION_FAILED_PREFIX):
+        detail = raw[len(_ACTION_FAILED_PREFIX):].strip()
+        # A worker's moirai run that is waiting or failed exits non-zero with
+        # its rendered outcome as the output.
+        worker = _WORKER_EXITED.match(detail)
+        workflow = _worker_workflow_outcome(worker.group(1)) if worker else None
+        if workflow is not None:
+            return workflow
         # A replayed operation fails with the tool's own "[exit N]" output.
-        match = _EXIT.match(raw[len(_ACTION_FAILED_PREFIX):].strip())
+        match = _EXIT.match(detail)
         if match is not None and int(match.group(1)) != 0:
             return _exit_outcome(match)
         return _failure(*_ACTION_FAILED)
@@ -726,6 +767,30 @@ def _workflow_outcome(text: str) -> ApprovalOutcomeText:
     )
 
 
+def _is_moirai_worker_run(record: Mapping[str, object] | None) -> bool:
+    payload = (record or {}).get("payload")
+    request = payload.get("request") if isinstance(payload, Mapping) else None
+    return (
+        isinstance(request, Mapping)
+        and request.get("worker") == "moirai"
+        and request.get("action") in {"run", "resume"}
+    )
+
+
+def _worker_workflow_outcome(output: str) -> ApprovalOutcomeText | None:
+    """A worker's ``moirai run|resume --quiet`` output, read as its workflow.
+
+    It opens with the rendered outcome, whose exit code is 0 for a partial
+    run and 1 for a waiting one, so the exit code alone misreports both.
+    """
+    from .moirai.outcome import receipt_completion
+
+    text = output.strip()
+    if not receipt_completion(text):
+        return None
+    return _workflow_outcome(_redacted(text))
+
+
 def approve_outcome(
     record: Mapping[str, object] | None,
     result: Mapping[str, object],
@@ -764,6 +829,10 @@ def approve_outcome(
     text = str(result.get("result") or "")
     match = _EXIT.match(text)
     if match is not None:
+        if _is_moirai_worker_run(record):
+            workflow = _worker_workflow_outcome(match.group(2))
+            if workflow is not None:
+                return workflow
         return _exit_outcome(match, output_chars)
     if text == SHELL_TIMEOUT_RESULT:
         return _failure(
@@ -880,6 +949,7 @@ __all__ = [
     "category_label",
     "continuation_summary",
     "decision_outcome",
+    "description_text",
     "error_outcome",
     "gate_consequence",
     "gate_label",

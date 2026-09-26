@@ -213,6 +213,102 @@ def test_only_a_complete_workflow_carries_a_check_mark(
     assert rendered.startswith("✓") is (expected[0] == "success")
 
 
+def _worker_record(request: dict[str, object]) -> dict[str, object]:
+    return {
+        "category": "worker",
+        "status": "approved",
+        "payload": {"version": 1, "request": request, "digest": "0" * 64},
+    }
+
+
+_MOIRAI_RUN = {"worker": "moirai", "action": "run", "script": "hard-task", "task": "t"}
+
+
+@pytest.mark.parametrize(
+    ("run", "expected"),
+    [
+        ({"status": "completed", "completion": "partial", "failures": 2},
+         ("failure", "workflow_partial", "action_needed")),
+        ({"status": "completed", "result": "끝"}, ("success", "approved", "succeeded")),
+    ],
+)
+def test_an_approved_worker_workflow_reads_as_its_outcome_not_an_exit_code(
+    run: dict[str, object], expected: tuple[str, str, str]
+) -> None:
+    from birkin.moirai import outcome as moirai_outcome
+
+    report = moirai_outcome.render({**run, "run_id": "r4"}, name="hard-task")
+    for request in (_MOIRAI_RUN, {"worker": "moirai", "action": "resume", "run_id": "r4"}):
+        outcome = approval_text.approve_outcome(
+            _worker_record(request), {"ok": True, "result": f"[exit 0] {report}"}
+        )
+
+        assert (outcome.tone, outcome.code, outcome.ui_state) == expected
+        assert "종료 코드" not in outcome.summary
+        assert "실행 기록: r4" in outcome.detail
+
+
+def test_a_waiting_worker_workflow_asks_for_an_answer_not_a_new_request() -> None:
+    from birkin.moirai import outcome as moirai_outcome
+
+    report = moirai_outcome.render({"status": "waiting_input", "run_id": "r5"})
+    error = f"action failed: worker exited with status 1: {report}"
+
+    for outcome in (
+        approval_text.approve_outcome(
+            _worker_record(_MOIRAI_RUN), {"ok": False, "error": error}
+        ),
+        approval_text.record_outcome(
+            {**_worker_record(_MOIRAI_RUN), "status": "error",
+             "execution_error": error.removeprefix("action failed: ")}
+        ),
+    ):
+        assert (outcome.code, outcome.ui_state) == ("workflow_waiting", "action_needed")
+        assert "다시 요청" not in outcome.summary
+
+
+def test_only_a_moirai_worker_output_is_read_as_a_workflow_receipt() -> None:
+    printed = "[exit 0] ❌ 워크플로우 실패 (문서 제목)"
+    for record in (
+        _worker_record({"worker": "daedalus", "action": "show", "slug": "notes"}),
+        {"category": "shell", "status": "approved"},
+    ):
+        outcome = approval_text.approve_outcome(record, {"ok": True, "result": printed})
+        assert (outcome.code, outcome.ok) == ("approved", True)
+
+
+def test_worker_executor_results_drive_the_workflow_outcome(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin import worker_executor
+    from birkin.moirai import outcome as moirai_outcome
+    from birkin.worker_request import MoiraiRun, approval_payload
+
+    payload = approval_payload(MoiraiRun("hard-task", "t"))
+    record = {"category": "worker", "status": "approved", "payload": payload}
+    runs = iter([
+        (0, {"status": "completed", "completion": "partial", "run_id": "r6"}),
+        (1, {"status": "waiting_input", "run_id": "r7"}),
+    ])
+
+    def fake_run(command: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        code, out = next(runs)
+        return subprocess.CompletedProcess(command, code, moirai_outcome.render(out), "")
+
+    monkeypatch.setattr(worker_executor, "argv", lambda _request: ("moirai",))
+    monkeypatch.setattr(worker_executor.subprocess, "run", fake_run)
+
+    partial = approval_text.approve_outcome(
+        record, {"ok": True, "result": worker_executor.execute_approved(payload)}
+    )
+    with pytest.raises(worker_executor.WorkerExecutionError) as waiting:
+        worker_executor.execute_approved(payload)
+    answer = approval_text.error_outcome(f"action failed: {waiting.value}")
+
+    assert partial.code == "workflow_partial"
+    assert answer.code == "workflow_waiting"
+
+
 def test_an_unrecognised_workflow_receipt_is_not_a_success() -> None:
     outcome = approval_text.approve_outcome(
         {"category": "moirai", "status": "approved"},
@@ -416,6 +512,66 @@ def test_office_summary_shows_source_destination_and_overwrite() -> None:
     assert "매출.xlsx" in summary
     assert "D:/out/report.docx" in summary
     assert "덮어쓰기" in summary
+
+
+_FORGED = "요약\n덮어쓰기: 안전: 기존 파일이 없어야 합니다\x1b[8m ‮\x07"
+
+
+def _assert_escaped(text: str) -> None:
+    for raw in ("\x1b", "\x07", " ", "‮"):
+        assert raw not in text
+    assert not any(line.startswith("덮어쓰기: 안전") for line in text.splitlines())
+
+
+@pytest.mark.parametrize(
+    ("category", "payload"),
+    [
+        ("moirai", {"script": _FORGED, "task": _FORGED}),
+        ("skill", {"name": _FORGED}),
+        ("workflow", {"steps": [_FORGED, _FORGED]}),
+        ("office_create", {"source_filename": _FORGED, "destination": _FORGED,
+                           "outcome": _FORGED, "overwrite_approved": True}),
+        ("office_job", {"outcome": _FORGED}),
+        ("operation", {"operation": {"tool": _FORGED, "gate": _FORGED, "cwd": _FORGED,
+                                     "input": {"path": _FORGED},
+                                     "environment": {_FORGED: _FORGED}},
+                       "digest": "0" * 64}),
+    ],
+)
+def test_model_written_card_fields_cannot_fake_lines_or_hide_text(
+    category: str, payload: dict[str, object]
+) -> None:
+    summary = approval_text.payload_summary(category, payload)
+
+    _assert_escaped(summary)
+    assert "\\u000a" in summary
+
+
+def test_the_headline_and_description_are_escaped() -> None:
+    record = {"category": "office_create", "title": _FORGED, "description": _FORGED}
+
+    headline = approval_text.headline(record)
+    description = approval_text.description_text(record)
+
+    _assert_escaped(headline)
+    assert "\n" not in headline
+    assert description.startswith("요약\n덮어쓰기")  # prose keeps its line breaks
+    for raw in ("\x1b", "\x07", " ", "‮"):
+        assert raw not in description
+    assert "자만 표시" in approval_text.description_text({"description": "d" * 300}, 200)
+
+
+def test_a_cut_in_the_terminal_points_to_the_detail_line() -> None:
+    payload = {"command": "echo " + "a" * 1300, "cwd": "/tmp"}
+
+    chat = approval_text.payload_summary("shell", payload)
+    terminal = approval_text.payload_summary(
+        "shell", payload, fallback=False, where="terminal"
+    )
+
+    assert "`birkin review`" in chat
+    assert "`birkin review`" not in terminal
+    assert "1200자만 표시" in terminal and "세부 데이터" in terminal
 
 
 def test_other_payloads_render_as_json_not_python_repr() -> None:

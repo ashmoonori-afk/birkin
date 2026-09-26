@@ -747,6 +747,18 @@ class Gateway:
     def persistent(self) -> bool:
         return self._persistent
 
+    def can_import_documents(self) -> bool:
+        """Whether a model turn here can call local_document_import and inspect_document.
+
+        Only a native provider runs Birkin's own tool registry; a CLI provider
+        reaches Birkin through the MCP server, whose gateway scope carries no
+        document tools.
+        """
+        if self.cfg.get("provider") in config.CLI_PROVIDERS:
+            return False
+        names = {spec.get("name") for spec in self.session.agent.registry.specs()}
+        return {"local_document_import", "inspect_document"} <= names
+
     def sweep_sessions(self) -> int:
         return self._claude_sessions.sweep()
 

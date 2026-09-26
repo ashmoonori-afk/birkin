@@ -274,6 +274,11 @@ def denial_reason_for(command: str) -> str:
     return newest
 
 
+# A terminal can show an approved command's whole receipt (the executor keeps
+# at most 2000 characters of it), within _print_outcome's 2400 limit.
+_REVIEW_OUTPUT_CHARS = 2000
+
+
 def _print_outcome(outcome: approval_text.ApprovalOutcomeText, raw_error: object) -> None:
     from . import ui
 
@@ -300,10 +305,12 @@ def review_cli() -> int:
         tier = risk.risk_for(rec.get("category", ""))
         payload = rec.get("payload") or {}
         print(f"── {risk.label(tier)} {approval_text.headline(rec)}")
-        print(f"   {rec['description']}")
+        for line in approval_text.description_text(rec).split("\n"):
+            print(f"   {line}")
         if isinstance(payload, dict):
             summary = approval_text.payload_summary(
-                str(rec.get("category") or ""), payload, fallback=False)
+                str(rec.get("category") or ""), payload, fallback=False,
+                where="terminal")
             for line in summary.splitlines():
                 print(f"   {line}")
         print(f"   {ui.DIM}{approval_text.payload_detail(payload, limit=None)}{ui.RESET}")
@@ -324,7 +331,8 @@ def review_cli() -> int:
                 approved_by="human:terminal",
                 approved_via="terminal:review",
             )
-            outcome = approval_text.approve_outcome(store.get_pending(rec["id"]), res)
+            outcome = approval_text.approve_outcome(
+                store.get_pending(rec["id"]), res, output_chars=_REVIEW_OUTPUT_CHARS)
             _print_outcome(outcome, res.get("error"))
         elif choice in ("n", "no"):
             why = ""
