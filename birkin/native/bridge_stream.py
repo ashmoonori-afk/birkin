@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime, timezone
 from typing import cast, final
 
@@ -13,6 +14,10 @@ from birkin.native.state import NativeConnectionState
 from birkin.native.stream import NativeEventQueue
 from birkin.native.transport import NativeConnection
 from birkin.workspace.records import WorkspaceEvent
+
+# A command owns the send gate for a whole turn. The writer waits for it in
+# slices so stop() never has to outlast a heartbeat interval.
+_GATE_POLL_SECONDS = 0.05
 
 
 @final
@@ -118,10 +123,10 @@ class NativeBridgeStream:
                 self._queue.wait_for_pending(timeout=self._heartbeat_interval)
                 if self._stopped.is_set():
                     return
-                acquired = self._send_gate.acquire(
-                    timeout=self._heartbeat_interval
-                )
+                acquired = self._acquire_send_gate()
                 if not acquired:
+                    if self._stopped.is_set():
+                        return
                     if not self._delivery_suspended.is_set():
                         continue
                     self._send_heartbeat()
@@ -136,12 +141,29 @@ class NativeBridgeStream:
                         self._send_heartbeat()
                     finally:
                         self._send_gate.release()
+                # stop() marks the stream stopped before it sets the pong, so
+                # a heartbeat that cleared that pong is caught here.
+                if self._stopped.is_set():
+                    return
                 if not self._pong.wait(self._peer_timeout):
                     self._connection.interrupt()
                     return
         except BaseException as exc:
             self._failure = exc
             self._connection.interrupt()
+
+    def _acquire_send_gate(self) -> bool:
+        """Wait up to one heartbeat interval for the gate, yielding to stop()."""
+        deadline = time.monotonic() + self._heartbeat_interval
+        while not self._stopped.is_set():
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            if self._send_gate.acquire(
+                timeout=min(remaining, _GATE_POLL_SECONDS)
+            ):
+                return True
+        return False
 
     def _send_heartbeat(self) -> None:
         self._pong.clear()
