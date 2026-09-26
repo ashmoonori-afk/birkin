@@ -683,44 +683,45 @@ def _goal(session: Any, arg: str) -> None:
     try:
         parts = shlex.split(arg)
     except ValueError as exc:
-        print(f"{RED}Invalid /goal arguments: {exc}{RESET}")
+        print(f"{RED}/goal 인자를 읽을 수 없어요. 따옴표 짝을 확인해 주세요.{RESET}")
+        print(f"{DIM}세부: {exc}{RESET}")
         return
     if not parts:
-        print(f"{DIM}Usage: /goal set <objective> [--gate \"command\"] "
+        print(f"{DIM}사용법: /goal set <목표> [--gate \"검증 명령\"] "
               f"| show | pause | done{RESET}")
         return
 
     action = parts.pop(0).lower()
     if action == "show":
         status = goals.render_status()
-        print(status or f"{DIM}No active goal.{RESET}")
+        print(status or f"{DIM}진행 중인 목표가 없어요.{RESET}")
         return
     if action == "pause":
         state = goals.pause()
-        print(f"{DIM}Goal paused.{RESET}" if state else
-              f"{DIM}No active goal.{RESET}")
+        print(f"{DIM}목표를 잠시 멈췄어요.{RESET}" if state else
+              f"{DIM}진행 중인 목표가 없어요.{RESET}")
         return
     if action == "done":
         state = goals.get_active()
         if state is None:
-            print(f"{DIM}No active goal.{RESET}")
+            print(f"{DIM}진행 중인 목표가 없어요.{RESET}")
             return
         final, outcome = goals.request_completion(state, session.cfg)
         if outcome == "queued":
-            print(f"{DIM}Verifier queued for approval: {state.gate_cmd}{RESET}")
-            print(f"{RED}Goal stays open until it passes — approve it with "
-                  f"/review, then run /goal done again.{RESET}")
+            print(f"{DIM}검증 명령이 승인을 기다리고 있어요: {state.gate_cmd}{RESET}")
+            print(f"{RED}/review 에서 승인한 뒤 /goal done 을 다시 실행하면 "
+                  f"결과를 확인해 목표를 마무리해요.{RESET}")
             return
         if outcome == "failed":
-            print(f"{RED}Verifier failed; goal stays open.{RESET}")
+            print(f"{RED}검증 명령이 실패해서 목표를 계속 진행 중으로 둘게요.{RESET}")
             tail = str((final.gate_last or {}).get("output_tail") or "").strip()
             if tail:
                 print(f"{DIM}{tail[-500:]}{RESET}")
             return
-        print(f"{GREEN}Goal done: {state.objective}{RESET}")
+        print(f"{GREEN}목표를 완료했어요: {state.objective}{RESET}")
         return
     if action != "set":
-        print(f"{RED}Unknown /goal action {action!r}.{RESET}")
+        print(f"{RED}알 수 없는 /goal 동작이에요: {action}{RESET}")
         return
 
     objective: list[str] = []
@@ -730,26 +731,26 @@ def _goal(session: Any, arg: str) -> None:
         part = parts[i]
         if part == "--gate":
             if i + 1 >= len(parts):
-                print(f"{RED}{part} needs a value.{RESET}")
+                print(f"{RED}--gate 뒤에 검증 명령을 적어 주세요.{RESET}")
                 return
             gate = parts[i + 1]
             i += 2
             continue
         if part.startswith("--"):
-            print(f"{RED}Unknown /goal option {part!r}.{RESET}")
+            print(f"{RED}알 수 없는 /goal 옵션이에요: {part}{RESET}")
             return
         objective.append(part)
         i += 1
     try:
         state = goals.set_goal(" ".join(objective), gate=gate)
-    except ValueError as exc:
-        print(f"{RED}{exc}{RESET}")
+    except ValueError:   # the only one set_goal raises here: no objective
+        print(f"{RED}목표 내용을 적어 주세요.{RESET}")
         return
-    print(f"{GREEN}Goal set: {state.objective}{RESET}")
+    print(f"{GREEN}목표를 정했어요: {state.objective}{RESET}")
     print(goals.render_status())
     if state.gate_cmd:
-        print(f"{DIM}The verifier runs through the approval queue "
-              f"when /goal done is used.{RESET}")
+        print(f"{DIM}/goal done 을 실행하면 검증 명령이 승인 대기열을 거쳐 "
+              f"실행돼요.{RESET}")
 
 
 @command("cron", "List scheduled cron jobs.", "/cron")

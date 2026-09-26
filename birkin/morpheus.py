@@ -267,11 +267,12 @@ def _apply_harness_proposal(cfg: dict[str, Any], summary: str, *,
     if proposal is None:
         return None
     try:
+        # Global scope: a session renders global plus its own local state, so
+        # a per-run "morpheus" session scope was read by no session at all.
         result = harness.submit(
             proposal,
             cfg=cfg,
-            scope="local",
-            session_id=str(cfg.get("session_id") or "morpheus"),
+            scope="global",
             source="morpheus",
             origin="morpheus",
         )

@@ -120,11 +120,13 @@ class _QuietHours(TypedDict, total=False):
 class _CompanionPolicy(TypedDict, total=False):
     enabled: bool
     timezone: str
+    utc_offset_minutes: int
     quiet_hours: _QuietHours
     daily_cap: int
 
 
 class _Commitment(TypedDict):
+    id: str
     status: str
     outcome: str
     next_action: NotRequired[str]
@@ -165,12 +167,22 @@ class _CompanionModule(Protocol):
 
     def list_commitments(self, *, context_id: str = "") -> list[_Commitment]: ...
 
+    def local_time_label(self, record: _Commitment) -> str: ...
+
+    def local_zone(self) -> tuple[str, int]: ...
+
 
 def _has_companion_contract(module: ModuleType) -> TypeGuard[_CompanionModule]:
     return all(
         hasattr(module, name)
-        for name in ("pause_all", "resume", "get_policy", "list_commitments")
+        for name in ("pause_all", "resume", "get_policy", "list_commitments",
+                     "local_time_label", "local_zone")
     )
+
+
+# Open commitment statuses /commitment lists, as the words the user sees.
+_COMMITMENT_LABELS = {"active": "진행 중", "snoozed": "미룸", "blocked": "막힘",
+                      "missed": "놓침"}
 
 
 def _utc_stamp() -> str:
@@ -982,12 +994,23 @@ class Gateway:
                 raise RuntimeError("companion contract is unavailable")
             policy = companion_module.get_policy()
             quiet = policy.get("quiet_hours", {})
-            return (
+            status = (
                 f"체크인: {'켜짐' if policy.get('enabled') else '꺼짐'}\n"
                 f"시간대: {policy.get('timezone')}\n"
                 f"방해 금지: {quiet.get('start')}–{quiet.get('end')}\n"
                 f"하루 최대: {policy.get('daily_cap')}회"
             )
+            # /checkin on adopts this machine's zone only over the untouched
+            # UTC default, so the hint appears exactly when it would help.
+            local_name = companion_module.local_zone()[0]
+            if (policy.get("enabled") and policy.get("timezone") == "UTC"
+                    and not policy.get("utc_offset_minutes")
+                    and local_name != "UTC"):
+                status += (
+                    f"\n시간대가 UTC로 되어 있어요. 이 컴퓨터 시간대"
+                    f"({local_name})로 맞추려면 /checkin on 을 다시 보내 주세요."
+                )
+            return status
 
         companion_module = companion
         if not _has_companion_contract(companion_module):
@@ -995,7 +1018,7 @@ class Gateway:
         records = [
             r
             for r in companion_module.list_commitments(context_id=context_id)
-            if r["status"] in ("active", "blocked", "snoozed")
+            if r["status"] in _COMMITMENT_LABELS
         ]
         if not records:
             return (
@@ -1004,10 +1027,19 @@ class Gateway:
             )
         lines: list[str] = []
         for record in records:
-            lines.append(f"[{record['status']}] {record['outcome']}")
+            lines.append(
+                f"[{_COMMITMENT_LABELS[record['status']]}] {record['outcome']}"
+            )
             if record.get("next_action"):
                 lines.append(f"  다음 할 일: {record.get('next_action')}")
-            lines.append(f"  예정: {record.get('check_in_at') or '-'}")
+            lines.append(f"  예정: {companion_module.local_time_label(record)}")
+            if record["status"] == "missed":
+                lines.append(
+                    "  예정 시각이 지나 묻지 못했어요. 다시 물어보게 하려면 "
+                    + f"`birkin companion answer {record['id']} --do snooze`, "
+                    + f"정리하려면 `birkin companion answer {record['id']} "
+                    + "--do stop` 을 실행해 주세요."
+                )
             lines.append(f"  출처: {record.get('source_ref') or '-'}")
         return "\n".join(lines)
 

@@ -8,11 +8,12 @@ from changing user state on its own.
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from birkin import companion, config
+from birkin import companion, config, scheduler
 
 KST = timezone(timedelta(hours=9))
 CTX = "telegram:12345"
@@ -543,4 +544,253 @@ def test_why_message_names_the_commitment_and_its_source():
     rec = _active()
     why = companion.why_message(rec)
     assert rec["outcome"] in why and SOURCE in why
-    assert rec["check_in_at"] in why
+    # The scheduled time is the user's wall clock, not the stored ISO string.
+    assert "8월 1일 09:00" in why
+    assert rec["check_in_at"] not in why
+
+
+# -- snooze re-asks --------------------------------------------------------
+
+class _Sender:
+    """Stands in for the Telegram send in scheduler.run_checkins."""
+
+    def __init__(self):
+        self.sent: list[str] = []
+
+    def __call__(self, chat_id, text, markup):
+        self.sent.append(text)
+        return str(1000 + len(self.sent))
+
+
+def test_snoozed_commitment_is_asked_again_when_the_snooze_ends():
+    _setup()
+    rec = _active()
+    send = _Sender()
+    assert scheduler.run_checkins(now=BASE + timedelta(minutes=1), send=send) == 1
+    companion.answer(rec["id"], "snooze", snooze_minutes=60,
+                     now=BASE + timedelta(minutes=5))
+
+    assert scheduler.run_checkins(now=BASE + timedelta(minutes=30), send=send) == 0
+    assert scheduler.run_checkins(now=BASE + timedelta(minutes=66), send=send) == 1
+    assert rec["outcome"] in send.sent[-1]
+    after = companion.get_commitment(rec["id"])
+    assert after["status"] == "active"
+    assert after["checkin"]["answered_at"] is None
+    assert scheduler.run_checkins(now=BASE + timedelta(minutes=67), send=send) == 0
+    done = companion.answer(rec["id"], "done", now=BASE + timedelta(minutes=70))
+    assert done["status"] == "done"
+
+
+def test_snooze_re_ask_is_not_held_by_the_default_cap_and_cooldown():
+    _setup(daily_cap=1, cooldown_minutes=720)
+    rec = _active()
+    send = _Sender()
+    assert scheduler.run_checkins(now=BASE + timedelta(minutes=1), send=send) == 1
+    companion.answer(rec["id"], "snooze", snooze_minutes=60,
+                     now=BASE + timedelta(minutes=5))
+
+    assert scheduler.run_checkins(now=BASE + timedelta(minutes=66), send=send) == 1
+
+
+def test_a_snooze_ending_in_quiet_hours_is_asked_when_they_end():
+    _setup()
+    evening = BASE.replace(hour=21)
+    rec = _active(evening)
+    res = companion.answer(rec["id"], "snooze", snooze_minutes=90,
+                           now=evening.replace(minute=30))
+
+    morning = (BASE + timedelta(days=1)).replace(hour=8, minute=0)
+    assert companion.parse_iso(res["commitment"]["check_in_at"]) == morning
+    assert "8월 2일 08:00" in res["message"]
+    ok, _ = companion.claim_checkin(rec["id"], now=morning + timedelta(minutes=1))
+    assert ok
+
+
+def test_snooze_receipt_shows_the_users_wall_clock():
+    _setup()
+    rec = _active()
+    res = companion.answer(rec["id"], "snooze", snooze_minutes=60,
+                           now=datetime(2026, 8, 1, 0, 5, tzinfo=timezone.utc))
+    assert "8월 1일 10:05" in res["message"]
+    assert "+00:00" not in res["message"]
+
+
+def test_snoozed_re_ask_still_respects_pause():
+    _setup()
+    rec = _active()
+    companion.answer(rec["id"], "snooze", snooze_minutes=30,
+                     now=BASE + timedelta(minutes=1))
+    companion.pause_all()
+    ok, reason = companion.claim_checkin(rec["id"], now=BASE + timedelta(hours=1))
+    assert not ok and reason == "proactive contact is off"
+
+
+def test_a_snoozed_commitment_keeps_the_context_slot():
+    _setup()
+    rec = _active()
+    companion.answer(rec["id"], "snooze")
+    second = companion.add_candidate(context_id=CTX, outcome="Book the venue",
+                                     source_ref="telegram:12345:100")
+    with pytest.raises(companion.CompanionError, match="already has an active"):
+        companion.activate(second["id"], check_in_at=BASE.isoformat())
+
+
+# -- missed check-ins ------------------------------------------------------
+
+def test_expired_check_in_is_marked_missed_and_frees_the_context():
+    _setup(expiry_minutes=60)
+    rec = _active()
+    ok, reason = companion.claim_checkin(rec["id"], now=BASE + timedelta(hours=3))
+    assert not ok and reason == "check-in expired"
+    assert companion.get_commitment(rec["id"])["status"] == "missed"
+
+    def expired_events():
+        return [e for e in companion.read_events(commitment_id=rec["id"])
+                if e["type"] == "checkin_expired"]
+
+    assert len(expired_events()) == 1
+    companion.claim_checkin(rec["id"], now=BASE + timedelta(hours=4))
+    assert len(expired_events()) == 1
+    assert companion.due_checkins(now=BASE + timedelta(hours=5)) == []
+    second = companion.add_candidate(context_id=CTX, outcome="Book the venue",
+                                     source_ref="telegram:12345:100")
+    activated = companion.activate(
+        second["id"], check_in_at=(BASE + timedelta(days=1)).isoformat())
+    assert activated["status"] == "active"
+
+
+def test_scheduler_pass_marks_an_expired_check_in_missed():
+    _setup(expiry_minutes=60)
+    rec = _active()
+    assert scheduler.run_checkins(now=BASE + timedelta(hours=3),
+                                  send=_Sender()) == 0
+    assert companion.get_commitment(rec["id"])["status"] == "missed"
+
+
+def test_a_sent_check_in_is_not_marked_missed_while_it_can_still_be_answered():
+    _setup(expiry_minutes=60)
+    rec = _active()
+    ok, _ = companion.claim_checkin(rec["id"], now=BASE + timedelta(minutes=30))
+    assert ok
+    ok, reason = companion.claim_checkin(rec["id"],
+                                         now=BASE + timedelta(minutes=70))
+    assert not ok and reason == "check-in expired"
+    assert companion.get_commitment(rec["id"])["status"] == "active"
+    companion.claim_checkin(rec["id"], now=BASE + timedelta(minutes=95))
+    after = companion.get_commitment(rec["id"])
+    assert after["status"] == "missed" and after["ignored_streak"] == 1
+
+
+@pytest.mark.parametrize("verb,status", [("done", "done"), ("stop", "stopped"),
+                                         ("snooze", "snoozed"),
+                                         ("blocked", "blocked")])
+def test_a_missed_commitment_can_be_answered(verb, status):
+    _setup(expiry_minutes=60)
+    rec = _active()
+    companion.claim_checkin(rec["id"], now=BASE + timedelta(hours=3))
+    assert companion.get_commitment(rec["id"])["status"] == "missed"
+    assert companion.answer(rec["id"], verb)["status"] == status
+
+
+def test_a_missed_commitment_can_be_rescheduled():
+    _setup(expiry_minutes=60)
+    rec = _active()
+    companion.claim_checkin(rec["id"], now=BASE + timedelta(hours=3))
+    assert companion.get_commitment(rec["id"])["status"] == "missed"
+    moved = companion.reschedule(
+        rec["id"], check_in_at=(BASE + timedelta(days=1)).isoformat())
+    assert moved["status"] == "active"
+
+
+def test_kst_policy_morning_check_in_is_sent_when_quiet_hours_end():
+    _setup(expiry_minutes=360)
+    rec = _active(datetime(2026, 9, 26, 7, 0, tzinfo=KST))
+    ok, reason = companion.claim_checkin(
+        rec["id"], now=datetime(2026, 9, 26, 7, 1, tzinfo=KST))
+    assert not ok and reason == "inside quiet hours"
+    ok, _ = companion.claim_checkin(
+        rec["id"], now=datetime(2026, 9, 26, 8, 1, tzinfo=KST))
+    assert ok
+
+
+# -- the policy zone -------------------------------------------------------
+
+def _machine_zone(monkeypatch, name="Asia/Seoul", offset=540):
+    monkeypatch.setattr(companion, "local_zone", lambda now=None: (name, offset))
+
+
+def test_enabling_adopts_the_local_zone_so_a_kst_morning_is_delivered(
+        monkeypatch):
+    _machine_zone(monkeypatch)
+    companion.bind_context(CTX, owner_id="12345")
+    policy = companion.set_policy(enabled=True)
+    assert (policy["timezone"], policy["utc_offset_minutes"]) == ("Asia/Seoul", 540)
+    rec = _active(datetime(2026, 9, 26, 9, 0, tzinfo=KST))
+    ok, _ = companion.claim_checkin(
+        rec["id"], now=datetime(2026, 9, 26, 9, 1, tzinfo=KST))
+    assert ok
+
+
+def test_enabling_keeps_a_zone_the_user_already_chose(monkeypatch):
+    _machine_zone(monkeypatch)
+    companion.set_policy(timezone="America/New_York", utc_offset_minutes=-240)
+    assert companion.set_policy(enabled=True)["timezone"] == "America/New_York"
+
+
+def test_an_explicit_zone_on_enable_wins(monkeypatch):
+    _machine_zone(monkeypatch)
+    policy = companion.set_policy(enabled=True, timezone="Europe/Berlin")
+    assert policy["timezone"] == "Europe/Berlin"
+
+
+@pytest.mark.skipif(not hasattr(time, "tzset"), reason="needs POSIX tzset")
+@_TZDB
+def test_local_zone_reads_the_machine_zone(monkeypatch):
+    monkeypatch.setenv("TZ", "Asia/Seoul")
+    time.tzset()
+    try:
+        assert companion.local_zone() == ("Asia/Seoul", 540)
+        # Without a resolvable name the offset label is the fallback, and
+        # resolve_tz turns it back into the captured fixed offset.
+        monkeypatch.setattr(companion, "_valid_zone", lambda *_args: False)
+        name, offset = companion.local_zone()
+        assert (name, offset) == ("UTC+09:00", 540)
+        fixed = companion.resolve_tz(name, offset)
+        assert datetime(2026, 9, 26, tzinfo=fixed).utcoffset() == timedelta(hours=9)
+    finally:
+        monkeypatch.undo()
+        time.tzset()
+
+
+# -- copy ------------------------------------------------------------------
+
+def test_errors_carry_stable_codes():
+    _setup()
+    rec = _active()
+    with pytest.raises(companion.CompanionError) as unknown:
+        companion.answer(rec["id"], "maybe")
+    assert unknown.value.code == "unknown_action"
+    companion.answer(rec["id"], "done")
+    with pytest.raises(companion.CompanionError) as answered:
+        companion.answer(rec["id"], "blocked")
+    assert answered.value.code == "already_answered"
+    with pytest.raises(companion.CompanionError) as closed:
+        companion.reschedule(rec["id"], check_in_at=BASE.isoformat())
+    assert closed.value.code == "invalid_transition"
+    candidate = companion.add_candidate(context_id=CTX, outcome="Send it",
+                                        source_ref=SOURCE)
+    with pytest.raises(companion.CompanionError) as invalid:
+        companion.answer(candidate["id"], "done")
+    assert invalid.value.code == "invalid_transition"
+
+
+@pytest.mark.parametrize("days,phrase", [(0, "오늘"), (1, "어제"),
+                                         (3, "3일 전에"), (33, "6월 29일에")])
+def test_checkin_text_says_when_the_user_asked(days, phrase):
+    _setup()
+    rec = _active()
+    rec["created_at"] = (BASE - timedelta(days=days)).isoformat()
+    text = companion.checkin_text(rec, now=BASE)
+    assert text.startswith(f"{phrase} 확인해 달라고 하신 일이에요: ")
+    if days != 1:
+        assert "어제" not in text

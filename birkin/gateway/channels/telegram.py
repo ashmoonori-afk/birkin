@@ -74,6 +74,16 @@ _SIDE_COMMANDS: Final = frozenset(
     {"help", "pending", "deny", "remind", "commitment", "checkin", "companion",
      "summon"}
 )
+# A refused check-in tap is explained by its stable CompanionError code, never
+# by the English exception text.
+_COMPANION_TOASTS: Final = {
+    "already_answered": "이미 응답한 체크인이에요.",
+    "invalid_transition": "이미 닫힌 약속이라 바꿀 수 없어요.",
+    "unknown_action": "알 수 없는 버튼이에요.",
+}
+_COMPANION_TOAST_FALLBACK: Final = (
+    "지금은 처리할 수 없어요. /commitment 로 상태를 확인해 주세요."
+)
 
 
 class _UrlResponse(Protocol):
@@ -978,7 +988,9 @@ class TelegramChannel(Channel):
                 (commitment_id, verb, f"telegram:{chat_id}:{message_id}"),
             )
         except companion.CompanionError as exc:
-            self._answer_callback(cq_id, str(exc)[:190])
+            self._answer_callback(
+                cq_id, _COMPANION_TOASTS.get(exc.code, _COMPANION_TOAST_FALLBACK)
+            )
             return
         result_value = result["message"]
         if not isinstance(result_value, str):

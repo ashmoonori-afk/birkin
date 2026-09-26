@@ -204,7 +204,7 @@ def run_checkins(now: datetime | None = None, *, send=_send_checkin) -> int:
         if not ok:
             continue
         chat_id = str(record["context_id"]).partition(":")[2]
-        text = (companion.checkin_text(record) + "\n\n"
+        text = (companion.checkin_text(record, now=now) + "\n\n"
                 + companion.why_message(record))
         try:
             message_id = send(chat_id, text,

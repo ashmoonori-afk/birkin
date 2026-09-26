@@ -476,7 +476,7 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return "create needs content"
     if content is not None and len(str(content)) > max_content:
         return f"content too long ({len(str(content))} > {max_content})"
-    if action != "delete" and kind in {"memory", "skill"}:
+    if action != "delete" and kind in {"memory", "skill", "skill_note"}:
         from .persistence_safety import unsafe_persistence_reason
 
         unsafe = unsafe_persistence_reason(edit.get("title"), content)
@@ -769,6 +769,12 @@ def rollback(
     )
 
 
+# Kinds the unattended nightly run may write to GLOBAL state without a human:
+# notes only. Prompt and subagent edits steer every session, so they stay
+# queued even when harness_auto_approve is widened.
+_UNATTENDED_GLOBAL_AUTO = frozenset({"memory", "skill_note"})
+
+
 def auto_kinds(cfg: dict[str, Any] | None) -> set[str]:
     raw = (cfg or {}).get("harness_auto_approve")
     if raw is None:
@@ -799,7 +805,12 @@ def submit(
     max_edits = int(cfg.get("harness_max_edits") or MAX_EDITS)
     raw_edits = proposal.get("edits")
     edits = list(raw_edits)[:max_edits] if isinstance(raw_edits, list) else []
-    auto = auto_kinds(cfg) if scope == "local" else set()
+    if scope == "local":
+        auto = auto_kinds(cfg)
+    elif origin == "morpheus":
+        auto = auto_kinds(cfg) & _UNATTENDED_GLOBAL_AUTO
+    else:
+        auto = set()
 
     auto_edits: list[dict[str, Any]] = []
     queued: list[dict[str, Any]] = []

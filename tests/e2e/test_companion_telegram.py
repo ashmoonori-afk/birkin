@@ -127,6 +127,20 @@ def test_snooze_moves_the_next_check_in(bot, monkeypatch):
         answered + timedelta(minutes=60)
 
 
+def test_snoozed_check_in_is_sent_again_after_the_snooze(bot, monkeypatch):
+    # No quiet window, so the real-clock tap cannot land inside one.
+    rec = _ready(quiet_hours={"start": "00:00", "end": "00:00"})
+    scheduler.run_checkins(now=BASE + timedelta(minutes=1), send=bot.send)
+    _tap(_channel(bot, monkeypatch), rec["id"], "snooze")
+    answered = companion.parse_iso(
+        companion.get_commitment(rec["id"])["checkin"]["answered_at"])
+
+    assert scheduler.run_checkins(now=answered + timedelta(minutes=61),
+                                  send=bot.send) == 1
+    assert len(bot.sent) == 2
+    assert all(rec["outcome"] in message["text"] for message in bot.sent)
+
+
 @pytest.mark.parametrize("verb", ["stop", "wrong"])
 def test_stop_and_wrong_close_the_commitment(bot, monkeypatch, verb):
     rec = _ready()
@@ -166,6 +180,17 @@ def test_a_tap_from_another_chat_cannot_close_the_commitment(bot, monkeypatch):
     _tap(channel, rec["id"], "done", chat="999")
     assert companion.get_commitment(rec["id"])["status"] == "active"
     assert "unauthorized" in bot.acks[-1]
+
+
+def test_tap_on_a_closed_commitment_shows_korean_toast(bot, monkeypatch):
+    rec = _ready()
+    scheduler.run_checkins(now=BASE + timedelta(minutes=1), send=bot.send)
+    channel = _channel(bot, monkeypatch)
+    _tap(channel, rec["id"], "done")
+    _tap(channel, rec["id"], "blocked")
+    assert bot.acks[-1] == "이미 응답한 체크인이에요."
+    assert "transition" not in bot.acks[-1]
+    assert companion.get_commitment(rec["id"])["status"] == "done"
 
 
 def test_send_is_refused_when_the_chat_is_not_allowlisted(bot, monkeypatch):
@@ -212,6 +237,9 @@ def test_gateway_chat_commands_inspect_and_pause(bot, monkeypatch):
     gateway = Gateway(config.load_config())
     out = gateway.companion_command("commitment", "", "telegram", CHAT)
     assert rec["outcome"] in out and "개요 작성" in out
+    # Status and time are shown as words and wall clock, not enum and ISO.
+    assert "[진행 중]" in out and "[active]" not in out
+    assert "8월 1일 09:00" in out and "T09:00:00" not in out
     assert "켜짐" in gateway.companion_command("checkin", "", "telegram", CHAT)
     gateway.companion_command("checkin", "pause", "telegram", CHAT)
     assert companion.get_policy()["enabled"] is False
@@ -220,3 +248,29 @@ def test_gateway_chat_commands_inspect_and_pause(bot, monkeypatch):
     assert "off" in gateway.companion_command("companion", "", "telegram", CHAT)
     gateway.companion_command("companion", "off", "telegram", CHAT)
     assert companion.get_policy()["enabled"] is False
+
+
+def test_commitment_lists_a_missed_check_in_with_recovery(bot, monkeypatch):
+    from birkin.gateway.core import Gateway
+    rec = _ready(expiry_minutes=60)
+    assert scheduler.run_checkins(now=BASE + timedelta(hours=3),
+                                  send=bot.send) == 0
+    assert companion.get_commitment(rec["id"])["status"] == "missed"
+    out = Gateway(config.load_config()).companion_command(
+        "commitment", "", "telegram", CHAT)
+    assert "[놓침]" in out
+    assert f"birkin companion answer {rec['id']} --do stop" in out
+
+
+def test_checkin_status_hints_at_a_utc_mismatch(bot, monkeypatch):
+    from birkin.gateway.core import Gateway
+    monkeypatch.setattr(companion, "local_zone",
+                        lambda now=None: ("Asia/Seoul", 540))
+    companion.set_policy(enabled=True, timezone="UTC", utc_offset_minutes=0)
+    gateway = Gateway(config.load_config())
+    out = gateway.companion_command("checkin", "", "telegram", CHAT)
+    assert "Asia/Seoul" in out and "/checkin on" in out
+    gateway.companion_command("checkin", "on", "telegram", CHAT)
+    assert companion.get_policy()["timezone"] == "Asia/Seoul"
+    out = gateway.companion_command("checkin", "", "telegram", CHAT)
+    assert "/checkin on" not in out

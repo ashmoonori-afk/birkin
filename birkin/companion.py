@@ -23,6 +23,7 @@ zero-runtime-dependency rule (see pyproject) rules out vendoring the database.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timedelta, timezone, tzinfo
 from typing import Any
@@ -31,20 +32,27 @@ from . import config, store
 
 _STATE_VERSION = 1
 
-# candidate -> active -> blocked | snoozed | done | stopped.
+# candidate -> active -> blocked | snoozed | missed | done | stopped.
+# ``missed`` is set by the system when a check-in expired before it could be
+# sent (or was sent and never answered): it frees the context's one slot and
+# stays listed until the user answers, reschedules, or closes it.
 # ``done`` and ``stopped`` are terminal: no outgoing edge, so a closed
 # commitment cannot be reopened without an explicit new one.
 _TRANSITIONS: dict[str, frozenset[str]] = {
     "candidate": frozenset({"active", "stopped"}),
-    "active": frozenset({"done", "blocked", "snoozed", "stopped"}),
+    "active": frozenset({"done", "blocked", "snoozed", "missed", "stopped"}),
     "blocked": frozenset({"active", "done", "snoozed", "stopped"}),
-    "snoozed": frozenset({"active", "done", "blocked", "stopped"}),
+    "snoozed": frozenset({"active", "done", "blocked", "missed", "stopped"}),
+    "missed": frozenset({"active", "done", "blocked", "snoozed", "stopped"}),
     "done": frozenset(),
     "stopped": frozenset(),
 }
 # Statuses a reschedule may move: an open commitment only. A terminal one, and
 # an unconfirmed candidate, must go through activate() instead.
-_RESCHEDULABLE = frozenset({"active", "blocked", "snoozed"})
+_RESCHEDULABLE = frozenset({"active", "blocked", "snoozed", "missed"})
+# Statuses that still owe the user a check-in. A snoozed commitment is asked
+# again when its snooze ends, so it holds the context's one slot too.
+_PENDING = frozenset({"active", "snoozed"})
 ACTIONS = ("done", "blocked", "snooze", "stop", "wrong")
 _ACTION_STATUS = {"done": "done", "blocked": "blocked", "snooze": "snoozed",
                   "stop": "stopped", "wrong": "stopped"}
@@ -63,7 +71,15 @@ _SUMMARY_CAP = 200
 
 
 class CompanionError(ValueError):
-    """An invalid domain request (bad transition, unknown id, denied context)."""
+    """An invalid domain request (bad transition, unknown id, denied context).
+
+    ``code`` is a stable reason a presentation layer maps to its own copy; the
+    message stays English for logs and the CLI.
+    """
+
+    def __init__(self, message: str, *, code: str = "invalid_request") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 # -- time ------------------------------------------------------------------
@@ -127,6 +143,43 @@ def tz_available() -> bool:
         return True
     except Exception:
         return False
+
+
+def _valid_zone(name: str, offset_minutes: int, moment: datetime) -> bool:
+    """Whether ``name`` resolves here and has ``offset_minutes`` at ``moment``."""
+    try:
+        from zoneinfo import ZoneInfo
+        offset = moment.astimezone(ZoneInfo(name)).utcoffset()
+    except Exception:
+        return False
+    return offset is not None and int(offset.total_seconds() // 60) == offset_minutes
+
+
+def local_zone(now: datetime | None = None) -> tuple[str, int]:
+    """This machine's zone as ``(name, utc_offset_minutes)``, stdlib only.
+
+    The IANA name comes from ``TZ`` or the ``/etc/localtime`` link, and is kept
+    only when it agrees with the machine's current offset. Windows without
+    ``tzdata`` has neither, so the name falls back to a ``UTC+09:00`` label:
+    :func:`resolve_tz` cannot resolve it and uses the captured offset, the same
+    documented fallback activation relies on.
+    """
+    moment = (now or datetime.now(timezone.utc)).astimezone()
+    offset = int((moment.utcoffset() or timedelta(0)).total_seconds() // 60)
+    candidates = [os.environ.get("TZ", "").lstrip(":")]
+    try:
+        link = os.path.realpath("/etc/localtime")
+    except OSError:
+        link = ""
+    if "/zoneinfo/" in link:
+        candidates.append(link.split("/zoneinfo/", 1)[1])
+    for name in candidates:
+        if name and _valid_zone(name, offset, moment):
+            return name, offset
+    if not offset:
+        return "UTC", 0
+    sign = "+" if offset > 0 else "-"
+    return f"UTC{sign}{abs(offset) // 60:02d}:{abs(offset) % 60:02d}", offset
 
 
 def _policy_tz(policy: dict[str, Any]) -> tzinfo:
@@ -312,6 +365,17 @@ def set_policy(**changes: Any) -> dict[str, Any]:
     with _lock():
         state = load_state()
         policy = state["policy"]
+        # Turning check-ins on while the zone is still the untouched UTC
+        # default adopts this machine's zone, so quiet hours and the daily cap
+        # follow the user's clock rather than 22:00-08:00 UTC. An explicit
+        # zone, in this call or stored earlier, always wins.
+        if changes.get("enabled") is True \
+                and not {"timezone", "utc_offset_minutes"} & set(changes) \
+                and policy.get("timezone") == "UTC" \
+                and not int(policy.get("utc_offset_minutes") or 0):
+            name, offset = local_zone()
+            if name != "UTC" or offset:
+                changes.update(timezone=name, utc_offset_minutes=offset)
         policy.update(changes)
         policy["version"] = int(policy.get("version", 1)) + 1
         state["policy"] = policy
@@ -388,7 +452,7 @@ def activate(commitment_id: str, *, check_in_at: str, tz_name: str = "UTC",
         clash = [
             other for other in state["commitments"].values()
             if other["context_id"] == record["context_id"]
-            and other["id"] != record["id"] and other["status"] == "active"
+            and other["id"] != record["id"] and other["status"] in _PENDING
         ]
         if clash:
             raise CompanionError(
@@ -430,7 +494,8 @@ def _require(state: dict[str, Any], commitment_id: str) -> dict[str, Any]:
 
 def _check_transition(current: str, target: str) -> None:
     if target not in _TRANSITIONS.get(current, frozenset()):
-        raise CompanionError(f"invalid transition {current} -> {target}")
+        raise CompanionError(f"invalid transition {current} -> {target}",
+                             code="invalid_transition")
 
 
 def correct(commitment_id: str, *, outcome: str = "", next_action: str = "",
@@ -504,6 +569,18 @@ def _in_quiet_hours(policy: dict[str, Any], moment: datetime) -> bool:
     return current >= start or current < end   # window crosses midnight
 
 
+def _quiet_end(policy: dict[str, Any], moment: datetime) -> datetime | None:
+    """When the quiet window holding ``moment`` ends, or None outside one."""
+    if not _in_quiet_hours(policy, moment):
+        return None
+    end = _clock(str((policy.get("quiet_hours") or {}).get("end") or ""))
+    if end is None:
+        return None
+    local = moment.astimezone(_policy_tz(policy))
+    until = local.replace(hour=end[0], minute=end[1], second=0, microsecond=0)
+    return until if until > local else until + timedelta(days=1)
+
+
 def _sends_today(state: dict[str, Any], moment: datetime) -> int:
     policy = state["policy"]
     today = moment.astimezone(_policy_tz(policy)).date()
@@ -532,8 +609,11 @@ def eligible(state: dict[str, Any], record: dict[str, Any],
     policy = state["policy"]
     if not policy.get("enabled"):
         return False, "proactive contact is off"
-    if record["status"] != "active":
+    if record["status"] not in _PENDING:
         return False, f"commitment is {record['status']}"
+    # A snoozed re-ask is the follow-up the user asked for with one tap, so the
+    # limits on unsolicited contact (daily cap, cooldown) do not hold it back.
+    requested = record["status"] == "snoozed"
     if not str(record.get("source_ref") or "").strip():
         return False, "commitment has no source reference"
     context = state["contexts"].get(record["context_id"])
@@ -562,11 +642,11 @@ def eligible(state: dict[str, Any], record: dict[str, Any],
     if _in_quiet_hours(policy, moment):
         return False, "inside quiet hours"
     cap = int(policy.get("daily_cap", 1))
-    if cap and _sends_today(state, moment) >= cap:
+    if cap and not requested and _sends_today(state, moment) >= cap:
         return False, "daily cap reached"
     cooldown = int(policy.get("cooldown_minutes", 0))
     last = _last_send(state)
-    if cooldown and last is not None \
+    if cooldown and not requested and last is not None \
             and moment < last + timedelta(minutes=cooldown):
         return False, "inside cooldown"
     key = checkin_key(record)
@@ -576,12 +656,12 @@ def eligible(state: dict[str, Any], record: dict[str, Any],
 
 
 def due_checkins(now: datetime | None = None) -> list[dict[str, Any]]:
-    """Active commitments whose check-in time has come round."""
+    """Active or snoozed commitments whose check-in time has come round."""
     moment = now or _utcnow()
     state = load_state()
     out = []
     for record in state["commitments"].values():
-        if record["status"] != "active":
+        if record["status"] not in _PENDING:
             continue
         when = parse_iso(record.get("check_in_at"))
         if when is not None and when <= moment:
@@ -619,8 +699,20 @@ def claim_checkin(commitment_id: str,
                 elif reason == "previous check-in is still open":
                     _expire_open_checkin(state, record, moment)
                     _save_state(state)
+                elif reason == "check-in expired" \
+                        and _mark_missed(state, record, moment):
+                    _save_state(state)
+                    append_event(kind="checkin_expired",
+                                 context_id=record["context_id"],
+                                 commitment_id=record["id"], actor="system",
+                                 summary=f"Missed check-in: {record['outcome']}",
+                                 source_ref=record["source_ref"],
+                                 data={"check_in_at": record.get("check_in_at")},
+                                 now=moment)
                 return False, reason
             key = checkin_key(record)
+            if record["status"] == "snoozed":
+                record["status"] = "active"   # the snooze ended: ask again
             state.setdefault("sends", []).append(
                 {"key": key, "at": _iso(moment),
                  "context_id": record["context_id"],
@@ -653,6 +745,24 @@ def _expire_open_checkin(state: dict[str, Any], record: dict[str, Any],
     record["updated_at"] = _iso(moment)
 
 
+def _mark_missed(state: dict[str, Any], record: dict[str, Any],
+                 moment: datetime) -> bool:
+    """Close out an expired check-in: free the context slot, keep it listed.
+
+    A sent check-in that can still be answered is left alone until it ages out
+    itself, so a late tap on its Telegram buttons still lands.
+    """
+    open_checkin = record.get("checkin") or {}
+    if open_checkin and not open_checkin.get("answered_at"):
+        _expire_open_checkin(state, record, moment)
+        if record.get("checkin"):
+            return False
+    record["status"] = "missed"
+    record["checkin"] = None
+    record["updated_at"] = _iso(moment)
+    return True
+
+
 def record_delivery(commitment_id: str, message_id: str) -> None:
     """Retain the Telegram ``message_id`` so the receipt can edit in place."""
     with _lock():
@@ -677,7 +787,8 @@ def answer(commitment_id: str, action: str, *, source_ref: str = "",
     """
     verb = str(action).strip().lower()
     if verb not in ACTIONS:
-        raise CompanionError(f"unknown action: {action!r}")
+        raise CompanionError(f"unknown action: {action!r}",
+                             code="unknown_action")
     moment = now or _utcnow()
     with _lock():
         state = load_state()
@@ -690,7 +801,7 @@ def answer(commitment_id: str, action: str, *, source_ref: str = "",
                         "message": _receipt(record, verb, repeat=True)}
             raise CompanionError(
                 f"this check-in was already answered with "
-                f"{open_checkin.get('answer')!r}")
+                f"{open_checkin.get('answer')!r}", code="already_answered")
         target = _ACTION_STATUS[verb]
         _check_transition(record["status"], target)
         # Keyed before the mutation below: a snooze moves check_in_at, and the
@@ -701,7 +812,11 @@ def answer(commitment_id: str, action: str, *, source_ref: str = "",
         record["ignored_streak"] = 0
         if verb == "snooze":
             minutes = max(1, int(snooze_minutes or 60))
-            record["check_in_at"] = _iso(moment + timedelta(minutes=minutes))
+            when = moment + timedelta(minutes=minutes)
+            # A re-ask due inside quiet hours waits for them to end instead of
+            # expiring overnight.
+            record["check_in_at"] = _iso(_quiet_end(state["policy"], when)
+                                         or when)
         if verb == "wrong":
             record["wrong"] = True
         if next_action.strip():
@@ -739,7 +854,8 @@ def reschedule(commitment_id: str, *, check_in_at: str,
         record = _require(state, commitment_id)
         if record["status"] not in _RESCHEDULABLE:
             raise CompanionError(
-                f"invalid transition {record['status']} -> active")
+                f"invalid transition {record['status']} -> active",
+                code="invalid_transition")
         record.update({"status": "active", "check_in_at": _iso(when),
                        "policy_version": int(state["policy"].get("version", 1)),
                        "checkin": None, "updated_at": _iso(moment)})
@@ -751,12 +867,54 @@ def reschedule(commitment_id: str, *, check_in_at: str,
     return record
 
 
+def _display_tz(tz_name: Any, offset_minutes: Any) -> tzinfo:
+    try:
+        return resolve_tz(str(tz_name or "UTC"), offset_minutes)
+    except CompanionError:   # a malformed stored offset must not break copy
+        return timezone.utc
+
+
+def _wall_clock(value: Any, tz_name: Any, offset_minutes: Any) -> str:
+    moment = parse_iso(value) if value else None
+    if moment is None:
+        return "-"
+    local = moment.astimezone(_display_tz(tz_name, offset_minutes))
+    return f"{local.month}월 {local.day}일 {local.hour:02d}:{local.minute:02d}"
+
+
+def local_time_label(record: dict[str, Any]) -> str:
+    """The check-in time on the user's wall clock, e.g. ``9월 27일 09:00``."""
+    return _wall_clock(record.get("check_in_at"), record.get("timezone"),
+                       record.get("utc_offset_minutes"))
+
+
+def _asked_phrase(record: dict[str, Any], now: datetime | None) -> str:
+    """When the user asked for this follow-up, relative to ``now``."""
+    created = parse_iso(record.get("created_at"))
+    if created is None:
+        return "이전에"
+    zone = _display_tz(record.get("timezone"), record.get("utc_offset_minutes"))
+    asked = created.astimezone(zone).date()
+    days = ((now or _utcnow()).astimezone(zone).date() - asked).days
+    if days <= 0:
+        return "오늘"
+    if days == 1:
+        return "어제"
+    if days < 7:
+        return f"{days}일 전에"
+    return f"{asked.month}월 {asked.day}일에"
+
+
+def _channel_label(context_id: str) -> str:
+    return "텔레그램" if str(context_id).startswith("telegram:") else "등록된 채팅"
+
+
 def _receipt(record: dict[str, Any], verb: str, *, repeat: bool = False) -> str:
     """The completion receipt shown after an answer."""
     head = {
         "done": f"✅ 완료로 기록했어요: {record['outcome']}",
         "blocked": f"🚧 막힌 상태로 기록했어요: {record['outcome']}",
-        "snooze": f"⏰ 다시 물어볼게요: {record.get('check_in_at') or '-'}",
+        "snooze": f"⏰ {local_time_label(record)}에 다시 물어볼게요.",
         "stop": f"🛑 더 이상 묻지 않을게요: {record['outcome']}",
         "wrong": "🙏 잘못 기억했네요. 이 체크인은 멈추고 정정 내용을 기다릴게요.",
     }[verb]
@@ -767,9 +925,10 @@ def _receipt(record: dict[str, Any], verb: str, *, repeat: bool = False) -> str:
     return head
 
 
-def checkin_text(record: dict[str, Any]) -> str:
+def checkin_text(record: dict[str, Any], *, now: datetime | None = None) -> str:
     """The check-in body. Always names the commitment it is asking about."""
-    lines = [f"어제 확인해 달라고 하신 일이에요: {record['outcome']}"]
+    lines = [f"{_asked_phrase(record, now)} 확인해 달라고 하신 일이에요: "
+             f"{record['outcome']}"]
     if record.get("next_action"):
         lines.append(f"다음 할 일: {record['next_action']}")
     lines.append("")
@@ -782,7 +941,7 @@ def why_message(record: dict[str, Any]) -> str:
     return (f"이 메시지는 당신이 직접 확인한 약속 때문에 보냈어요.\n"
             f"· 약속: {record['outcome']}\n"
             f"· 출처: {record.get('source_ref') or '-'}\n"
-            f"· 예정 시각: {record.get('check_in_at') or '-'}")
+            f"· 예정 시각: {local_time_label(record)}")
 
 
 # -- natural-language entry (model proposes, the approval queue disposes) ---
@@ -824,16 +983,19 @@ def propose_checkin(*, outcome: str, check_in_at: str,
                               next_action=next_action, now=moment)
     from . import approvals  # local: approvals imports back for the executor
     offset = when.utcoffset()
+    tz_name = str(policy.get("timezone", "UTC"))
+    offset_minutes = int(offset.total_seconds() // 60) if offset else None
+    at_label = _wall_clock(check_in_at, tz_name, offset_minutes)
     status = approvals.propose(
         category="companion",
-        title=f"check-in: {candidate['outcome'][:60]}",
-        description=(f"Ask about it at {check_in_at} in {ctx_id}. "
-                     f"Next action: {candidate['next_action'] or '-'}"),
+        title=f"후속 확인 예약: {candidate['outcome'][:60]}",
+        description=(f"{at_label}에 {_channel_label(ctx_id)}로 진행 상황을 "
+                     f"여쭤볼게요. 다음 할 일: "
+                     f"{candidate['next_action'] or '-'}"),
         payload={"commitment_id": candidate["id"],
                  "check_in_at": check_in_at,
-                 "tz_name": str(policy.get("timezone", "UTC")),
-                 "utc_offset_minutes": (int(offset.total_seconds() // 60)
-                                        if offset else None)},
+                 "tz_name": tz_name,
+                 "utc_offset_minutes": offset_minutes},
         cfg=cfg, origin=origin)
     return {**status, "commitment_id": candidate["id"]}
 
@@ -851,5 +1013,5 @@ def apply_proposal(payload: dict[str, Any]) -> str:
     record = activate(cid, check_in_at=str(payload.get("check_in_at", "")),
                       tz_name=str(payload.get("tz_name") or "UTC"),
                       utc_offset_minutes=offset)
-    return (f"Check-in scheduled: {record['outcome']!r} at "
-            f"{record['check_in_at']} in {record['context_id']}.")
+    return (f"후속 확인을 예약했어요: {record['outcome']} · "
+            f"{local_time_label(record)} · {_channel_label(record['context_id'])}")
