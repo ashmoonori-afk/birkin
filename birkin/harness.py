@@ -51,6 +51,8 @@ REFINE_REQUEST_MAX_BYTES = 40_000
 REFINE_REQUEST_QUERY_LIMIT = 100
 _WORKING_SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _REFINE_REQUEST_ID = re.compile(r"^rr_[0-9]{8}-[0-9]{6}_[0-9a-f]{16}$")
+# The shape slug() produces; an edit's own id must have it too.
+_ENTRY_ID = re.compile(r"^[a-z0-9_]{1,80}$")
 
 STATE_FILE = "harness_state.json"
 HISTORY_FILE = "refinements.jsonl"
@@ -62,6 +64,7 @@ _KIND_HEADINGS = {
     "skill_note": "스킬 노트 (skill_note, 실행 불가)",
     "subagent": "위임 역할 (subagent)",
 }
+_ACTION_LABELS = {"create": "추가", "update": "수정", "delete": "삭제"}
 
 
 def _session_key(session_id: str | None) -> str:
@@ -465,6 +468,14 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return "kind 'skill' is not executable; use 'skill_note' for harness metadata"
     if kind not in KINDS:
         return f"unknown kind {kind!r}"
+    # The id is proposal text like the title, but it keys the entry and is
+    # echoed into history, CLI output and approval text, so nothing but the
+    # plain slug that slug() itself produces is accepted.
+    eid = edit.get("id")
+    if eid not in (None, "") and not (
+        isinstance(eid, str) and _ENTRY_ID.fullmatch(eid)
+    ):
+        return "id must be 1-80 lowercase ASCII letters, digits or '_'"
     if action == "delete":
         return None if edit.get("id") else "delete needs an id"
     if action == "update" and not edit.get("id"):
@@ -1279,6 +1290,22 @@ def snapshot(session_id: str | None) -> dict[str, Any]:
     }
 
 
+def _change_summary(changes: object) -> str:
+    """Count a refinement's changes by kind and action for the prompt.
+
+    Entry ids are proposal text, and a refinement recorded before ids were
+    screened may carry any id at all, so the prompt never echoes them.
+    """
+    counts: dict[str, int] = {}
+    for change in changes if isinstance(changes, list) else []:
+        action, _, target = " ".join(str(change).split()).partition(" ")
+        kind = target.partition(":")[0].lower()
+        label = _ACTION_LABELS.get(action.lower())
+        key = f"{kind} {label}" if label and kind in KINDS else "기타 변경"
+        counts[key] = counts.get(key, 0) + 1
+    return ", ".join(f"{key} {n}건" for key, n in counts.items()) or "(적용 없음)"
+
+
 def render_block(
     state: dict[str, Any],
     *,
@@ -1306,6 +1333,10 @@ def render_block(
         ordered = sorted(
             records.values(), key=lambda e: str(e.get("updated_at", "")), reverse=True
         )
+        # What the nightly run wrote unattended ranks after everything else,
+        # so its notes take only the slots others leave free and can never
+        # push an approved entry out of the prompt.
+        ordered.sort(key=lambda e: e.get("source") == "morpheus")
         lines.append("")
         lines.append(f"### {_KIND_HEADINGS[kind]}")
         for entry in ordered[:per_kind]:
@@ -1321,7 +1352,7 @@ def render_block(
         lines.append("### 최근 정련")
         for event in recent:
             trigger = _clip(event.get("trigger", ""), 120)
-            changes = ", ".join(event.get("changes") or []) or "(적용 없음)"
+            changes = _change_summary(event.get("changes"))
             lines.append(f"- {event.get('id')} {trigger} → {_clip(changes, width)}")
             outcome = _clip(event.get("outcome", ""), 120)
             if outcome:
