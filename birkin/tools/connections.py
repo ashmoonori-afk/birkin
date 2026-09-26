@@ -46,11 +46,13 @@ def mail_send_review_text(draft: Mapping[str, object]) -> str:
 def calendar_event_review_text(draft: Mapping[str, object]) -> str:
     """Local time range and every attendee address of a calendar change."""
     start, end, zone_name = str(draft.get("start", "")), str(draft.get("end", "")), str(draft.get("timezone", ""))
+    # Windows loads tzdata by path, so a zone name no path can hold raises
+    # OSError there instead of ZoneInfoNotFoundError.
     try:
         zone = ZoneInfo(zone_name)
         first, last = (datetime.fromisoformat(value).astimezone(zone) for value in (start, end))
         start, end = first.strftime("%Y-%m-%d %H:%M"), last.strftime("%Y-%m-%d %H:%M")
-    except (ValueError, ZoneInfoNotFoundError):
+    except (OSError, ValueError, ZoneInfoNotFoundError):
         pass
     attendees = draft.get("attendees")
     count = len(attendees) if isinstance(attendees, list) else 0

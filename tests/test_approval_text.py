@@ -602,6 +602,28 @@ def test_model_written_card_fields_cannot_fake_lines_or_hide_text(
     assert "\\u000a" in summary
 
 
+def test_a_zone_name_the_os_rejects_still_renders_the_calendar_card(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Windows opens tzdata by path, so a model-written zone with characters no
+    # path may hold raises OSError (EINVAL), not ZoneInfoNotFoundError.
+    from birkin.tools import connections
+
+    def rejected(_name: str) -> object:
+        raise OSError(22, "Invalid argument")
+
+    monkeypatch.setattr(connections, "ZoneInfo", rejected)
+    summary = approval_text.payload_summary(
+        "calendar_event",
+        {"start": "2026-09-27T09:00:00+09:00", "end": "2026-09-27T10:00:00+09:00",
+         "timezone": _FORGED, "attendees": ["a@example.com"]},
+    )
+
+    _assert_escaped(summary)
+    assert "2026-09-27T09:00:00+09:00" in summary
+    assert "a@example.com" in summary
+
+
 def test_the_headline_and_description_are_escaped() -> None:
     record = {"category": "office_create", "title": _FORGED, "description": _FORGED}
 
