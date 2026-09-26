@@ -1164,7 +1164,54 @@ def test_an_overwrite_follow_up_is_not_reported_as_a_failure(
     )
 
     assert approval_text.FOLLOW_UP in _approval_context(adapter)
-    assert _answered_payload(emitted)["result_code"] == "follow_up_required"
+    answered = _answered_payload(emitted)
+    assert answered["result_code"] == "follow_up_required"
+    # The follow-up card is what still needs the user, so the card it
+    # replaced ends as a failure, as its canonical projection says.
+    assert answered["ui_state"] == "failed"
+
+
+def test_a_waiting_workflow_card_leaves_the_attention_to_its_question(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from birkin.moirai import outcome as moirai_outcome
+    from birkin.workspace.approval_projection import approval_item
+
+    # Given: an approved workflow that stopped at a question of its own.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        category="moirai", title="워크플로", description="", payload={}, origin="test",
+    )
+    waiting = moirai_outcome.render({"status": "waiting_input", "run_id": "r8"}, name="hard")
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        del decision, reason, on_event
+        _ = store.resolve_pending(approval_id, "approved", details={"action_receipt": waiting})
+        return {"outcome": "approved", "approval_id": approval_id, "receipt": waiting}
+
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    adapter, emitted = _answering_adapter()
+
+    # When: the approval is answered.
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": cast(str, record["id"]), "decision": "approve"}
+    )
+
+    # Then: the live card and its canonical projection agree that it is
+    # paused, not a second card asking for the user.
+    answered = _answered_payload(emitted)
+    resolved = store.get_pending(cast(str, record["id"]))
+    assert resolved is not None
+    assert answered["result_code"] == "workflow_waiting"
+    assert answered["ui_state"] == approval_item(resolved)["ui_state"] == "paused"
+    assert "질문에 대한 답을 기다리고" in _approval_context(adapter)
 
 
 def test_an_approved_command_that_failed_is_not_reported_as_completed(

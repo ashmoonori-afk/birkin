@@ -61,6 +61,21 @@ def approval_policy() -> dict[str, object]:
     }
 
 
+# A decided card whose remaining attention another card carries: the
+# overwrite follow-up approval, or the question a waiting workflow raised
+# (moirai.continuation publishes it). The action receipt is written once, so
+# these outcomes would otherwise ask for the user after that card is done.
+_HANDED_OFF_UI_STATES = {
+    "follow_up_required": "failed",
+    "workflow_waiting": "paused",
+}
+
+
+def decided_ui_state(outcome: approval_text.ApprovalOutcomeText) -> str:
+    """The card state of a decided approval, on every surface that shows it."""
+    return _HANDED_OFF_UI_STATES.get(outcome.code, outcome.ui_state)
+
+
 def approval_item(record: dict[str, object]) -> dict[str, object]:
     status = str(record.get("status") or "pending")
     category = str(record.get("category") or "")
@@ -130,12 +145,9 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
         outcome = approval_text.record_outcome(record)
         item["result_summary"] = outcome.summary
         item["result_code"] = outcome.code
-        if outcome.code == "follow_up_required":
-            # The follow-up approval is the card that still needs the user;
-            # the record it replaced is a terminal failure.
-            item["ui_state"] = "failed"
-        elif outcome.ui_state:
-            item["ui_state"] = outcome.ui_state
+        card_state = decided_ui_state(outcome)
+        if card_state:
+            item["ui_state"] = card_state
     resolved_at = record.get("resolved_at")
     if isinstance(resolved_at, str) and resolved_at:
         item["resolved_at"] = resolved_at

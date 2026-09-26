@@ -589,6 +589,17 @@ def test_native_output_exists_projects_one_click_overwrite_follow_up(
     )
     assert requested.payload["approval_id"] == follow_up_id
     assert requested.payload["summary"] == "기존 파일을 덮어쓸까요?"
+    answered = next(
+        event
+        for event in service.events()
+        if event.type == "approval.answered"
+        and event.command_id == "approve-without-overwrite"
+    )
+    superseded = store.get_pending(cast(str, proposed["id"]))
+    assert superseded is not None
+    # The live card and the snapshot agree: the follow-up still needs the
+    # user, and the card it replaced has ended.
+    assert answered.payload["ui_state"] == approval_item(superseded)["ui_state"] == "failed"
 
     _, second = _submit(
         service,

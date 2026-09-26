@@ -243,11 +243,12 @@ def test_approved_command_that_exited_non_zero_is_not_shown_as_succeeded() -> No
     assert passed["ui_state"] == "succeeded"
 
 
-def test_a_superseded_approval_is_terminal_while_unfinished_workflows_need_the_user() -> None:
+def test_a_card_that_handed_its_attention_on_leaves_it_while_unconfirmed_ones_keep_it() -> None:
     from birkin.moirai import outcome as moirai_outcome
 
-    # Given: an Office approval its overwrite follow-up replaced, and two
-    # approved workflows that did not report completion.
+    # Given: an Office approval its overwrite follow-up replaced, an approved
+    # workflow waiting on its question, and one that did not report
+    # completion.
     superseded = approval_item({
         "id": "abc123def463", "category": "office_job", "title": "보고서 저장",
         "status": "error", "failure_code": "OUTPUT_EXISTS",
@@ -269,14 +270,19 @@ def test_a_superseded_approval_is_terminal_while_unfinished_workflows_need_the_u
         "payload": {},
     })
 
-    # Then: the follow-up card is what still needs the user, so the replaced
-    # one is a terminal failure; a workflow that stopped short still needs them.
+    # Then: the follow-up approval and the waiting workflow's own question
+    # are the cards that need the user, so the replaced approval has ended
+    # and the waiting one is paused. The action receipt is written once and
+    # never rewritten, so neither state may ask for the user forever.
     assert superseded["result_code"] == "follow_up_required"
     assert superseded["follow_up_approval_id"] == "abc123def464"
     assert superseded["ui_state"] == "failed"
     assert (waiting["result_code"], waiting["ui_state"]) == (
-        "workflow_waiting", "action_needed"
+        "workflow_waiting", "paused"
     )
+    # A receipt that cannot show the run finished has no other card: this one
+    # is the only place the user is told to check the result, as with a
+    # partial run, so it keeps the attention state on purpose.
     assert (unconfirmed["result_code"], unconfirmed["ui_state"]) == (
         "workflow_unconfirmed", "action_needed"
     )

@@ -1275,10 +1275,14 @@ class RuntimeWorkspaceAdapter:
         presented = _answer_presentation(result, current, receipt_text)
         event_payload["result_summary"] = presented.summary
         event_payload["result_code"] = presented.code
-        if presented.ui_state:
+        from .approval_projection import decided_ui_state
+
+        card_state = decided_ui_state(presented)
+        if card_state:
             # The card state must agree with the summary: an approved command
-            # that exited non-zero is not a success.
-            event_payload["ui_state"] = presented.ui_state
+            # that exited non-zero is not a success. It is the same rule as
+            # the snapshot projection of this record.
+            event_payload["ui_state"] = card_state
         if result["outcome"] == "answered_elsewhere" and current is not None:
             # The record was resolved on another surface; show what actually
             # happened to it instead of a generic failure.

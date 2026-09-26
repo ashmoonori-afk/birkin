@@ -406,6 +406,9 @@ class _GrowingSourceOs:
         return chunk
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="Windows opens the import source deny-write, so no writer can grow it"
+)
 @pytest.mark.parametrize("phase", ["after_hash", "before_rehash", "before_copy"])
 def test_a_source_that_grows_after_verification_is_read_only_to_its_verified_size(
     home: Path, cwd: Path, monkeypatch: pytest.MonkeyPatch, phase: str
@@ -447,6 +450,25 @@ def test_a_source_that_grows_after_verification_is_read_only_to_its_verified_siz
     assert is_error, body
     assert cast("dict[str, object]", body["error"])["code"] == "SOURCE_CHANGED"
     assert growing_os.source_bytes_read <= 2 * (verified_size + 1)
+    assert _drafts(home) == []
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows native sharing boundary")
+def test_a_source_held_open_by_a_writer_is_refused_on_windows(home: Path, cwd: Path) -> None:
+    # Given: a writer holds the workspace file open, as it would to grow it.
+    source = build_docx_template(cwd / "report.docx")
+    writer = os.open(source, os.O_WRONLY | os.O_APPEND)
+
+    # When: the import runs.
+    try:
+        body, is_error = _call(_registry(cwd), "local_document_import", {"path": "report.docx"})
+    finally:
+        os.close(writer)
+
+    # Then: the deny-write open of the source is refused, so nothing can grow
+    # it while it is copied, and no draft is published.
+    assert is_error, body
+    assert cast("dict[str, object]", body["error"])["code"] == "PERMISSION_DENIED"
     assert _drafts(home) == []
 
 
