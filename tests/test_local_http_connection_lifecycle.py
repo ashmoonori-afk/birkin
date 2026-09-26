@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import io
+import queue
 import threading
 import types
 
@@ -147,12 +148,12 @@ def test_unauthorized_large_body_responses_are_complete() -> None:
 
 def test_rejected_host_and_content_type_drain_the_declared_body(monkeypatch) -> None:
     # Given: POSTs rejected before the body is read (forged Host, non-JSON).
-    drained: list[str] = []
+    drained: queue.Queue[str] = queue.Queue()
     original_drain = local_http._drain_rejected_body
 
     def observed_drain(request) -> None:
         original_drain(request)
-        drained.append(request.headers.get("Host", ""))
+        drained.put(request.headers.get("Host", ""))
 
     monkeypatch.setattr(local_http, "_drain_rejected_body", observed_drain)
     gateway = types.SimpleNamespace(
@@ -192,13 +193,15 @@ def test_rejected_host_and_content_type_drain_the_declared_body(monkeypatch) -> 
             finally:
                 connection.close()
 
-        # Then: both bodies were discarded, so Windows cannot reset the
-        # connection before the client reads the complete rejection.
+        # Then: both rejections arrive complete and both bodies are
+        # discarded, so Windows cannot reset the connection over unread
+        # bytes. The drain runs after the response, so wait for it.
         assert responses == [
             (403, b'{"error": "forbidden host"}'),
             (415, b'{"error": "Content-Type must be application/json"}'),
         ]
-        assert drained == ["evil.example", "127.0.0.1"]
+        hosts = [drained.get(timeout=local_http_timeout()) for _ in range(2)]
+        assert sorted(hosts) == ["127.0.0.1", "evil.example"]
     finally:
         channel.stop()
         server_thread.join(timeout=2.0)
