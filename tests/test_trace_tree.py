@@ -39,6 +39,35 @@ def test_subagent_nests_indentation():
     assert all(ln.startswith("    ") for ln in lines), lines
 
 
+def test_workspace_shaped_tool_events_show_the_tool_name():
+    # birkin chat receives the workspace adapter's sanitized payload.
+    shaped = {"runtime_event": "tool_start", "runtime_name": "list_files",
+              "progress_id": "runtime:tool:list_files"}
+    out = _drive([
+        ("tool_start", shaped),
+        ("tool_end", {**shaped, "runtime_event": "tool_end",
+                      "state": "failed"}),
+    ])
+    assert "→ list_files" in out and "✗ list_files" in out
+    assert "None" not in out and "{}" not in out
+
+
+def test_child_tool_events_nest_under_the_subagent():
+    out = _drive([
+        ("subagent.start", {"task": "audit", "id": "r1"}),
+        ("subagent.tool_start", {"name": "grep", "input": {}, "id": "g"}),
+        ("subagent.tool_end", {"name": "grep", "is_error": False,
+                               "content": "", "id": "g"}),
+        ("subagent.done", {"id": "r1"}),
+        ("tool_start", {"name": "read_file", "input": {}, "id": "z"}),
+    ])
+    grep = [ln for ln in out.splitlines() if "grep" in ln]
+    assert len(grep) == 2 and all(ln.startswith("    ") for ln in grep), grep
+    assert "하위 에이전트: audit" in out and "하위 에이전트 완료" in out
+    (after,) = [ln for ln in out.splitlines() if "read_file" in ln]
+    assert after.startswith("  →")
+
+
 def test_depth_returns_to_zero_after_subagent():
     out = _drive([
         ("subagent.start", {"task": "x"}),

@@ -52,3 +52,14 @@ def test_help_for_one_command_still_works():
         sc.dispatch(sess, "/help rollback")
     out = buf.getvalue()
     assert "/rollback" in out and "usage:" in out
+
+
+def test_help_for_summon_shows_the_background_flag():
+    import birkin.repl  # noqa: F401
+    from birkin import config, slashcommands as sc
+    buf = io.StringIO()
+    sess = types.SimpleNamespace(cfg=config.load_config())
+    with contextlib.redirect_stdout(buf):
+        sc.dispatch(sess, "/help summon")
+    out = buf.getvalue()
+    assert "/summon [--bg]" in out and "usage:" in out

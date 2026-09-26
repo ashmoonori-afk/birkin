@@ -161,6 +161,50 @@ def pad(s: str, width: int, *, align: str = "left",
     return (" " * gap + s) if align == "right" else (s + " " * gap)
 
 
+# -- untrusted text --------------------------------------------------------
+#
+# Run tasks, trail lines, results, and user agent titles can be model- or
+# file-authored (a spawn_subagent task can come from injected web or mail
+# content). A raw ESC/OSC sequence would reach the terminal: a clipboard write,
+# a cleared screen, a forged "✓" line. Escape before ``fit`` so a cut never
+# lands inside an escape.
+
+def printable(text: object) -> str:
+    """One-line text with control and format characters shown as ``\\uXXXX``.
+
+    The same rule as ``tools.connections.visible_text``.
+    """
+    return "".join(
+        f"\\u{ord(ch):04x}" if unicodedata.category(ch) in ("Cc", "Cf") else ch
+        for ch in str(text))
+
+
+def printable_block(text: object) -> str:
+    """Multi-line text with control characters escaped, except newline and tab.
+
+    Format characters stay, so emoji ZWJ sequences remain readable.
+    """
+    return "".join(
+        f"\\u{ord(ch):04x}"
+        if ch not in "\n\t" and unicodedata.category(ch) == "Cc" else ch
+        for ch in str(text))
+
+
+def duration_ko(seconds: float) -> str:
+    """A short Korean duration: ``45초``, ``3분 20초``, ``2시간 5분``, ``3일 4시간``."""
+    total = max(0, int(seconds))
+    if total < 60:
+        return f"{total}초"
+    minutes, secs = divmod(total, 60)
+    if minutes < 60:
+        return f"{minutes}분 {secs}초" if secs else f"{minutes}분"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}시간 {minutes}분" if minutes else f"{hours}시간"
+    days, hours = divmod(hours, 24)
+    return f"{days}일 {hours}시간" if hours else f"{days}일"
+
+
 # -- gauges / sparklines / severity ----------------------------------------
 #
 # Pure-ANSI primitives that return strings, so they drop straight into a
@@ -278,9 +322,13 @@ class Spinner:
     _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
     def __init__(self, label: str = "thinking…",
-                 hint: str = "esc 중단 · 입력 후 Enter=조종"):
+                 hint: str = "esc 중단 · 입력 후 Enter=조종", *,
+                 since: float | None = None):
         self.label = label
         self.hint = hint
+        # ``since`` (a time.monotonic() value) keeps the elapsed count running
+        # across a stop/start pair, e.g. around a printed progress line.
+        self._since = since
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._t0 = 0.0
@@ -291,7 +339,7 @@ class Spinner:
         if plain_mode():
             return
         import time
-        self._t0 = time.monotonic()
+        self._t0 = self._since if self._since is not None else time.monotonic()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
@@ -353,6 +401,11 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
     """Return an on_event callback that prints tool activity as an indented,
     timed trace tree. subagent.start/done nest the depth; each tool shows its
     own elapsed time.
+
+    Payloads come in two shapes: the runtime's own (``name``/``input``/``id``)
+    and the workspace adapter's sanitized one (``runtime_name``/
+    ``progress_id``/``state``, no input), which is what ``birkin chat`` sees.
+    A child's steps arrive as ``subagent.tool_*`` and nest under its start.
     """
     import time
     state: dict[str, Any] = {"depth": 0, "t0": {}}   # id/name -> start time
@@ -360,24 +413,34 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
     def _pad() -> str:
         return "  " + "  " * state["depth"]
 
+    def _name(payload: dict[str, Any]) -> str:
+        return printable(payload.get("name") or payload.get("runtime_name")
+                         or "도구")
+
     def _key(payload: dict[str, Any]) -> str:
-        return str(payload.get("id") or payload.get("name") or "")
+        return str(payload.get("id") or payload.get("progress_id")
+                   or payload.get("name") or payload.get("runtime_name") or "")
 
     def emit(event: str, payload: dict[str, Any]) -> None:
         pad = _pad()
+        if event in ("subagent.tool_start", "subagent.tool_end"):
+            event = event[len("subagent."):]
         if event == "tool_start":
             state["t0"][_key(payload)] = time.monotonic()
-            inp = json.dumps(payload.get("input", {}), ensure_ascii=False)
-            cap = 200 if _DETAILS["on"] else 80
-            if len(inp) > cap:
-                inp = inp[:cap] + "…"
-            sys.stdout.write(f"\n{DIM}{pad}→ {payload.get('name')} {inp}{RESET}\n")
+            shown = ""
+            if "input" in payload:
+                inp = json.dumps(payload.get("input"), ensure_ascii=False)
+                cap = 200 if _DETAILS["on"] else 80
+                if len(inp) > cap:
+                    inp = inp[:cap] + "…"
+                shown = f" {printable(inp)}"
+            sys.stdout.write(f"\n{DIM}{pad}→ {_name(payload)}{shown}{RESET}\n")
         elif event == "tool_end":
             t0 = state["t0"].pop(_key(payload), None)
             dt = f" · {time.monotonic() - t0:.1f}s" if t0 else ""
-            mark = (f"{RED}✗{RESET}" if payload.get("is_error")
-                    else f"{GREEN}✓{RESET}")
-            sys.stdout.write(f"{DIM}{pad}{mark} {payload.get('name')}{dt}{RESET}\n")
+            failed = payload.get("is_error") or payload.get("state") == "failed"
+            mark = f"{RED}✗{RESET}" if failed else f"{GREEN}✓{RESET}"
+            sys.stdout.write(f"{DIM}{pad}{mark} {_name(payload)}{dt}{RESET}\n")
             content = payload.get("content", "") or ""
             if not payload.get("is_error"):
                 # Memory tools get a visible, non-dim line (P1-2).
@@ -394,12 +457,13 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
                 f"{payload.get('before')} → {payload.get('after')} messages"
                 f"{RESET}\n")
         elif event == "subagent.start":
-            sys.stdout.write(
-                f"\n{DIM}{pad}⇲ subagent: {payload.get('task', '')}{RESET}\n")
+            task = printable(" ".join(str(payload.get("task") or "").split()))
+            label = f"하위 에이전트: {task}" if task else "하위 에이전트"
+            sys.stdout.write(f"\n{DIM}{pad}⇲ {label}{RESET}\n")
             state["depth"] += 1
         elif event == "subagent.done":
             state["depth"] = max(0, state["depth"] - 1)
-            sys.stdout.write(f"{DIM}{_pad()}⇱ subagent done{RESET}\n")
+            sys.stdout.write(f"{DIM}{_pad()}⇱ 하위 에이전트 완료{RESET}\n")
         elif event == "checkpoint":
             # Teach /undo the moment there's something to undo (lazygit shows
             # the commit key right after you stage). Was silent before.

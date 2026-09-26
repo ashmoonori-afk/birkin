@@ -1390,8 +1390,9 @@ def _cmd_runs(args: argparse.Namespace) -> int:
 def _cmd_summon(args: argparse.Namespace) -> int:
     import json as _json
 
-    from . import summon
+    from . import slashcommands, summon
     from .runtime import ConfigError, build_session
+    from .ui import printable
 
     if not args.agent:
         roster, rejected = summon.load_roster()
@@ -1405,28 +1406,37 @@ def _cmd_summon(args: argparse.Namespace) -> int:
         print("소환할 수 있는 에이전트:")
         for spec in specs:
             mark = " (사용자 정의)" if spec.source == "user" else ""
-            print(f"  {spec.name:<15} {spec.title}{mark} — {spec.description}")
+            print(f"  {spec.name:<15} {printable(spec.title)}{mark} — "
+                  f"{printable(spec.description)}")
         for file_name, reason in sorted(rejected.items()):
-            print(f"  ! {file_name}: 정의가 올바르지 않아 건너뛰었어요 "
-                  f"(세부: {reason})")
+            print(f"  ! {printable(file_name)}: 정의가 올바르지 않아 건너뛰었어요 "
+                  f"(세부: {printable(reason)})")
         print('사용법: birkin summon <에이전트> "<할 일>"')
         return 0
     try:
         spec = summon.get_agent(args.agent)
+    except summon.AgentDefinitionError as exc:
+        name = printable(exc.name)
+        print(f"'{name}' 에이전트 정의 파일(agents/{name}.md)에 문제가 있어 "
+              "소환할 수 없어요. 파일을 고친 뒤 다시 시도하세요.",
+              file=sys.stderr)
+        print(f"세부: {printable(exc.reason)}", file=sys.stderr)
+        return 2
     except summon.SummonError as exc:
-        print(f"'{args.agent}' 에이전트를 찾을 수 없어요. "
+        print(f"'{printable(args.agent)}' 에이전트를 찾을 수 없어요. "
               "birkin summon 으로 목록을 확인하세요.", file=sys.stderr)
-        print(f"세부: {exc}", file=sys.stderr)
+        print(f"세부: {printable(exc)}", file=sys.stderr)
         return 2
     task = " ".join(args.task).strip()
     if not task:
         if args.json:
             print(_json.dumps(spec.summary(), ensure_ascii=False, indent=2))
             return 0
-        print(f"{spec.title} ({spec.name}) — {spec.description}")
+        print(f"{printable(spec.title)} ({spec.name}) — "
+              f"{printable(spec.description)}")
         print(f"도구 그룹: {', '.join(spec.tools)}")
         if spec.skills:
-            print(f"미리 불러오는 스킬: {', '.join(spec.skills)}")
+            print(f"미리 불러오는 스킬: {printable(', '.join(spec.skills))}")
         print(f"최대 턴: {spec.max_turns}")
         return 0
     try:
@@ -1436,19 +1446,27 @@ def _cmd_summon(args: argparse.Namespace) -> int:
               "birkin setup 으로 설정을 확인하세요.", file=sys.stderr)
         print(f"세부: {exc}", file=sys.stderr)
         return 1
+    # Progress goes to stderr, so stdout carries only the result and
+    # `birkin summon … > out.md` still captures just the answer.
+    progress = slashcommands.SummonProgress(spec, stream=sys.stderr,
+                                            spinner=False)
+    ctx = slashcommands.summon_context(session.ctx, progress.emit)
     try:
-        result = summon.summon(spec.name, task, session.ctx)
-    except summon.SummonBudgetExceeded as exc:
-        print("토큰 예산을 다 써서 지금은 소환할 수 없어요. "
-              "birkin budget 으로 사용량을 확인하세요.", file=sys.stderr)
-        print(f"세부: {exc}", file=sys.stderr)
-        return 1
+        with progress:
+            result = summon.summon(spec.name, task, ctx)
+    except KeyboardInterrupt:
+        print("소환을 중단했어요.", file=sys.stderr)
+        return 130
     except Exception as exc:
-        print(f"{spec.title}이(가) 작업을 끝내지 못했어요.", file=sys.stderr)
-        print(f"세부: {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr)
+        message, detail = slashcommands.summon_failure_text(
+            exc, spec, ctx.cfg, runs_at="birkin chat 의 /agents 에서")
+        print(message, file=sys.stderr)
+        if detail:
+            print(f"세부: {detail}", file=sys.stderr)
         return 1
     finally:
         session.close()
+    print(progress.done_line(), file=sys.stderr)
     print(result)
     return 0
 

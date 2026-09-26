@@ -94,6 +94,22 @@ def test_pending_shown_only_when_nonzero(wired):
     assert "⚑2" in statusline.build(_cfg())
 
 
+def test_running_agents_shown_only_when_nonzero(wired):
+    from birkin import agentruns
+    assert "에이전트" not in statusline.build(_cfg())
+    rec = agentruns.register_run("background research")
+    assert "에이전트 1" in statusline.build(_cfg())
+    agentruns.finish_run(rec["id"], "done", "ok")
+    assert "에이전트" not in statusline.build(_cfg())
+
+
+def test_status_line_survives_agentruns_errors(wired, monkeypatch):
+    from birkin import agentruns
+    monkeypatch.setattr(agentruns, "running_count",
+                        lambda: (_ for _ in ()).throw(OSError("no disk")))
+    assert "gpt-5.6-sol" in statusline.build(_cfg())
+
+
 def test_render_adds_a_gutter(wired):
     assert statusline.render(_cfg()).startswith("  ")
 

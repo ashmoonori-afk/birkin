@@ -9,8 +9,8 @@ at the right — tmux's status-left / window / status-right ordering.
 Segments are self-hiding (starship conditional modules): a segment that would
 carry no news is omitted, so its mere appearance is the signal. Everything is
 wired to real backend data — model/provider from config, daemon from the
-on-disk heartbeat, budget from budget.status, pending from the approvals
-inbox — nothing is invented.
+on-disk heartbeat, budget from budget.status, running agents from the live
+agent-run records, pending from the approvals inbox — nothing is invented.
 
 Color-safe truncation: variable-length fields (the model id) are cut with
 ui.fit() on the *plain* value before being wrapped in SGR, so a cut never lands
@@ -83,6 +83,15 @@ def build(cfg: dict[str, Any], *, model_cap: int = 22) -> str:
             right.append(f"{col}tok {_k(used)}/{_k(cap)} {ui.bar(frac, 6)}{RST}")
         elif used > 0:
             right.append(f"{D}tok {_k(used)}{RST}")
+    except Exception:
+        pass
+
+    # -- running agents (volatile) — work still in flight after /summon --bg
+    try:
+        from . import agentruns
+        running = agentruns.running_count()
+        if running:
+            right.append(f"{C}에이전트 {running}{RST}")
     except Exception:
         pass
 

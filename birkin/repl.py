@@ -44,6 +44,7 @@ def _banner(session: Session) -> None:
         pass
     print(f" {DIM}{n} skill(s) · vault {session.memory.vault}{RESET}")
     print(f" {YELLOW}/help{RESET} 명령 · {YELLOW}/work{RESET} 워크벤치 · "
+          f"{YELLOW}/summon{RESET} 전문가 · "
           f"{YELLOW}/status{RESET} 상태 · {YELLOW}?{RESET} 도움말 · "
           f"{YELLOW}Esc{RESET} 중단 · Ctrl-C 종료")
 

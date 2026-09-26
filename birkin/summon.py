@@ -65,6 +65,15 @@ class SummonError(ValueError):
     """A summon request or agent definition was rejected."""
 
 
+class AgentDefinitionError(SummonError):
+    """The named agent has a definition file, but it failed validation."""
+
+    def __init__(self, name: str, reason: str):
+        super().__init__(f"agent definition {name!r} is invalid: {reason}")
+        self.name = name
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class AgentSpec:
     """One summonable specialist."""
@@ -331,7 +340,7 @@ def get_agent(name: str) -> AgentSpec:
         return spec
     reason = rejected.get(f"{key}.md") if key not in roster else None
     if reason:
-        raise SummonError(f"agent definition {key!r} is invalid: {reason}")
+        raise AgentDefinitionError(key, reason)
     raise SummonError(
         f"unknown agent {key!r}; available: {', '.join(sorted(roster))}")
 

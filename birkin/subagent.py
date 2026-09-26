@@ -91,6 +91,15 @@ class _MeteredClient:
         return (self.chars + 3) // 4
 
 
+def _safe_emit(emit: Any, event: str, payload: dict[str, Any]) -> None:
+    """Forward one event to the parent's view; a failing view never breaks
+    the run (the same rule as ``Agent._emit``). A sink that refuses events
+    outside its own command used to strand the record and its lease."""
+    if emit:
+        with contextlib.suppress(Exception):
+            emit(event, payload)
+
+
 class _ChildAbort:
     """The child's stop signal: its own deadline, plus the parent's Esc for an
     attached run. A detached run outlives the turn that started it, so a later
@@ -241,20 +250,27 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
         agentruns.progress(run_id, f"{event} {payload.get('name') or ''}")
         wait_while_blocked()
         deliver_messages()
-        if emit:
-            emit("subagent." + event, payload)
+        _safe_emit(emit, "subagent." + event, payload)
 
-    # No self-improvement nudges: a child has no memory and only load_skill,
-    # so "call create_skill / remember" would point at tools it lacks.
-    agent = Agent(client=client, system=system, registry=registry,
-                  max_turns=max_turns, model=sub_model, on_event=on_event,
-                  self_improve=False)
-
-    if emit:
-        emit("subagent.start", {
+    # From here until execute() owns the run, a failure must still finish the
+    # record and release the lease, or the run reads "running" until it goes
+    # stale and the slot counts against every later delegation.
+    try:
+        # No self-improvement nudges: a child has no memory and only
+        # load_skill, so "call create_skill / remember" would point at tools
+        # it lacks.
+        agent = Agent(client=client, system=system, registry=registry,
+                      max_turns=max_turns, model=sub_model, on_event=on_event,
+                      self_improve=False)
+        _safe_emit(emit, "subagent.start", {
             "task": task[:200], "id": run_id, "agent": specialist_name,
             "agent_title": specialist_title,
         })
+    except BaseException as exc:
+        agentruns.finish_run(run_id, "error", f"{type(exc).__name__}: {exc}")
+        if lease is not None:
+            lease.release()
+        raise
 
     def execute() -> str:
         result = ""
@@ -319,19 +335,17 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
                 )
             except OSError:
                 pass  # accounting must not mask the run's own outcome
-            if failed and emit:
+            if failed:
                 # A live view that saw subagent.start must also see the run
                 # end; a failing view must not replace the run's own error.
-                with contextlib.suppress(Exception):
-                    emit("subagent.done", {
-                        "chars": 0, "id": run_id, "agent": specialist_name,
-                        "agent_title": specialist_title, "is_error": True,
-                    })
-        if emit:
-            emit("subagent.done", {
-                "chars": len(result), "id": run_id, "agent": specialist_name,
-                "agent_title": specialist_title,
-            })
+                _safe_emit(emit, "subagent.done", {
+                    "chars": 0, "id": run_id, "agent": specialist_name,
+                    "agent_title": specialist_title, "is_error": True,
+                })
+        _safe_emit(emit, "subagent.done", {
+            "chars": len(result), "id": run_id, "agent": specialist_name,
+            "agent_title": specialist_title,
+        })
         return result
 
     if not detach:
@@ -348,5 +362,7 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
 
     threading.Thread(target=background, name=f"birkin-subagent-{run_id}",
                      daemon=True).start()
+    # The REPL announces it once it finishes, whoever started it.
+    agentruns.note_detached(run_id)
     return (f"Detached subagent {run_id} started. Follow it with "
             f"/attach {run_id[:8]} and steer it with /send {run_id[:8]} <text>.")
