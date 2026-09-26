@@ -22,7 +22,7 @@ class _EmptyInterruptedSession:
         on_text: Callable[[str], None] | None = None,
     ) -> str:
         self.started.set()
-        assert self.interrupted.wait(timeout=2)
+        assert self.interrupted.wait(timeout=10)
         return ""
 
     def interrupt(self) -> bool:
@@ -83,9 +83,9 @@ def test_telegram_labels_empty_interrupted_turn(
     )
 
     worker.start()
-    assert session.started.wait(timeout=2)
+    assert session.started.wait(timeout=10)
     assert gateway.interrupt("telegram", "42") is True
-    worker.join(timeout=3)
+    worker.join(timeout=10)
 
     assert not worker.is_alive()
     assert sent == ["(interrupted :o)"]

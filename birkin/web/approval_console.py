@@ -22,6 +22,9 @@ def _flatten(runs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _approval_run_id(record: dict[str, Any]) -> str:
+    linked = record.get("agent_run_id")
+    if isinstance(linked, str) and linked:
+        return linked
     payload = record.get("payload")
     candidate = payload.get("run_id") if isinstance(payload, dict) else None
     if isinstance(candidate, str):
@@ -64,6 +67,7 @@ def _summary(run: dict[str, Any], pending: int) -> dict[str, Any]:
     return {
         "id": run["id"],
         "parent_id": run.get("parent_id"),
+        "agent": run.get("agent"),
         "task": run.get("task", ""),
         "status": status,
         "ui_state": _ui_state(run, pending),

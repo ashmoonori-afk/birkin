@@ -58,3 +58,18 @@ def test_stream_malformed_lines_ignored():
                    "delta": {"type": "text_delta", "text": "ok"}})]
     res = LLMClient._read_anthropic_stream(iter(stream), None)
     assert res["content"][0]["text"] == "ok"
+
+
+def test_stream_marks_tool_input_cut_off_at_max_tokens():
+    stream = [
+        _ev({"type": "content_block_start", "index": 0,
+             "content_block": {"type": "tool_use", "id": "w", "name": "write_file"}}),
+        _ev({"type": "content_block_delta", "index": 0,
+             "delta": {"type": "input_json_delta",
+                       "partial_json": '{"path": "r.md", "content": "# Rep'}}),
+        _ev({"type": "content_block_stop", "index": 0}),
+        _ev({"type": "message_delta", "delta": {"stop_reason": "max_tokens"}}),
+    ]
+    res = LLMClient._read_anthropic_stream(iter(stream), None)
+    assert res["stop_reason"] == "max_tokens"
+    assert res["content"][0]["_truncated"] is True

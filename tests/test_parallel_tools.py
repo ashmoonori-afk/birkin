@@ -237,6 +237,56 @@ def test_abort_still_answers_every_call():
         "history must stay API-valid even when aborted mid-batch"
 
 
+class _Flag:
+    val = False
+
+    def is_set(self):
+        return self.val
+
+
+def _abort_on(flag, trigger):
+    class Aborting(SlowRegistry):
+        def execute(self, name, tool_input):
+            if name == trigger:
+                flag.val = True          # Esc pressed while this tool runs
+            return super().execute(name, tool_input)
+    return Aborting(delay=0.01)
+
+
+def _results(agent):
+    return [b for m in agent.messages for b in m["content"]
+            if b.get("type") == "tool_result"]
+
+
+def test_abort_stops_the_remaining_sequential_calls():
+    for parallel_tools in (True, False):
+        flag = _Flag()
+        reg = _abort_on(flag, "write_file")
+        calls = [_tu("write_file", "a"), _tu("edit_file", "b"),
+                 _tu("run_shell", "c")]
+        agent = _agent(Batch(calls), reg, parallel_tools=parallel_tools)
+        out = agent.run("go", abort=flag)
+
+        assert reg.order == ["write_file"], parallel_tools
+        results = _results(agent)
+        assert [b["tool_use_id"] for b in results] == ["a", "b", "c"]
+        assert [(b["content"], b["is_error"]) for b in results[1:]] \
+            == [("aborted", True), ("aborted", True)]
+        assert out.endswith("[birkin] aborted.")
+
+
+def test_abort_in_a_parallel_segment_skips_later_writers():
+    flag = _Flag()
+    reg = _abort_on(flag, "web_fetch")
+    calls = [_tu("web_fetch", "a"), _tu("web_fetch", "b"),
+             _tu("write_file", "w"), _tu("run_shell", "s")]
+    agent = _agent(Batch(calls), reg)
+    agent.run("go", abort=flag)
+
+    assert "write_file" not in reg.order and "run_shell" not in reg.order
+    assert [b["tool_use_id"] for b in _results(agent)] == ["a", "b", "w", "s"]
+
+
 def test_single_call_batches_take_the_simple_path():
     calls = [_tu("read_file", "only")]
     reg = SlowRegistry(delay=0.01)

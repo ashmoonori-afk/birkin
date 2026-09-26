@@ -81,11 +81,20 @@ def test_handshake_accepts_interleaved_ping_before_snapshot(
         return receive_frame(connection) if response is None else response
 
     monkeypatch.setattr(native_bridge_support, "receive_frame", receive_with_interleaved_ping)
+    # The injected ping never came from the server, so its pong must not reach
+    # it; record that the handshake answers the ping instead.
+    answered: list[str] = []
+    monkeypatch.setattr(
+        native_bridge_support,
+        "answer_ping",
+        lambda _client, _token, frame: answered.append(frame.id),
+    )
     try:
         assert handshake(client)
     finally:
         client.close()
         thread.join(timeout=2)
+    assert answered == ["heartbeat-1"]
     assert errors == []
 
 

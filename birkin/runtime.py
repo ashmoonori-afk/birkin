@@ -304,6 +304,8 @@ class Session:
             return why
         self.skills.reload_if_changed()  # pick up edited/added skills live
         self.abort.clear()               # fresh turn — drop any stale abort
+        if self.ctx.tree_budget is not None:
+            self.ctx.tree_budget.begin_tree()  # subagent caps are per turn
         if self.ctx.checkpoints is not None:
             self.ctx.checkpoints.new_turn()
             if (self._use_warm()

@@ -68,6 +68,12 @@ _BUSY_REPLY: Final = "Birkin is busy; try again shortly."
 # How long a worker waits for the poll loop to ack the dispatched batch's
 # offset before it re-execs anyway (see TelegramChannel._poll_acked).
 _RESTART_ACK_TIMEOUT: Final = 5.0
+# Gateway commands that start no model turn and reset no session state. They
+# are answered beside the chat's in-flight turn instead of interrupting it.
+_SIDE_COMMANDS: Final = frozenset(
+    {"help", "pending", "deny", "remind", "commitment", "checkin", "companion",
+     "summon"}
+)
 
 
 class _UrlResponse(Protocol):
@@ -285,6 +291,14 @@ def _payload_summary(category: str, payload: JsonObject) -> str:
             lines.append(f"environment: {env_summary}")
         lines.append(f"digest: {digest}")
         return "\n".join(lines)
+    if category == "mail_send":
+        from ...tools.connections import mail_send_review_text
+
+        return f"↳ {mail_send_review_text(payload)}\n본문: {str(payload.get('body', ''))[:200]}"
+    if category == "calendar_event":
+        from ...tools.connections import calendar_event_review_text
+
+        return f"↳ {calendar_event_review_text(payload)}"
     return f"↳ {str(payload)[:200]}" if payload else ""
 
 
@@ -546,6 +560,7 @@ class TelegramChannel(Channel):
         # while a turn runs and a new message can interrupt it.
         self._workers: dict[str, threading.Thread] = {}
         self._action_workers: dict[str, threading.Thread] = {}
+        self._command_workers: dict[str, threading.Thread] = {}
         self._workflow_ids: dict[str, str] = {}
         self._worker_slots: threading.BoundedSemaphore = threading.BoundedSemaphore(
             max_public_workers,
@@ -1574,6 +1589,39 @@ class TelegramChannel(Channel):
                 )
             gateway.do_hard_restart()  # replaces the process; never returns
 
+    def _run_side_command(
+        self,
+        gateway: ChannelGateway,
+        chat_id: str,
+        text: str,
+        sender_id: str,
+    ) -> None:
+        """Answer a _SIDE_COMMANDS message in its own worker, leaving the
+        chat's in-flight turn (and any approved workflow) untouched."""
+        if has_reserved_marker(text):
+            _ = self._send_reply(
+                chat_id, "⚠️ 내부 워크플로 표식은 예약되어 있어 사용할 수 없습니다."
+            )
+            return
+        # /pending on a trusted channel renders as inline buttons here; the
+        # gateway's text fallback serves everything else.
+        if match_command(text)[0] == "pending" and _command_is_trusted(gateway):
+            self._send_pending_buttons(gateway, chat_id)
+            return
+        try:
+            reply = gateway.handle("telegram", chat_id, text, sender_id=sender_id)
+        except Exception as exc:
+            print(f"[telegram] command error: {exc}")
+            reply = "⚠️ 처리 중 문제가 생겼어요."
+        from ... import delivery
+
+        obligation = delivery.record("telegram", chat_id, reply or "")
+        trusted_chat = bool(self.allowed_chat_ids and chat_id in self.allowed_chat_ids)
+        if self._deliver_reply(
+            chat_id, reply or "(no reply)", allow_attachments=trusted_chat
+        ):
+            delivery.clear(obligation)
+
     def _redeliver_pending(self) -> int:
         from ... import delivery
 
@@ -1701,6 +1749,26 @@ class TelegramChannel(Channel):
                     text = self._compose_media_text(msg) or ""
                 if not text:
                     continue
+                # Status and bookkeeping commands must not kill the turn (or
+                # approved workflow) they report on, nor wait on it here.
+                if match_command(text)[0] in _SIDE_COMMANDS:
+                    worker = self._start_public_worker(
+                        self._command_workers,
+                        chat_id,
+                        partial(
+                            self._run_side_command, gateway, chat_id, text, sender_id
+                        ),
+                    )
+                    if worker is None:
+                        # Every slot is busy. /pending still answers inline on
+                        # the poll thread as it always did (no interrupt); the
+                        # rest get the busy reply.
+                        if (match_command(text)[0] == "pending"
+                                and _command_is_trusted(gateway)):
+                            self._send_pending_buttons(gateway, chat_id)
+                        else:
+                            _ = self._send_plain(chat_id, _BUSY_REPLY)
+                    continue
                 # A new message while this chat's previous turn is still running
                 # interrupts it (mid-input interruption), then runs the new one.
                 prev = self._workers.get(chat_id)
@@ -1712,11 +1780,6 @@ class TelegramChannel(Channel):
                     prev.join(timeout=20)
                 else:
                     _ = gateway.interrupt("telegram", chat_id)
-                # /pending on a trusted channel renders as inline buttons
-                # here; the gateway's text fallback serves everything else.
-                if match_command(text)[0] == "pending" and _command_is_trusted(gateway):
-                    self._send_pending_buttons(gateway, chat_id)
-                    continue
                 # Run the turn in a worker so the loop keeps polling (and can
                 # see the next message to interrupt this one).
                 worker = self._start_public_worker(

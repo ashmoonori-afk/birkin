@@ -272,7 +272,11 @@ def build_tool_groups(ctx: ToolContext) -> dict[str, list[Tool]]:
         ):
             groups["desktop"] += computer_use.tools()
     if ctx.skills is not None:
-        groups["skills"] = ctx.skills.tools()
+        skill_tools = ctx.skills.tools()
+        # Subagents do not write durable state: keep only read-only load_skill.
+        if ctx.depth > 0:
+            skill_tools = [t for t in skill_tools if t.name == "load_skill"]
+        groups["skills"] = skill_tools
     if ctx.memory is not None:
         groups["memory"] = ctx.memory.tools()
     # Companion is opt-in; don't spend prompt tokens on the tool until the

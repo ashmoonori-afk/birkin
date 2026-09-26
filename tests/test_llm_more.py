@@ -185,6 +185,24 @@ def test_openai_complete_parses_text_and_tool_calls(monkeypatch):
     assert res["stop_reason"] == "tool_use"
 
 
+def test_openai_complete_length_finish_marks_cut_tool_call(monkeypatch):
+    fake_body = {"choices": [{"finish_reason": "length", "message": {
+        "tool_calls": [{"id": "tc1", "function": {
+            "name": "write_file", "arguments": '{"path": "r.md", "cont'}}]}}]}
+
+    class FakeResp:
+        def read(self): return json.dumps(fake_body).encode()
+
+    monkeypatch.setattr(LLMClient, "_post",
+                        lambda self, url, headers, payload, *, stream, timeout=300.0: FakeResp())
+    c = LLMClient(provider="openai", model="gpt-4o", api_key="k", base_url="")
+    res = c.complete(system="", messages=[
+        {"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+        tools=[{"name": "write_file", "description": "d", "input_schema": {}}])
+    assert res["stop_reason"] == "max_tokens"
+    assert res["content"][0]["_truncated"] is True
+
+
 def test_unknown_provider_raises():
     c = LLMClient(provider="bogus", model="m", api_key="k", base_url="")
     with pytest.raises(LLMError):

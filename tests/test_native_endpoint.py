@@ -14,6 +14,10 @@ from birkin.native.transport import receive_frame
 from birkin.workspace import WorkspaceService
 from tests.native_bridge_support import envelope, hello
 
+# Success-path bound only: a loaded Windows runner can take over a second to
+# accept, authenticate and write the rotated capability before "ready".
+_IO_TIMEOUT = 10.0
+
 
 def _serve_once(endpoint: NativeBridgeEndpoint) -> threading.Thread:
     thread = threading.Thread(target=endpoint.serve_once, daemon=True)
@@ -79,7 +83,7 @@ def test_loopback_endpoint_serves_real_authenticated_connection(
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()
-    client = socket.create_connection(endpoint.address, timeout=1)
+    client = socket.create_connection(endpoint.address, timeout=_IO_TIMEOUT)
     try:
         bootstrap = capabilities.current()
         client.sendall(
@@ -97,7 +101,7 @@ def test_loopback_endpoint_serves_real_authenticated_connection(
         assert rotated["port"] == endpoint.address[1]
     finally:
         client.close()
-        thread.join(timeout=2)
+        thread.join(timeout=_IO_TIMEOUT)
         endpoint.close()
     assert errors == []
     assert capabilities.endpoint_path.exists() is False
@@ -109,7 +113,7 @@ def test_loopback_non_ascii_bootstrap_returns_typed_error_and_bridge_survives(
     endpoint, capabilities = _runtime(tmp_path)
     invalid_secret = "non-ascii-é"
     first_thread = _serve_once(endpoint)
-    first_client = socket.create_connection(endpoint.address, timeout=1)
+    first_client = socket.create_connection(endpoint.address, timeout=_IO_TIMEOUT)
     try:
         first_client.sendall(
             encode_frame(hello(bootstrap_secret=invalid_secret))
@@ -124,10 +128,10 @@ def test_loopback_non_ascii_bootstrap_returns_typed_error_and_bridge_survives(
         assert invalid_secret not in str(error.to_dict())
     finally:
         first_client.close()
-        first_thread.join(timeout=2)
+        first_thread.join(timeout=_IO_TIMEOUT)
 
     second_thread = _serve_once(endpoint)
-    second_client = socket.create_connection(endpoint.address, timeout=1)
+    second_client = socket.create_connection(endpoint.address, timeout=_IO_TIMEOUT)
     try:
         valid_secret = capabilities.current().secret
         second_client.sendall(encode_frame(hello(bootstrap_secret=valid_secret)))
@@ -137,7 +141,7 @@ def test_loopback_non_ascii_bootstrap_returns_typed_error_and_bridge_survives(
         assert ready.body["transport"] == "loopback"
     finally:
         second_client.close()
-        second_thread.join(timeout=2)
+        second_thread.join(timeout=_IO_TIMEOUT)
         endpoint.close()
 
 
@@ -146,7 +150,7 @@ def test_loopback_non_ascii_capability_returns_typed_error_and_bridge_survives(
 ) -> None:
     endpoint, capabilities = _runtime(tmp_path)
     first_thread = _serve_once(endpoint)
-    first_client = socket.create_connection(endpoint.address, timeout=1)
+    first_client = socket.create_connection(endpoint.address, timeout=_IO_TIMEOUT)
     try:
         first_client.sendall(
             encode_frame(hello(bootstrap_secret=capabilities.current().secret))
@@ -176,10 +180,10 @@ def test_loopback_non_ascii_capability_returns_typed_error_and_bridge_survives(
         assert token not in str(error.to_dict())
     finally:
         first_client.close()
-        first_thread.join(timeout=2)
+        first_thread.join(timeout=_IO_TIMEOUT)
 
     second_thread = _serve_once(endpoint)
-    second_client = socket.create_connection(endpoint.address, timeout=1)
+    second_client = socket.create_connection(endpoint.address, timeout=_IO_TIMEOUT)
     try:
         second_client.sendall(
             encode_frame(hello(bootstrap_secret=capabilities.current().secret))
@@ -190,5 +194,5 @@ def test_loopback_non_ascii_capability_returns_typed_error_and_bridge_survives(
         assert ready.body["transport"] == "loopback"
     finally:
         second_client.close()
-        second_thread.join(timeout=2)
+        second_thread.join(timeout=_IO_TIMEOUT)
         endpoint.close()

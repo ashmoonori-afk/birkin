@@ -41,6 +41,13 @@ _PUBLIC_SYSTEM = (
 )
 
 
+def _drop_delegation(system: str) -> str:
+    system = system.replace(prompts.DELEGATION_CLAUSE, "")
+    return "\n".join(
+        line for line in system.splitlines() if "spawn_subagent" not in line
+    )
+
+
 def _filter_tool_guidance(system: str, cfg: dict[str, Any]) -> str:
     disabled = {
         str(name)
@@ -52,12 +59,12 @@ def _filter_tool_guidance(system: str, cfg: dict[str, Any]) -> str:
             and egress.get("enabled") is True
             and egress.get("enforced") is True):
         disabled.update({"run_shell", "spawn_subagent"})
-    if "spawn_subagent" in disabled:
-        system = "\n".join(
-            line for line in system.splitlines()
-            if "spawn_subagent" not in line
-        )
-    if "run_shell" in disabled:
+    # Denials arrive as tool names or as group names (presets deny groups);
+    # either one removes the tool from the registry, so both must remove its
+    # guidance, including the identity's promise to delegate.
+    if {"spawn_subagent", "subagent"} & disabled:
+        system = _drop_delegation(system)
+    if {"run_shell", "shell"} & disabled:
         system = system.replace(
             "`run_shell`",
             "the available execution tools",
@@ -239,12 +246,26 @@ def compose_cli(cfg: dict[str, Any], *, memory_block: str = "",
 
 
 def compose_subagent(cfg: dict[str, Any], *, skills_index: str = "",
-                     preloaded: Optional[list[tuple[str, str]]] = None) -> str:
-    """System prompt for a native subagent using its effective model preset."""
+                     preloaded: Optional[list[tuple[str, str]]] = None,
+                     role_block: str = "",
+                     available_tools: Optional[set[str]] = None) -> str:
+    """System prompt for a native subagent using its effective model preset.
+
+    ``role_block`` carries a summoned specialist's role (``birkin.summon``).
+    ``available_tools`` is the child's registry; guidance for tools it lacks
+    is left out instead of promising calls that would fail.
+    """
+    omit = (
+        frozenset(prompts.GUIDED_TOOLS) - available_tools
+        if available_tools is not None
+        else frozenset()
+    )
     system = prompts.build_system_prompt(
         skills_index=skills_index,
         role="subagent",
         preloaded=preloaded,
+        extra=role_block,
+        omit_tools=omit,
     )
     system += presets.role_overlay(cfg.get("model"), cfg)
     system += presets.tool_policy_overlay(

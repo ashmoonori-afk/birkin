@@ -86,7 +86,7 @@ Schema version: 1
 | `gateway_max_sessions` | `integer` | `8` | native-API gateway session pool에 동시에 유지하는 최대 session 수입니다 (SessionPool). CLI provider에는 적용되지 않습니다. |
 | `gateway_session_ttl_s` | `integer` | `3600` | native-API gateway session이 유휴 상태로 유지될 수 있는 최대 시간(초)이며 초과하면 회수됩니다. |
 | `gateway_polish_timeout` | `integer` | `90` | Gateway 응답 polish 단계에 허용하는 최대 시간(초)이며 초과하면 원본 응답을 그대로 사용합니다. |
-| `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2}` | Birkin 설정 `voice`. |
+| `voice` | `object` | `{"wake_phrase": "Daddy is home", "gateway_url": "", "session_id": "voice-local", "sample_rate": 24000, "stt_model": "gpt-transcribe", "tts_model": "gpt-4o-mini-tts", "tts_voice": "coral", "tts_instructions": "Speak concisely and clearly.", "conversation_style": "", "onboarding_complete": false, "background_workers": 2, "gateway_timeout_seconds": 330}` | Birkin 설정 `voice`. |
 | `voice.wake_phrase` | `string` | `"Daddy is home"` | Birkin 설정 `voice.wake_phrase`. |
 | `voice.gateway_url` | `string` | `""` | Birkin 설정 `voice.gateway_url`. |
 | `voice.session_id` | `string` | `"voice-local"` | Birkin 설정 `voice.session_id`. |
@@ -98,6 +98,7 @@ Schema version: 1
 | `voice.conversation_style` | `string` | `""` | Birkin 설정 `voice.conversation_style`. |
 | `voice.onboarding_complete` | `boolean` | `false` | Birkin 설정 `voice.onboarding_complete`. |
 | `voice.background_workers` | `integer` | `2` | Birkin 설정 `voice.background_workers`. |
+| `voice.gateway_timeout_seconds` | `integer` | `330` | Birkin 설정 `voice.gateway_timeout_seconds`. |
 | `autosave_transcripts` | `boolean` | `false` | Birkin 설정 `autosave_transcripts`. |
 | `autosave_redact_secrets` | `boolean` | `true` | Birkin 설정 `autosave_redact_secrets`. |
 | `autosave_max_chars` | `integer` | `4000` | Birkin 설정 `autosave_max_chars`. |

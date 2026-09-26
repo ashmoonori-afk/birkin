@@ -48,6 +48,11 @@ _MEMORY_NUDGE = (
 _STEER_NOTE = ("[birkin: mid-turn message from the user — a direct instruction "
                "sent while you were working, not tool output. Adjust course.]")
 
+_TRUNCATED_TOOL_INPUT = (
+    "output_truncated: this call's arguments were cut off at the output token "
+    "limit (max_tokens) or were not valid JSON, so it was not executed. Split "
+    "the payload into smaller calls (e.g. write the file in sections).")
+
 _GRACE_PROMPT = (
     "[birkin] You've hit the maximum number of tool-calling turns for this "
     "request, so no further tools will run. Without calling any more tools, "
@@ -407,6 +412,15 @@ class Agent:
 
             tool_uses = [b for b in assistant["content"]
                          if b.get("type") == "tool_use"]
+            # The private marker must never be sent back to the provider.
+            truncated = {id(tu) for tu in tool_uses
+                         if tu.pop("_truncated", False)}
+            # A call cut off right after its name has no argument text to fail
+            # parsing, so the marker is missing; a max_tokens stop whose last
+            # block is that call is the same truncation.
+            if (tool_uses and assistant.get("stop_reason") == "max_tokens"
+                    and assistant["content"][-1] is tool_uses[-1]):
+                truncated.add(id(tool_uses[-1]))
             text = "".join(b["text"] for b in assistant["content"]
                            if b.get("type") == "text")
             if text:
@@ -450,7 +464,20 @@ class Agent:
                 if name in MEMORY_TOOLS:
                     used_memory = True
 
-            results = self._run_tools(tool_uses, abort)
+            # Arguments cut off at max_tokens must not run as {}: answer them
+            # with an error the model can act on, run the rest as usual.
+            ran = iter(self._run_tools(
+                [tu for tu in tool_uses if id(tu) not in truncated], abort))
+            results = [
+                self._result_block(tu, _TRUNCATED_TOOL_INPUT, True)
+                if id(tu) in truncated else next(ran)
+                for tu in tool_uses
+            ]
+            # Record the refused calls as failures so a model that keeps
+            # re-emitting the oversized call still trips the OODA stall.
+            for tu in tool_uses:
+                if id(tu) in truncated:
+                    self._record_ooda(tu.get("name", ""), {}, False)
             self.messages.append({"role": "user", "content": results})
 
         self._update_nudges(used_skill, used_memory)
@@ -508,15 +535,24 @@ class Agent:
             if isinstance(self.registry, ParallelRegistry)
             else None
         )
+
+        def sequential(calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+            # Esc stops the rest of the batch; unrun calls still get a result.
+            return [
+                self._result_block(tu, "aborted", True)
+                if self._aborted(abort) else self._execute_with_events(tu)
+                for tu in calls
+            ]
+
         if not self.parallel_tools or len(tool_uses) < 2:
-            return [self._execute_with_events(tu) for tu in tool_uses]
+            return sequential(tool_uses)
 
         results: list[dict[str, Any]] = []
         for kind, calls in parallel.plan_segments(tool_uses, can_parallelize):
-            if kind == "parallel":
+            if kind == "parallel" and not self._aborted(abort):
                 results.extend(self._run_parallel(calls, abort))
             else:
-                results.extend(self._execute_with_events(tu) for tu in calls)
+                results.extend(sequential(calls))
         return results
 
     def _execute_with_events(self, tool_use: dict[str, Any]) -> dict[str, Any]:

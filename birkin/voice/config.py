@@ -47,6 +47,8 @@ class VoiceConfig:
     filler_text: str = "On it."
     conversation_style: VoiceConversationStyle = ""
     background_workers: int = 2
+    # Must outlast one Gateway turn (cli_timeout defaults to 300s) plus margin.
+    gateway_timeout_seconds: int = 330
 
     @classmethod
     def from_mapping(
@@ -90,6 +92,11 @@ class VoiceConfig:
                 "background_workers",
                 cls.background_workers,
             ),
+            gateway_timeout_seconds=_positive_int(
+                values,
+                "gateway_timeout_seconds",
+                cls.gateway_timeout_seconds,
+            ),
         )
 
     def with_overrides(
@@ -130,4 +137,5 @@ class VoiceConfig:
                 if background_workers is None
                 else background_workers
             ),
+            gateway_timeout_seconds=self.gateway_timeout_seconds,
         )

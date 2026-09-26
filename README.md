@@ -29,6 +29,7 @@ Birkin's mandatory runtime dependencies are `httpx`, `pydantic`, `psutil`, `tzda
 - **Recover without guessing.** Durable jobs and receipts distinguish completed, partial, failed, and outcome-unknown states. Uncertain mail delivery is checked before any retry.
 - **Keep internal state local by default.** Sessions, memory, approvals, and audit state stay under `BIRKIN_HOME`. A configured model provider may receive request content, and Microsoft 365 is contacted only when connected.
 - **Choose your surface.** Start in the terminal or local Web workspace. Native Windows and macOS clients use the same Python authority.
+- **Summon a specialist.** Hand a task to a named agent such as `sheet-analyst` or `meeting-scribe`, with its own instructions and a narrower toolset, from chat, the CLI, or a trusted Telegram chat.
 
 ## The primary journey
 
@@ -177,6 +178,44 @@ birkin review                                  # inspect pending approvals
 
 The generated tables live in [Configuration reference](./docs/config-reference.md). User-facing Korean and stable protocol/diagnostic English follow the [language policy](./docs/language-policy.md).
 
+## Summon specialist agents
+
+A summoned agent is a named specialist: its own role instructions, a least-privilege set of tool groups, preloaded skills, and a turn budget. It runs as a subagent, so it cannot see the parent conversation and returns a self-contained result. Tool groups narrow Birkin's native registry for API providers. A CLI provider (`codex-cli`, `claude-cli`) runs its own tools, so there a specialist runs the CLI read-only and without Birkin's MCP tools: it can read and analyze but not change files; `local-cli` runs the configured command unchanged.
+
+| Agent | Role | Tool groups | Preloaded skills |
+|---|---|---|---|
+| `researcher` | Public-source research with dated citations | `web`, `research`, `files` | `web-research`, `fact-checking` |
+| `doc-analyst` | Inspect, extract, and compare DOCX/PPTX/PDF/HWPX | `documents`, `files` | `office-work-os` |
+| `sheet-analyst` | XLSX/CSV analysis with cell-range evidence | `documents`, `files` | `spreadsheets` |
+| `meeting-scribe` | Decisions, action items, owners, and due dates | `documents`, `files` | `meeting-notes` |
+| `report-writer` | Conclusion-first reports and presentation drafts | `documents`, `files`, `web` | `word-documents` |
+| `planner` | Steps, owners, dates, risks, and follow-up proposals | `documents`, `files` | `task-breakdown`, `planning` |
+| `mail-drafter` | Reply and notice drafts; sending needs approval | `connections`, `files` | `email-draft` |
+
+```bash
+birkin summon                                    # list the roster (--json for machines)
+birkin summon sheet-analyst                      # show one agent
+birkin summon meeting-scribe "Extract action items from incoming/weekly.docx"
+```
+
+In `birkin chat`, `/summon <agent> <task>` runs in the foreground and `/summon --bg <agent> <task>` runs in the background; once it finishes, the terminal announces the result before the next prompt, and `/agents`, `/attach`, and `/send` follow or steer it. In a trusted Telegram chat, `/summon <agent> <task>` starts the agent without interrupting the conversation and sends the result back to that chat; from the local HTTP or voice channel, follow it with `/agents` and `/attach` in `birkin chat`. With a native API provider, `egress.enforced=false`, and a model preset that keeps delegation, the model can also summon by passing `agent` to `spawn_subagent`.
+
+Add your own specialist as `BIRKIN_HOME/agents/<name>.md`:
+
+```markdown
+---
+name: contract-reviewer
+title: 계약서 검토자
+description: 계약서의 위험 조항을 찾아 요약합니다.
+tools: [documents, files]
+skills: [word-documents]
+max_turns: 8
+---
+You review contracts for risky clauses and cite the exact clause location.
+```
+
+Definitions are validated: the name must match the file name, tool groups come from a fixed list that excludes `subagent`, at most four skills are preloaded, `max_turns` is 1–40, and a user file cannot reuse a built-in name. Invalid files are skipped and reported by `birkin summon`. Birkin's file tools cannot write this directory.
+
 ## Configuration
 
 `birkin setup` writes `~/.birkin/config.json`. The block below is generated from `birkin.config.DEFAULT_CONFIG` and verified by tests, so it is the complete default surface rather than a curated excerpt.
@@ -290,7 +329,8 @@ The generated tables live in [Configuration reference](./docs/config-reference.m
     "tts_instructions": "Speak concisely and clearly.",
     "conversation_style": "",
     "onboarding_complete": false,
-    "background_workers": 2
+    "background_workers": 2,
+    "gateway_timeout_seconds": 330
   },
   "autosave_transcripts": false,
   "autosave_redact_secrets": true,
@@ -430,6 +470,8 @@ The generated tables live in [Configuration reference](./docs/config-reference.m
 - Read-only inspection does not grant write authority. Office mutation enters through `office_job_request`; rollback enters through `office_rollback_request`.
 - Approval binds the source hash, operation, destination, overwrite choice, and proposer. Changed inputs fail closed.
 - Browser and Computer Use are optional and disabled until configured. They remain constrained by allowlists, action budgets, and approval policy.
+- Proactive Telegram delivery (cron and `/remind` jobs, the Morpheus digest, `/summon` results) goes only to chats listed in `channels.telegram.allowed_chat_ids`; with an empty list nothing is sent. A `/remind` from the local HTTP or voice channel is delivered to Telegram only when exactly one chat is allowed, and is refused otherwise.
+- A summoned agent's tool groups only narrow the policy Birkin already applies (disabled tools, model presets, enforced egress); they never widen it. Summoned agents cannot summon further agents, consequential actions still wait for approval, and each run counts toward the token budget. With enforced egress, only the user can summon, through `/summon` or `birkin summon`; the model-facing `spawn_subagent` tool stays removed.
 - Provider completion, HTTP acceptance, a local receipt, and confirmed remote state are different evidence. Birkin preserves `unknown` or `needs_review` when it cannot observe the external outcome.
 
 ## Verification and current limits

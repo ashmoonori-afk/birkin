@@ -48,6 +48,9 @@ CATEGORY_RISK: dict[str, str] = {
     # is injected into the system prompt of every later turn -- it steers what
     # the agent chooses to do, so it is reviewed with shell-level attention.
     "harness": "high",
+    # worker_invoke starts Birkin workers (workflows, harness refinement, ...)
+    # in a subprocess on approval; review it like shell.
+    "worker": "high",
     "shell":  "high",
     "operation": "high",
     "office_create": "high",

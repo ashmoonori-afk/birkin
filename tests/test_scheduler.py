@@ -158,7 +158,14 @@ def test_deliver_skips_silent_output_before_any_network(monkeypatch):
     assert out == "skipped-silent" and sent == []
 
 
+def _allow_telegram_chats(*chat_ids):
+    cfg = config.load_config()
+    cfg["channels"] = {"telegram": {"allowed_chat_ids": list(chat_ids)}}
+    config.save_config(cfg)
+
+
 def test_deliver_sends_real_output(monkeypatch):
+    _allow_telegram_chats("42")
     sent: list = []
     monkeypatch.setattr(scheduler, "_send_telegram",
                         lambda token, chat, text: sent.append((chat, text)))
@@ -170,6 +177,7 @@ def test_deliver_sends_real_output(monkeypatch):
 
 
 def test_deliver_reports_missing_token(monkeypatch):
+    _allow_telegram_chats("42")
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     out = scheduler._deliver({"name": "w", "deliver_chat_id": "42"}, "news")
     assert out.startswith("error: no telegram token")
@@ -192,6 +200,31 @@ def test_deliver_refuses_chat_outside_allowlist(monkeypatch):
     assert ok == "sent" and sent
 
 
+def test_deliver_refuses_when_telegram_allowlist_empty(monkeypatch):
+    """An empty allowlist fails closed, like Slack/Discord and check-ins —
+    an unconfigured bot must not deliver job output to any chat."""
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tkn")
+    sent: list = []
+    monkeypatch.setattr(scheduler, "_send_telegram",
+                        lambda *a: sent.append(a))
+    out = scheduler._deliver({"name": "w", "deliver_chat_id": "42"}, "news")
+    assert out.startswith("error: chat_id not in") and sent == []
+    wrapped = scheduler.deliver("morpheus", "42", "digest")
+    assert wrapped.startswith("error: chat_id not in") and sent == []
+
+
+def test_deliver_matches_allowlist_entries_with_stray_whitespace(monkeypatch):
+    """/remind stores the stripped id; delivery must compare the same way."""
+    _allow_telegram_chats("42 ")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tkn")
+    sent: list = []
+    monkeypatch.setattr(scheduler, "_send_telegram",
+                        lambda token, chat, text: sent.append(chat))
+    assert scheduler._deliver({"name": "w", "deliver_chat_id": "42"},
+                              "news") == "sent"
+    assert sent == ["42"]
+
+
 def test_deliver_error_status_never_leaks_the_token(monkeypatch):
     """The delivery status string is persisted into run records — a failed
     send must not embed the bot token there."""
@@ -202,6 +235,7 @@ def test_deliver_error_status_never_leaks_the_token(monkeypatch):
             f"https://api.telegram.org/bot{token}/sendMessage",
             401, "Unauthorized", None, None)
 
+    _allow_telegram_chats("42")
     monkeypatch.setattr(scheduler, "_send_telegram", boom)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "sekret-tkn")
     out = scheduler._deliver({"name": "w", "deliver_chat_id": "42"}, "news")

@@ -263,6 +263,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "conversation_style": "",
         "onboarding_complete": False,
         "background_workers": 2,
+        # Must outlast one gateway turn (cli_timeout) plus a margin, or the
+        # spoken request times out while the gateway is still working.
+        "gateway_timeout_seconds": 330,
     },
     # Opt in to saving every trusted conversation turn (gateway + REPL) to
     # sessions_dir as

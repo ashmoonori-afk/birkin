@@ -56,6 +56,7 @@ Copy-Item $source $incoming
 - **추측하지 않는 복구**: 작업 기록과 영수증으로 완료·일부 완료·실패·결과 불확실을 구분합니다. 메일 발송 결과가 불확실하면 다시 보내기 전에 원격 상태부터 확인합니다.
 - **로컬 우선 보관**: 세션, 기억, 승인, 감사 기록은 기본적으로 `BIRKIN_HOME` 아래에 둡니다. 설정한 모델 제공자는 요청 내용을 받을 수 있으며 Microsoft 365는 사용자가 연결한 경우에만 접속합니다.
 - **필요한 화면 선택**: 터미널이나 로컬 Web 업무 공간에서 시작하고 Windows와 macOS Native 앱에서도 같은 Python 권한을 사용합니다.
+- **전문 에이전트 소환**: `sheet-analyst`, `meeting-scribe` 같은 이름 있는 에이전트에게 작업을 맡깁니다. 각자 전용 지침과 더 좁은 도구 권한을 가지며 대화, CLI, 신뢰된 Telegram 대화에서 부를 수 있습니다.
 
 ## 기본 업무 흐름
 
@@ -199,6 +200,44 @@ birkin review                              # 대기 중인 승인 검토
 
 전체 설정표는 [설정 참조](./docs/config-reference.ko.md)에 있습니다. 사용자용 한국어와 protocol·진단용 영어의 기준은 [언어 정책](./docs/language-policy.md)을 따릅니다.
 
+## 전문 에이전트 소환
+
+소환한 에이전트는 이름이 있는 전문가입니다. 전용 역할 지침, 필요한 만큼만 허용된 도구 그룹, 미리 불러온 skill, 턴 한도를 갖습니다. subagent로 실행되므로 원래 대화는 보지 못하고, 그 자체로 완결된 결과를 돌려줍니다. 도구 그룹은 API 모델 제공자에서 Birkin의 native 도구 목록을 좁힙니다. CLI 모델 제공자(`codex-cli`, `claude-cli`)는 자체 도구를 쓰므로, 이때 전문 에이전트는 CLI를 읽기 전용으로 Birkin MCP 도구 없이 실행합니다. 읽고 분석할 수는 있지만 파일을 바꾸지는 못합니다. `local-cli`는 설정한 명령을 그대로 실행합니다.
+
+| 에이전트 | 역할 | 도구 그룹 | 미리 불러오는 skill |
+|---|---|---|---|
+| `researcher` | 공개 자료 조사와 날짜가 붙은 출처 정리 | `web`, `research`, `files` | `web-research`, `fact-checking` |
+| `doc-analyst` | DOCX·PPTX·PDF·HWPX 검사·추출·비교 | `documents`, `files` | `office-work-os` |
+| `sheet-analyst` | 셀 범위 근거가 붙은 XLSX·CSV 분석 | `documents`, `files` | `spreadsheets` |
+| `meeting-scribe` | 결정 사항·할 일·담당자·기한 정리 | `documents`, `files` | `meeting-notes` |
+| `report-writer` | 결론 먼저 쓰는 보고서·발표 초안 | `documents`, `files`, `web` | `word-documents` |
+| `planner` | 단계·담당·일정·위험과 후속 작업 제안 | `documents`, `files` | `task-breakdown`, `planning` |
+| `mail-drafter` | 답장·안내 메일 초안 (발송은 승인 후) | `connections`, `files` | `email-draft` |
+
+```bash
+birkin summon                                    # 에이전트 목록 (--json 지원)
+birkin summon sheet-analyst                      # 에이전트 한 명의 설명
+birkin summon meeting-scribe "incoming/주간회의.docx에서 할 일을 뽑아 줘"
+```
+
+`birkin chat`에서는 `/summon <에이전트> <할 일>`이 바로 실행되고, `/summon --bg <에이전트> <할 일>`은 백그라운드에서 실행됩니다. 백그라운드 작업이 끝나면 다음 입력 전에 터미널이 결과를 알려 주며, `/agents`, `/attach`, `/send`로 진행을 따라가거나 방향을 바꿀 수 있습니다. 신뢰된 Telegram 대화에서 `/summon <에이전트> <할 일>`을 보내면 진행 중인 대화를 끊지 않고 에이전트가 시작되며, 끝나면 같은 대화로 결과가 전송됩니다. 로컬 HTTP나 음성 채널에서 소환했다면 `birkin chat`의 `/agents`와 `/attach`로 확인합니다. native API 모델 제공자를 쓰고 `egress.enforced=false`이며 모델 preset이 위임을 허용하면 모델도 `spawn_subagent`의 `agent` 값으로 에이전트를 소환할 수 있습니다.
+
+직접 만든 전문가는 `BIRKIN_HOME/agents/<이름>.md`로 추가합니다.
+
+```markdown
+---
+name: contract-reviewer
+title: 계약서 검토자
+description: 계약서의 위험 조항을 찾아 요약합니다.
+tools: [documents, files]
+skills: [word-documents]
+max_turns: 8
+---
+You review contracts for risky clauses and cite the exact clause location.
+```
+
+정의 파일은 검증을 거칩니다. 이름은 파일 이름과 같아야 하고, 도구 그룹은 `subagent`를 뺀 고정 목록에서만 고를 수 있습니다. skill은 최대 4개, `max_turns`는 1–40이며, 기본 에이전트와 같은 이름은 쓸 수 없습니다. 잘못된 파일은 건너뛰고 `birkin summon`이 이유를 보여 줍니다. Birkin의 파일 도구는 이 디렉터리에 쓸 수 없습니다.
+
 ## 설정
 
 `birkin setup`은 `~/.birkin/config.json`을 씁니다. 아래 block은 `birkin.config.DEFAULT_CONFIG`에서 생성되고 test가 검증하므로 일부 예시가 아니라 전체 기본값입니다.
@@ -312,7 +351,8 @@ birkin review                              # 대기 중인 승인 검토
     "tts_instructions": "Speak concisely and clearly.",
     "conversation_style": "",
     "onboarding_complete": false,
-    "background_workers": 2
+    "background_workers": 2,
+    "gateway_timeout_seconds": 330
   },
   "autosave_transcripts": false,
   "autosave_redact_secrets": true,
@@ -452,6 +492,8 @@ birkin review                              # 대기 중인 승인 검토
 - 읽기와 검사는 쓰기 권한을 만들지 않습니다. Office 변경은 `office_job_request`, 되돌리기는 `office_rollback_request`를 통해서만 요청합니다.
 - 승인은 원본 hash, 작업 내용, 저장 위치, 덮어쓰기 선택, 제안자를 정확히 묶습니다. 입력이 바뀌면 실행을 중단합니다.
 - Browser와 Computer Use는 선택 기능이며 설정 전에는 꺼져 있습니다. 허용 목록, 작업 횟수 제한, 승인 정책의 적용을 받습니다.
+- Telegram으로 먼저 보내는 메시지(cron·`/remind` 작업, Morpheus 요약, `/summon` 결과)는 `channels.telegram.allowed_chat_ids`에 등록한 대화에만 전송되며, 목록이 비어 있으면 아무것도 보내지 않습니다. 로컬 HTTP나 음성 채널에서 등록한 `/remind`는 허용된 대화가 정확히 하나일 때만 Telegram으로 전달되고, 그렇지 않으면 등록을 거부합니다.
+- 소환한 에이전트의 도구 그룹은 Birkin이 이미 적용하는 정책(비활성화한 도구, 모델 preset, 강제 egress)을 좁히기만 하고 넓히지 않습니다. 소환된 에이전트는 다른 에이전트를 소환할 수 없고, 중요한 작업은 여전히 승인을 기다리며, 모든 실행은 토큰 예산에 포함됩니다. egress가 강제된 기본 설정에서는 사용자만 `/summon`이나 `birkin summon`으로 소환할 수 있고, 모델용 `spawn_subagent` 도구는 계속 제외됩니다.
 - 모델 제공자 응답, HTTP 접수, 로컬 영수증, 확인된 원격 상태는 서로 다른 증거입니다. 외부 결과를 관측할 수 없으면 `unknown`이나 `needs_review` 상태를 유지합니다.
 
 ## 확인된 범위와 현재 한계

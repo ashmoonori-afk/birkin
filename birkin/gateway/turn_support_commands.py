@@ -69,6 +69,12 @@ GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
         {"checkin", "check_in", "checkins"},
     ),
     ("companion", "Turn proactive follow-through off — /companion off", {"companion"}),
+    (
+        "summon",
+        "Summon a specialist agent — /summon <agent> <task>; "
+        + "the result is sent back to this chat",
+        {"summon"},
+    ),
     ("omo", "Control local OMO sessions", {"omo"}),
 ]
 
@@ -86,6 +92,7 @@ PRIVILEGED_COMMANDS = {
     "companion",
     "neurosis",
     "omo",
+    "summon",
 }
 
 

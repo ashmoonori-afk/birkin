@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+import functools
 import multiprocessing as mp
+import time
 from pathlib import Path
 
 import pytest
 
+from birkin import rolefiles
 from birkin.profile_lock import ProfileLockTimeout, profile_lock
 from birkin.rolefiles import ProfileEdit, ProfileStore
 
+# The lost-update test asserts serialization, not lock latency. The Windows lock
+# polls without fairness, so on a loaded runner one worker can wait past the
+# production 5 s default while the others keep winning.
+_WORKER_LOCK_TIMEOUT = 60.0
+_WORKER_JOIN_DEADLINE = 120.0
+
 
 def _append_many(home: str, label: str, barrier: object, count: int) -> None:
+    rolefiles.profile_lock = functools.partial(
+        profile_lock, timeout=_WORKER_LOCK_TIMEOUT
+    )
     store = ProfileStore(Path(home), {})
     barrier.wait()
     for index in range(count):
@@ -55,8 +67,9 @@ def test_profile_lock_prevents_lost_updates_between_processes(tmp_path: Path) ->
 
     for process in processes:
         process.start()
+    deadline = time.monotonic() + _WORKER_JOIN_DEADLINE
     for process in processes:
-        process.join(20)
+        process.join(max(0.0, deadline - time.monotonic()))
     for process in processes:
         if process.is_alive():
             process.terminate()

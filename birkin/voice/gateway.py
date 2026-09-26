@@ -12,6 +12,12 @@ class GatewayVoiceError(RuntimeError):
     """The local Gateway rejected or malformed a voice request."""
 
 
+TIMEOUT_MESSAGE = (
+    "Gateway 응답을 기다리는 시간이 초과되었습니다. 요청은 계속 처리 중일 수 "
+    "있으니 잠시 후 대화 기록에서 결과를 확인하세요."
+)
+
+
 @dataclass(frozen=True)
 class GatewayClient:
     """Submit voice text through the existing local HTTP channel."""
@@ -19,7 +25,7 @@ class GatewayClient:
     url: str
     session_id: str
     token: str = ""
-    timeout_seconds: float = 30.0
+    timeout_seconds: float = 330.0
 
     def __post_init__(self) -> None:
         endpoint = urlsplit(self.url)
@@ -75,7 +81,9 @@ class GatewayClient:
             payload = json.loads(response.read().decode("utf-8"))
         except GatewayVoiceError:
             raise
-        except (HTTPException, OSError, TimeoutError, json.JSONDecodeError) as exc:
+        except TimeoutError as exc:
+            raise GatewayVoiceError(TIMEOUT_MESSAGE) from exc
+        except (HTTPException, OSError, json.JSONDecodeError) as exc:
             raise GatewayVoiceError(str(exc)) from exc
         finally:
             connection.close()

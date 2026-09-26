@@ -207,3 +207,24 @@ def test_model_overlays_remain_byte_stable(model: str) -> None:
         promptgate.compose_main(cfg, persona_text="")
         == promptgate.compose_main(cfg, persona_text="")
     )
+
+
+@pytest.mark.parametrize(
+    ("provider", "family"),
+    [
+        ("codex-cli", "gpt"),
+        ("claude-cli", "sonnet"),
+        ("anthropic", "sonnet"),
+        ("local-cli", "local"),
+        (None, "sonnet"),
+    ],
+)
+def test_backend_default_model_names_resolve_by_provider(
+    provider: str | None,
+    family: str,
+) -> None:
+    cfg = {"provider": provider} if provider else {}
+    for model in ("default", "claude-code", "Default"):
+        assert presets.resolve(model, cfg)["family"] == family
+    if family != "local":
+        assert "web" not in presets.deny_tools("default", cfg)

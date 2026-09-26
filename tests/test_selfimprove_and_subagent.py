@@ -2,10 +2,24 @@
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from birkin import selfimprove
 from birkin.runtime import build_session
+
+
+@pytest.fixture(autouse=True)
+def _finish_detached_children(monkeypatch):
+    # A detached run records its ledger entry after finish_run; let it end
+    # under this test's patches and BIRKIN_HOME, not the next test's.
+    before = set(threading.enumerate())
+    yield
+    for thread in threading.enumerate():
+        if thread not in before and thread.name.startswith("birkin-subagent-"):
+            thread.join(timeout=10)
+            assert not thread.is_alive(), f"{thread.name} outlived its test"
 
 
 def test_transcript_flattens_canonical_blocks():
