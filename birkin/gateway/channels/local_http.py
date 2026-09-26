@@ -177,8 +177,13 @@ class LocalHTTPChannel(Channel):
                     self._json({"error": "not found"}, 404)
 
             def do_POST(self) -> None:
+                # Rejections that never read the body answer first, then
+                # discard the declared body under the rejected-body budget, so
+                # Windows delivers the response instead of resetting the
+                # connection over unread bytes.
                 if not self._host_ok():
-                    self._json({"error": "forbidden host"}, 403)
+                    self._json({"error": "forbidden host"}, 403, close=True)
+                    _drain_rejected_body(self)
                     return
                 if self.path != "/message":
                     _drain_rejected_body(self)
@@ -197,7 +202,12 @@ class LocalHTTPChannel(Channel):
                     .lower()
                 )
                 if ctype != "application/json":
-                    self._json({"error": "Content-Type must be application/json"}, 415)
+                    self._json(
+                        {"error": "Content-Type must be application/json"},
+                        415,
+                        close=True,
+                    )
+                    _drain_rejected_body(self)
                     return
                 # Authenticate before touching the body: an unauthenticated
                 # caller must never be able to pin a handler thread for the
