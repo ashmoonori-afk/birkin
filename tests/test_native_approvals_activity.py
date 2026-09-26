@@ -9,6 +9,7 @@ import pytest
 
 from birkin import approvals, config, store
 from birkin.workspace import approval_authority
+from birkin.workspace.approval_projection import approval_item
 from birkin.workspace.contracts import WorkspaceCommand
 from birkin.workspace.records import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
@@ -177,6 +178,51 @@ def test_snapshot_projects_pending_risk_and_sealed_approval(
     assert item["sealed"] is True
     assert item["decided"] is False
     assert item["ui_state"] == "action_needed"
+
+
+def test_approval_item_names_category_target_and_questions() -> None:
+    operation = approval_item({
+        "id": "abc123def457",
+        "category": "operation",
+        "title": "",
+        "status": "pending",
+        "payload": {
+            "operation": {"tool": "run_shell", "input": {"command": "curl x"}},
+            "digest": "a" * 64,
+        },
+    })
+    question = approval_item({
+        "id": "abc123def458", "category": "question", "status": "pending",
+        "payload": {},
+    })
+
+    assert operation["target"] == "curl x"
+    assert operation["category_label"] == "차단된 작업 재실행"
+    assert operation["summary"] == operation["category_label"]
+    assert operation["needs_answers"] is False
+    assert "result_summary" not in operation
+    assert question["needs_answers"] is True
+    assert question["category_label"] == "질문 답변"
+
+
+def test_resolved_approval_item_carries_korean_outcome_without_raw_error() -> None:
+    failed = approval_item({
+        "id": "abc123def459",
+        "category": "shell",
+        "title": "배포",
+        "status": "error",
+        "execution_error": "action failed: boom",
+        "payload": {"command": "deploy"},
+    })
+    rejected = approval_item({
+        "id": "abc123def460", "category": "shell", "title": "배포",
+        "status": "rejected", "payload": {"command": "deploy"},
+    })
+
+    assert failed["result_code"] == "E_APPROVAL_ACTION_FAILED"
+    assert "boom" not in str(failed["result_summary"])
+    assert rejected["result_code"] == "rejected"
+    assert rejected["result_summary"] == "거부했습니다. 작업은 실행되지 않습니다."
 
 
 def test_snapshot_projects_office_approval_trust_details(

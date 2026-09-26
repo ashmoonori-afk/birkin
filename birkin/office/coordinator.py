@@ -164,7 +164,7 @@ class OfficeCoordinator:
             "semantic_summaries": summaries,
             "source_filename": source_filename,
             "rejection_result": (
-                "Rejecting leaves the source unchanged and writes no output."
+                "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다."
             ),
         }
         return payload

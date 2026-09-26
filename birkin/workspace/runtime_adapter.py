@@ -86,6 +86,7 @@ def _external_item(
     summary = (
         item.get("summary")
         or item.get("title")
+        or item.get("task")
         or item.get("name")
         or item.get("path")
         or identifier
@@ -96,8 +97,10 @@ def _external_item(
         "running": "running",
         "pending": "pending",
         "failed": "failed",
+        "error": "failed",
         "complete": "succeeded",
         "completed": "succeeded",
+        "done": "succeeded",
         "succeeded": "succeeded",
     }.get(status.lower(), status)
     kinds = {

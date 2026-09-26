@@ -311,6 +311,28 @@ def test_computer_use_surface_projects_an_unavailable_backend(
     assert status["permission_prompted"] is False
 
 
+def test_external_agent_rows_use_task_summary_and_run_states() -> None:
+    done = runtime_adapter._external_item(
+        "tasks_runs", {"id": "abcd1234", "task": "분석", "status": "done"}, 0
+    )
+    failed = runtime_adapter._external_item(
+        "tasks_runs", {"id": "abcd1235", "task": "정리", "status": "error"}, 1
+    )
+    titled = runtime_adapter._external_item(
+        "tasks_runs",
+        {"id": "abcd1236", "title": "제목", "task": "작업", "status": "running"},
+        2,
+    )
+    summarized = runtime_adapter._external_item(
+        "tasks_runs", {"id": "abcd1237", "summary": "요약", "task": "작업"}, 3
+    )
+
+    assert (done["summary"], done["ui_state"]) == ("분석", "succeeded")
+    assert (failed["summary"], failed["ui_state"]) == ("정리", "failed")
+    assert (titled["summary"], titled["ui_state"]) == ("제목", "running")
+    assert summarized["summary"] == "요약"
+
+
 def test_runtime_import_formats_follow_office_catalog() -> None:
     assert runtime_adapter._REGISTERED_IMPORT_SUFFIXES == {
         f".{format_name}" for format_name in supported_formats()

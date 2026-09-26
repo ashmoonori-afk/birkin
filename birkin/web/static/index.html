@@ -329,6 +329,8 @@
   .receipt-details .detail-output { margin: 10px 0 0; }
   .run-events { list-style: none; margin: 0; padding: 0; }
   .run-events li { padding: 8px 0; border-bottom: 1px solid var(--border-muted); }
+  .agent-roster { margin-top: 14px; }
+  .agent-roster summary { color: var(--muted); cursor: pointer; font-size: .8rem; }
   .steer-input {
     flex: 1 1 16rem;
     min-width: 0;
@@ -781,12 +783,16 @@ const state = {
   panelReturnFocus: null,
   bootstrapGeneration: 0,
   switchingSession: false,
+  agentRoster: null,
+  steerDrafts: new Map(),
 };
 
 let items = [];
 let uiEncoding = {};
 const recentReceipts = new Map();
 const busyApprovalIds = new Set();
+const busyRunIds = new Set();
+const unavailableLegacyPaths = new Set();
 const approvalIdsByCommand = new Map();
 const panelLabels = {
   tasks_runs: "작업 및 실행",
@@ -1140,17 +1146,126 @@ async function loadContract() {
   return contract;
 }
 
+function formatDuration(seconds) {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds < 0) return "";
+  const value = Math.floor(seconds);
+  if (value < 60) return `${value}초`;
+  const minutes = Math.floor(value / 60);
+  if (minutes < 60) return `${minutes}분`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return minutes % 60 ? `${hours}시간 ${minutes % 60}분` : `${hours}시간`;
+  return `${Math.floor(hours / 24)}일`;
+}
+
+function formatClock(iso) {
+  const stamp = new Date(String(iso || "").replace(/(\.\d{3})\d+/, "$1"));
+  if (!iso || Number.isNaN(stamp.getTime())) return "";
+  return stamp.toLocaleTimeString("ko-KR");
+}
+
+function agentLabel(entry) {
+  const name = String(entry?.agent || "");
+  if (!name) return "";
+  const title = String(entry.agent_title || name);
+  return entry.agent_source === "user" ? `${title} (사용자 정의)` : title;
+}
+
+function resultPreview(text) {
+  const line = String(text || "").split("\n")
+    .map((entry) => entry.trim().replace(/^#{1,6}\s+/, ""))
+    .find((entry) => entry && entry !== "(subagent returned no text)") || "";
+  return line.length > 120 ? `${line.slice(0, 119)}…` : line;
+}
+
+function agentRunSummaryText(run) {
+  const parts = [];
+  const agent = agentLabel(run);
+  if (agent) parts.push(agent);
+  const elapsed = formatDuration(run.elapsed_seconds);
+  if (run.runtime_status === "error") {
+    parts.push("실행에 실패했습니다. 세부 정보에서 원인을 확인하세요.");
+  } else if (run.runtime_status === "stale") {
+    const silent = formatDuration(run.heartbeat_age);
+    parts.push(silent ? `응답이 끊겼습니다 · 마지막 신호 ${silent} 전` : "응답이 끊겼습니다");
+  } else if (run.terminal) {
+    if (elapsed) parts.push(`${elapsed} 소요`);
+    parts.push(resultPreview(run.result) || "결과 텍스트가 없습니다.");
+  } else {
+    if (elapsed) parts.push(`시작 후 ${elapsed}`);
+    if (run.control_state === "blocked") parts.push("일시 중지됨");
+    if (run.pending_approvals) parts.push(`승인 대기 ${run.pending_approvals}건`);
+  }
+  return parts.join(" · ");
+}
+
+function describeRunEvent(text) {
+  const labels = {
+    tool_start: "도구 실행 시작",
+    tool_end: "도구 실행 완료",
+    steer: "조정 지시 반영",
+    warning: "경고",
+    compact: "대화 압축",
+    ooda_stall: "진행 정체 감지",
+  };
+  const raw = String(text || "").trim();
+  const [head, ...rest] = raw.split(/\s+/);
+  if (!Object.hasOwn(labels, head)) return raw;
+  const detail = rest.join(" ");
+  return detail ? `${labels[head]} · ${detail}` : labels[head];
+}
+
+function agentRunControls(run) {
+  const labels = {steer: "조정 보내기", abort: "일시 중지", resume: "재개"};
+  const allowed = Array.isArray(run?.controls) ? run.controls : [];
+  return allowed
+    .filter((action) => Object.hasOwn(labels, action))
+    .map((action) => ({action, label: labels[action]}));
+}
+
+function agentRunItems(runs) {
+  return (runs || []).map((run) => ({
+    id: String(run.id),
+    kind: "agent_run",
+    title: run.task || "이름 없는 백그라운드 실행",
+    ui_state: run.ui_state,
+    detail: agentRunSummaryText(run),
+    record: run,
+  }));
+}
+
+function withoutShadowedAgentRuns(legacyItems, canonicalItems) {
+  const runIds = legacyItems.filter((item) => item.kind === "agent_run")
+    .map((item) => String(item.id || ""));
+  if (!runIds.length) return canonicalItems;
+  return canonicalItems.filter((item) => {
+    const id = String(item.id || "");
+    return !(typeof item.task === "string" && id.length >= 8
+      && runIds.some((runId) => runId.startsWith(id)));
+  });
+}
+
+function approvalRunContext(approval) {
+  const run = approval?.agent_run;
+  if (!run) return "";
+  const agent = agentLabel(run) || "백그라운드";
+  const task = String(run.task || "").trim();
+  const shown = task.length > 60 ? `${task.slice(0, 59)}…` : task;
+  return shown ? `${agent} · ‘${shown}’ 실행에서 요청` : `${agent} 실행에서 요청`;
+}
+
 function buildQueue(approvals, jobs, runs) {
   const queue = [];
   for (const approval of approvals || []) {
+    const runAgent = agentLabel(approval.agent_run);
     queue.push({
       id: approval.id,
       kind: "approval",
-      title: approval.title || approval.category,
+      title: approval.title || approval.category_label || "승인 요청",
       ui_state: approval.ui_state,
-      detail: approval.description || "",
-      requester: approval.requester || approval.requested_by || "Birkin",
-      target: approval.target || approval.category || approval.command || "",
+      detail: approvalRunContext(approval) || approval.description || "",
+      requester: approval.requester || approval.requested_by
+        || (runAgent ? `${runAgent} 에이전트` : "Birkin"),
+      target: approval.target || "",
       expected_impact: approval.expected_impact || approval.why
         || approval.description || "",
       rejection_result: approval.rejection_result
@@ -1158,6 +1273,7 @@ function buildQueue(approvals, jobs, runs) {
       risk: approval.risk || approval.category || "",
       expires_at: approval.expires_at || approval.expires || "",
       related_evidence: approval.related_evidence || approval.evidence || "",
+      agent_run: approval.agent_run || null,
       record: approval,
     });
   }
@@ -1474,7 +1590,10 @@ function renderPanel() {
   } else if (state.activePanel === "settings_status") {
     legacyItems = items.filter((item) => item.kind === "status");
   }
-  const canonicalItems = panel?.items || [];
+  let canonicalItems = panel?.items || [];
+  if (["tasks_runs", "activity_logs"].includes(state.activePanel)) {
+    canonicalItems = withoutShadowedAgentRuns(legacyItems, canonicalItems);
+  }
   let panelItems = mergePanelItems(legacyItems, canonicalItems);
   panelItems = [...panelItems].sort((left, right) => {
     const leftRank = attentionFor(left.ui_state);
@@ -1482,11 +1601,28 @@ function renderPanel() {
     return leftRank - rightRank;
   });
 
+  const taskPanel = state.activePanel === "tasks_runs";
+  const runsUnavailable = taskPanel && unavailableLegacyPaths.has("/api/agent-runs");
+  if (runsUnavailable) {
+    const unavailable = document.createElement("p");
+    unavailable.className = "panel-item-detail";
+    unavailable.setAttribute("role", "status");
+    unavailable.textContent = (
+      "에이전트 실행 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요."
+    );
+    panelBody.appendChild(unavailable);
+  }
+
   if (!panelItems.length) {
-    const empty = document.createElement("p");
-    empty.className = "empty";
-    empty.textContent = "현재 표시할 항목이 없습니다.";
-    panelBody.appendChild(empty);
+    if (!runsUnavailable) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = taskPanel
+        ? "진행 중인 작업이나 에이전트 실행이 없습니다."
+        : "현재 표시할 항목이 없습니다.";
+      panelBody.appendChild(empty);
+    }
+    if (taskPanel) appendAgentRoster(false);
     return;
   }
 
@@ -1499,11 +1635,15 @@ function renderPanel() {
     const title = document.createElement("div");
     title.className = "panel-item-title";
     const presentation = presentationFor(item.ui_state);
-    title.textContent = `${presentation[0]} ${presentation[1]} · ${
+    const glyph = document.createElement("span");
+    glyph.className = "state-glyph";
+    glyph.setAttribute("aria-hidden", "true");
+    glyph.textContent = presentation[0];
+    title.append(glyph, document.createTextNode(` ${presentation[1]} · ${
       String(
         item.title || item.summary || item.detail || "표시 이름 없는 항목"
       )
-    }`;
+    }`));
     const detail = document.createElement("div");
     detail.className = "panel-item-detail";
     detail.textContent = String(item.detail || item.summary || "");
@@ -1520,6 +1660,9 @@ function renderPanel() {
   }
   if (selected?.kind === "computer_use") appendComputerUseDetail(selected);
   if (selected?.kind === "status") appendStatusDetail(selected);
+  if (taskPanel) {
+    appendAgentRoster(panelItems.some((item) => item.kind === "agent_run"));
+  }
   if (focusedItemId) {
     const replacement = [...panelBody.querySelectorAll("[data-item-id]")]
       .find((entry) => entry.dataset.itemId === focusedItemId);
@@ -1530,6 +1673,78 @@ function renderPanel() {
 function selectPanelItem(item) {
   state.selectedId = item.id || null;
   renderPanel();
+}
+
+function showPanelItem(panelKey, itemId) {
+  state.selectedId = itemId || null;
+  const tab = workspacePanelTabs.find((entry) => entry.dataset.panel === panelKey);
+  if (tab) activatePanelTab(tab);
+  else renderPanel();
+}
+
+function appendAgentRoster(hasAgentRuns) {
+  if (unavailableLegacyPaths.has("/api/agents")) {
+    const failed = document.createElement("p");
+    failed.className = "panel-item-detail";
+    failed.setAttribute("role", "status");
+    failed.textContent = "에이전트 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.";
+    panelBody.appendChild(failed);
+    return;
+  }
+  const roster = state.agentRoster;
+  if (!roster) return;
+  const agents = Array.isArray(roster.agents) ? roster.agents : [];
+  const details = document.createElement("details");
+  details.className = "agent-roster";
+  details.open = !hasAgentRuns;
+  const summary = document.createElement("summary");
+  summary.textContent = `소환할 수 있는 에이전트 ${agents.length}명`;
+  const guide = document.createElement("p");
+  guide.className = "panel-item-detail";
+  for (const [text, isCode] of [
+    ["birkin chat", true],
+    ["에서 ", false],
+    ["/summon <에이전트> <할 일>", true],
+    ["로 맡기거나 터미널에서 ", false],
+    ["birkin summon", true],
+    ["을 실행하세요. 시작한 실행은 이 패널에서 확인하고 조정할 수 있습니다.", false],
+  ]) {
+    const part = document.createElement(isCode ? "code" : "span");
+    part.textContent = text;
+    guide.appendChild(part);
+  }
+  const list = document.createElement("ul");
+  list.className = "run-events";
+  for (const agent of agents) {
+    const row = document.createElement("li");
+    const name = document.createElement("div");
+    name.className = "panel-item-title";
+    name.textContent = [
+      String(agent.title || agent.name || ""),
+      String(agent.name || ""),
+      agent.source === "user" ? "사용자 정의" : "",
+    ].filter(Boolean).join(" · ");
+    const about = document.createElement("div");
+    about.className = "panel-item-detail";
+    about.textContent = [
+      String(agent.description || ""),
+      agent.max_turns ? `최대 ${agent.max_turns}턴` : "",
+    ].filter(Boolean).join(" · ");
+    row.append(name, about);
+    list.appendChild(row);
+  }
+  details.append(summary, guide, list);
+  const rejected = Number(roster.rejected_count) || 0;
+  if (rejected > 0) {
+    const warning = document.createElement("p");
+    warning.className = "panel-item-detail";
+    warning.textContent = (
+      `사용자 정의 에이전트 정의 ${rejected}개를 불러오지 못했습니다. `
+      + "터미널에서 birkin summon으로 이유를 확인하세요."
+    );
+    details.appendChild(warning);
+  }
+  panelBody.appendChild(details);
 }
 
 function appendDefinitions(target, definitions) {
@@ -1574,16 +1789,21 @@ function appendApprovalDetail(item) {
     high: "높은 위험",
     critical: "매우 높은 위험",
   }[String(risk)] || "위험도 알 수 없음") : null;
+  const agentRun = item.agent_run || record.agent_run || null;
   const fields = document.createElement("dl");
   fields.className = "approval-fields";
   appendDefinitions(fields, [
     ["요청자", item.requester || record.origin],
-    ["유형", item.category || record.category],
+    ["요청 에이전트", agentRun ? agentLabel(agentRun) : ""],
+    ["요청한 실행", agentRun ? agentRun.task || "이름 없는 백그라운드 실행" : ""],
+    ["유형", item.category_label || record.category_label
+      || (item.category || record.category ? "기타 작업" : "")],
     ["대상", item.target || record.target || record.payload?.path || record.payload?.command],
     ["예상 영향", item.expected_impact || record.expected_impact || record.description],
     ["거부 결과", item.rejection_result || record.rejection_result],
     ["위험", riskLabel],
     ["만료", item.expires_at || record.expires_at],
+    ["결과", item.result_summary || record.result_summary],
     ["관련 근거", item.related_evidence || record.evidence || record.payload?.evidence],
   ]);
   section.appendChild(fields);
@@ -1603,6 +1823,16 @@ function appendApprovalDetail(item) {
   output.hidden = true;
   const actions = document.createElement("div");
   actions.className = "approval-actions";
+  if (agentRun?.id) {
+    const related = document.createElement("button");
+    related.type = "button";
+    related.className = "action";
+    related.textContent = "관련 실행 보기";
+    related.addEventListener("click", () => {
+      showPanelItem("tasks_runs", String(agentRun.id));
+    });
+    actions.appendChild(related);
+  }
   const diff = document.createElement("button");
   diff.type = "button";
   diff.className = "action";
@@ -1625,7 +1855,16 @@ function appendApprovalDetail(item) {
   });
   actions.appendChild(diff);
 
-  if (approvalIsActionable(item)) {
+  const needsAnswers = Boolean(item.needs_answers || record.needs_answers);
+  if (approvalIsActionable(item) && needsAnswers) {
+    const answerElsewhere = document.createElement("p");
+    answerElsewhere.className = "panel-item-detail";
+    answerElsewhere.textContent = (
+      "답변이 필요한 질문이라 여기서는 승인하거나 거부할 수 없습니다. "
+      + "질문을 보낸 화면에서 답변하세요."
+    );
+    section.appendChild(answerElsewhere);
+  } else if (approvalIsActionable(item)) {
     for (const [decision, label] of [["reject", "거부"], ["approve", "승인 실행"]]) {
       const button = document.createElement("button");
       button.type = "button";
@@ -1862,6 +2101,7 @@ function appendAgentRunDetail(item) {
   const section = document.createElement("section");
   section.className = "approval-detail";
   section.setAttribute("aria-label", "백그라운드 실행 세부 정보");
+  section.setAttribute("aria-busy", "true");
   const loading = document.createElement("p");
   loading.textContent = "실행 세부 정보를 불러오는 중입니다...";
   section.appendChild(loading);
@@ -1870,6 +2110,7 @@ function appendAgentRunDetail(item) {
   api(`/api/agent-runs/${encodeURIComponent(item.id)}`).then((run) => {
     if (!section.isConnected) return;
     clearNode(section);
+    section.setAttribute("aria-busy", "false");
     const heading = document.createElement("h3");
     heading.textContent = String(
       run.task || "이름 없는 백그라운드 실행"
@@ -1877,21 +2118,130 @@ function appendAgentRunDetail(item) {
     const fields = document.createElement("dl");
     fields.className = "approval-fields";
     const presentation = presentationFor(run.ui_state);
+    const agent = run.agent
+      ? `${run.agent_title || run.agent} (${run.agent})`
+        + (run.agent_source === "user" ? " · 사용자 정의" : "")
+      : "";
+    const pending = run.approvals || [];
+    const silent = formatDuration(run.heartbeat_age);
+    const showSignal = !run.terminal || run.runtime_status === "stale";
     appendDefinitions(fields, [
       ["상태", presentation[1]],
+      ["에이전트", agent],
+      [run.terminal ? "소요 시간" : "경과 시간", formatDuration(run.elapsed_seconds)],
+      ["시작", formatClock(run.started_at)],
+      ["마지막 신호", showSignal && silent ? `${silent} 전` : ""],
+      ["대기 중인 승인", pending.length ? `${pending.length}건` : "없음"],
       ["실행 ID", run.id],
-      ["시작", run.started_at],
-      ["대기 중인 승인", (run.approvals || []).map(
-        (approval) => approval.title || approval.category
-      ).join(", ") || "없음"],
     ]);
+    section.append(heading, fields);
+
+    if (run.runtime_status === "error") {
+      const failed = document.createElement("p");
+      failed.textContent = "실행에 실패했습니다.";
+      section.appendChild(failed);
+      if (String(run.result || "").trim()) {
+        const errorDetails = document.createElement("details");
+        errorDetails.className = "receipt-details";
+        const errorSummary = document.createElement("summary");
+        errorSummary.textContent = "오류 세부 정보 보기";
+        const errorText = document.createElement("pre");
+        errorText.className = "detail-output";
+        errorText.textContent = String(run.result);
+        errorDetails.append(errorSummary, errorText);
+        section.appendChild(errorDetails);
+      }
+    } else if (run.runtime_status === "stale") {
+      const stale = document.createElement("p");
+      stale.textContent = "응답이 끊겨 결과를 확인할 수 없습니다.";
+      section.appendChild(stale);
+    } else if (run.terminal) {
+      const resultDetails = document.createElement("details");
+      resultDetails.className = "receipt-details";
+      resultDetails.open = true;
+      const resultSummary = document.createElement("summary");
+      resultSummary.textContent = "결과";
+      const resultBody = document.createElement("div");
+      resultBody.className = "message-content";
+      if (resultPreview(run.result)) renderSafeMarkdown(resultBody, run.result);
+      else resultBody.textContent = "결과 텍스트가 없습니다.";
+      resultDetails.append(resultSummary, resultBody);
+      section.appendChild(resultDetails);
+    }
+
+    if (pending.length) {
+      const reviews = document.createElement("div");
+      reviews.className = "detail-actions";
+      for (const approval of pending) {
+        const review = document.createElement("button");
+        review.type = "button";
+        review.className = "action";
+        review.textContent = `승인 검토: ${approval.title || "승인 요청"}`;
+        review.addEventListener("click", () => {
+          showPanelItem("approvals", String(approval.id || ""));
+        });
+        reviews.appendChild(review);
+      }
+      section.appendChild(reviews);
+    }
+
+    const allowed = agentRunControls(run);
+    if (allowed.length) {
+      const controls = document.createElement("div");
+      controls.className = "detail-actions";
+      controls.dataset.runControls = String(run.id);
+      let steering = null;
+      for (const {action, label} of allowed) {
+        if (action === "steer") {
+          const input = document.createElement("input");
+          input.className = "steer-input";
+          input.setAttribute("aria-label", "실행 조정 지시");
+          input.placeholder = "이 실행에 조정 지시 보내기...";
+          input.value = state.steerDrafts.get(run.id) || "";
+          input.addEventListener("input", () => {
+            state.steerDrafts.set(run.id, input.value);
+            input.removeAttribute("aria-invalid");
+          });
+          controls.appendChild(input);
+          steering = input;
+        }
+        const draft = steering;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = action === "steer" ? "action" : "action primary";
+        button.textContent = label;
+        button.disabled = busyRunIds.has(run.id);
+        button.addEventListener("click", () => {
+          const text = action === "steer" ? draft.value.trim() : "";
+          if (action === "steer" && !text) {
+            announce("보낼 조정 지시를 입력하세요.");
+            draft.setAttribute("aria-invalid", "true");
+            draft.focus();
+            return;
+          }
+          controlAgentRun(run.id, action, text).catch((error) => {
+            console.error("agent run control failed", error);
+            announce("실행 제어 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
+          });
+        });
+        controls.appendChild(button);
+      }
+      section.appendChild(controls);
+      if (allowed.some((entry) => entry.action === "abort")) {
+        const hint = document.createElement("p");
+        hint.className = "panel-item-detail";
+        hint.textContent = "일시 중지하면 다음 단계 전에 멈추고, 재개하면 이어서 진행합니다.";
+        section.appendChild(hint);
+      }
+    }
+
     const progressHeading = document.createElement("h4");
     progressHeading.textContent = "진행";
     const events = document.createElement("ul");
     events.className = "run-events";
     for (const event of run.events || []) {
       const row = document.createElement("li");
-      row.textContent = `${event.at || ""} ${event.text || ""}`.trim();
+      row.textContent = `${formatClock(event.at)} ${describeRunEvent(event.text)}`.trim();
       events.appendChild(row);
     }
     if (!events.children.length) {
@@ -1899,42 +2249,11 @@ function appendAgentRunDetail(item) {
       empty.textContent = "진행 이벤트가 아직 없습니다.";
       events.appendChild(empty);
     }
-    section.append(heading, fields, progressHeading, events);
-
-    if (!run.terminal) {
-      const controls = document.createElement("div");
-      controls.className = "detail-actions";
-      const steering = document.createElement("input");
-      steering.className = "steer-input";
-      steering.setAttribute("aria-label", "실행 조정 지시");
-      steering.placeholder = "이 실행에 조정 지시 보내기...";
-      const steer = document.createElement("button");
-      steer.type = "button";
-      steer.className = "action";
-      steer.textContent = "조정";
-      steer.addEventListener("click", () => {
-        controlAgentRun(run.id, "steer", steering.value).catch((error) => {
-          console.error("agent run steer failed", error);
-          announce("실행 조정 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
-        });
-      });
-      const transition = document.createElement("button");
-      transition.type = "button";
-      transition.className = "action primary";
-      const blocked = run.status === "blocked";
-      transition.textContent = blocked ? "재개" : "중단";
-      transition.addEventListener("click", () => {
-        controlAgentRun(run.id, blocked ? "resume" : "abort").catch((error) => {
-          console.error("agent run transition failed", error);
-          announce("실행 제어 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
-        });
-      });
-      controls.append(steering, steer, transition);
-      section.appendChild(controls);
-    }
+    section.append(progressHeading, events);
   }).catch((error) => {
     console.error("agent run detail unavailable", error);
     if (section.isConnected) {
+      section.setAttribute("aria-busy", "false");
       loading.textContent = (
         "실행 세부 정보를 불러오지 못했습니다. 잠시 후 다시 시도하세요."
       );
@@ -1943,13 +2262,56 @@ function appendAgentRunDetail(item) {
 }
 
 async function controlAgentRun(runId, action, text = "") {
-  await api(`/api/agent-runs/${encodeURIComponent(runId)}/control`, {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({action, text}),
-  });
+  if (busyRunIds.has(runId)) return;
+  busyRunIds.add(runId);
+  for (const button of panelBody.querySelectorAll("[data-run-controls] button")) {
+    button.disabled = true;
+  }
+  const done = {
+    steer: "조정 지시를 보냈습니다. 다음 단계에서 반영됩니다.",
+    abort: "실행을 일시 중지했습니다. 다음 단계 전에 멈춥니다.",
+    resume: "실행을 재개했습니다.",
+  };
+  let message = "";
+  let status = 0;
+  try {
+    await api(`/api/agent-runs/${encodeURIComponent(runId)}/control`, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({action, text}),
+    });
+    if (action === "steer") state.steerDrafts.delete(runId);
+    message = done[action] || "";
+  } catch (error) {
+    console.error("agent run control failed", error);
+    status = Number(error.status) || 0;
+  } finally {
+    busyRunIds.delete(runId);
+  }
   state.selectedId = runId;
-  await refreshLegacyPanels();
+  if (!message && status !== 409 && status !== 404) {
+    renderPanel();
+    announce("실행 제어 요청에 실패했습니다. 잠시 후 다시 시도하세요.");
+    return;
+  }
+  let reloaded = true;
+  try {
+    await refreshLegacyPanels();
+  } catch (error) {
+    console.error("agent run refresh after control failed", error);
+    reloaded = false;
+    renderPanel();
+  }
+  if (status === 409) {
+    message = "실행 상태가 이미 바뀌어 요청을 적용하지 않았습니다."
+      + (reloaded ? " 최신 상태를 다시 불러왔습니다." : "");
+  } else if (status === 404) {
+    message = "실행 기록을 찾을 수 없습니다."
+      + (reloaded ? " 목록을 새로 고쳤습니다." : "");
+  } else if (!reloaded) {
+    message += " 최신 상태는 잠시 후 다시 확인하세요.";
+  }
+  announce(message);
 }
 
 function appendStatusDetail(item) {
@@ -1995,28 +2357,35 @@ function appendComputerUseDetail(item) {
 async function handleApprovalAnswered(payload) {
   const approvalId = String(payload.approval_id || "");
   busyApprovalIds.delete(approvalId);
-  if (payload.decision === "approve") {
+  const outcome = String(payload.outcome || "");
+  const summary = String(payload.result_summary || "");
+  if (outcome === "approved") {
     const workspaceReceipt = String(payload.receipt || "");
     if (workspaceReceipt) {
       const receipt = {receipt: workspaceReceipt};
       recentReceipts.set(approvalId, receipt);
-      announce("승인한 작업을 실행했습니다. 영수증 세부 정보에서 결과를 확인하세요.");
+      announce(summary || "승인한 작업을 실행했습니다. 영수증 세부 정보에서 결과를 확인하세요.");
     } else {
       try {
         const receipt = await api(
           `/api/actions/${encodeURIComponent(approvalId)}/receipt`
         );
         recentReceipts.set(approvalId, receipt);
-        announce("승인한 작업을 실행했습니다. 영수증 세부 정보에서 결과를 확인하세요.");
+        announce(summary || "승인한 작업을 실행했습니다. 영수증 세부 정보에서 결과를 확인하세요.");
       } catch (error) {
         console.error("approval receipt unavailable", error);
         announce(
-          "작업은 실행됐지만 영수증을 불러오지 못했습니다. 잠시 후 다시 확인하세요."
+          summary
+          || "작업은 실행됐지만 영수증을 불러오지 못했습니다. 잠시 후 다시 확인하세요."
         );
       }
     }
+  } else if (outcome === "rejected") {
+    announce(summary || "거부 처리 완료 · 동작은 실행되지 않았습니다.");
   } else {
-    announce("거부 처리 완료 · 동작은 실행되지 않았습니다.");
+    announce(
+      summary || "승인 요청을 처리하지 못했습니다. 승인 목록에서 상태를 확인하세요."
+    );
   }
   await refreshWorkspaceSnapshot();
   await refreshLegacyPanels();
@@ -2184,9 +2553,12 @@ async function sendCommand(type, payload) {
 
 async function optionalLegacyApi(path, fallback) {
   try {
-    return await api(path);
+    const payload = await api(path);
+    unavailableLegacyPaths.delete(path);
+    return payload;
   } catch (error) {
     console.warn(`optional legacy panel unavailable: ${path}`, error);
+    unavailableLegacyPaths.add(path);
     return fallback;
   }
 }
@@ -2201,16 +2573,7 @@ async function refreshLegacyPanels(expectedGeneration = state.bootstrapGeneratio
   const approvals = await loadApprovals();
   if (expectedGeneration !== state.bootstrapGeneration) return;
   items = buildQueue(approvals, jobs, runs);
-  for (const run of agentRuns.runs || []) {
-    items.push({
-      id: String(run.id),
-      kind: "agent_run",
-      title: run.task || "이름 없는 백그라운드 실행",
-      ui_state: run.ui_state,
-      detail: run.status || "",
-      record: run,
-    });
-  }
+  items.push(...agentRunItems(agentRuns.runs));
   items.push({
     id: "runtime-status",
     kind: "status",
@@ -2261,6 +2624,43 @@ async function refreshApprovals() {
   renderPanel();
 }
 
+function agentRunProjection(runItems) {
+  return JSON.stringify(runItems.map((item) => {
+    const run = item.record || {};
+    return [item.id, run.ui_state, run.controls, run.pending_approvals, run.terminal];
+  }));
+}
+
+async function refreshLiveAgentRuns() {
+  const current = items.filter((item) => item.kind === "agent_run");
+  const watching = ["tasks_runs", "activity_logs"].includes(state.activePanel)
+    || current.some((item) => !item.record?.terminal);
+  if (!watching) return;
+  const generation = state.bootstrapGeneration;
+  const wasUnavailable = unavailableLegacyPaths.has("/api/agent-runs");
+  const payload = await optionalLegacyApi("/api/agent-runs", {runs: []});
+  if (generation !== state.bootstrapGeneration) return;
+  const unavailable = unavailableLegacyPaths.has("/api/agent-runs");
+  const next = unavailable ? current : agentRunItems(payload.runs);
+  if (unavailable === wasUnavailable
+      && agentRunProjection(next) === agentRunProjection(current)) return;
+  // Re-rendering would move focus out of a steer draft or control button.
+  if (document.activeElement?.closest("[data-run-controls]")) return;
+  items = [
+    ...items.filter((item) => !["agent_run", "status"].includes(item.kind)),
+    ...next,
+    ...items.filter((item) => item.kind === "status"),
+  ];
+  renderPanel();
+}
+
+async function loadAgentRoster(generation) {
+  const roster = await optionalLegacyApi("/api/agents", null);
+  if (generation !== state.bootstrapGeneration) return;
+  state.agentRoster = roster;
+  if (state.activePanel === "tasks_runs") renderPanel();
+}
+
 function startApprovalRefreshPolling() {
   if (state.approvalRefreshTimer) {
     clearInterval(state.approvalRefreshTimer);
@@ -2269,7 +2669,8 @@ function startApprovalRefreshPolling() {
     refreshApprovals().catch((error) => {
       console.error("approval refresh polling failed", error);
       announce("승인 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요.");
-    });
+    }).then(() => refreshLiveAgentRuns())
+      .catch((error) => console.warn("agent run refresh polling failed", error));
   }, APPROVAL_REFRESH_INTERVAL_MS);
 }
 
@@ -2329,6 +2730,8 @@ async function bootstrap(requestedSession = null) {
   localStorage.setItem("birkin.workspace.session", sessionId);
   renderSnapshot(snapshot);
   await refreshLegacyPanels(generation);
+  if (generation !== state.bootstrapGeneration) return;
+  await loadAgentRoster(generation);
   if (generation !== state.bootstrapGeneration) return;
   state.switchingSession = false;
   startApprovalRefreshPolling();

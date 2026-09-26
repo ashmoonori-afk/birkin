@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from html.parser import HTMLParser
+import json
 from pathlib import Path
 import subprocess
+from typing import cast
 
 HTML_PATH = (
     Path(__file__).resolve().parents[1]
@@ -431,3 +433,374 @@ def test_web_workspace_keeps_selected_completed_approval() -> None:
 
     assert "canonicalSelectionExists" in source
     assert "&& !canonicalSelectionExists" in source
+
+
+def _function_source(source: str, name: str) -> str:
+    start = source.index(f"function {name}(")
+    if source[max(0, start - 6):start] == "async ":
+        start -= 6
+    end = source.index("\n}\n", start) + 2
+    return source[start:end]
+
+
+def _node_json(script: str) -> object:
+    result = subprocess.run(
+        ["node", "-e", script], capture_output=True, text=True, check=True,
+    )
+    return cast(object, json.loads(result.stdout))
+
+
+def test_agent_run_controls_follow_server_controls() -> None:
+    source, _ = _document()
+    script = _function_source(source, "agentRunControls") + """
+console.log(JSON.stringify([
+  agentRunControls({controls: ["resume"]}),
+  agentRunControls({controls: ["steer", "abort", "bogus"]}),
+  agentRunControls({}),
+]));
+"""
+
+    assert _node_json(script) == [
+        [{"action": "resume", "label": "재개"}],
+        [
+            {"action": "steer", "label": "조정 보내기"},
+            {"action": "abort", "label": "일시 중지"},
+        ],
+        [],
+    ]
+    assert 'run.status === "blocked"' not in source
+    assert "agentRunControls(run)" in source
+    assert "busyRunIds.has(run.id)" in source
+    assert "일시 중지" in source
+    assert "보낼 조정 지시를 입력하세요." in source
+    assert 'draft.setAttribute("aria-invalid", "true")' in source
+    script = """
+const busyRunIds = new Set();
+const state = {steerDrafts: new Map([["r1", "draft"]]), selectedId: null};
+const panelBody = {querySelectorAll: () => []};
+const announced = [];
+const calls = [];
+let refreshes = 0;
+let renders = 0;
+let reply = null;
+const announce = (text) => announced.push(text);
+const api = async (path, options) => {
+  calls.push(JSON.parse(options.body).action);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  if (reply) throw Object.assign(new Error(String(reply)), {status: reply});
+  return {};
+};
+const refreshLegacyPanels = async () => { refreshes += 1; };
+const renderPanel = () => { renders += 1; };
+console.error = () => {};
+""" + _function_source(source, "controlAgentRun") + """
+(async () => {
+  await Promise.all([
+    controlAgentRun("r1", "steer", "focus"),
+    controlAgentRun("r1", "steer", "focus"),
+  ]);
+  const drafted = state.steerDrafts.has("r1");
+  reply = 409;
+  await controlAgentRun("r1", "abort");
+  reply = 404;
+  await controlAgentRun("r1", "resume");
+  reply = 500;
+  await controlAgentRun("r1", "abort");
+  console.log(JSON.stringify({
+    calls, drafted, refreshes, renders, announced,
+    busy: busyRunIds.size, selected: state.selectedId,
+  }));
+})();
+"""
+
+    assert _node_json(script) == {
+        "calls": ["steer", "abort", "resume", "abort"],
+        "drafted": False,
+        "refreshes": 3,
+        "renders": 1,
+        "announced": [
+            "조정 지시를 보냈습니다. 다음 단계에서 반영됩니다.",
+            ("실행 상태가 이미 바뀌어 요청을 적용하지 않았습니다. "
+             + "최신 상태를 다시 불러왔습니다."),
+            "실행 기록을 찾을 수 없습니다. 목록을 새로 고쳤습니다.",
+            "실행 제어 요청에 실패했습니다. 잠시 후 다시 시도하세요.",
+        ],
+        "busy": 0,
+        "selected": "r1",
+    }
+
+
+def test_agent_run_rows_use_korean_summary() -> None:
+    source, _ = _document()
+    helpers = "".join(
+        _function_source(source, name)
+        for name in ("formatDuration", "agentLabel", "resultPreview",
+                     "agentRunSummaryText")
+    )
+    script = helpers + """
+console.log(JSON.stringify([
+  [0, 45, 180, 3900, 7200, 172800, -1, null, "x"].map(formatDuration),
+  agentLabel({agent: "my-bot", agent_title: "내 봇", agent_source: "user"}),
+  agentLabel({agent: "ghost"}),
+  agentLabel({}),
+  agentRunSummaryText({
+    agent: "researcher", agent_title: "리서처", agent_source: "builtin",
+    runtime_status: "done", terminal: true, elapsed_seconds: 300,
+    result: "\\n# 결론: A가 더 저렴합니다.\\n근거",
+  }),
+  agentRunSummaryText({
+    runtime_status: "done", terminal: true, result: "(subagent returned no text)",
+  }),
+  agentRunSummaryText({
+    runtime_status: "error", terminal: true, result: "RuntimeError: boom",
+  }),
+  agentRunSummaryText({
+    runtime_status: "stale", terminal: true, heartbeat_age: 600,
+  }),
+  agentRunSummaryText({
+    agent: "report-writer", agent_title: "보고서 작성가", agent_source: "builtin",
+    runtime_status: "running", terminal: false, elapsed_seconds: 125,
+    control_state: "blocked", pending_approvals: 1,
+  }),
+]));
+"""
+
+    results = _node_json(script)
+    assert results == [
+        ["0초", "45초", "3분", "1시간 5분", "2시간", "2일", "", "", ""],
+        "내 봇 (사용자 정의)",
+        "ghost",
+        "",
+        "리서처 · 5분 소요 · 결론: A가 더 저렴합니다.",
+        "결과 텍스트가 없습니다.",
+        "실행에 실패했습니다. 세부 정보에서 원인을 확인하세요.",
+        "응답이 끊겼습니다 · 마지막 신호 10분 전",
+        "보고서 작성가 · 시작 후 2분 · 일시 중지됨 · 승인 대기 1건",
+    ]
+    assert "RuntimeError" not in json.dumps(results)
+    assert 'detail: run.status || ""' not in source
+    assert "detail: agentRunSummaryText(run)" in source
+    assert 'title: run.task || "이름 없는 백그라운드 실행"' in source
+
+
+def test_run_event_trail_is_presented_in_korean() -> None:
+    source, _ = _document()
+    script = _function_source(source, "describeRunEvent") + """
+console.log(JSON.stringify([
+  describeRunEvent("tool_start read_file"),
+  describeRunEvent("steer "),
+  describeRunEvent("custom text here"),
+]));
+"""
+
+    assert _node_json(script) == [
+        "도구 실행 시작 · read_file", "조정 지시 반영", "custom text here",
+    ]
+    detail = _function_source(source, "appendAgentRunDetail")
+    assert "describeRunEvent(event.text)" in detail
+    assert "formatClock(event.at)" in detail
+    assert "${event.at || \"\"}" not in detail
+    assert "오류 세부 정보 보기" in detail
+    assert "renderSafeMarkdown(resultBody, run.result)" in detail
+    assert "응답이 끊겨 결과를 확인할 수 없습니다." in detail
+    assert "진행 이벤트가 아직 없습니다." in detail
+    assert "백그라운드 실행 세부 정보" in detail
+    assert '["시작", formatClock(run.started_at)]' in detail
+
+
+def test_canonical_agent_rows_do_not_duplicate_loaded_runs() -> None:
+    source, _ = _document()
+    script = _function_source(source, "withoutShadowedAgentRuns") + """
+const canonical = [
+  {id: "9fa25663", task: "x", kind: "tasks_runs"},
+  {id: "briefing:1", kind: "briefing"},
+  {id: "9fa2", task: "short", kind: "tasks_runs"},
+];
+console.log(JSON.stringify([
+  withoutShadowedAgentRuns([{kind: "agent_run", id: "9fa25663190d"}], canonical)
+    .map((item) => item.id),
+  withoutShadowedAgentRuns([], canonical).map((item) => item.id),
+]));
+"""
+
+    assert _node_json(script) == [
+        ["briefing:1", "9fa2"],
+        ["9fa25663", "briefing:1", "9fa2"],
+    ]
+    render = _function_source(source, "renderPanel")
+    assert "withoutShadowedAgentRuns(legacyItems, canonicalItems)" in render
+
+
+def test_approvals_name_agent_and_link_run() -> None:
+    source, _ = _document()
+    script = "".join(
+        _function_source(source, name)
+        for name in ("agentLabel", "approvalRunContext", "buildQueue")
+    ) + """
+const [item] = buildQueue([{
+  id: "a1", title: "", category: "shell", category_label: "Shell 명령",
+  agent_run: {id: "r1", task: "시트 분석", agent: "sheet-analyst",
+              agent_title: "스프레드시트 분석가", agent_source: "builtin"},
+}], {jobs: []}, []);
+const [plain] = buildQueue([{id: "a2", category: "memory"}], {jobs: []}, []);
+console.log(JSON.stringify([item.title, item.requester, item.detail,
+  item.agent_run.id, plain.title, plain.requester, plain.target]));
+"""
+
+    assert _node_json(script) == [
+        "Shell 명령",
+        "스프레드시트 분석가 에이전트",
+        "스프레드시트 분석가 · ‘시트 분석’ 실행에서 요청",
+        "r1",
+        "승인 요청",
+        "Birkin",
+        "",
+    ]
+    assert "approval.agent_run" in source
+    assert "approval.requested_by" in source
+    assert "요청 에이전트" in source
+    assert "관련 실행 보기" in source
+    assert "승인 검토: " in source
+    assert 'showPanelItem("approvals"' in source
+    assert 'showPanelItem("tasks_runs"' in source
+
+
+def test_tasks_panel_shows_summon_roster() -> None:
+    source, _ = _document()
+
+    assert 'optionalLegacyApi("/api/agents", null)' in source
+    assert "소환할 수 있는 에이전트" in source
+    assert "/summon <에이전트> <할 일>" in source
+    assert "사용자 정의 에이전트 정의 ${rejected}개를 불러오지 못했습니다." in source
+    assert "에이전트 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요." in source
+    bootstrap = _function_source(source, "bootstrap")
+    assert bootstrap.index("await refreshLegacyPanels(generation)") < bootstrap.index(
+        "await loadAgentRoster(generation)"
+    ) < bootstrap.index("startApprovalRefreshPolling()")
+
+
+def test_live_agent_runs_refresh_after_approvals() -> None:
+    source, _ = _document()
+    start = source.index("state.approvalRefreshTimer = setInterval(")
+    end = source.index("}, APPROVAL_REFRESH_INTERVAL_MS);", start)
+    poller = source[start:end]
+
+    assert "refreshLiveAgentRuns" in poller
+    assert poller.index("refreshApprovals().catch") < poller.index(
+        "refreshLiveAgentRuns"
+    )
+    live = _function_source(source, "refreshLiveAgentRuns")
+    assert '["tasks_runs", "activity_logs"].includes(state.activePanel)' in live
+    assert 'closest("[data-run-controls]")' in live
+    assert "generation !== state.bootstrapGeneration" in live
+
+
+def test_unavailable_agent_runs_are_not_reported_as_empty() -> None:
+    source, _ = _document()
+    script = """
+const unavailableLegacyPaths = new Set();
+let calls = 0;
+const api = async () => {
+  calls += 1;
+  if (calls === 1) throw new Error("503");
+  return {runs: [{id: "r"}]};
+};
+console.warn = () => {};
+""" + _function_source(source, "optionalLegacyApi") + """
+(async () => {
+  const first = await optionalLegacyApi("/api/agent-runs", {runs: []});
+  const failed = unavailableLegacyPaths.has("/api/agent-runs");
+  const second = await optionalLegacyApi("/api/agent-runs", {runs: []});
+  console.log(JSON.stringify([
+    first, failed, second, unavailableLegacyPaths.has("/api/agent-runs"),
+  ]));
+})();
+"""
+
+    assert _node_json(script) == [
+        {"runs": []}, True, {"runs": [{"id": "r"}]}, False,
+    ]
+    assert "진행 중인 작업이나 에이전트 실행이 없습니다." in source
+    assert "에이전트 실행 목록을 불러오지 못했습니다. 잠시 후 다시 시도하세요." in source
+    assert "현재 표시할 항목이 없습니다." in source
+
+
+def test_steer_draft_survives_panel_rerender() -> None:
+    source, _ = _document()
+
+    assert "steerDrafts: new Map()" in source
+    assert "steerDrafts.get(" in source
+    assert "steerDrafts.set(" in source
+    assert "steerDrafts.delete(" in source
+
+
+def test_panel_state_glyph_is_hidden_from_accessible_name() -> None:
+    source, _ = _document()
+    render = _function_source(source, "renderPanel")
+
+    assert 'glyph.setAttribute("aria-hidden", "true")' in render
+    assert "${presentation[0]} ${presentation[1]} ·" not in source
+    detail = _function_source(source, "appendAgentRunDetail")
+    assert 'section.setAttribute("aria-busy", "true")' in detail
+    assert 'section.setAttribute("aria-busy", "false")' in detail
+
+
+def test_approval_answer_announces_authority_outcome() -> None:
+    source, _ = _document()
+    handler = _function_source(source, "handleApprovalAnswered")
+    approved = handler.index('outcome === "approved"')
+    rejected = handler.index('outcome === "rejected"')
+
+    assert "payload.result_summary" in handler
+    assert approved < handler.index("작업은 실행됐지만") < rejected
+    script = """
+const announced = [];
+const fetched = [];
+const busyApprovalIds = new Set();
+const recentReceipts = new Map();
+const announce = (text) => announced.push(text);
+const api = async (path) => { fetched.push(path); throw new Error("409"); };
+const refreshWorkspaceSnapshot = async () => {};
+const refreshLegacyPanels = async () => {};
+console.error = () => {};
+""" + handler + """
+(async () => {
+  await handleApprovalAnswered({
+    approval_id: "a1", decision: "approve", outcome: "rejected_by_authority",
+    result_summary: "승인한 작업을 실행하지 못했습니다.",
+  });
+  await handleApprovalAnswered({
+    approval_id: "a2", decision: "reject", outcome: "answered_elsewhere",
+    result_summary: "웹 대시보드에서 이미 승인되어 작업을 완료했습니다.",
+  });
+  await handleApprovalAnswered({
+    approval_id: "a3", decision: "approve", outcome: "approved",
+    result_summary: "명령이 종료 코드 2(으)로 실패했습니다.",
+  });
+  await handleApprovalAnswered({approval_id: "a4", decision: "approve"});
+  console.log(JSON.stringify({announced, fetched}));
+})();
+"""
+
+    assert _node_json(script) == {
+        "announced": [
+            "승인한 작업을 실행하지 못했습니다.",
+            "웹 대시보드에서 이미 승인되어 작업을 완료했습니다.",
+            "명령이 종료 코드 2(으)로 실패했습니다.",
+            "승인 요청을 처리하지 못했습니다. 승인 목록에서 상태를 확인하세요.",
+        ],
+        "fetched": ["/api/actions/a3/receipt"],
+    }
+
+
+def test_approval_detail_uses_category_label_and_question_state() -> None:
+    source, _ = _document()
+    detail = _function_source(source, "appendApprovalDetail")
+    queue = _function_source(source, "buildQueue")
+
+    assert "item.category_label || record.category_label" in detail
+    assert "item.needs_answers || record.needs_answers" in detail
+    assert '["결과", item.result_summary || record.result_summary]' in detail
+    assert "질문을 보낸 화면에서 답변하세요." in detail
+    assert "approval.target || approval.category" not in queue
+    assert "approval.title || approval.category_label" in queue

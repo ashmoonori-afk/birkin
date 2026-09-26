@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import TypeGuard, cast
 
-from birkin import approvals, config, risk, store
+from birkin import approval_text, approvals, config, risk, store
 
 from .contracts import json_object
 from .approval_receipts import OfficeReceiptProjection
@@ -106,9 +106,11 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
         )
     item: dict[str, object] = {
         "id": str(record.get("id") or ""),
-        "summary": str(record.get("title") or category or "Approval"),
+        "summary": str(record.get("title") or approval_text.category_label(category)),
         "description": description,
         "category": category,
+        "category_label": approval_text.category_label(category),
+        "needs_answers": approval_text.needs_answers(record),
         "status": status,
         "risk": risk.risk_for(category),
         "sealed": sealed,
@@ -117,6 +119,15 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
         "ui_state": "action_needed" if status == "pending" else _ui_state(status),
         "created": str(record.get("created") or ""),
     }
+    target = approval_text.request_target(record)
+    if target:
+        item["target"] = target
+    if status != "pending":
+        # What actually happened, in the same words every surface uses; the
+        # raw execution error stays out of the summary.
+        outcome = approval_text.record_outcome(record)
+        item["result_summary"] = outcome.summary
+        item["result_code"] = outcome.code
     resolved_at = record.get("resolved_at")
     if isinstance(resolved_at, str) and resolved_at:
         item["resolved_at"] = resolved_at

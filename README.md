@@ -200,6 +200,8 @@ birkin summon meeting-scribe "Extract action items from incoming/weekly.docx"
 
 In `birkin chat`, `/summon <agent> <task>` runs in the foreground and `/summon --bg <agent> <task>` runs in the background; once it finishes, the terminal announces the result before the next prompt, and `/agents`, `/attach`, and `/send` follow or steer it. In a trusted Telegram chat, `/summon <agent> <task>` starts the agent without interrupting the conversation and sends the result back to that chat; from the local HTTP or voice channel, follow it with `/agents` and `/attach` in `birkin chat`. With a native API provider, `egress.enforced=false`, and a model preset that keeps delegation, the model can also summon by passing `agent` to `spawn_subagent`.
 
+In `birkin web`, the 작업 (Tasks) panel lists the summonable agents and how to start one, and shows each summoned run with its agent, elapsed time, and result; a live run can be steered, paused before its next step, or resumed. The list refreshes every 30 seconds while the panel is open or a run is still live. An approval raised by a summoned agent names that agent and its run and links to the run.
+
 Add your own specialist as `BIRKIN_HOME/agents/<name>.md`:
 
 ```markdown

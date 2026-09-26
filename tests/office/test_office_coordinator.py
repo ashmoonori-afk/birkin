@@ -251,7 +251,7 @@ def test_request_queues_bound_approval_without_mutating_files(
     assert payload["proposer"] == "user:local-contract"
     assert payload["source_filename"] == "source.xlsx"
     assert payload["rejection_result"] == (
-        "Rejecting leaves the source unchanged and writes no output."
+        "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다."
     )
     assert isinstance(payload["authority_digest"], str)
     card = approval_item(record)

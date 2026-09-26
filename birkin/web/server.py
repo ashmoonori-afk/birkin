@@ -1037,6 +1037,7 @@ class Handler(BaseHTTPRequestHandler):
                 | GetRoute.CONFIG
                 | GetRoute.AGENT_RUNS
                 | GetRoute.AGENT_RUN
+                | GetRoute.AGENT_ROSTER
                 | GetRoute.ACTION_RECEIPT
                 | GetRoute.CHECKPOINTS
                 | GetRoute.EVENTS
@@ -1140,6 +1141,10 @@ class Handler(BaseHTTPRequestHandler):
 
                 code, payload = approval_console.run_detail(route.identifier)
                 self._json(payload, code=code)
+            case GetRoute.AGENT_ROSTER:
+                from . import approval_console
+
+                self._json(approval_console.agent_roster())
             case GetRoute.ACTION_RECEIPT:
                 from . import approval_console
 
@@ -1197,20 +1202,28 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "checkpoint route not found"}, code=404)
 
     def _handle_approvals_get(self) -> None:
+        from .. import approval_text
         from .. import risk as risk_mod
         from .. import uistate
+        from . import approval_console
 
         items = risk_mod.sort_by_risk(approvals.reviewable_pending())
         for item in items:
             item["risk"] = risk_mod.risk_for(item.get("category", ""))
             item["ui_state"] = uistate.from_approval(item).state
+            item["category_label"] = approval_text.category_label(item.get("category"))
+            item["needs_answers"] = approval_text.needs_answers(item)
             payload = item.get("payload")
             if item.get("category") == "cron" and isinstance(payload, dict):
                 from ..cron_review import cron_review_lines
 
                 # What will actually register, not the model's summary.
                 item["target"] = " · ".join(cron_review_lines(payload))
-        self._json(items)
+            else:
+                target = approval_text.request_target(item)
+                if target:
+                    item["target"] = target
+        self._json(approval_console.annotate_approvals(items))
 
     def _handle_public_get(self, get_route: GetRoute) -> None:
         match get_route:
@@ -1285,6 +1298,7 @@ class Handler(BaseHTTPRequestHandler):
                 | GetRoute.CONFIG
                 | GetRoute.AGENT_RUNS
                 | GetRoute.AGENT_RUN
+                | GetRoute.AGENT_ROSTER
                 | GetRoute.ACTION_RECEIPT
                 | GetRoute.CHECKPOINTS
                 | GetRoute.EVENTS

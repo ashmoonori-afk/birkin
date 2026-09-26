@@ -3,11 +3,12 @@ from __future__ import annotations
 import http.client
 import json
 import threading
+from datetime import datetime, timedelta, timezone
 from http.server import HTTPServer
 
 import pytest
 
-from birkin import agentruns, approvals, config, store
+from birkin import agentruns, approvals, config, store, summon
 from birkin.web import server as web_server
 from tests.local_http_support import local_http_timeout
 
@@ -92,6 +93,7 @@ def test_run_listing_shape_and_detail_marks_waiting_approval(srv):
     assert set(listed) >= {
         "id", "task", "status", "ui_state", "terminal", "started_at",
         "last_heartbeat", "heartbeat_age", "parent_id", "pending_approvals",
+        "control_state", "controls",
     }
     assert listed["status"] == "waiting-approval"
     assert listed["ui_state"] == "waiting_human"
@@ -106,10 +108,175 @@ def test_run_listing_shape_and_detail_marks_waiting_approval(srv):
 
 @pytest.mark.parametrize("path", [
     "/api/agent-runs", "/api/agent-runs/000000000000",
-    "/api/actions/000000000000/receipt",
+    "/api/actions/000000000000/receipt", "/api/agents",
 ])
 def test_console_reads_require_capability(srv, path):
     assert request(srv, "GET", path, token=False)[0] == 403
+
+
+def _run_summary(srv, run_id: str) -> dict:
+    status, payload = request(srv, "GET", "/api/agent-runs")
+    assert status == 200
+    return next(row for row in payload["runs"] if row["id"] == run_id)
+
+
+def _age(seconds: int) -> str:
+    return (datetime.now(timezone.utc) - timedelta(seconds=seconds)).isoformat()
+
+
+def test_run_controls_follow_durable_transitions(srv):
+    run = agentruns.register_run("long task")
+    endpoint = f"/api/agent-runs/{run['id']}/control"
+    listed = _run_summary(srv, run["id"])
+    assert listed["controls"] == ["steer", "abort"]
+    assert listed["control_state"] == "active"
+
+    status, aborted = request(srv, "POST", endpoint, {"action": "abort"})
+    assert status == 200
+    assert aborted["controls"] == ["resume"]
+    assert aborted["control_state"] == "blocked"
+
+    # A pending approval changes the display status, not what may be sent.
+    store.add_pending(
+        category="shell", title="publish", description="",
+        payload={"command": "publish"}, origin=f"agent:{run['id']}",
+    )
+    status, detail = request(srv, "GET", f"/api/agent-runs/{run['id']}")
+    assert status == 200
+    assert detail["status"] == "waiting-approval"
+    assert detail["controls"] == ["resume"]
+    status, resumed = request(srv, "POST", endpoint, {"action": "resume"})
+    assert status == 200
+    assert resumed["controls"] == ["steer", "abort"]
+
+    agentruns.finish_run(run["id"], "done", "ok")
+    assert _run_summary(srv, run["id"])["controls"] == []
+
+
+def test_stalled_run_detail_matches_listing(srv):
+    run = agentruns.register_run("silent worker")
+    agentruns._update(run["id"], {"last_heartbeat": _age(600)})
+
+    listed = _run_summary(srv, run["id"])
+    status, detail = request(srv, "GET", f"/api/agent-runs/{run['id']}")
+
+    assert status == 200
+    for row in (listed, detail):
+        assert row["runtime_status"] == "stale"
+        assert row["terminal"] is True
+        assert row["ui_state"] == "unknown"
+        assert row["controls"] == []
+
+
+def _write_agent(name: str, body: str) -> None:
+    directory = summon.agents_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{name}.md").write_text(body, encoding="utf-8")
+
+
+_MY_BOT = (
+    "---\nname: my-bot\ntitle: 내 봇\ndescription: 테스트용 에이전트\n"
+    "tools: [files]\n---\nSECRET-INSTRUCTION-TEXT\n"
+)
+
+
+def test_run_summary_names_agent_and_elapsed(srv):
+    _write_agent("my-bot", _MY_BOT)
+    builtin = agentruns.register_run("시트 분석", agent="sheet-analyst")
+    user = agentruns.register_run("내 작업", agent="my-bot")
+    ghost = agentruns.register_run("사라진 에이전트", agent="ghost")
+    plain = agentruns.register_run("일반 실행")
+    agentruns._update(builtin["id"], {"started_at": _age(300)})
+    agentruns.finish_run(builtin["id"], "done", "결론")
+
+    listed = _run_summary(srv, builtin["id"])
+    assert listed["agent_title"] == "스프레드시트 분석가"
+    assert listed["agent_source"] == "builtin"
+    assert 298 <= listed["elapsed_seconds"] <= 305
+    assert _run_summary(srv, user["id"])["agent_source"] == "user"
+    assert _run_summary(srv, user["id"])["agent_title"] == "내 봇"
+    assert _run_summary(srv, ghost["id"])["agent_title"] is None
+    unnamed = _run_summary(srv, plain["id"])
+    assert unnamed["agent"] is None and unnamed["agent_title"] is None
+    status, detail = request(srv, "GET", f"/api/agent-runs/{builtin['id']}")
+    assert status == 200 and detail["agent_title"] == "스프레드시트 분석가"
+
+
+def test_approvals_listing_names_raising_agent_run(srv):
+    run = agentruns.register_run("시트 분석", agent="sheet-analyst")
+    with agentruns._run_scope(run["id"]):
+        raised = store.add_pending(
+            category="shell", title="export", description="",
+            payload={"command": "export"},
+        )
+    stray = store.add_pending(
+        category="shell", title="stray", description="",
+        payload={"command": "x", "run_id": "ffffffffffff"},
+    )
+    plain = store.add_pending(
+        category="shell", title="plain", description="", payload={"command": "y"})
+
+    status, items = request(srv, "GET", "/api/approvals")
+
+    assert status == 200
+    by_id = {item["id"]: item for item in items}
+    assert by_id[raised["id"]]["agent_run"] == {
+        "id": run["id"],
+        "task": "시트 분석",
+        "agent": "sheet-analyst",
+        "agent_title": "스프레드시트 분석가",
+        "agent_source": "builtin",
+    }
+    assert "agent_run" not in by_id[stray["id"]]
+    assert "agent_run" not in by_id[plain["id"]]
+    assert by_id[plain["id"]]["category_label"] == "Shell 명령"
+    assert by_id[plain["id"]]["target"] == "y"
+    assert by_id[plain["id"]]["needs_answers"] is False
+
+
+def test_agent_roster_lists_specialists_without_internals(srv):
+    _write_agent("my-bot", _MY_BOT)
+    _write_agent("broken", "---\nname: broken\n---\n")
+
+    port, capability = srv
+    conn = http.client.HTTPConnection(
+        "127.0.0.1", port, timeout=local_http_timeout()
+    )
+    conn.request("GET", "/api/agents", headers={
+        "Host": "127.0.0.1", "X-Birkin-Token": capability})
+    response = conn.getresponse()
+    body = response.read().decode("utf-8")
+    conn.close()
+
+    assert response.status == 200
+    payload = json.loads(body)
+    names = [agent["name"] for agent in payload["agents"]]
+    builtins = [spec.name for spec in summon.BUILTIN_AGENTS]
+    assert names == sorted(builtins) + ["my-bot"]
+    assert payload["rejected_count"] == 1
+    assert {agent["source"] for agent in payload["agents"][:-1]} == {"builtin"}
+    assert payload["agents"][-1]["source"] == "user"
+    for agent in payload["agents"]:
+        assert set(agent) == {"name", "title", "description", "source", "max_turns"}
+    assert "SECRET-INSTRUCTION-TEXT" not in body
+    assert str(summon.agents_dir()) not in body
+
+
+def test_agent_roster_rejects_cross_site_cookie_read(srv):
+    port, capability = srv
+    conn = http.client.HTTPConnection(
+        "127.0.0.1", port, timeout=local_http_timeout()
+    )
+    conn.request("GET", "/api/agents", headers={
+        "Host": "127.0.0.1",
+        "Cookie": f"{web_server._CAPABILITY_COOKIE}={capability}",
+        "Sec-Fetch-Site": "cross-site",
+    })
+    response = conn.getresponse()
+    response.read()
+    conn.close()
+
+    assert response.status == 403
 
 
 def test_approve_reject_transitions_and_action_receipt(srv, monkeypatch):
