@@ -36,7 +36,8 @@ def _stub_engine(monkeypatch, phases=("할 일 1/3: 검색",)):
         if on_event is not None:
             for title in phases:
                 on_event("moirai.phase", {"title": title})
-        return {"status": "ok", "agents": 0, "seconds": 0, "run_id": "r1"}
+        return {"status": "completed", "result": "VERDICT: 완료 — x",
+                "agents": 0, "seconds": 0, "run_id": "r1"}
 
     monkeypatch.setattr(engine, "run_script", fake_run)
 
@@ -49,11 +50,43 @@ class TestTheExecutorForwardsEvents:
             {"script": "hard-task", "task": "x"}, on_event=lambda e, p: events.append(e)
         )
         assert "moirai.phase" in events
-        assert "ok" in out
+        assert "VERDICT: 완료 — x" in out
+        assert "birkin moirai status" not in out
 
     def test_run_approved_without_a_listener_still_works(self, monkeypatch) -> None:
         _stub_engine(monkeypatch)
-        assert "ok" in trigger.run_approved({"script": "hard-task", "task": "x"})
+        out = trigger.run_approved({"script": "hard-task", "task": "x"})
+        assert "VERDICT: 완료 — x" in out
+        assert "birkin moirai status" not in out
+
+    def test_run_approved_delivers_real_hard_task_report(
+            self, monkeypatch, tmp_path) -> None:
+        """The approver receives the report itself, not a CLI pointer."""
+        import json
+
+        from birkin.moirai import bindings, engine
+
+        monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+        body = "주간 보고서 본문: 매출 12% 증가"
+
+        def spawn(prompt, binding, opts, cfg, *, timeout=900.0, abort=None):
+            if binding.role == "planner":
+                return json.dumps({"items": ["보고서 작성"]})
+            if binding.role == "decomposer":
+                return json.dumps({"items": ["보고서 본문 작성"]})
+            return json.dumps({"result": body, "followups": []},
+                              ensure_ascii=False)
+
+        monkeypatch.setattr(engine, "_default_spawn", spawn)
+        monkeypatch.setattr(bindings, "validate", lambda *_a, **_k: None)
+
+        out = trigger.run_approved({"script": "hard-task", "task": "주간 보고서"})
+
+        assert out.splitlines()[0].startswith("✅ 워크플로우 완료 (hard-task)")
+        assert "VERDICT: 완료" in out
+        assert body in out
+        assert out.splitlines()[-1].startswith("실행 기록: ")
+        assert len(out) <= 1900
 
     def test_execute_action_moirai_branch_forwards(self, monkeypatch) -> None:
         _stub_engine(monkeypatch)

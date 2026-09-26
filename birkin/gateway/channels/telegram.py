@@ -267,6 +267,9 @@ def _payload_summary(category: str, payload: JsonObject) -> str:
         )
     if category == "skill":
         return f"↳ 스킬: {str(payload.get('name', payload.get('title', '')))[:120]}"
+    if category == "moirai":
+        return (f"↳ 워크플로우: {str(payload.get('script', ''))[:80]} · "
+                f"할 일: {str(payload.get('task', ''))[:120]}")
     if category == "workflow":
         raw_steps = payload.get("steps")
         steps: list[JsonValue] = raw_steps if isinstance(raw_steps, list) else []

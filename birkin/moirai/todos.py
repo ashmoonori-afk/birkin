@@ -23,6 +23,7 @@ DEFAULT_MAX_ITEMS = 24
 _PENDING = "pending"
 _IN_PROGRESS = "in_progress"
 _DONE = "done"
+_FAILED = "failed"
 
 
 class TodoList:
@@ -46,6 +47,10 @@ class TodoList:
     @property
     def done_count(self) -> int:
         return sum(1 for item in self.items if item["status"] == _DONE)
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for item in self.items if item["status"] == _FAILED)
 
     @property
     def is_complete(self) -> bool:
@@ -73,6 +78,14 @@ class TodoList:
             self.items[index]["note"] = str(note)
             self._notify()
 
+    def fail(self, index: int, note: str = "") -> None:
+        """Close a step that did not get done. Failed is neither done nor
+        pending: the list moves on, and it can no longer read as complete."""
+        if self._valid(index):
+            self.items[index]["status"] = _FAILED
+            self.items[index]["note"] = str(note)
+            self._notify()
+
     def append(self, text: str) -> bool:
         """Add discovered follow-up work. False when the cap is reached.
 
@@ -97,6 +110,8 @@ class TodoList:
     def render(self) -> str:
         snap = self.snapshot()
         head = f"할 일 {snap['todo_done']}/{snap['todo_total']}"
+        if self.failed_count:
+            head += f" · 실패 {self.failed_count}"
         if snap["todo_current"]:
             return f"{head} · 진행 중: {snap['todo_current']}"
         return f"{head} · 완료" if self.is_complete else head

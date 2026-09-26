@@ -31,6 +31,8 @@ meta = {
 
 MAX_ITEMS = todos.DEFAULT_MAX_ITEMS
 
+FAIL_NOTE = "에이전트가 이 단계를 끝내지 못했어요 (실행 기록의 실패 내역 참고)"
+
 PLAN_SCHEMA = {
     "type": "object",
     "required": ["items"],
@@ -96,8 +98,10 @@ def main(m):
     while (index := todo.next_pending()) is not None:
         item = todo.items[index]["text"]
         todo.start(index)
-        # The phase line is what the gateway shows in chat heartbeats.
-        m.phase(f"할 일 {todo.done_count + 1}/{todo.total}: {item}")
+        # The phase line is what the gateway shows in chat heartbeats. A
+        # failed step still counts as processed, so the numbering advances.
+        processed = todo.done_count + todo.failed_count
+        m.phase(f"할 일 {processed + 1}/{todo.total}: {item}")
         out = m.agent(
             f"전체 업무: {task}\n"
             f"지금 수행할 단계: {item}\n"
@@ -106,11 +110,16 @@ def main(m):
             "원자 단위로 followups에 담아라 (없으면 빈 배열).",
             role="worker", schema=WORK_SCHEMA,
             label=f"step-{index + 1}") or {}
-        note = str(
-            out.get("result")
-            or "에이전트 실패 — 실행 저널의 failures를 확인하세요")
-        todo.done(index, note=note)
-        notes.append(f"[{todo.done_count}/{todo.total}] {item}\n  → {note}")
+        result = str(out.get("result") or "").strip()
+        if result:
+            todo.done(index, note=result)
+            notes.append(f"[{processed + 1}/{todo.total}] {item}\n  → {result}")
+        else:
+            # A dead worker is a failed step, never a done one: the verdict
+            # below must not call the task complete on top of it.
+            todo.fail(index, note=FAIL_NOTE)
+            notes.append(
+                f"[{processed + 1}/{todo.total}] ✗ {item}\n  → {FAIL_NOTE}")
         for followup in out.get("followups") or []:
             if not todo.append(followup):
                 dropped.append(str(followup))
@@ -118,12 +127,21 @@ def main(m):
     m.phase("Report")
     # Minto pyramid (design Item 8): verdict line first, then the key reason
     # (the todo ledger's completion state), then the per-step evidence.
-    verdict = ("완료" if todo.is_complete
-               else f"미완료 — 남은 할 일 {todo.total - todo.done_count}건")
+    if todo.is_complete:
+        completion, verdict = "complete", "완료"
+    elif todo.done_count == 0:
+        completion = "failed"
+        verdict = f"미완료 — 할 일 {todo.total}건을 하나도 끝내지 못했어요"
+    else:
+        completion = "partial"
+        verdict = (f"일부 완료 — 할 일 {todo.total}건 중 {todo.done_count}건 "
+                   f"완료, 실패 {todo.failed_count}건")
     lines = [f"VERDICT: {verdict} — {task}", "", todo.render(), ""]
     lines.extend(notes)
     if dropped:
         lines.append("")
         lines.append("한도(cap)에 걸려 수행하지 못한 후속 작업 "
                      f"{len(dropped)}건: " + ", ".join(dropped[:10]))
-    return "\n".join(lines)
+    # The {answer, completion} contract deep-research already uses: the
+    # engine and every surface read the completion instead of guessing it.
+    return {"answer": "\n".join(lines), "completion": completion}

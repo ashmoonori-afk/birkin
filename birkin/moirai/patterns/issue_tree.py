@@ -264,7 +264,10 @@ def main(m):
             node.note = note
             node.status = "done" if out.get("result") else "failed"
             if index is not None:
-                todo.done(index, note=note)
+                if out.get("result"):
+                    todo.done(index, note=note)
+                else:
+                    todo.fail(index, note=note)
             for followup in out.get("followups") or []:
                 if not todo.append(followup):
                     dropped.append(str(followup))
@@ -276,10 +279,12 @@ def main(m):
     # discovery order. They are leaves without a parent, so they report
     # straight into the verdict, not into a subtree.
     extra_notes: list[str] = []
+    followup_failed = 0
     while (index := todo.next_pending()) is not None:
         title = todo.items[index]["text"]
         todo.start(index)
-        m.phase(f"후속 {todo.done_count + 1}/{todo.total}: {title}")
+        m.phase(f"후속 {todo.done_count + todo.failed_count + 1}/{todo.total}: "
+                f"{title}")
         out = m.agent(
             f"전체 과제: {task}\n"
             f"후속으로 발견된 잎 이슈: {title}\n"
@@ -288,7 +293,11 @@ def main(m):
             role="worker", schema=WORK_SCHEMA,
             label=f"followup:{title}") or {}
         note = str(out.get("result") or _FAIL_NOTE)
-        todo.done(index, note=note)
+        if out.get("result"):
+            todo.done(index, note=note)
+        else:
+            todo.fail(index, note=note)
+            followup_failed += 1
         extra_notes.append(f"- [{'done' if out.get('result') else 'failed'}] "
                            f"{title}\n  -> {note}")
         for followup in out.get("followups") or []:
@@ -302,7 +311,8 @@ def main(m):
     # then the per-leaf evidence, then what the caps cut.
     failed = sum(1 for leaf in leaves if leaf.status == "failed")
     verdict = ("완료" if todo.is_complete and not failed
-               else f"부분 완료 - 잎 {len(leaves)}개 중 실패 {failed}개")
+               else f"부분 완료 - 잎 {len(leaves)}개 중 실패 {failed}개"
+               + (f", 후속 실패 {followup_failed}개" if followup_failed else ""))
     lines = [f"VERDICT: {verdict} - {task}", "",
              f"GOAL: {root.summary or '(없음)'}", "", todo.render(), ""]
     _render(root, lines, 0)

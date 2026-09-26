@@ -181,8 +181,14 @@ TURN_ERROR_REPLY = (
 )
 
 TURN_MOIRAI_RECOVERY_ERROR_REPLY = (
-    "⚠️ Moirai 자동 복구를 실행하지 못했어요. "
+    "⚠️ 남은 작업을 이어서 진행하지 못했어요. "
     "자세한 원인은 Birkin 서버 로그에 기록했습니다."
+)
+
+TURN_MOIRAI_RECOVERY_PROPOSED_REPLY = (
+    "⏱️ 응답이 시간 제한에 걸려 여기서 멈췄어요.\n"
+    "남은 작업을 여러 에이전트가 나눠 이어서 하는 계획을 승인 목록에 올렸어요. "
+    "승인하면 시작하고, 끝나면 결과를 보여 드릴게요."
 )
 
 TURN_PARTIAL_SUFFIX = (

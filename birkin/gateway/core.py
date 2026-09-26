@@ -40,6 +40,7 @@ from .turn_support import (
     TURN_ERROR_REPLY as TURN_ERROR_REPLY,
     TURN_INTERRUPTED_REPLY as TURN_INTERRUPTED_REPLY,
     TURN_MOIRAI_RECOVERY_ERROR_REPLY as TURN_MOIRAI_RECOVERY_ERROR_REPLY,
+    TURN_MOIRAI_RECOVERY_PROPOSED_REPLY as TURN_MOIRAI_RECOVERY_PROPOSED_REPLY,
     TURN_PARTIAL_SUFFIX as TURN_PARTIAL_SUFFIX,
     UNTRUSTED_CHANNEL_REPLY as UNTRUSTED_CHANNEL_REPLY,
     ask_session as ask_session,
@@ -361,6 +362,19 @@ def _restart_marker_path() -> Path:
 
 # Telegram delivery sends at most 3500 characters; leave room for the notice.
 _SUMMON_PREVIEW_CHARS = 3200
+
+
+def _approved_reply(result: str) -> str:
+    """An approval's outcome for chat, cut only with a word about it.
+
+    The result is the receipt itself (a workflow report, a command's output);
+    a silent cut hides the part the approver was waiting for.
+    """
+    text = f"✅ 승인됨 — {result}"
+    if len(text) <= _SUMMON_PREVIEW_CHARS:
+        return text
+    return (text[:_SUMMON_PREVIEW_CHARS]
+            + "\n\n… 결과가 길어 앞부분만 보여드려요.")
 
 
 class Gateway:
@@ -1173,7 +1187,7 @@ class Gateway:
             if not out.get("ok"):
                 return f"⚠ {out.get('error', 'approve failed')}"
             store.append_activity(f"approval[{aid}]: approved via gateway")
-            return f"✅ approved — {out.get('result', '')}"[:500]
+            return _approved_reply(f"{out.get('result', '')}")
         out = approvals.reject(
             aid,
             rejected_by=actor_id,
@@ -1299,7 +1313,7 @@ class Gateway:
         )
         if not out.get("ok"):
             return f"⚠ {out.get('error', 'approve failed')}", False
-        return "✅ approved — 실행 중", True
+        return "✅ 승인됨 — 실행 중", True
 
     def execute_claimed_action(
         self, aid: str, on_progress: ProgressCallback = None
@@ -1331,7 +1345,7 @@ class Gateway:
         if not out.get("ok"):
             return f"⚠ {out.get('error', 'approve failed')}"
         store.append_activity(f"approval[{aid}]: approved via gateway")
-        return f"✅ approved — {out.get('result', '')}"[:500]
+        return _approved_reply(f"{out.get('result', '')}")
 
     def restore_action_claim(self, aid: str) -> None:
         from .. import approvals

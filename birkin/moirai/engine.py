@@ -33,7 +33,7 @@ from typing import Any, Callable, Optional
 
 from .. import config, ledger, store
 from . import bindings as _bindings
-from . import journal
+from . import journal, outcome
 from .bindings import Binding
 
 DEFAULT_WORKERS = 4
@@ -349,6 +349,20 @@ class Run:
                 "seq": int(seq), "role": role or "", "label": str(label),
                 "phase": phase, "reason": reason,
                 "error": error[:2000], "traceback": tb[:4000]})
+
+    def in_parallel_lane(self) -> bool:
+        """Whether the calling code runs inside an ``m.parallel`` lane."""
+        return bool(getattr(self._lane, "path", ()))
+
+    def _script_failure(self, exc: Exception) -> None:
+        """Record a thunk or stage that raised. The lane still yields None --
+        one bad branch must not take the run down -- but the run can no
+        longer read as if every branch had worked."""
+        lane = ".".join(str(index) for index in getattr(self._lane, "path", ()))
+        self._fail(seq=0, role="", label=f"lane:{lane}", phase=self._phase,
+                   reason="script-exception",
+                   error=f"{type(exc).__name__}: {exc}",
+                   tb=_traceback.format_exc())
 
     def record_verify(self, gate_last: Optional[dict]) -> None:
         """Fold one verifier outcome into the run's confidence signals."""
@@ -666,7 +680,10 @@ class Run:
         previous = getattr(self._lane, "path", ())
         self._lane.path = lane
         try:
-            return _safe(thunk)
+            return thunk()
+        except Exception as exc:
+            self._script_failure(exc)
+            return None
         finally:
             self._lane.path = previous
 
@@ -679,7 +696,8 @@ class Run:
                     value = stage(value, item, index)
                 except TypeError:
                     value = stage(value)
-                except Exception:
+                except Exception as exc:
+                    self._script_failure(exc)
                     return None
                 if value is None:
                     return None
@@ -687,13 +705,6 @@ class Run:
 
         return self.run_parallel(
             [lambda it=it, i=i: chain(it, i) for i, it in enumerate(items)])
-
-
-def _safe(thunk: Callable[[], Any]) -> Any:
-    try:
-        return thunk()
-    except Exception:
-        return None
 
 
 def _decode(text: Any, schema: Optional[dict]) -> Any:
@@ -709,6 +720,39 @@ def _decode(text: Any, schema: Optional[dict]) -> Any:
     value = _s.relax(value, schema)
     _s.validate(value, schema)
     return value
+
+
+# Failure reasons that mean a spawned agent produced nothing usable. A blocked
+# call never spawned, and a script-exception or research row is not an agent.
+_AGENT_FAILURE_REASONS = frozenset({"exception", "provider-error", "schema"})
+
+
+def _completion(result: Any, run: Run) -> str:
+    """How much of the work got done, for a run whose script returned.
+
+    What the script declares about itself wins; an ``error`` result is a
+    failure. Otherwise the run's own failure rows decide: none is complete;
+    rows that are not dead agents (a raising lane, a blocked call, a research
+    tool error) make it partial; and with dead agents it is partial only if
+    an agent call still succeeded.
+    """
+    if isinstance(result, dict):
+        declared = result.get("completion")
+        if declared in outcome.COMPLETIONS:
+            return str(declared)
+        if result.get("error"):
+            return "failed"
+    with run._fail_lock:
+        failures = list(run.failures)
+    if not failures:
+        return "complete"
+    agent_failures = sum(
+        1 for failure in failures
+        if failure.get("reason") in _AGENT_FAILURE_REASONS)
+    if not agent_failures:
+        return "partial"
+    succeeded = run._spawned + run.cache_hits - agent_failures
+    return "partial" if succeeded > 0 else "failed"
 
 
 def _with_failures(result: Any, failures: list[dict[str, Any]]) -> Any:
@@ -874,8 +918,18 @@ def run_script(script: Script, *, cfg: Optional[dict] = None,
                        result=_with_failures(result, run.failures),
                        tokens=run.budget.spent(),
                        critical=resume_action_id is not None)
+    failures = len(run.failures)
+    summary = {"run_id": run.run_id, "status": status, "result": result,
+               "agents": run._spawned, "cache_hits": run.cache_hits,
+               "tokens": run.budget.spent(), "seconds": round(elapsed, 1),
+               "failures": failures,
+               "completion": ("aborted" if status == "aborted"
+                              else _completion(result, run))}
+    label = outcome.COMPLETION_LABELS[outcome.completion(summary)]
     store.save_run(
-        "moirai", f"{script.name}: {status} · 에이전트 {run._spawned}",
+        "moirai",
+        f"{script.name}: {label} · 에이전트 {run._spawned}"
+        + (f" · 실패 {failures}건" if failures else ""),
         details={"run_id": run.run_id, "script": str(script.path),
                  "bindings": _bindings.as_specs(bindings_map),
                  "agents": run._spawned, "cache_hits": run.cache_hits,
@@ -883,6 +937,4 @@ def run_script(script: Script, *, cfg: Optional[dict] = None,
         usage={"estTokens": run.budget.spent()})
     store.append_activity(f"moirai: {script.name} {status} "
                           f"({run._spawned} agents, {elapsed:.0f}s)")
-    return {"run_id": run.run_id, "status": status, "result": result,
-            "agents": run._spawned, "cache_hits": run.cache_hits,
-            "tokens": run.budget.spent(), "seconds": round(elapsed, 1)}
+    return summary

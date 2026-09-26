@@ -82,46 +82,146 @@ def test_gateway_returns_friendly_error_not_raw(monkeypatch):
     assert "⚠️" in out
 
 
-def test_gateway_persistent_codex_timeout_runs_moirai_recovery(monkeypatch):
-    # Given: a warm Codex session whose own timeout path reset its process.
+def _timed_out_persistent_gateway(monkeypatch, *, partial=""):
     from birkin.codex_session import CodexTurnTimeout
-    from birkin.moirai import trigger
 
     fake = _fake_session()
     fake._prepare_cli_turn = lambda text, **_kwargs: text
     monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
     gateway = gw_core.Gateway({})
     gateway._persistent = True
-    assert gateway.cfg["session_goal_fallback"] is False
 
     class TimedOutCodex:
         def ask(self, *_args, **_kwargs):
-            raise CodexTurnTimeout("silence timeout")
+            raise CodexTurnTimeout("silence timeout", partial=partial)
 
         def close(self):
             return None
 
     gateway._claude_sessions.put(("http", "u1"), TimedOutCodex())
-    recovered: list[dict[str, object]] = []
+    return gateway
 
-    def run_approved(payload, on_event=None):
-        recovered.append(payload)
-        if on_event is not None:
-            on_event("moirai.phase", {"title": "할 일 1/2: inspect"})
-        return "moirai: hard-task completed"
+
+def _refuse_auto_run(monkeypatch):
+    from birkin.moirai import trigger
+
+    def run_approved(*_args, **_kwargs):
+        raise AssertionError("a timeout must never start a workflow by itself")
 
     monkeypatch.setattr(trigger, "run_approved", run_approved)
-    progress: dict[str, object] = {}
+
+
+def test_gateway_persistent_codex_timeout_queues_moirai_recovery_proposal(
+        monkeypatch):
+    # Given: a warm Codex session whose own timeout path reset its process.
+    from birkin.moirai import trigger
+
+    gateway = _timed_out_persistent_gateway(monkeypatch)
+    assert gateway.cfg["session_goal_fallback"] is False
+    queued: list[dict[str, object]] = []
+
+    def queue(proposal, *, task="", cfg=None, origin="moirai-auto"):
+        queued.append({"proposal": proposal, "task": task, "cfg": cfg,
+                       "origin": origin})
+        return {"auto": False, "id": "abc123abc123", "title": "t"}
+
+    monkeypatch.setattr(trigger, "queue", queue)
+    _refuse_auto_run(monkeypatch)
 
     # When: the local user sends a request through the persistent gateway.
-    reply = gateway.handle("http", "u1", "continue the Kaggle work",
-                           on_progress=progress.update)
+    reply = gateway.handle("http", "u1", "continue the Kaggle work")
 
-    # Then: Moirai decomposes the original work and keeps progress observable.
-    assert recovered == [{"script": "hard-task",
-                          "task": "continue the Kaggle work"}]
-    assert progress["phase"] == "할 일 1/2: inspect"
-    assert reply == "moirai: hard-task completed"
+    # Then: the rest of the work waits for a person, and the reply says so.
+    assert len(queued) == 1
+    proposal = queued[0]["proposal"]
+    assert proposal.script == "hard-task"
+    assert proposal.title and proposal.why and proposal.steps
+    assert queued[0]["task"] == "continue the Kaggle work"
+    assert queued[0]["origin"] == "gateway-timeout"
+    assert reply == (gw_core.TURN_MOIRAI_RECOVERY_PROPOSED_REPLY
+                     + "\nBirkin 승인 목록에서 승인해 주세요.")
+    assert "birkin moirai status" not in reply
+
+
+def test_gateway_timeout_recovery_keeps_the_partial_answer(monkeypatch):
+    from birkin.moirai import trigger
+
+    gateway = _timed_out_persistent_gateway(monkeypatch, partial="절반 결과")
+    tasks: list[str] = []
+
+    def queue(proposal, *, task="", cfg=None, origin="moirai-auto"):
+        tasks.append(task)
+        return {"auto": False, "id": "abc123abc123", "title": "t"}
+
+    monkeypatch.setattr(trigger, "queue", queue)
+    _refuse_auto_run(monkeypatch)
+
+    reply = gateway.handle("http", "u1", "continue the Kaggle work")
+
+    assert reply.startswith("절반 결과\n\n")
+    assert gw_core.TURN_MOIRAI_RECOVERY_PROPOSED_REPLY in reply
+    assert "절반 결과" in tasks[0] and "남은 작업만" in tasks[0]
+
+
+def test_gateway_timeout_proposal_points_telegram_at_pending(monkeypatch):
+    from birkin.codex_session import CodexTurnTimeout
+    from birkin.moirai import trigger
+
+    def timed_out_ask(_text, on_text=None, **_kwargs):
+        raise CodexTurnTimeout("silence timeout")
+
+    fake = _fake_session()
+    fake.ask = timed_out_ask
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
+    monkeypatch.setattr(
+        trigger, "queue",
+        lambda *_a, **_k: {"auto": False, "id": "abc123abc123", "title": "t"})
+    _refuse_auto_run(monkeypatch)
+    gateway = gw_core.Gateway({})
+    gateway.cfg["channels"] = {"telegram": {"allowed_chat_ids": ["abc"]}}
+
+    reply = gateway.handle("telegram", "abc", "continue the Kaggle work")
+
+    assert reply == (gw_core.TURN_MOIRAI_RECOVERY_PROPOSED_REPLY
+                     + "\n/pending 에서 승인 버튼을 눌러 주세요.")
+
+
+def test_gateway_timeout_on_an_untrusted_channel_proposes_nothing(monkeypatch):
+    # Given: a channel with no trusted principal (no command authority).
+    from birkin.moirai import trigger
+
+    def queue(*_args, **_kwargs):
+        raise AssertionError("an untrusted channel must not propose a workflow")
+
+    monkeypatch.setattr(trigger, "queue", queue)
+    _refuse_auto_run(monkeypatch)
+
+    # When / Then: the turn fails plainly, with or without a partial answer.
+    gateway = _timed_out_persistent_gateway(monkeypatch)
+    gateway._command_trusted = lambda _channel: False
+    assert gateway.handle("http", "u1", "go") == gw_core.TURN_ERROR_REPLY
+
+    gateway = _timed_out_persistent_gateway(monkeypatch, partial="부분")
+    gateway._command_trusted = lambda _channel: False
+    assert gateway.handle("http", "u1", "go") == (
+        "부분" + gw_core.TURN_PARTIAL_SUFFIX)
+
+
+def test_gateway_timeout_auto_approved_recovery_returns_the_report(monkeypatch):
+    # Given: the user opted in with auto_approve ["moirai"], so queue ran it.
+    from birkin.moirai import trigger
+
+    gateway = _timed_out_persistent_gateway(monkeypatch)
+    monkeypatch.setattr(
+        trigger, "queue",
+        lambda *_a, **_k: {"auto": True, "ok": True, "id": "abc123abc123",
+                           "result": "✅ 워크플로우 완료 (hard-task)\n\n"
+                                     "VERDICT: 완료 — x"})
+
+    reply = gateway.handle("http", "u1", "continue the Kaggle work")
+
+    assert "VERDICT: 완료 — x" in reply
+    assert gw_core.TURN_MOIRAI_RECOVERY_PROPOSED_REPLY not in reply
 
 
 def test_persistent_gateway_passes_stable_conversation_session_id(monkeypatch):
@@ -195,7 +295,7 @@ def test_conversation_session_id_uses_unambiguous_tuple_encoding():
 
 
 def test_gateway_moirai_recovery_failure_reports_server_error(monkeypatch):
-    # Given: Codex timed out and no Moirai worker route can start.
+    # Given: Codex timed out and the recovery proposal cannot be queued.
     from birkin.codex_session import CodexTurnTimeout
     from birkin.moirai import trigger
 
@@ -206,17 +306,18 @@ def test_gateway_moirai_recovery_failure_reports_server_error(monkeypatch):
     fake.ask = timed_out_ask
     monkeypatch.setattr(gw_core, "build_session", lambda cfg: fake)
     monkeypatch.setattr(
-        trigger, "run_approved",
+        trigger, "queue",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             RuntimeError("no Moirai route")))
     gateway = gw_core.Gateway({})
 
-    # When: both the Codex turn and its automatic recovery route fail.
+    # When: both the Codex turn and its recovery proposal fail.
     reply = gateway.handle("http", "u1", "continue the Kaggle work")
 
     # Then: Birkin reports the failed recovery without the rejected timeout text.
     assert reply == gw_core.TURN_MOIRAI_RECOVERY_ERROR_REPLY
     assert "다시" not in reply
+    assert "no Moirai route" not in reply
     assert gw_core.TURN_ERROR_REPLY not in reply
 
 
@@ -346,8 +447,9 @@ def test_local_http_default_requires_owner_capability_before_dispatch(
     assert_owner_only(token_path, posix_mode=0o600)
 
 
-def test_local_http_timeout_runs_real_moirai_hard_task(
+def test_local_http_timeout_queues_then_approval_delivers_report(
         monkeypatch, tmp_path):
+    from birkin import approval_execution, approvals, store
     from birkin.codex_session import CodexTurnTimeout
     from birkin.moirai import bindings, engine
 
@@ -368,7 +470,8 @@ def test_local_http_timeout_runs_real_moirai_hard_task(
                 "토큰 파서를 구현 — 단위 테스트로 검증",
                 "로그인 경로를 실행 — HTTP 응답으로 검증",
             ]})
-        return json.dumps({"result": "완료", "followups": []})
+        return json.dumps({"result": "토큰 파서 완료: 테스트 12개 통과",
+                           "followups": []}, ensure_ascii=False)
 
     real_run_script = engine.run_script
 
@@ -402,10 +505,29 @@ def test_local_http_timeout_runs_real_moirai_hard_task(
         channel.stop()
         thread.join(timeout=2.0)
 
+    # The timeout only PROPOSES the recovery: nothing ran yet.
     assert not thread.is_alive()
     assert code == 200
     assert json.loads(payload)["reply"].startswith(
-        "moirai: hard-task completed")
+        gw_core.TURN_MOIRAI_RECOVERY_PROPOSED_REPLY)
+    assert roles == []
+    pending = store.list_pending()
+    assert len(pending) == 1
+    assert pending[0]["category"] == "moirai"
+    assert pending[0]["origin"] == "gateway-timeout"
+    assert pending[0]["payload"]["script"] == "hard-task"
+    assert pending[0]["payload"]["task"] == "continue the Kaggle work"
+
+    # A person approves; the approval result IS the report.
+    out = approval_execution.approve(
+        pending[0]["id"], approvals.execute_action,
+        approved_by="human:test", approved_via="test")
+
+    assert out["ok"], out
+    result = str(out["result"])
+    assert result.splitlines()[0].startswith("✅ 워크플로우 완료")
+    assert "VERDICT: 완료" in result
+    assert "토큰 파서 완료: 테스트 12개 통과" in result
     assert roles == ["planner", "decomposer", "worker", "worker"]
 
 

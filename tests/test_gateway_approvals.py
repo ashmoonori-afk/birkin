@@ -164,3 +164,51 @@ def test_approval_markup_shape():
     # 64-byte Telegram limit respected even for absurd ids
     kb2 = json.loads(TelegramChannel._approval_markup("x" * 200))
     assert len(kb2["inline_keyboard"][0][0]["callback_data"]) <= 64
+
+
+def test_approved_result_is_not_cut_at_500_chars(tmp_path, monkeypatch):
+    """A workflow report is the receipt; a silent cut at 500 hid the answer."""
+    from birkin import approvals
+    gw = _gateway(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        approvals, "approve",
+        lambda aid, **_kw: {"ok": True, "result": "가" * 1500})
+
+    out = gw.resolve_action("abc123abc123", approve=True,
+                            actor_id="human:telegram:42",
+                            via="gateway:telegram")
+
+    assert out.startswith("✅ 승인됨")
+    assert "가" * 1500 in out
+
+
+def test_an_over_long_approved_result_says_it_was_cut(tmp_path, monkeypatch):
+    from birkin import approvals
+    gw = _gateway(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        approvals, "execute_claimed",
+        lambda aid, on_event=None: {"ok": True, "result": "가" * 5000})
+
+    out = gw.execute_claimed_action("abc123abc123")
+
+    assert out.startswith("✅ 승인됨")
+    assert "결과가 길어" in out
+    assert len(out) <= 3300
+
+
+def test_claimed_action_reply_is_korean(tmp_path, monkeypatch):
+    from birkin import approvals
+    gw = _gateway(tmp_path, monkeypatch)
+    monkeypatch.setattr(approvals, "claim", lambda aid, **_kw: {"ok": True})
+
+    assert gw.claim_action("abc123abc123", actor_id="human:telegram:42",
+                           via="gateway:telegram") == ("✅ 승인됨 — 실행 중", True)
+
+
+def test_moirai_approval_card_shows_the_workflow_and_task():
+    from birkin.gateway.channels.telegram import _payload_summary
+    summary = _payload_summary(
+        "moirai", {"script": "hard-task", "task": "주간 보고서 이어서"})
+    assert "hard-task" in summary
+    assert "주간 보고서 이어서" in summary
+    assert summary.startswith("↳ 워크플로우:")

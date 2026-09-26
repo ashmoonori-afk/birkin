@@ -235,3 +235,50 @@ def test_loopback_process_capability_is_not_a_bootstrap_url(srv):
     )
 
     assert status == 403
+
+
+def test_dashboard_answer_resumes_moirai_wait_over_http(srv, tmp_path):
+    """The HTTP handler runs on a server thread; the answer must resume the
+    workflow there instead of killing it at the checkpoint."""
+    from birkin import moirai
+    from birkin.moirai import journal
+
+    path = tmp_path / "wait_for_input.py"
+    path.write_text(
+        '''
+meta = {"name": "wait-for-input", "roles": {}}
+
+def main(m):
+    supplied = m.request_answers(
+        step_id="deploy-target",
+        title="Deploy release",
+        description="Choose the deployment target.",
+        questions=[{
+            "id": "choice",
+            "text": "Continue?",
+            "options": [{"value": "yes", "label": "Yes"}],
+        }],
+    )
+    return {"input": supplied}
+''',
+        encoding="utf-8",
+    )
+    outcome = moirai.run_script(moirai.load_script(path), cfg={})
+    assert outcome["status"] == "waiting_input"
+    record = store.list_pending()[0]
+
+    status, payload = request(srv, "POST", "/api/approvals", {
+        "id": record["id"],
+        "action": "answer",
+        "answers": {"choice": "yes"},
+        "resume_token": record["resume_token"],
+        "question_digest": record["question_digest"],
+        "input_schema_version": 1,
+        "previous_state_digest": record["previous_state_digest"],
+    }, client_id="browser-1")
+
+    assert status == 200, payload
+    assert payload["continuation"]["resume_run_id"]
+    wait = journal.get_input_wait(record["id"])
+    assert wait is not None
+    assert wait["state"] == "resumed"

@@ -76,7 +76,7 @@ def run_model_turn(
         reply = _ask_model(gateway, request, lease, prepared, on_text)
     except CodexTurnTimeout as exc:
         return recover_codex_timeout(
-            gateway, request, started, prepared.progress_seen, on_progress, exc
+            gateway, request, started, prepared.progress_seen, exc
         )
     except Exception as exc:  # Model boundary returns a safe reply.
         elapsed = time.monotonic() - started

@@ -111,21 +111,23 @@ def test_minto_marker_absent_when_disabled():
 def test_hard_task_report_renders_verdict_first(tmp_path, monkeypatch):
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
     from birkin.moirai.patterns import hard_task
-    replies = {
-        "plan": json.dumps({"items": ["정리"]}),
-        "decompose-1": json.dumps({"items": ["정리 A", "정리 B"]}),
-        "step-1": json.dumps({"result": "A 끝", "followups": []}),
-        "step-2": json.dumps({"result": "B 끝", "followups": []}),
-    }
 
+    # The spawn sees the role binding and the prompt, never the call label.
     def spawn(prompt, binding, opts, cfg, *, timeout=900.0):
-        return replies[opts.get("label") or ""]
+        if binding.role == "planner":
+            return json.dumps({"items": ["정리"]})
+        if binding.role == "decomposer":
+            return json.dumps({"items": ["정리 A", "정리 B"]})
+        step = "A" if "정리 A" in prompt else "B"
+        return json.dumps({"result": f"{step} 끝", "followups": []})
 
     out = moirai.run_script(moirai.load_script(hard_task.__file__),
                             args={"task": "청소"}, cfg={}, spawn=spawn)
     assert out["status"] == "completed"
-    report = out["result"]
+    assert out["completion"] == "complete"
+    report = out["result"]["answer"]
     assert isinstance(report, str) and report.splitlines()[0].startswith(
-        "VERDICT: ")
-    # verdict precedes the per-step evidence (one worker step ran)
-    assert report.index("VERDICT:") < report.index("[1/1]")
+        "VERDICT: 완료")
+    # verdict precedes the per-step evidence (two worker steps ran)
+    assert report.index("VERDICT:") < report.index("[1/2]")
+    assert "A 끝" in report and "B 끝" in report

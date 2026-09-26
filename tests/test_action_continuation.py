@@ -263,6 +263,116 @@ def test_answer_appends_event_before_single_resume_under_concurrency(
     assert event["event_id"] == observed[0]
 
 
+def test_answer_from_a_worker_thread_resumes_the_workflow(
+    tmp_path: Path,
+) -> None:
+    """The dashboard, gateway and Telegram answer on a server worker thread.
+
+    A checkpoint belongs to the workflow's main lane, not the OS main thread;
+    an answer from any thread must resume the run instead of killing it.
+    """
+    _, record, _ = _waiting_action(tmp_path)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        result = pool.submit(_answer, record).result()
+
+    assert result["ok"] is True
+    assert result["continuation"]["ok"] is True
+    wait = journal.get_input_wait(record["id"])
+    assert wait is not None
+    assert wait["state"] == "resumed"
+    child = journal.get_run(wait["resume_run_id"])
+    assert child is not None
+    assert child["status"] == "completed"
+    pending = store.get_pending(record["id"])
+    assert pending is not None
+    assert pending["resume_state"] == "resumed"
+
+
+def test_single_thunk_parallel_checkpoint_is_rejected(tmp_path: Path) -> None:
+    """A lane would swallow the suspension and orphan the wait and its card."""
+    path = tmp_path / "lane_wait.py"
+    path.write_text(
+        '''
+meta = {"name": "lane-wait", "roles": {}}
+
+def main(m):
+    got = m.parallel([lambda: m.request_answers(
+        step_id="in-lane",
+        title="Deploy release",
+        description="Choose the deployment target.",
+        questions=[{
+            "id": "choice",
+            "text": "Continue?",
+            "options": [{"value": "yes", "label": "Yes"}],
+        }],
+    )])
+    return {"got": got}
+''',
+        encoding="utf-8",
+    )
+
+    outcome = moirai.run_script(moirai.load_script(path), cfg={})
+
+    assert outcome["status"] == "completed"
+    assert outcome["result"] == {"got": [None]}
+    assert store.list_pending() == []
+    assert journal.waiting_inputs() == []
+    run = journal.get_run(outcome["run_id"])
+    assert run is not None
+    failures = json.loads(run["result_json"])["failures"]
+    assert [failure["reason"] for failure in failures] == ["script-exception"]
+    assert "m.parallel" in failures[0]["error"]
+
+
+def test_failed_resume_is_reported_not_swallowed(tmp_path: Path) -> None:
+    path = _write_custom_script(
+        tmp_path,
+        name="resume-boom",
+        after='raise RuntimeError("boom")',
+    )
+    _, record = _run_waiting_script(path)
+
+    result = _answer(record)
+
+    assert result["ok"] is True
+    assert result["continuation"]["ok"] is False
+    assert result["continuation"]["resume_state"] == "error"
+    assert result["continuation"]["message"]
+    assert "boom" not in result["continuation"]["message"]
+    pending = store.get_pending(record["id"])
+    assert pending is not None
+    assert pending["resume_state"] == "error"
+    wait = journal.get_input_wait(record["id"])
+    assert wait is not None
+    assert wait["state"] == "error"
+
+
+def test_resume_interrupted_before_the_run_is_reported_as_queued(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin.moirai import continuation
+
+    _, record, _ = _waiting_action(tmp_path)
+    monkeypatch.setattr(
+        continuation,
+        "resume",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("simulated process exit")
+        ),
+    )
+
+    result = _answer(record)
+
+    assert result["ok"] is True
+    assert result["continuation"]["ok"] is False
+    assert result["continuation"]["resume_state"] == "queued"
+    pending = store.get_pending(record["id"])
+    assert pending is not None
+    assert pending["resume_state"] == "queued"
+
+
 def test_moirai_resumes_exact_step_with_schema_bound_answer_after_restart(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

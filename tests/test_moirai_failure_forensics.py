@@ -161,10 +161,41 @@ class TestEngineFailureForensics:
         )
 
         assert out["status"] == "completed"
+        # The planner died but the fallback step still got done.
+        assert out["completion"] == "complete"
         run = journal.get_run(out["run_id"])
         result = json.loads(run["result_json"] or "{}")
         assert result["failures"][0]["reason"] == "provider-error"
-        assert "done" in result["result"]
+        assert "done" in result["answer"]
+
+    def test_hard_task_with_every_worker_failing_is_failed(self, tmp_path):
+        """Every worker dead must never read as 'VERDICT: 완료' / exit 0."""
+        from birkin.moirai import cli as moirai_cli
+
+        script = moirai.load_script(
+            Path(engine.__file__).parent / "patterns" / "hard_task.py")
+        bindings = {
+            role: B.Binding(role=role, provider="claude", model="x",
+                            source="test", tools="none")
+            for role in script.roles
+        }
+
+        def spawn(_prompt, binding, _opts, _cfg, *, timeout):
+            if binding.role == "planner":
+                return json.dumps({"items": ["초안 작성", "검토"]})
+            if binding.role == "decomposer":
+                return json.dumps({"items": []})
+            return "[provider-error] codex: auth expired"
+
+        out = engine.run_script(script, cfg={}, bindings_map=bindings,
+                                args={"task": "주간 보고서 작성"}, spawn=spawn)
+
+        assert out["status"] == "completed"
+        assert out["completion"] == "failed"
+        assert out["failures"] >= 2
+        assert moirai_cli._outcome_exit_code(out) == 1
+        assert "VERDICT: 완료" not in out["result"]["answer"]
+        assert out["result"]["completion"] == "failed"
 
 
 # ---------------- C2: gateway timeout incident ----------------------------
@@ -194,8 +225,10 @@ class TestGatewayTimeoutIncident:
         gw = _persistent_gateway(monkeypatch, session)
 
         from birkin.moirai import trigger as moirai_trigger
-        monkeypatch.setattr(moirai_trigger, "run_approved",
-                            lambda payload, on_event=None: "복구 결과")
+        monkeypatch.setattr(
+            moirai_trigger, "queue",
+            lambda proposal, **_kw: {"auto": False, "id": "abc123abc123",
+                                     "title": proposal.title})
 
         gw.handle("http", "c1", "장기 작업 실행")
 
@@ -262,15 +295,18 @@ class TestFailureFeedsSelfImprove:
             _record_turn=lambda text, reply, **_k: recorded.append((text, reply)))
         gw = _persistent_gateway(monkeypatch, session)
 
+        from birkin.gateway import core as gw_core
         from birkin.moirai import trigger as moirai_trigger
-        monkeypatch.setattr(moirai_trigger, "run_approved",
-                            lambda payload, on_event=None: "복구 결과")
+        monkeypatch.setattr(
+            moirai_trigger, "queue",
+            lambda proposal, **_kw: {"auto": False, "id": "abc123abc123",
+                                     "title": proposal.title})
 
         gw.handle("http", "c1", "장기 작업 실행")
 
         assert recorded, "a failed turn never reaches the self-improvement hook"
         assert recorded[0][0] == "장기 작업 실행"
-        assert "복구 결과" in recorded[0][1]
+        assert gw_core.TURN_MOIRAI_RECOVERY_PROPOSED_REPLY in recorded[0][1]
 
     def test_the_review_transcript_carries_failure_rows(self, tmp_path):
         from birkin import runtime

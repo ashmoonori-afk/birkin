@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from .. import config, ui
 from . import bindings as B
-from . import journal, picker
+from . import journal, outcome, picker
 from .engine import MoiraiError, load_script, run_script
 
 
@@ -119,10 +119,14 @@ def cmd_run(args: Any) -> int:
         print(f"{ui.RED}--args는 JSON 객체여야 합니다{ui.RESET}")
         return 1
 
-    print(f"{ui.BOLD}{script.name}{ui.RESET}"
-          + (f" — {script.description}" if script.description else ""))
+    # --quiet prints only the rendered outcome: an approved worker run keeps
+    # the head of stdout as its receipt, so the result must come first.
+    quiet = bool(getattr(args, "quiet", False))
+    if not quiet:
+        print(f"{ui.BOLD}{script.name}{ui.RESET}"
+              + (f" — {script.description}" if script.description else ""))
 
-    asking = bool(script.roles) and _should_ask(args)
+    asking = bool(script.roles) and not quiet and _should_ask(args)
     if asking:
         # Rung 3 of the ladder: the user picks, then the ladder re-resolves so
         # an explicit --bind still outranks the choice.
@@ -139,14 +143,15 @@ def cmd_run(args: Any) -> int:
         except B.BindingError as exc:
             print(f"{ui.RED}{exc}{ui.RESET}")
             return 1
-    else:
+    elif not quiet:
         for role, b in resolved.items():
             print(f"  {role:<12} {b.spec:<28} "
                   f"{ui.DIM}[{b.source_label}]{ui.RESET}")
 
     if script.roles:
-        print()
-        print(picker.plan_table(resolved, script.estimated_calls(), cfg))
+        if not quiet:
+            print()
+            print(picker.plan_table(resolved, script.estimated_calls(), cfg))
         if asking:
             answer = picker.confirm()
             if answer == "n":
@@ -160,12 +165,13 @@ def cmd_run(args: Any) -> int:
 
     try:
         out = run_script(script, cfg=cfg, bindings_map=resolved,
-                         args=run_args, on_event=ui.make_event_printer())
+                         args=run_args,
+                         on_event=None if quiet else ui.make_event_printer())
     except MoiraiError as exc:
         print(f"{ui.RED}{exc}{ui.RESET}")
         return 1
 
-    _print_outcome(out)
+    _print_outcome(out, name=script.name, quiet=quiet)
     return _outcome_exit_code(out)
 
 
@@ -189,7 +195,8 @@ def cmd_resume(args: argparse.Namespace) -> int:
         print(f"{ui.RED}{exc}{ui.RESET}")
         return 1
 
-    if script.sha256 != prior["script_sha256"]:
+    quiet = bool(getattr(args, "quiet", False))
+    if script.sha256 != prior["script_sha256"] and not quiet:
         print(f"{ui.YELLOW}스크립트가 변경됐습니다 — 바뀐 지점부터 다시 "
               f"실행합니다.{ui.RESET}")
 
@@ -201,8 +208,9 @@ def cmd_resume(args: argparse.Namespace) -> int:
 
     out = run_script(script, cfg=cfg, bindings_map=resolved,
                      args=json.loads(prior.get("args_json") or "{}"),
-                     resume_from=run_id, on_event=ui.make_event_printer())
-    _print_outcome(out)
+                     resume_from=run_id,
+                     on_event=None if quiet else ui.make_event_printer())
+    _print_outcome(out, name=script.name, quiet=quiet)
     return _outcome_exit_code(out)
 
 
@@ -282,52 +290,23 @@ def _parse_args_json(raw: Optional[str]) -> Optional[dict]:
 
 
 def _outcome_exit_code(out: dict) -> int:
-    result = out.get("result")
-    failed_result = isinstance(result, dict) and result.get("completion") == "failed"
-    return 0 if out.get("status") == "completed" and not failed_result else 1
+    return outcome.exit_code(out)
 
 
-def _print_outcome(out: dict) -> None:
-    mark = {"completed": ui.CYAN + "✓", "error": ui.RED + "✗",
-            "aborted": ui.YELLOW + "⊘"}.get(out["status"], "·")
-    cached = (f" · 캐시 {out['cache_hits']}" if out.get("cache_hits") else "")
-    print(f"\n{mark} {out['status']}{ui.RESET} — 에이전트 {out['agents']}"
-          f"{cached} · {out['seconds']}s · ~{out['tokens']} 토큰")
-    print(f"{ui.DIM}  {out['run_id']}  (birkin moirai status <id>){ui.RESET}")
-    if out.get("result") is not None:
-        result = out["result"]
-        if isinstance(result, dict) and isinstance(result.get("answer"), str):
-            completion = "중단" if out.get("status") == "aborted" else (
-                "실패" if out.get("status") == "error" else {
-                    "complete": "완료",
-                    "partial": "일부 완료",
-                    "failed": "실패",
-                }.get(str(result.get("completion")), "결과")
-            )
-            print(f"\n연구 상태: {completion}")
-            print(result["answer"])
-            unresolved = [
-                str(claim.get("claim"))
-                for claim in result.get("claim_ledger", [])
-                if isinstance(claim, dict)
-                and claim.get("status") in {"unresolved", "refuted"}
-            ]
-            if unresolved:
-                print("\n미확정 또는 반박된 항목:")
-                for claim in unresolved:
-                    print(f"- {claim}")
-            reasons = [str(reason) for reason in result.get("reasons", [])]
-            if reasons:
-                print("\n남은 제약:")
-                for reason in reasons:
-                    print(f"- {reason}")
-            verification_basis = str(result.get("verification_basis") or "").strip()
-            if verification_basis:
-                print(f"\n검증 기준: {verification_basis}")
-            return
-        rendered = json.dumps(out["result"], ensure_ascii=False, indent=1,
-                              default=str)
-        print(rendered if len(rendered) < 1200 else rendered[:1200] + " …")
+def _print_outcome(out: dict, *, name: str = "", quiet: bool = False) -> None:
+    """The rendered outcome, with real newlines and nothing cut.
+
+    Outside --quiet a dim line adds what only a terminal user can act on:
+    cache and token counts, and the command that shows every agent call.
+    """
+    if not quiet:
+        print()
+    print(outcome.render(out, name=name))
+    if quiet:
+        return
+    cached = f"캐시 {out['cache_hits']} · " if out.get("cache_hits") else ""
+    print(f"{ui.DIM}{cached}~{out.get('tokens', 0)} 토큰 · "
+          f"자세히: birkin moirai status {out.get('run_id', '')}{ui.RESET}")
 
 
 def _should_ask(args: Any) -> bool:
