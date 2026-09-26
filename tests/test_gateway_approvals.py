@@ -221,6 +221,75 @@ def test_an_over_long_approved_result_says_it_was_cut(tmp_path, monkeypatch):
     assert len(out) <= 3300
 
 
+def test_an_approved_command_output_is_not_cut_at_500_chars(tmp_path, monkeypatch):
+    """Any "[exit 0]" receipt, whatever its category, keeps its output."""
+    from birkin import approvals
+    gw = _gateway(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        approvals, "approve",
+        lambda aid, **_kw: {"ok": True, "result": "[exit 0] " + "가" * 1500})
+
+    out = gw.resolve_action("abc123abc123", approve=True,
+                            actor_id="human:telegram:42",
+                            via="gateway:telegram")
+
+    assert out.startswith("✅")
+    assert "가" * 1500 in out
+
+
+def test_an_over_long_command_output_says_it_was_cut(tmp_path, monkeypatch):
+    from birkin import approvals
+    gw = _gateway(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        approvals, "execute_claimed",
+        lambda aid, on_event=None: {"ok": True,
+                                   "result": "[exit 0] " + "가" * 5000})
+
+    out = gw.execute_claimed_action("abc123abc123")
+
+    assert out.startswith("✅")
+    assert "결과가 길어" in out
+    assert len(out) <= 3300
+
+
+def test_an_approved_worker_report_reaches_the_reply(tmp_path, monkeypatch):
+    """A worker's `moirai run --quiet` report, run id included, is the receipt."""
+    from birkin import approvals, store
+    gw = _gateway(tmp_path, monkeypatch)
+    rec = store.add_pending(category="worker", title="워크플로 실행",
+                            description="worker",
+                            payload={"worker": "moirai", "action": "run"},
+                            origin="test")
+    report = _complete_report("가" * 1500) + "\n실행 id: run-123"
+    monkeypatch.setattr(
+        approvals, "execute_claimed",
+        lambda aid, on_event=None: {"ok": True, "result": f"[exit 0] {report}"})
+
+    out = gw.execute_claimed_action(rec["id"])
+
+    assert out.startswith("✅")
+    assert report in out
+    assert "결과가 길어" not in out
+
+
+def test_an_approved_operation_replay_shows_its_output(tmp_path, monkeypatch):
+    from birkin import approvals, store
+    gw = _gateway(tmp_path, monkeypatch)
+    rec = store.add_pending(category="operation", title="차단된 작업 1회 재실행: read_file",
+                            description="op", payload={}, origin="test")
+    content = "파일 내용 " + "나" * 1500
+    monkeypatch.setattr(
+        approvals, "approve",
+        lambda aid, **_kw: {"ok": True, "result": content})
+
+    out = gw.resolve_action(rec["id"], approve=True,
+                            actor_id="human:telegram:42",
+                            via="gateway:telegram")
+
+    assert out.startswith("✅")
+    assert content in out
+
+
 def test_claimed_action_reply_is_korean(tmp_path, monkeypatch):
     from birkin import approvals
     gw = _gateway(tmp_path, monkeypatch)

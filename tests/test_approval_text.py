@@ -106,6 +106,27 @@ def test_a_zero_exit_is_the_only_shell_success() -> None:
     assert outcome.render(marks=approval_text.TERMINAL_MARKS).startswith("✓")
 
 
+def test_a_cut_command_output_says_it_was_cut() -> None:
+    result = {"ok": True, "result": "[exit 0] " + "가" * 1000}
+
+    short = approval_text.approve_outcome(None, result)
+    long = approval_text.approve_outcome(None, result, output_chars=3200)
+
+    assert "가" * 300 in short.detail and "가" * 301 not in short.detail
+    assert "전체 1000자 중 300자만 표시" in short.detail
+    assert "가" * 1000 in long.detail and "자만 표시" not in long.detail
+
+
+def test_a_replayed_operation_output_is_the_detail() -> None:
+    outcome = approval_text.approve_outcome(
+        {"category": "operation", "status": "approved"},
+        {"ok": True, "result": "파일 내용"},
+    )
+
+    assert (outcome.ok, outcome.summary) == (True, "승인한 작업을 완료했습니다.")
+    assert outcome.detail == "출력: 파일 내용"
+
+
 def test_a_nonzero_exit_is_a_failure() -> None:
     outcome = approval_text.approve_outcome(None, {"ok": True, "result": "[exit 3] "})
     assert (outcome.code, outcome.ok) == ("command_failed", False)

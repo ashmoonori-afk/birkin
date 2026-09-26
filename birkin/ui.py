@@ -170,12 +170,14 @@ def pad(s: str, width: int, *, align: str = "left",
 # lands inside an escape.
 
 def printable(text: object) -> str:
-    """One-line text with control and format characters shown as ``\\uXXXX``.
+    """One-line text with control and format characters and line/paragraph
+    separators shown as ``\\uXXXX``.
 
     The same rule as ``tools.connections.visible_text``.
     """
     return "".join(
-        f"\\u{ord(ch):04x}" if unicodedata.category(ch) in ("Cc", "Cf") else ch
+        f"\\u{ord(ch):04x}"
+        if unicodedata.category(ch) in ("Cc", "Cf", "Zl", "Zp") else ch
         for ch in str(text))
 
 

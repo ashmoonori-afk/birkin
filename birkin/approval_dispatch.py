@@ -82,7 +82,7 @@ def cron_registration(payload: dict[str, Any]) -> dict[str, Any]:
     def clock(value: Any, default: int, maximum: int) -> int:
         try:
             parsed = int(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             parsed = default
         return max(0, min(maximum, parsed))
 
@@ -91,7 +91,11 @@ def cron_registration(payload: dict[str, Any]) -> dict[str, Any]:
         return text or None
 
     schedule = payload.get("schedule")
-    if schedule and cron.parse_schedule(str(schedule)) is None:
+    try:
+        parsed_schedule = cron.parse_schedule(str(schedule)) if schedule else None
+    except OverflowError:  # a duration too large for a date, e.g. '99999999999999분'
+        parsed_schedule = None
+    if schedule and parsed_schedule is None:
         raise ValueError(
             f"unrecognized schedule: {str(schedule)!r}; use 'HH:MM', "
             "'매일 HH:MM', '매주 <요일> HH:MM', 'every 30m', '30분마다', "

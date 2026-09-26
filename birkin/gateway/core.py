@@ -394,7 +394,11 @@ def _approve_reply(aid: str, out: Mapping[str, object]) -> str:
     """
     from ..workspace.redaction import bounded_error_text
 
-    outcome = approval_text.approve_outcome(store.get_pending(aid), out)
+    # A worker report or command output is the receipt the approver waited
+    # for: bound it only by the chat cap, whose cut _outcome_reply announces.
+    outcome = approval_text.approve_outcome(
+        store.get_pending(aid), out, output_chars=_SUMMON_PREVIEW_CHARS
+    )
     if not outcome.ok:
         raw = str(out.get("error") or out.get("result") or "")
         print(

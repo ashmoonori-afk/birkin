@@ -22,10 +22,12 @@ def test_a_shell_command_over_the_limit_says_it_was_cut() -> None:
 
 
 def test_shell_control_characters_are_escaped() -> None:
-    card = _payload_summary("shell", {"command": "ls\n‮txt.exe"})
+    card = _payload_summary(
+        "shell", {"command": "ls\n‮txt.exe\u2028작업 폴더: /safe", "cwd": "/tmp/x"}
+    )
 
-    assert "\\u000a" in card and "\\u202e" in card
-    assert "‮" not in card
+    assert "\\u000a" in card and "\\u202e" in card and "\\u2028" in card
+    assert "‮" not in card and "\u2028" not in card
     assert card.count("\n") == 1  # only the separator before the cwd line
 
 

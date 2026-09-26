@@ -298,10 +298,10 @@ def _card_preview(
 ) -> str:
     """Escaped, bounded text for a one-tap card; a cut always says so.
 
-    Control and format characters (newline, bidi override, zero-width) are
-    shown as escapes so a value cannot fake the following card lines or hide
-    a suffix; ``keep_newlines`` keeps real line breaks for prose such as a
-    mail body.
+    Control and format characters (newline, bidi override, zero-width) and
+    line/paragraph separators are shown as escapes so a value cannot fake the
+    following card lines or hide a suffix; ``keep_newlines`` keeps real line
+    breaks for prose such as a mail body.
     """
     from .tools.connections import visible_text
 
@@ -537,10 +537,22 @@ def _failure(code: str, summary: str, detail: str = "") -> ApprovalOutcomeText:
     return ApprovalOutcomeText("failure", code, summary, detail, ui_state)
 
 
-def _exit_outcome(match: re.Match[str]) -> ApprovalOutcomeText:
+def _output_detail(output: str, limit: int) -> str:
+    """A bounded, secret-free output line; a cut always says so."""
+    text = output.strip()
+    if not text:
+        return ""
+    shown = _redacted(text[:limit])
+    if len(text) > limit:
+        shown += f"… (전체 {len(text)}자 중 {limit}자만 표시)"
+    return f"출력: {shown}"
+
+
+def _exit_outcome(
+    match: re.Match[str], output_chars: int = _OUTPUT_CHARS
+) -> ApprovalOutcomeText:
     code = int(match.group(1))
-    output = _redacted(match.group(2).strip()[:_OUTPUT_CHARS])
-    detail = f"출력: {output}" if output else ""
+    detail = _output_detail(match.group(2), output_chars)
     if code == 0:
         return ApprovalOutcomeText(
             "success",
@@ -717,8 +729,14 @@ def _workflow_outcome(text: str) -> ApprovalOutcomeText:
 def approve_outcome(
     record: Mapping[str, object] | None,
     result: Mapping[str, object],
+    *,
+    output_chars: int = _OUTPUT_CHARS,
 ) -> ApprovalOutcomeText:
-    """One approve result, read with the record as it stands afterwards."""
+    """One approve result, read with the record as it stands afterwards.
+
+    ``output_chars`` bounds the output shown for a command, worker or replayed
+    operation; a surface that can show a long result passes a larger bound.
+    """
     from .approval_dispatch import (
         SHELL_CWD_MISSING_PREFIX,
         SHELL_EMPTY_RESULT,
@@ -746,7 +764,7 @@ def approve_outcome(
     text = str(result.get("result") or "")
     match = _EXIT.match(text)
     if match is not None:
-        return _exit_outcome(match)
+        return _exit_outcome(match, output_chars)
     if text == SHELL_TIMEOUT_RESULT:
         return _failure(
             "command_timed_out",
@@ -770,6 +788,16 @@ def approve_outcome(
             return office
     if category == "moirai" and text:
         return _workflow_outcome(text)
+    if category == "operation" and text:
+        # A replayed tool call's output (a file read, a listing) is what the
+        # approver was waiting for.
+        return ApprovalOutcomeText(
+            "success",
+            "approved",
+            "승인한 작업을 완료했습니다.",
+            _output_detail(text, output_chars),
+            "succeeded",
+        )
     if result.get("continuation_result") is not None:
         return ApprovalOutcomeText(
             "success",

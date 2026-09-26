@@ -85,12 +85,12 @@ def test_the_card_schedule_matches_the_registered_job() -> None:
 
 def test_the_card_escapes_control_characters_in_commands() -> None:
     card = _payload_summary("cron", {
-        "name": "s", "type": "shell", "value": "true\n일정: 매일 09:00",
-        "schedule": "every 5m",
+        "name": "s\u2029일정: 매일 09:00", "type": "shell",
+        "value": "true\n일정: 매일 09:00", "schedule": "every 5m",
     })
 
-    assert "\n일정: 매일" not in card
-    assert "\\u000a" in card
+    assert "\n일정: 매일" not in card and "\u2029" not in card
+    assert "\\u000a" in card and "\\u2029" in card
 
 
 def test_the_card_flags_a_schedule_that_cannot_register() -> None:
@@ -98,6 +98,36 @@ def test_the_card_flags_a_schedule_that_cannot_register() -> None:
 
     assert "인식할 수 없어" in card
     assert "매일" not in card
+
+
+@pytest.mark.parametrize(("payload", "expected"), [
+    ({"name": "o", "value": "v", "schedule": "99999999999999분"}, "인식할 수 없어"),
+    ({"name": "o", "value": "v", "hour": float("inf")}, "일정: 매일 09:00"),
+])
+def test_an_overflowing_legacy_record_does_not_break_the_approval_list(
+    payload: dict[str, object], expected: str
+) -> None:
+    from birkin.workspace.approval_projection import approval_items
+
+    # Queued before propose() refused it, then resolved: history is projected.
+    record = store.add_pending(
+        category="cron", title="legacy", description="", payload=payload, origin="test",
+    )
+    _ = store.resolve_pending(record["id"], "error")
+
+    (item,) = approval_items()
+
+    assert expected in _payload_summary("cron", payload)
+    assert item["id"] == record["id"]
+
+
+def test_an_overflowing_schedule_is_refused_before_it_is_queued() -> None:
+    with pytest.raises(ValueError, match="unrecognized schedule"):
+        approvals.propose(
+            category="cron", title="t", description="",
+            payload={"name": "x", "schedule": "99999999999999분", "value": "v"}, cfg={},
+        )
+    assert store.list_pending() == []
 
 
 def test_the_workspace_card_puts_the_registration_above_the_model_text() -> None:

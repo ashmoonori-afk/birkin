@@ -14,11 +14,12 @@ from ._types import Tool, ToolContext, ToolInput, ToolResult
 
 
 def visible_text(value: object) -> str:
-    # Control and format characters (newline, bidi override, zero-width) are
-    # shown as escapes, so a name cannot fake the rest of the review line or
-    # flip how an attachment's extension reads.
+    # Control and format characters (newline, bidi override, zero-width) and
+    # the Unicode line/paragraph separators (U+2028/U+2029, which chat clients
+    # render as line breaks) are shown as escapes, so a name cannot fake the
+    # rest of the review line or flip how an attachment's extension reads.
     return "".join(
-        f"\\u{ord(char):04x}" if unicodedata.category(char) in {"Cc", "Cf"}
+        f"\\u{ord(char):04x}" if unicodedata.category(char) in {"Cc", "Cf", "Zl", "Zp"}
         else char
         for char in str(value)
     )
