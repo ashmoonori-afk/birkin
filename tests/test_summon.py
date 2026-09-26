@@ -15,6 +15,22 @@ from birkin import subagent as subagent_mod
 from birkin.runtime import build_session
 
 
+@pytest.fixture(autouse=True)
+def _finish_detached_children(monkeypatch):
+    # Detached children must end while this test's patches and BIRKIN_HOME are
+    # still in place; otherwise they run the real agent loop after teardown and
+    # write run records into whichever home is current by then.
+    from birkin import slashcommands
+
+    monkeypatch.setattr(slashcommands, "_BACKGROUND_SUMMONS", {})
+    before = set(threading.enumerate())
+    yield
+    for thread in threading.enumerate():
+        if thread not in before and thread.name.startswith("birkin-subagent-"):
+            thread.join(timeout=10)
+            assert not thread.is_alive(), f"{thread.name} outlived its test"
+
+
 def _session(**extra):
     return build_session({"provider": "codex-cli", "model": "", **extra})
 

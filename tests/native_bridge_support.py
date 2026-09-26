@@ -150,8 +150,37 @@ def handshake(
             )
         )
     )
-    _ = receive_kind(client, "snapshot")
+    _ = receive_snapshot(client, token)
     return token
+
+
+def receive_snapshot(client: socket.socket, token: str) -> NativeEnvelope:
+    # Heartbeats start as soon as ready is sent. A ping read here but left
+    # unanswered makes the server drop this peer after peer_timeout, so a
+    # runner that stalls past one heartbeat interval must still answer it.
+    for _index in range(256):
+        frame = receive_frame(client)
+        if frame.kind == "snapshot":
+            return frame
+        if frame.kind == "ping":
+            answer_ping(client, token, frame)
+    raise AssertionError("did not receive snapshot")
+
+
+def answer_ping(client: socket.socket, token: str, frame: NativeEnvelope) -> None:
+    client.sendall(
+        encode_frame(
+            envelope(
+                "pong",
+                frame_id=f"pong-{frame.id}",
+                in_reply_to=frame.id,
+                body={
+                    **frame.body,
+                    "session_capability": token,
+                },
+            )
+        )
+    )
 
 
 def receive_kind(
@@ -217,19 +246,7 @@ class CorrelatedFrameReader:
                 try:
                     frame = receive_frame(self._client)
                     if frame.kind == "ping":
-                        self._client.sendall(
-                            encode_frame(
-                                envelope(
-                                    "pong",
-                                    frame_id=f"pong-{frame.id}",
-                                    in_reply_to=frame.id,
-                                    body={
-                                        **frame.body,
-                                        "session_capability": self._token,
-                                    },
-                                )
-                            )
-                        )
+                        answer_ping(self._client, self._token, frame)
                         continue
                 except (NativeProtocolError, OSError) as exc:
                     if not self._stopping.is_set():

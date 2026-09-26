@@ -24,6 +24,18 @@ class _StopPolling(BaseException):
     pass
 
 
+@pytest.fixture(autouse=True)
+def _join_command_threads(monkeypatch: pytest.MonkeyPatch):
+    # A side-command worker clears its delivery record after the reply is
+    # sent; let it finish under this test's BIRKIN_HOME and patches.
+    before = set(threading.enumerate())
+    yield
+    for thread in threading.enumerate():
+        if thread not in before:
+            thread.join(timeout=10)
+            assert not thread.is_alive(), f"{thread.name} outlived its test"
+
+
 class _Gateway:
     pending_hard_restart = False
 

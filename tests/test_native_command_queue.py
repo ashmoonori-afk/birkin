@@ -15,6 +15,7 @@ from tests.native_bridge_support import (
     envelope,
     hello,
     local_peer_uid,
+    receive_snapshot,
     serve,
 )
 
@@ -47,7 +48,7 @@ def _connect(
             "surfaces": {},
         },
     )))
-    assert receive_frame(client).kind == "snapshot"
+    _ = receive_snapshot(client, token)
     return client, token, ready, thread, errors
 
 
