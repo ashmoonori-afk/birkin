@@ -64,6 +64,10 @@ _KIND_HEADINGS = {
     "skill_note": "스킬 노트 (skill_note, 실행 불가)",
     "subagent": "위임 역할 (subagent)",
 }
+# The Korean name each heading leads with, for one-line change summaries.
+_KIND_LABELS = {
+    kind: heading.partition(" (")[0] for kind, heading in _KIND_HEADINGS.items()
+}
 _ACTION_LABELS = {"create": "추가", "update": "수정", "delete": "삭제"}
 
 
@@ -456,8 +460,14 @@ def _policy_markers() -> tuple[str, ...]:
     )
 
 
-def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
-    """Return an error string, or None when the edit is structurally sound."""
+def validate_edit(
+    edit: Any, *, max_content: int = MAX_CONTENT, restoring: bool = False
+) -> str | None:
+    """Return an error string, or None when the edit is structurally sound.
+
+    ``restoring`` marks a rollback's inverse edit, whose id comes from the
+    recorded refinement rather than from a proposal.
+    """
     if not isinstance(edit, dict):
         return "edit must be an object"
     action = str(edit.get("action", "")).strip().lower()
@@ -468,12 +478,17 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return "kind 'skill' is not executable; use 'skill_note' for harness metadata"
     if kind not in KINDS:
         return f"unknown kind {kind!r}"
-    # The id is proposal text like the title, but it keys the entry and is
-    # echoed into history, CLI output and approval text, so nothing but the
-    # plain slug that slug() itself produces is accepted.
+    # A create's id is proposal text like the title, but it keys the new entry
+    # and is echoed into history, CLI output and approval text, so nothing but
+    # the plain slug that slug() itself produces is accepted. An update or
+    # delete only names an entry that must already exist, whatever id an
+    # earlier version stored it under.
     eid = edit.get("id")
-    if eid not in (None, "") and not (
-        isinstance(eid, str) and _ENTRY_ID.fullmatch(eid)
+    if (
+        action == "create"
+        and not restoring
+        and eid not in (None, "")
+        and not (isinstance(eid, str) and _ENTRY_ID.fullmatch(eid))
     ):
         return "id must be 1-80 lowercase ASCII letters, digits or '_'"
     if action == "delete":
@@ -613,7 +628,9 @@ def apply(
     touched: set[str] = set()
 
     for edit in edits:
-        error = validate_edit(edit, max_content=max_content)
+        error = validate_edit(
+            edit, max_content=max_content, restoring=rollback_of is not None
+        )
         if error:
             record = dict(edit) if isinstance(edit, dict) else {"edit": edit}
             applied.append({**record, "applied": False, "error": error})
@@ -1301,9 +1318,40 @@ def _change_summary(changes: object) -> str:
         action, _, target = " ".join(str(change).split()).partition(" ")
         kind = target.partition(":")[0].lower()
         label = _ACTION_LABELS.get(action.lower())
-        key = f"{kind} {label}" if label and kind in KINDS else "기타 변경"
+        key = (
+            f"{_KIND_LABELS[kind]} {label}" if label and kind in KINDS else "기타 변경"
+        )
         counts[key] = counts.get(key, 0) + 1
     return ", ".join(f"{key} {n}건" for key, n in counts.items()) or "(적용 없음)"
+
+
+# Writers that store entries no human approved: the nightly run and the
+# in-session review (see morpheus.py and harness_review.py).
+_UNATTENDED_SOURCES = frozenset({"morpheus", "in-session"})
+
+
+def _unattended(entry: dict[str, Any]) -> bool:
+    return entry.get("source") in _UNATTENDED_SOURCES
+
+
+def _drop_unattended_first(
+    lines: list[str], unattended: list[int], last_other: int, budget: int
+) -> None:
+    """Drop unattended entry lines until every other entry survives the cut.
+
+    The budget cut keeps a prefix of the block, so an entry listed under a
+    later kind would go before the unattended ones listed above it. Those go
+    first instead, the lowest-ranked first, with any heading they leave empty.
+    """
+    for index in reversed([i for i in unattended if i < last_other]):
+        # The cut keeps a line only when the newline after it fits too.
+        if len("\n".join(lines[: last_other + 1])) < budget:
+            return
+        del lines[index]
+        last_other -= 1
+        if lines[index - 1].startswith("### ") and lines[index] == "":
+            del lines[index - 2 : index]
+            last_other -= 2
 
 
 def render_block(
@@ -1326,6 +1374,8 @@ def render_block(
         lines.append(f"revision: {revision}")
     lines.append("아래는 요약이다. 라우팅 힌트로 쓰고 상세가 필요하면 조회하라.")
 
+    unattended: list[int] = []  # lines listing an entry no human approved
+    last_other = -1  # the last line listing any other entry
     for kind in KINDS:
         records = entries.get(kind) or {}
         if not records:
@@ -1333,10 +1383,10 @@ def render_block(
         ordered = sorted(
             records.values(), key=lambda e: str(e.get("updated_at", "")), reverse=True
         )
-        # What the nightly run wrote unattended ranks after everything else,
-        # so its notes take only the slots others leave free and can never
-        # push an approved entry out of the prompt.
-        ordered.sort(key=lambda e: e.get("source") == "morpheus")
+        # What was written unattended (the nightly run, an in-session review)
+        # ranks after everything else, so it takes only the slots others leave
+        # free and can never push an approved entry out of the prompt.
+        ordered.sort(key=_unattended)
         lines.append("")
         lines.append(f"### {_KIND_HEADINGS[kind]}")
         for entry in ordered[:per_kind]:
@@ -1344,6 +1394,10 @@ def render_block(
             title = _clip(entry.get("title", entry.get("id", "?")), 80)
             body = _clip(entry.get("content", ""), width)
             version = entry.get("version", 1)
+            if _unattended(entry):
+                unattended.append(len(lines))
+            else:
+                last_other = len(lines)
             lines.append(f"- [{scope}] {title} — {body} (v{version})")
 
     recent = refinements[-history_limit:]
@@ -1360,7 +1414,11 @@ def render_block(
 
     block = "\n".join(lines)
     if budget and len(block) > budget:
-        block = block[:budget].rsplit("\n", 1)[0] + "\n- (예산 초과분 생략)"
+        _drop_unattended_first(lines, unattended, last_other, budget)
+        block = "\n".join(lines)
+        if len(block) > budget:
+            block = block[:budget].rsplit("\n", 1)[0]
+        block += "\n- (예산 초과분 생략)"
     return block
 
 

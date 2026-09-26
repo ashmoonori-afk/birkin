@@ -87,7 +87,9 @@ nothing after it, the harness proposal block:
              "reason": "why this edit"}}]}}
 ```
 
-"action" is create|update|delete (update and delete need an "id"); "kind" is \
+"action" is create|update|delete; update and delete need the entry's "id". \
+Omit "id" on create (it is made from the title): a create id that is not 1-80 \
+lowercase ASCII letters, digits or '_' is rejected. "kind" is \
 prompt|memory|skill|subagent. Emit an empty "edits" list when the night taught \
 nothing worth keeping.
 

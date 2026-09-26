@@ -49,9 +49,12 @@ _PROPOSAL_SYSTEM = (
     '{"summary": "one line", "rationale": "the evidence", '
     '"expectedOutcome": "what improves next time", "edits": ['
     '{"action": "create|update|delete", '
-    '"kind": "prompt|memory|skill|subagent", "id": "only for update/delete", '
+    '"kind": "prompt|memory|skill|subagent", '
+    '"id": "the entry\'s id, for update/delete", '
     '"title": "for create", "content": "the entry body", '
-    '"reason": "why"}]}')
+    '"reason": "why"}]}\n'
+    'Omit "id" on create (it is made from the title): a create id that is not '
+    "1-80 lowercase ASCII letters, digits or '_' is rejected.")
 
 # The marker discipline is morpheus's (see ``morpheus._MORPHEUS_TASK``): the
 # fenced span is a prompt-injection boundary, so the rules must sit ABOVE it

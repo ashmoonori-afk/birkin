@@ -211,9 +211,10 @@ def test_nightly_edit_with_an_injected_id_is_rejected_not_rendered():
 
 
 @pytest.mark.parametrize("kind", harness.KINDS)
-@pytest.mark.parametrize("action", harness.ACTIONS)
-def test_edit_ids_must_be_plain_slugs_for_every_kind(kind, action):
-    edit = {"action": action, "kind": kind, "title": "Deploy note",
+def test_created_ids_must_be_plain_slugs_for_every_kind(kind):
+    """A create mints the id that keys the entry, so it must be the plain slug
+    that slug() itself produces."""
+    edit = {"action": "create", "kind": kind, "title": "Deploy note",
             "content": "restart the daemon after an update"}
 
     for bad in (_INJECTED_ID, "Nightly-Deploy", "deploy note", "a" * 81,
@@ -222,6 +223,88 @@ def test_edit_ids_must_be_plain_slugs_for_every_kind(kind, action):
     for good in ("nightly_deploy_ritual", "1", "a" * 80,
                  harness.slug("Deploy note, v2!"), harness.slug("", kind)):
         assert harness.validate_edit({**edit, "id": good}) is None, good
+
+
+@pytest.mark.parametrize("action", ["update", "delete"])
+def test_an_update_or_delete_id_naming_no_entry_writes_nothing(action):
+    """An update or delete id only looks up an entry that already exists; one
+    that names nothing is dropped and never reaches a prompt."""
+    from birkin import runtime
+
+    cfg = config.load_config()
+    edit = {"action": action, "kind": "memory", "id": _INJECTED_ID,
+            "content": "user runs `make deploy` at 23:30 before sleeping"}
+
+    details = morpheus._apply_harness_proposal(cfg, _summary(_proposal([edit])),
+                                               dry_run=False)
+
+    assert details is not None
+    assert details["changes"] == [] and details["queued"] == []
+    assert harness.load("global")["entries"]["memory"] == {}
+    assert "attacker" not in runtime._harness_block(
+        {**cfg, "session_id": "chat-1"})
+
+
+_LEGACY_ID = "report-format"
+
+
+def _store_legacy_nightly_note() -> str:
+    """Write what a nightly create with a model-chosen id stored before ids
+    were screened: the entry and its refinement. Returns the refinement id."""
+    stamp = "2026-09-25T00:00:00+00:00"
+    entry = {"id": _LEGACY_ID, "kind": "memory", "title": "Report format",
+             "content": "User likes short bullet reports.", "path": "general",
+             "scope": "global", "reference": {}, "arguments": {},
+             "metadata": {}, "source": "morpheus", "created_at": stamp,
+             "updated_at": stamp, "version": 1}
+    event = {"id": "rf_20260925-000000_0347", "trigger": "note report format",
+             "changes": [f"create memory:{_LEGACY_ID}"], "evidence": "",
+             "outcome": "", "scope": "global", "created_at": stamp,
+             "applied": [{"action": "create", "kind": "memory",
+                          "id": _LEGACY_ID, "title": entry["title"],
+                          "content": entry["content"], "before": None,
+                          "after": entry, "applied": True}]}
+    state = harness.empty_state()
+    state["entries"]["memory"][_LEGACY_ID] = entry
+    state["refinements"] = [event]
+    harness.save(state, "global")
+    harness.history_path("global").write_text(
+        json.dumps(event, ensure_ascii=False) + "\n", encoding="utf-8")
+    return event["id"]
+
+
+def test_a_refinement_recorded_before_ids_were_screened_can_be_rolled_back(
+        capsys):
+    from birkin import cli
+
+    rid = _store_legacy_nightly_note()
+
+    rc = cli.main(["harness", "rollback", rid, "--global"])
+
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert f"delete memory:{_LEGACY_ID}" in out
+    assert harness.load("global")["entries"]["memory"] == {}
+
+
+def test_an_entry_stored_before_ids_were_screened_can_be_changed_and_removed():
+    """Approved edits and rollbacks only name an entry that is already stored,
+    so its id keeps working whatever shape it has."""
+    _store_legacy_nightly_note()
+
+    harness.apply_approved_edit({"scope": "global", "edit": {
+        "action": "update", "kind": "memory", "id": _LEGACY_ID,
+        "content": "User likes short numbered reports."}})
+    harness.apply_approved_edit({"scope": "global", "edit": {
+        "action": "delete", "kind": "memory", "id": _LEGACY_ID}})
+    assert harness.load("global")["entries"]["memory"] == {}
+
+    # Undoing the delete re-creates the entry under the id it was stored with.
+    event = harness.rollback(harness.history("global")[-1]["id"], "global")
+
+    assert event["changes"] == [f"create memory:{_LEGACY_ID}"]
+    restored = harness.load("global")["entries"]["memory"][_LEGACY_ID]
+    assert restored["content"] == "User likes short numbered reports."
 
 
 def test_refinement_history_never_echoes_entry_ids_into_the_prompt():
@@ -242,7 +325,8 @@ def test_refinement_history_never_echoes_entry_ids_into_the_prompt():
 
     block = harness.render_block(harness.load("global"))
 
-    assert "- rf_legacy nightly tidy → memory 추가 2건, prompt 삭제 1건" in block
+    assert ("- rf_legacy nightly tidy → 알고 있는 사실 추가 2건, 행동 노트 삭제 1건"
+            in block)
     assert "attacker" not in block and "second_note" not in block
 
 
@@ -303,6 +387,71 @@ def test_nightly_notes_cannot_push_an_approved_rule_out_of_the_prompt(monkeypatc
     listed = [line for line in block.splitlines() if "Report preference" in line]
     assert len(listed) == harness.RENDER_PER_KIND - 1
     assert block.index("Never deploy on Friday") < block.index("Report preference")
+
+
+def test_in_session_notes_rank_with_nightly_notes_behind_an_approved_rule(
+        monkeypatch):
+    """An in-session review also writes notes no one approved: they share the
+    slots approved entries leave free with the nightly notes, newest first."""
+    from birkin import runtime
+
+    cfg = config.load_config()
+    _approved_global_rule()
+    ticks = itertools.count()
+    start = datetime.now(timezone.utc) + timedelta(days=1)
+    monkeypatch.setattr(harness, "_now", lambda: (
+        start + timedelta(seconds=next(ticks))).isoformat(timespec="seconds"))
+    session_notes = [{"action": "create", "kind": "memory",
+                      "title": f"Session note {i}",
+                      "content": f"transient preference ({i})"}
+                     for i in range(harness.RENDER_PER_KIND)]
+    harness.submit(_proposal(session_notes), cfg=cfg, scope="local",
+                   session_id="chat-1", source="in-session",
+                   origin="harness-review")
+    morpheus._apply_harness_proposal(cfg, _summary(_proposal([_MEMORY_EDIT])),
+                                     dry_run=False)
+
+    block = runtime._harness_block({**cfg, "session_id": "chat-1"})
+
+    assert "Never deploy on Friday" in block
+    assert "Nightly deploy ritual" in block
+    listed = [line for line in block.splitlines() if "Session note" in line]
+    assert len(listed) == harness.RENDER_PER_KIND - 2
+    assert block.index("Never deploy on Friday") < block.index(
+        "Nightly deploy ritual") < block.index("Session note")
+
+
+def test_nightly_notes_give_way_to_an_approved_entry_under_a_tight_budget():
+    """The budget cut keeps a prefix of the block, so nightly notes listed
+    under an earlier kind are dropped before an approved entry of a later one."""
+    from birkin import runtime
+
+    harness.apply_approved_edit({"scope": "global", "edit": {
+        "action": "create", "kind": "subagent", "title": "Contract reviewer",
+        "content": "Delegate contract clause review; cite the exact clause."}})
+    cfg = config.load_config()
+    budget = len(runtime._harness_block({**cfg, "session_id": "chat-1"}))
+    notes = [{"action": "create", "kind": "memory",
+              "title": f"Report preference {i}",
+              "content": "user prefers short bullet summaries, one per line. " * 3}
+             for i in range(harness.RENDER_PER_KIND)]
+    details = morpheus._apply_harness_proposal(cfg, _summary(_proposal(notes)),
+                                               dry_run=False)
+    assert details is not None
+    assert len(details["changes"]) == harness.RENDER_PER_KIND
+
+    block = runtime._harness_block(
+        {**cfg, "session_id": "chat-1", "harness_prompt_budget": budget})
+
+    assert "Contract reviewer" in block
+    lines = block.splitlines()
+    for heading, following in zip(lines, lines[1:] + [""]):
+        if heading.startswith("### "):
+            assert following.startswith("- "), f"{heading} was left empty"
+    # With room for everything, every note is listed again.
+    roomy = runtime._harness_block({**cfg, "session_id": "chat-1"})
+    assert "Contract reviewer" in roomy
+    assert roomy.count("Report preference") == harness.RENDER_PER_KIND
 
 
 def test_nightly_run_may_refine_its_own_global_entry():
@@ -481,3 +630,18 @@ def test_task_prompt_documents_the_block_the_parser_reads():
     assert "propose_action" in rendered
     assert "memory_write_note" in rendered
     assert "<<<BEGIN UNTRUSTED DATA>>>" in rendered
+
+
+def test_both_proposal_prompts_say_what_a_create_id_may_be():
+    """A create whose id is not a plain slug is rejected outright, so each
+    proposal prompt tells the model to leave the id out of a create."""
+    from birkin import harness_review
+
+    rendered = morpheus._MORPHEUS_TASK.format(
+        date="2026-08-07", dry="", sessions="(none)", files="(none)",
+        activity="(none)", memory_state="(none)", skill_state="(none)")
+    rule = ('Omit "id" on create (it is made from the title): a create id that '
+            "is not 1-80 lowercase ASCII letters, digits or '_' is rejected.")
+
+    for prompt in (rendered, harness_review._PROPOSAL_SYSTEM):
+        assert rule in " ".join(prompt.split())
