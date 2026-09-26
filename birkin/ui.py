@@ -423,6 +423,11 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
         return str(payload.get("id") or payload.get("progress_id")
                    or payload.get("name") or payload.get("runtime_name") or "")
 
+    def _summary(payload: dict[str, Any]) -> str:
+        # The adapter drops the raw fields (reason/counts, steer text, task)
+        # and forwards only its Korean summary.
+        return printable(" ".join(str(payload.get("summary") or "").split()))
+
     def emit(event: str, payload: dict[str, Any]) -> None:
         pad = _pad()
         if event in ("subagent.tool_start", "subagent.tool_end"):
@@ -454,18 +459,23 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
                 snippet = content.strip().replace("\n", " ")[:200]
                 sys.stdout.write(f"{DIM}{pad}  ↳ {snippet}{RESET}\n")
         elif event == "compact":
-            sys.stdout.write(
-                f"\n{DIM}{pad}⤵ compacted context ({payload.get('reason')}): "
-                f"{payload.get('before')} → {payload.get('after')} messages"
-                f"{RESET}\n")
+            if "before" in payload and "after" in payload:
+                said = (f"compacted context ({payload.get('reason')}): "
+                        f"{payload.get('before')} → {payload.get('after')} "
+                        f"messages")
+            else:
+                said = _summary(payload) or "대화 컨텍스트를 정리했습니다."
+            sys.stdout.write(f"\n{DIM}{pad}⤵ {said}{RESET}\n")
         elif event == "subagent.start":
             task = printable(" ".join(str(payload.get("task") or "").split()))
-            label = f"하위 에이전트: {task}" if task else "하위 에이전트"
+            label = (f"하위 에이전트: {task}" if task
+                     else _summary(payload) or "하위 에이전트")
             sys.stdout.write(f"\n{DIM}{pad}⇲ {label}{RESET}\n")
             state["depth"] += 1
         elif event == "subagent.done":
             state["depth"] = max(0, state["depth"] - 1)
-            sys.stdout.write(f"{DIM}{_pad()}⇱ 하위 에이전트 완료{RESET}\n")
+            label = _summary(payload) or "하위 에이전트 완료"
+            sys.stdout.write(f"{DIM}{_pad()}⇱ {label}{RESET}\n")
         elif event == "checkpoint":
             # Teach /undo the moment there's something to undo (lazygit shows
             # the commit key right after you stage). Was silent before.
@@ -473,7 +483,9 @@ def make_event_printer() -> Callable[[str, dict[str, Any]], None]:
                 f"{DIM}{pad}checkpoint 저장됨 · /undo 로 되돌리기{RESET}\n")
         elif event == "steer":
             said = str(payload.get("text", "") or "")[:60]
-            sys.stdout.write(f"{DIM}{pad}steer 반영: {said}{RESET}\n")
+            line = (f"steer 반영: {said}" if said
+                    else _summary(payload) or "steer 반영")
+            sys.stdout.write(f"{DIM}{pad}{line}{RESET}\n")
         elif (
             event == "office_progress"
             or (

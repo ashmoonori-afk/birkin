@@ -271,6 +271,59 @@ def test_terminal_trace_names_tools_from_the_runtime_adapter(
     assert "None" not in output
 
 
+def test_terminal_trace_speaks_the_adapter_summary_for_other_events(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Given: the adapter forwards compact, steer and a summoned agent's
+    # lifecycle without their raw fields (counts, steer text, task).
+    session: WorkspaceSession
+    adapter: RuntimeWorkspaceAdapter
+
+    def handler(_payload: dict[str, object]) -> dict[str, object]:
+        adapter.runtime_event(
+            "compact", {"reason": "auto", "before": 40, "after": 8}
+        )
+        adapter.runtime_event("steer", {"text": "표로 정리해줘"})
+        adapter.runtime_event(
+            "subagent.start",
+            {"task": "조사", "id": "r1", "agent_title": "리서처"},
+        )
+        adapter.runtime_event("subagent.done", {"id": "r1", "agent_title": "리서처"})
+        _ = session.service.emit("message.assistant.completed", {"text": "완료"})
+        return {"reply": "완료"}
+
+    session = WorkspaceSession(
+        root=tmp_path,
+        session_id="terminal-summary-trace",
+        handlers={"chat.send": handler},
+        handler_factory=None,
+    )
+    adapter = RuntimeWorkspaceAdapter(
+        "t", session.service.emit, workspace_root=tmp_path
+    )
+    client = workspace_terminal.WorkspaceTerminalClient(
+        session,
+        actor_id="terminal:test",
+        on_event=ui.make_event_printer(),
+    )
+
+    # When: the default terminal renders the turn's events.
+    try:
+        assert client.ask("정리", lambda _piece: None) == "완료"
+    finally:
+        adapter.close()
+        session.close()
+
+    # Then: each line says what happened in Korean, never "None" or a blank.
+    output = capsys.readouterr().out
+    assert "⤵ 대화 컨텍스트를 정리했습니다." in output
+    assert "실행 방향을 업데이트했습니다." in output
+    assert "⇲ 리서처 에이전트가 작업을 시작했습니다." in output
+    assert "⇱ 리서처 에이전트가 작업을 마쳤습니다." in output
+    assert "None" not in output and "steer 반영: \n" not in output
+
+
 def test_runtime_snapshot_hydrates_existing_cron_authority(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

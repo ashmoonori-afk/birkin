@@ -885,7 +885,9 @@ def test_notice_and_roster_escape_controls(monkeypatch):
         lambda self, text, on_text=None, abort=None:
         "결과 \x1b]52;c;ZXZpbA==\x07 끝")
     (summon.agents_dir()).mkdir(parents=True, exist_ok=True)
-    (summon.agents_dir() / "bad\x1b[31m.md").write_text(
+    # Windows refuses code points 1-31 in file names, so the hostile name
+    # uses a format character (RLO), which the roster escapes the same way.
+    (summon.agents_dir() / "bad\u202egnp.md").write_text(
         "---\ndescription: x\n---\nx\n", encoding="utf-8")
 
     _slash("/summon --bg researcher 조사", session)
@@ -893,8 +895,8 @@ def test_notice_and_roster_escape_controls(monkeypatch):
     notice = _announce()
     roster = _slash("/summon")
 
-    for out in (notice, roster):
-        assert "\x1b" not in out and "\\u001b" in out
+    assert "\x1b" not in notice and "\\u001b" in notice
+    assert "\u202e" not in roster and "\\u202e" in roster
     assert "결과" in notice and "리서처" in roster     # Hangul unchanged
 
 
