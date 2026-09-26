@@ -14,15 +14,19 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "native" / "packaged_journey.sh"
 
-# DiskImages reports short-lived contention (for example an image that
-# `hdiutil create` has only just released) as EAGAIN or EBUSY. Only those are
-# retried; any other hdiutil failure is returned on the first attempt.
+# DiskImages reports lock contention on an image file as EAGAIN and a volume
+# it cannot release as EBUSY (hdiutil(1), ERRORS). Both clear once the other
+# holder lets go: often the helper of the `hdiutil create` that just returned,
+# or a device a failed attach left behind, which is why the image's own
+# devices are released before each retry. Any other failure is returned at once.
 _HDIUTIL_TRANSIENT = ("Resource temporarily unavailable", "Resource busy")
-_HDIUTIL_ATTEMPTS = 5
+_HDIUTIL_RETRY_DELAYS = (1, 2, 4)
 
 
-def _hdiutil(*args: str) -> subprocess.CompletedProcess[bytes]:
-    attempt = 1
+def _hdiutil(
+    *args: str, release: Path | None = None
+) -> subprocess.CompletedProcess[bytes]:
+    delays = iter(_HDIUTIL_RETRY_DELAYS)
     while True:
         completed = subprocess.run(
             ["/usr/bin/hdiutil", *args],
@@ -31,19 +35,53 @@ def _hdiutil(*args: str) -> subprocess.CompletedProcess[bytes]:
             timeout=30,
         )
         stderr = completed.stderr.decode(errors="replace")
+        delay = next(delays, None)
         if (
             completed.returncode == 0
-            or attempt == _HDIUTIL_ATTEMPTS
+            or delay is None
             or not any(marker in stderr for marker in _HDIUTIL_TRANSIENT)
         ):
             return completed
-        time.sleep(attempt)
-        attempt += 1
+        if release is not None:
+            _release_image(release)
+        time.sleep(delay)
 
 
-def _detach(mount: str) -> None:
-    if _hdiutil("detach", mount).returncode != 0:
-        _ = _hdiutil("detach", "-force", mount)
+def _release_image(image: Path) -> None:
+    """Detach every device DiskImages still has attached for this image."""
+    info = subprocess.run(
+        ["/usr/bin/hdiutil", "info", "-plist"],
+        capture_output=True,
+        check=False,
+        timeout=30,
+    )
+    if info.returncode != 0:
+        return
+    payload = cast(dict[str, object], plistlib.loads(info.stdout))
+    target = os.path.realpath(image)
+    for image_value in cast(list[object], payload.get("images", [])):
+        if not isinstance(image_value, dict):
+            continue
+        attached = cast(dict[str, object], image_value)
+        image_path = attached.get("image-path")
+        if not isinstance(image_path, str):
+            continue
+        if os.path.realpath(image_path) != target:
+            continue
+        entities = cast(list[object], attached.get("system-entities", []))
+        devices = [
+            device
+            for entity in entities
+            if isinstance(entity, dict)
+            and isinstance(
+                device := cast(dict[str, object], entity).get("dev-entry"), str
+            )
+        ]
+        if not devices:
+            continue
+        whole_disk = min(devices, key=len)
+        if _hdiutil("detach", whole_disk).returncode != 0:
+            _ = _hdiutil("detach", "-force", whole_disk)
 
 
 @pytest.mark.skipif(
@@ -97,22 +135,24 @@ exit 73
     )
     assert create.returncode == 0, create.stderr.decode()
 
-    attach = _hdiutil("attach", "-nobrowse", "-readonly", "-plist", str(image))
-    assert attach.returncode == 0, attach.stderr.decode()
-    payload = cast(dict[str, object], plistlib.loads(attach.stdout))
-    entities_value = payload.get("system-entities")
-    assert isinstance(entities_value, list)
-    mount: str | None = None
-    for entity_value in cast(list[object], entities_value):
-        assert isinstance(entity_value, dict)
-        entity = cast(dict[str, object], entity_value)
-        candidate = entity.get("mount-point")
-        if isinstance(candidate, str):
-            mount = candidate
-            break
-    assert mount is not None
-    evidence = tmp_path / "evidence"
     try:
+        attach = _hdiutil(
+            "attach", "-nobrowse", "-readonly", "-plist", str(image), release=image
+        )
+        assert attach.returncode == 0, attach.stderr.decode()
+        payload = cast(dict[str, object], plistlib.loads(attach.stdout))
+        entities_value = payload.get("system-entities")
+        assert isinstance(entities_value, list)
+        mount: str | None = None
+        for entity_value in cast(list[object], entities_value):
+            assert isinstance(entity_value, dict)
+            entity = cast(dict[str, object], entity_value)
+            candidate = entity.get("mount-point")
+            if isinstance(candidate, str):
+                mount = candidate
+                break
+        assert mount is not None
+        evidence = tmp_path / "evidence"
         result = subprocess.run(
             ["bash", str(SCRIPT), str(evidence), mount],
             cwd=ROOT,
@@ -138,7 +178,7 @@ exit 73
             Path(mount).resolve()
         )
     finally:
-        _detach(mount)
+        _release_image(image)
 
 
 @pytest.mark.skipif(
@@ -181,27 +221,27 @@ def test_journey_rejects_app_from_writable_disk_image(tmp_path: Path) -> None:
     )
     assert create.returncode == 0, create.stderr.decode()
 
-    attach = _hdiutil("attach", "-nobrowse", "-plist", str(image))
-    assert attach.returncode == 0, attach.stderr.decode()
-    payload = cast(dict[str, object], plistlib.loads(attach.stdout))
-    entities_value = payload.get("system-entities")
-    assert isinstance(entities_value, list)
-    mount = next(
-        (
-            candidate
-            for entity_value in cast(list[object], entities_value)
-            if isinstance(entity_value, dict)
-            and isinstance(
-                candidate := cast(dict[str, object], entity_value).get(
-                    "mount-point"
-                ),
-                str,
-            )
-        ),
-        None,
-    )
-    assert isinstance(mount, str)
     try:
+        attach = _hdiutil("attach", "-nobrowse", "-plist", str(image), release=image)
+        assert attach.returncode == 0, attach.stderr.decode()
+        payload = cast(dict[str, object], plistlib.loads(attach.stdout))
+        entities_value = payload.get("system-entities")
+        assert isinstance(entities_value, list)
+        mount = next(
+            (
+                candidate
+                for entity_value in cast(list[object], entities_value)
+                if isinstance(entity_value, dict)
+                and isinstance(
+                    candidate := cast(dict[str, object], entity_value).get(
+                        "mount-point"
+                    ),
+                    str,
+                )
+            ),
+            None,
+        )
+        assert isinstance(mount, str)
         result = subprocess.run(
             ["bash", str(SCRIPT), str(tmp_path / "evidence"), mount],
             cwd=ROOT,
@@ -217,4 +257,4 @@ def test_journey_rejects_app_from_writable_disk_image(tmp_path: Path) -> None:
         assert result.returncode == 2, result.stdout + result.stderr
         assert "read-only" in result.stderr
     finally:
-        _detach(mount)
+        _release_image(image)
