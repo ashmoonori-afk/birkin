@@ -174,15 +174,18 @@ def _sibling_groups(node: Node, groups: list[list[Node]]) -> None:
             _sibling_groups(child, groups)
 
 
-def _compose(root: Node, m, *, label: str) -> None:
+def _compose(root: Node, m, *, label: str) -> int:
     """Bottom-up: every internal node's summary is composed from its
-    children's summaries, deepest first."""
+    children's summaries, deepest first. Returns how many judge calls
+    failed, so the verdict cannot call a report with a missing summary
+    complete."""
+    judge_failed = 0
     for child in root.children:
         if not child.is_leaf:
-            _compose(child, m, label=label)
+            judge_failed += _compose(child, m, label=label)
     if root.is_leaf:
         root.summary = root.note
-        return
+        return judge_failed
     digest = "\n".join(f"- {child.title}: {child.summary or '(no result)'}"
                        for child in root.children)
     out = m.agent(
@@ -193,6 +196,7 @@ def _compose(root: Node, m, *, label: str) -> None:
         role="judge", schema=SUMMARY_SCHEMA, label=label) or {}
     root.summary = str(out.get("summary")
                        or "(judge failed - see the run journal failures)")
+    return judge_failed + (0 if out.get("summary") else 1)
 
 
 def _render(node: Node, lines: list[str], depth: int) -> None:
@@ -305,14 +309,22 @@ def main(m):
                 dropped.append(str(followup))
 
     m.phase("Report")
-    _compose(root, m, label="judge")
+    judge_failed = _compose(root, m, label="judge")
 
     # Minto pyramid (design Item 8): verdict first, then the ledger state,
-    # then the per-leaf evidence, then what the caps cut.
+    # then the per-leaf evidence, then what the caps cut. The completion is
+    # declared, like hard_task's: the planner and judge calls must not make
+    # a run whose every leaf died read as partial success.
     failed = sum(1 for leaf in leaves if leaf.status == "failed")
-    verdict = ("완료" if todo.is_complete and not failed
-               else f"부분 완료 - 잎 {len(leaves)}개 중 실패 {failed}개"
-               + (f", 후속 실패 {followup_failed}개" if followup_failed else ""))
+    tally = (f"잎 {len(leaves)}개 중 실패 {failed}개"
+             + (f", 후속 실패 {followup_failed}개" if followup_failed else "")
+             + (f", 요약 실패 {judge_failed}개" if judge_failed else ""))
+    if todo.is_complete and not failed and not judge_failed:
+        completion, verdict = "complete", "완료"
+    elif todo.done_count == 0:
+        completion, verdict = "failed", f"미완료 - {tally}"
+    else:
+        completion, verdict = "partial", f"부분 완료 - {tally}"
     lines = [f"VERDICT: {verdict} - {task}", "",
              f"GOAL: {root.summary or '(없음)'}", "", todo.render(), ""]
     _render(root, lines, 0)
@@ -324,4 +336,4 @@ def main(m):
         lines.append("")
         lines.append(f"한도(cap)에 걸려 수행하지 못한 후속 작업 "
                      f"{len(dropped)}건: " + ", ".join(dropped[:10]))
-    return "\n".join(lines)
+    return {"answer": "\n".join(lines), "completion": completion}

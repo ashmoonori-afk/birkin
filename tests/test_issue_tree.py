@@ -163,7 +163,8 @@ def test_worker_followups_join_the_ledger_and_run(script):
 
     out = moirai.run_script(script, cfg={}, args={"task": "t"}, spawn=spawn)
     assert ran == ["only", "fix the thing found"]
-    assert "fix the thing found" in out["result"]
+    assert "fix the thing found" in out["result"]["answer"]
+    assert out["completion"] == "complete"
 
 
 def test_followups_beyond_the_cap_are_dropped_and_named(script):
@@ -185,8 +186,9 @@ def test_followups_beyond_the_cap_are_dropped_and_named(script):
 
     out = moirai.run_script(script, cfg={}, args={"task": "t"}, spawn=spawn)
     assert out["status"] == "completed"
-    assert "cap" in out["result"]
-    assert "flood-" in out["result"], "dropped follow-ups must be named"
+    assert "cap" in out["result"]["answer"]
+    assert "flood-" in out["result"]["answer"], (
+        "dropped follow-ups must be named")
 
 
 # ---------------- report coverage ------------------------------------------
@@ -206,9 +208,11 @@ def test_the_report_covers_every_leaf_status(script):
         return json.dumps({"result": "ok", "followups": []})
 
     out = moirai.run_script(script, cfg={}, args={"task": "t"}, spawn=spawn)
-    report = out["result"]
+    report = out["result"]["answer"]
     assert out["status"] == "completed", "one dead leaf must not kill the run"
-    assert report.startswith("VERDICT:"), "Minto: verdict line first"
+    assert out["completion"] == "partial"
+    assert report.startswith(
+        "VERDICT: 부분 완료 - 잎 3개 중 실패 1개"), "Minto: verdict line first"
     for title, status in (("a1", "done"), ("a2", "failed"), ("b1", "done")):
         assert f"[{status}] {title}" in report, (
             f"report must name leaf {title} with status {status}")
@@ -223,7 +227,23 @@ def test_a_fully_successful_tree_reports_verdict_done(script):
     }
     out = moirai.run_script(script, cfg={}, args={"task": "t"},
                             spawn=_spawn(replies))
-    assert out["result"].splitlines()[0].startswith("VERDICT: 완료")
+    assert out["result"]["answer"].splitlines()[0].startswith("VERDICT: 완료")
+    assert out["completion"] == out["result"]["completion"] == "complete"
+
+
+def test_a_failed_judge_keeps_the_run_partial(script):
+    # Every leaf got done, but the bottom-up summary did not: the report is
+    # missing its GOAL, so the run must not read as complete.
+    replies = {
+        "MECE": TREE,
+        "잎 이슈:": {"result": "fine", "followups": []},
+        "상향식으로 취합": "[provider-error] claude: overloaded",
+    }
+    out = moirai.run_script(script, cfg={}, args={"task": "t"},
+                            spawn=_spawn(replies))
+    assert out["completion"] == out["result"]["completion"] == "partial"
+    assert out["result"]["answer"].splitlines()[0].startswith(
+        "VERDICT: 부분 완료 - 잎 3개 중 실패 0개, 요약 실패 3개")
 
 
 # ---------------- meta / resolution ----------------------------------------
