@@ -46,7 +46,7 @@ Copy-Item $source $incoming
 
 ### 3. 한국어로 첫 리포트 요청
 
-`birkin chat`에서 `incoming의 매출.xlsx를 검사하고 주요 변화와 확인할 항목을 한국어 리포트 초안으로 정리해 줘. 원본은 수정하지 마.`라고 요청합니다. 파일 생성이나 내보내기가 제안되면 다른 PowerShell에서 `birkin review`를 실행해 source, destination, operation, overwrite 여부를 확인하고 승인합니다.
+`birkin chat`에서 `incoming의 매출.xlsx를 검사하고 주요 변화와 확인할 항목을 한국어 리포트 초안으로 정리해 줘. 원본은 수정하지 마.`라고 요청합니다. 파일 생성이나 내보내기가 제안되면 다른 PowerShell에서 `birkin review`를 실행해 원본, 저장 위치, 작업 내용, 덮어쓰기 여부를 확인하고 승인합니다.
 
 ## 왜 birkin인가?
 
@@ -195,7 +195,7 @@ Office 기능은 범위가 정해진 문서 작업이며 데스크톱 Office 프
 birkin --version
 birkin --help
 birkin chat --dry-run "이 요청을 요약해줘" # prompt packet만 만들고 전송하지 않음
-birkin review                              # 대기 중인 승인 검토
+birkin review                              # 대기 중인 승인 검토 (실패한 작업은 ✗로 표시)
 ```
 
 전체 설정표는 [설정 참조](./docs/config-reference.ko.md)에 있습니다. 사용자용 한국어와 protocol·진단용 영어의 기준은 [언어 정책](./docs/language-policy.md)을 따릅니다.

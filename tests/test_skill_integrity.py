@@ -6,7 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from birkin import approvals, config, risk
+from birkin import approval_text, approvals, config, risk
 from birkin.skills import validate as skv
 
 
@@ -186,9 +186,11 @@ def test_review_cli_orders_pending_highest_risk_first(capsys, monkeypatch):
     out = capsys.readouterr().out
     # highest-risk shell appears before the memory note
     assert out.index("high cmd") < out.index("mid cron") < out.index("low note")
-    # tier labels surface (no need to match exact glyph — just the word)
-    assert "[high/shell]" in out
-    assert "[low/memory]" in out
+    # tier and category surface as Korean labels, not raw enums
+    assert (f'{approval_text.risk_label("high")} · '
+            f'{approval_text.category_label("shell")}') in out
+    assert (f'{approval_text.risk_label("low")} · '
+            f'{approval_text.category_label("memory")}') in out
 
 
 def test_propose_low_risk_category_still_auto_approves_when_allowed():
@@ -201,3 +203,20 @@ def test_propose_low_risk_category_still_auto_approves_when_allowed():
     res = approvals.propose(category="memory", title="t",
                             description="d", payload={}, cfg=cfg, origin="test")
     assert res["auto"] is True
+
+
+def test_review_cli_never_marks_a_failed_approve_done(capsys, monkeypatch):
+    """A refused approve prints Korean failure copy with the raw error only as
+    a labelled detail, never a check mark over the result dict."""
+    cfg = config.load_config()
+    cfg["auto_approve"] = []
+    approvals.propose(category="cron", title="mid cron", description="d",
+                      payload={}, cfg=cfg, origin="test")
+    monkeypatch.setattr(approvals, "approve",
+                        lambda aid, **_kw: {"ok": False, "error": "X"})
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "y")
+    approvals.review_cli()
+    out = capsys.readouterr().out
+    assert "✓" not in out
+    assert "   ✗ " in out
+    assert "세부: X" in out

@@ -776,23 +776,23 @@ def _permission(session: Any, arg: str) -> None:
         session.client.cli_access = sub[1]   # apply to the live session
         config.save_config(session.cfg)
         if sub[1] == "full":
-            print(f"{YELLOW}⚠ 'full': the CLI agent now bypasses all approvals & "
-                  f"sandbox — it can run ANY command / edit ANY file.{RESET}")
+            print(f"{YELLOW}⚠ 'full': 이제 CLI 에이전트가 모든 승인과 샌드박스를 "
+                  f"건너뛰어 어떤 명령이든 실행하고 어떤 파일이든 수정할 수 "
+                  f"있습니다.{RESET}")
     elif len(sub) == 2 and sub[0] == "unattended-full" and sub[1] in ("on", "off"):
         # Let the UNATTENDED nightly Morpheus run keep cli_access "full" (the
         # reachable gateway is ALWAYS workspace regardless). Default off.
         session.cfg["allow_unattended_full"] = (sub[1] == "on")
         config.save_config(session.cfg)
         if sub[1] == "on":
-            print(f"{YELLOW}⚠ unattended-full ON: the nightly Morpheus run may now "
-                  f"bypass sandbox/approvals (needs cli_access 'full' too). The "
-                  f"gateway stays sandboxed.{RESET}")
+            print(f"{YELLOW}⚠ unattended-full 켜짐: 야간 Morpheus 실행이 샌드박스와 "
+                  f"승인을 건너뛸 수 있습니다 (cli_access 'full'도 필요). "
+                  f"게이트웨이는 계속 샌드박스 안에서 실행됩니다.{RESET}")
     elif len(sub) == 2 and sub[0] in ("add", "remove"):
         cat = sub[1]
         if sub[0] == "add" and cat in ("shell", "cron", "worker"):
-            print(f"{YELLOW}⚠ auto-approving '{cat}' lets the unattended nightly "
-                    f"routine run it without asking (incl. shell at the "
-                    f"configured Morpheus time).{RESET}")
+            print(f"{YELLOW}⚠ '{cat}' 자동 승인을 켜면 야간 루틴이 묻지 않고 "
+                  f"실행합니다 (Morpheus 예약 시각의 shell 포함).{RESET}")
         if sub[0] == "add" and cat not in auto:
             auto.append(cat)
         elif sub[0] == "remove" and cat in auto:
@@ -800,8 +800,8 @@ def _permission(session: Any, arg: str) -> None:
         session.cfg["auto_approve"] = auto
         config.save_config(session.cfg)
     uf = "on" if session.cfg.get("allow_unattended_full") else "off"
-    print(f"{DIM}Auto-approved: {', '.join(auto) or '(none)'} · "
-          f"CLI access: {session.cfg.get('cli_access', 'workspace')} · "
+    print(f"{DIM}자동 승인: {', '.join(auto) or '(없음)'} · "
+          f"CLI 권한: {session.cfg.get('cli_access', 'workspace')} · "
           f"unattended-full: {uf} "
           f"(/permission access workspace|full · unattended-full on|off){RESET}")
 

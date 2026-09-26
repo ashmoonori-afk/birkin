@@ -128,6 +128,14 @@ def _visible_tool_content(content: str | list[dict[str, Any]]) -> str:
 # giving up and surfacing the error.
 _MAX_COMPACT_RETRIES = 2
 
+# User-facing notices appended to the reply when the loop stops early. The
+# typed reason is ``Agent.last_stop`` ("aborted", "max_tokens", "max_turns").
+ABORTED_NOTICE = "[birkin] 요청에 따라 작업을 중단했습니다."
+_MAX_TOKENS_NOTICE = (
+    "[birkin] 응답이 출력 길이 한도에서 잘렸습니다. "
+    "'계속'이라고 보내면 이어서 작성합니다."
+)
+
 
 class Agent:
     def __init__(self, *, client: LLMClient, system: str, registry: Registry,
@@ -157,6 +165,7 @@ class Agent:
         # Per-turn telemetry (read by the caller for run records).
         self.last_tools: list[str] = []
         self.last_iterations = 0
+        self.last_stop = ""
 
         # Automatic context compaction. CLI providers run their own agent loop
         # in a child process and compact their own context, so birkin only
@@ -375,6 +384,7 @@ class Agent:
     def _loop(self, on_text, extra_system: str = "",
               abort: Optional["AbortLike"] = None) -> str:
         final_text = ""
+        self.last_stop = ""
         tool_specs = [
             spec for spec in self.registry.specs()
             if str(spec.get("name", "")) not in self._blocked_tools
@@ -389,7 +399,8 @@ class Agent:
             if self._aborted(abort):
                 if getattr(self, "_trusted_turn", True):
                     self._drain_steer()
-                return (final_text + "\n\n[birkin] aborted.").strip()
+                self.last_stop = "aborted"
+                return (final_text + f"\n\n{ABORTED_NOTICE}").strip()
             # Deliver anything the user typed while the previous model call or
             # tool batch was running. Folding it into the trailing user message
             # (rather than appending a new one) keeps it user-authored content
@@ -439,12 +450,13 @@ class Agent:
                 if getattr(self, "_trusted_turn", True):
                     self._drain_steer()
                 self._update_nudges(used_skill, used_memory)
-                return (final_text + "\n\n[birkin] aborted.").strip()
+                self.last_stop = "aborted"
+                return (final_text + f"\n\n{ABORTED_NOTICE}").strip()
 
             if not tool_uses:
                 if assistant.get("stop_reason") == "max_tokens":
-                    final_text += "\n\n[birkin] response was cut off at the token " \
-                                  "limit (max_tokens); ask me to continue."
+                    self.last_stop = "max_tokens"
+                    final_text += f"\n\n{_MAX_TOKENS_NOTICE}"
                 self._update_nudges(used_skill, used_memory)
                 return final_text
 
@@ -482,8 +494,11 @@ class Agent:
 
         self._update_nudges(used_skill, used_memory)
         final_text = self._grace_summary(system, on_text, abort) or final_text
-        final_text += "\n\n[birkin] Reached the maximum number of tool turns " \
-                      f"({self.max_turns}); stopping to avoid a loop."
+        self.last_stop = "max_turns"
+        final_text += (
+            f"\n\n[birkin] 도구 호출이 최대 {self.max_turns}회에 도달해 반복을 막으려고 "
+            "멈췄습니다. 이어서 하려면 다시 요청하세요."
+        )
         return final_text
 
     # -- tool execution ----------------------------------------------------

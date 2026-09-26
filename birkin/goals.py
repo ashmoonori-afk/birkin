@@ -477,8 +477,9 @@ def _gate(
         if not any(_is_verifier_for(record, state, command)
                    for record in store.list_pending()):
             approvals.propose(
-                category="shell", title=f"goal verifier: {command[:60]}",
-                description=f"Verify session goal '{state.objective[:120]}'.",
+                category="shell", title=f"목표 확인 명령: {command[:60]}",
+                description=(f"세션 목표 '{state.objective[:120]}'의 달성 여부를 "
+                             "확인하는 명령입니다."),
                 payload={"command": command, "goal_slug": state.slug,
                          "goal_session": state.session_id or ""},
                 cfg=cfg, origin="goal")

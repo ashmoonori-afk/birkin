@@ -133,18 +133,6 @@ def _bounded_text(value: Any, limit: int) -> bool:
     return isinstance(value, str) and 0 < len(value) <= limit
 
 
-def describe(value: Any) -> str:
-    continuation = validate(value)
-    if continuation["handler"] == "moirai.resume.v1":
-        context = continuation["context"]
-        return (
-            f"resume moirai run {context['run_id']} "
-            f"at {context['worker_id']}/{context['step_id']}"
-        )
-    checkpoint = str(continuation["context"].get("checkpoint", "saved checkpoint"))
-    return f"resume {continuation['worker']} from {checkpoint}"
-
-
 def dispatch(
     value: Any,
     *,

@@ -6,7 +6,7 @@ import threading
 import time
 
 from birkin import parallel
-from birkin.agent import Agent
+from birkin.agent import ABORTED_NOTICE, Agent
 
 
 def _tu(name, tid=None, **inp):
@@ -272,7 +272,8 @@ def test_abort_stops_the_remaining_sequential_calls():
         assert [b["tool_use_id"] for b in results] == ["a", "b", "c"]
         assert [(b["content"], b["is_error"]) for b in results[1:]] \
             == [("aborted", True), ("aborted", True)]
-        assert out.endswith("[birkin] aborted.")
+        assert agent.last_stop == "aborted"
+        assert out.endswith(ABORTED_NOTICE)
 
 
 def test_abort_in_a_parallel_segment_skips_later_writers():

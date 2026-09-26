@@ -12,6 +12,7 @@ import pytest
 
 from birkin import agentruns, budget, store, summon
 from birkin import subagent as subagent_mod
+from birkin.agent import ABORTED_NOTICE
 from birkin.runtime import build_session
 
 
@@ -329,7 +330,7 @@ def test_attached_child_stops_when_the_parent_is_interrupted():
 
     out = subagent_mod.run_subagent("long job", session.ctx, max_turns=8)
 
-    assert "aborted" in out
+    assert ABORTED_NOTICE in out
     assert client.calls <= 2
 
 

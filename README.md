@@ -173,7 +173,7 @@ The repository's GitHub workflows exercise the same Python-owned authority and d
 birkin --version
 birkin --help
 birkin chat --dry-run "Summarize this request" # builds the prompt packet; sends nothing
-birkin review                                  # inspect pending approvals
+birkin review                                  # review pending approvals (a failed action is marked ✗)
 ```
 
 The generated tables live in [Configuration reference](./docs/config-reference.md). User-facing Korean and stable protocol/diagnostic English follow the [language policy](./docs/language-policy.md).

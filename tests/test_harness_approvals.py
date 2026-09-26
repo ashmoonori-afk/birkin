@@ -7,6 +7,8 @@ are queued for ``birkin review`` and only land after a human approves them.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from birkin import approvals, config, harness, risk, store
@@ -85,6 +87,8 @@ def test_submit_queues_a_prompt_edit_instead_of_applying_it(cfg):
     assert len(result["queued"]) == 1
     pending = store.list_pending()
     assert [p["category"] for p in pending] == ["harness"]
+    assert re.search(r"[\uac00-\ud7a3]", pending[0]["title"])
+    assert "Check git status" in pending[0]["title"]
     assert harness.load()["entries"]["prompt"] == {}
 
 

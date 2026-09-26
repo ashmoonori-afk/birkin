@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -146,6 +147,7 @@ def test_completion_requires_a_verifier_that_actually_passed(monkeypatch):
     assert queued is not None and queued.status == "active"
     assert goals.get_active() is not None
     assert len(store.list_pending()) == 1
+    assert re.search(r"[\uac00-\ud7a3]", store.list_pending()[0]["title"])
 
     monkeypatch.setattr(approvals, "execute_action",
                         lambda *_args, **_kwargs: "[exit 1] 1 failed")

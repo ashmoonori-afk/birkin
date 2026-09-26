@@ -165,7 +165,7 @@ def review_cli_turn(ctx: ToolContext, transcript: str) -> str:
             target = skill.name
             proposal = {"action": "improve", "target": target,
                         "addition": addition}
-            title = f"improve skill: {target}"
+            title = f"스킬 개선: {target}"
             description = addition[:160]
         case "create":
             raw_name = str(payload.get("name", "")).strip()
@@ -182,7 +182,7 @@ def review_cli_turn(ctx: ToolContext, transcript: str) -> str:
             proposal = {"action": "create", "name": name,
                         "description": description, "body": body,
                         "tags": tags}
-            title = f"new skill: {name}"
+            title = f"새 스킬: {name}"
         case "none":
             return "Nothing new worth saving."
         case unreachable:

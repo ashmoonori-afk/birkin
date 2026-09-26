@@ -830,7 +830,7 @@ def submit(
         queued.append(
             approvals.propose(
                 category="harness",
-                title=f"harness {edit['action']} {kind}: {label}",
+                title=f"하네스 변경 ({edit['action']} · {kind}): {label}",
                 description=str(edit.get("reason") or proposal.get("rationale") or "")[
                     :400
                 ],

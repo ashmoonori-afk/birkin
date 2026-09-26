@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 from birkin.agent import Agent
 from birkin.llm import LLMError
+
+_HANGUL = re.compile(r"[\uac00-\ud7a3]")
 
 
 class _Reg:
@@ -44,10 +48,12 @@ def _agent(client, **kw):
 
 def test_exhausted_run_returns_a_summary_plus_the_notice():
     client = LoopsForever()
-    out = _agent(client).run("go")
+    agent = _agent(client)
+    out = agent.run("go")
     assert "migration is unfinished" in out
-    assert "Reached the maximum number of tool turns" in out
+    assert agent.last_stop == "max_turns"
     assert "3" in out
+    assert _HANGUL.search(out.rsplit("[birkin]", 1)[-1])
 
 
 def test_grace_call_is_made_without_tools():
@@ -99,7 +105,9 @@ def test_a_failed_grace_call_leaves_history_untouched():
     before_len = None
     out = agent.run("go")
     before_len = len(agent.messages)
-    assert "Reached the maximum number of tool turns" in out
+    assert agent.last_stop == "max_turns"
+    assert "3" in out
+    assert _HANGUL.search(out.rsplit("[birkin]", 1)[-1])
     # History must not end on the orphan grace prompt.
     tail = agent.messages[-1]
     assert tail["role"] == "user"

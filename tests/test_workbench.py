@@ -209,3 +209,18 @@ def test_daemon_down_renders_disconnected_guidance():
     lines = workbench.render(snap, _fresh_state(), (100, 30), color=False)
     text = "\n".join(lines)
     assert "데몬" in text
+
+
+def test_approval_note_marks_only_a_real_success():
+    failed = workbench.approval_note(
+        "aaaa11112222", {"ok": True, "result": "[exit 2] x"}, approve=True)
+    assert failed.startswith("✗")
+    assert "\n" not in failed
+    done = workbench.approval_note(
+        "aaaa11112222", {"ok": True, "result": "[exit 0] ok"}, approve=True)
+    assert done.startswith("✓")
+    crashed = workbench.approval_note(
+        "aaaa11112222", {"ok": False, "error": "daemon unreachable"},
+        approve=True)
+    assert crashed.startswith("✗")
+    assert "daemon unreachable" not in crashed

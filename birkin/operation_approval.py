@@ -57,7 +57,7 @@ def queue_operation(
     block: ApprovalRequiredError,
 ) -> ToolResult:
     """Queue the exact failed operation for mandatory manual review."""
-    from . import approvals, store
+    from . import approval_text, approvals, store
     from .tools import ToolResult
 
     if "_approved_env" in tool_input:
@@ -71,6 +71,21 @@ def queue_operation(
             is_error=True,
         )
     if tool not in _REPLAYABLE_TOOLS:
+        if block.gate == "tool_policy":
+            # No approval can replay a context-bound tool, so say it is off
+            # instead of promising an approval flow that does not exist.
+            summon = (
+                ", and that they can start a specialist themselves with /summon "
+                "or `birkin summon`"
+                if tool == "spawn_subagent"
+                else ""
+            )
+            return ToolResult(
+                f"Tool '{tool}' is disabled by Birkin policy ({block.detail}) and "
+                "cannot be approved for a one-off run. Tell the user it is "
+                f"turned off{summon}.",
+                is_error=True,
+            )
         return ToolResult(
             f"Tool '{tool}' blocked at {block.gate}: {block.detail}. "
             "This context-bound tool uses its dedicated approval flow.",
@@ -106,10 +121,14 @@ def queue_operation(
                 f"for approval (id {pending['id']}, gate {block.gate}).",
                 is_error=True,
             )
+    description = approval_text.gate_consequence(block.gate, tool)
+    target = approval_text.operation_target(tool_input)
+    if target:
+        description += f" 대상: {target}"
     record = approvals.propose(
         category="operation",
-        title=f"Retry blocked {tool} operation",
-        description=f"{block.detail}. Approve one exact retry.",
+        title=f"차단된 작업 1회 재실행: {tool}",
+        description=description,
         payload={"operation": operation, "digest": digest},
         origin="native_tool",
         cfg=ctx.cfg,

@@ -235,7 +235,7 @@ class SkillManager:
             from .. import approvals
             res = approvals.propose(
                 category="skill",
-                title=f"new skill: {name}",
+                title=f"새 스킬: {name}",
                 description=desc,
                 payload={"action": "create", "name": name, "description": desc,
                          "body": body, "tags": inp.get("tags") or []},
@@ -266,7 +266,7 @@ class SkillManager:
             from .. import approvals
             res = approvals.propose(
                 category="skill",
-                title=f"improve skill: {name}",
+                title=f"스킬 개선: {name}",
                 description=addition[:160],
                 payload={"action": "improve", "target": skill.name,
                          "addition": addition},

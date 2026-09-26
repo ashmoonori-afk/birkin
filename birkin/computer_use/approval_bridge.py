@@ -66,10 +66,10 @@ class ApprovalBridge:
             ]
         proposed = approvals.propose(
             category="computer_use",
-            title=f"Approve foreground Computer Use {action}",
+            title=f"컴퓨터 제어 1회 재시도 승인: {action}",
             description=(
-                "Grant one exact foreground retry after a documented "
-                "background delivery failure."
+                "백그라운드 전달이 실패해 같은 동작을 화면 앞쪽 창에서 "
+                "한 번 다시 실행합니다."
             ),
             payload=payload,
             cfg=explicit_cfg,

@@ -14,6 +14,12 @@ from .approval_execution_types import SealedApprovalId
 from .operation_policy import retry_environment
 from .proc import ShellCommand, run_shell_command, shell_env
 
+# Shell results that return normally but ran nothing (or nothing to the end);
+# approval_text reads them as failures, never as a success.
+SHELL_TIMEOUT_RESULT = "Command timed out."
+SHELL_EMPTY_RESULT = "No command to run."
+SHELL_CWD_MISSING_PREFIX = "Working directory does not exist:"
+
 
 @dataclass(frozen=True, slots=True)
 class DispatchOptions:
@@ -132,10 +138,10 @@ def execute_action(
             return "Approved native terminal lease."
         command = str(payload.get("command") or "")
         if not command:
-            return "No command to run."
+            return SHELL_EMPTY_RESULT
         cwd = Path(str(payload.get("cwd") or Path.cwd())).expanduser().resolve()
         if not cwd.is_dir():
-            return f"Working directory does not exist: {cwd}"
+            return f"{SHELL_CWD_MISSING_PREFIX} {cwd}"
         environment = shell_env()
         command_name = (
             command.strip()
@@ -168,7 +174,7 @@ def execute_action(
                 )
             )
         except subprocess.TimeoutExpired:
-            return "Command timed out."
+            return SHELL_TIMEOUT_RESULT
         output = (result.stdout or "") + (result.stderr or "")
         return f"[exit {result.returncode}] {output[:2000]}"
     if category == "office_create":

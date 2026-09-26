@@ -4,6 +4,7 @@ stale heartbeat, budget governor, trace command."""
 from __future__ import annotations
 
 import argparse
+import re
 from datetime import datetime, timedelta, timezone
 
 
@@ -49,7 +50,16 @@ def test_budget_status_over_cap_when_breached():
     assert st["over_daily"] is True
     over, msg = budget.is_over({"budget_tokens_daily": 10})
     assert over is True
-    assert "budget" in msg.lower() and "reached" in msg.lower()
+    assert "budget_tokens_daily" in msg
+    assert re.search(r"[\uac00-\ud7a3]", msg)
+
+
+def test_budget_monthly_cap_message_names_its_setting():
+    store.save_run("chat", "a", usage={"chars": 0, "words": 0, "estTokens": 50})
+    over, msg = budget.is_over({"budget_tokens_monthly": 10})
+    assert over is True
+    assert "budget_tokens_monthly" in msg
+    assert re.search(r"[\uac00-\ud7a3]", msg)
 
 
 def test_budget_zero_is_unlimited():
@@ -73,7 +83,8 @@ def test_runtime_ask_blocks_when_over_budget(monkeypatch):
     monkeypatch.setattr(s.client, "complete", boom)
 
     reply = s.ask("anything")
-    assert "budget" in reply.lower() and "reached" in reply.lower()
+    assert "budget_tokens_daily" in reply
+    assert re.search(r"[\uac00-\ud7a3]", reply)
     # a refusal run record exists
     assert any("over-budget" in r["summary"]
                for r in store.list_runs() if r["kind"] == "chat")
