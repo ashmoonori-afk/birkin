@@ -768,6 +768,7 @@
           "value": "birkin.cli._cmd_moirai"
         },
         "limit": 10,
+        "quiet": false,
         "run_id": "",
         "script": ""
       }
@@ -3362,6 +3363,16 @@
             "--bind-save"
           ],
           "dest": "bind_save",
+          "nargs": 0,
+          "choices": null,
+          "default": false,
+          "required": false
+        },
+        {
+          "option_strings": [
+            "--quiet"
+          ],
+          "dest": "quiet",
           "nargs": 0,
           "choices": null,
           "default": false,

@@ -181,11 +181,21 @@ class ExecutionJournal:
             {"error": error[:_RESULT_LIMIT]},
         )
 
-    def outcome_unknown(self) -> None:
+    def outcome_unknown(self, result: str | None = None) -> None:
+        # With a result the action returned but could not confirm its effect
+        # (a mail send Graph only accepted); without one the helper died.
+        fields: dict[str, JSONValue] = (
+            {"error": "helper died after committing the action attempt"}
+            if result is None
+            else {
+                "error": "action returned an unconfirmed outcome",
+                "result": result[:_RESULT_LIMIT],
+            }
+        )
         self._transition(
             JournalPhase.ATTEMPT_COMMITTED,
             JournalPhase.ACTION_OUTCOME_UNKNOWN,
-            {"error": "helper died after committing the action attempt"},
+            fields,
         )
 
     def load(self) -> JournalSnapshot:

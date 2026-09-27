@@ -44,7 +44,7 @@ class VoiceConfig:
     tts_model: str = "gpt-4o-mini-tts"
     tts_voice: str = "coral"
     tts_instructions: str = "Speak concisely and clearly."
-    filler_text: str = "On it."
+    filler_text: str = "확인해 볼게요."
     conversation_style: VoiceConversationStyle = ""
     background_workers: int = 2
     # Must outlast one Gateway turn (cli_timeout defaults to 300s) plus margin.

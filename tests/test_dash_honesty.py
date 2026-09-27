@@ -189,3 +189,15 @@ def test_run_tone_is_not_unconditionally_good():
     html = _index_html()
     assert '?"danger":"good"' not in html, (
         "a run with no status still paints a green dot")
+
+
+def test_approval_note_marks_only_a_real_success():
+    failed = dash._approval_note(
+        "abcabcabcabc", {"ok": True, "result": "[exit 2] x"}, approve=True)
+    assert failed.startswith("✗")
+    assert "\n" not in failed
+    rejected = dash._approval_note("abcabcabcabc", {"ok": True}, approve=False)
+    assert rejected.startswith("✗")
+    raised = dash._approval_note(
+        "abcabcabcabc", {"ok": False, "error": "승인함 잠김"}, approve=True)
+    assert "승인함 잠김" not in raised

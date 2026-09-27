@@ -203,6 +203,67 @@ def test_blocked_command_keeps_heartbeat_live_until_ordered_receipt(
     assert errors == []
 
 
+def test_disconnect_during_blocked_command_does_not_hold_serial_accept(
+    tmp_path: Path,
+) -> None:
+    """Given default heartbeat timings and a command turn still running, When
+    the client disconnects, Then the connection tears down at once and no
+    stuck-writer failure reaches the accept loop."""
+    entered = threading.Event()
+    release = threading.Event()
+
+    def blocked_chat(payload: dict[str, object]) -> dict[str, object]:
+        entered.set()
+        if not release.wait(timeout=30):
+            raise AssertionError("test did not release blocked command")
+        return {"reply": str(payload["text"])}
+
+    source = WorkspaceService(
+        root=tmp_path / "workspace",
+        session_id="session-1",
+        handlers={"chat.send": blocked_chat},
+    )
+    bridge = NativeBridgeServer(
+        source,
+        capabilities=BootstrapSecretStore(tmp_path / "native"),
+        instance_id="instance-1",
+        server_version="1.0.0",
+    )
+    server_socket, client = socket.socketpair()
+    client.settimeout(1)
+    thread, errors = serve(
+        bridge,
+        server_socket,
+        transport="uds",
+        peer_uid=local_peer_uid(),
+    )
+    try:
+        token = handshake(client)
+        client.sendall(encode_frame(envelope(
+            "command",
+            frame_id="disconnect-command-frame",
+            body=command_body(
+                token,
+                command_id="disconnect-command",
+                cursor=0,
+                text="hold the turn",
+            ),
+        )))
+        assert entered.wait(timeout=5)
+
+        client.close()
+        # The unfixed teardown needs two 2 s writer joins, so 3 s still
+        # tells it apart while leaving Windows scheduling some margin.
+        thread.join(timeout=3.0)
+
+        assert not thread.is_alive()
+        assert errors == []
+    finally:
+        release.set()
+        client.close()
+        thread.join(timeout=5)
+
+
 def test_silent_peer_is_closed_after_heartbeat_deadline(
     tmp_path: Path,
 ) -> None:

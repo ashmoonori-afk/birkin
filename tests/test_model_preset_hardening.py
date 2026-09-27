@@ -155,7 +155,23 @@ def test_denied_native_tools_are_not_executable(tmp_path: Path) -> None:
             assert len(queued) == 1
             assert queued[0]["payload"]["operation"]["tool"] == name
         else:
-            assert "dedicated approval flow" in result.content
+            assert "cannot be approved for a one-off run" in result.content
+            assert "dedicated approval flow" not in result.content
+
+
+def test_a_disabled_subagent_tool_points_to_summon(tmp_path: Path) -> None:
+    registry = build_registry(ToolContext(
+        cfg={"disabled_tools": ["subagent"]},
+        client=SimpleNamespace(),
+        cwd=tmp_path,
+    ))
+
+    result = registry.execute("spawn_subagent", {"task": "x"})
+
+    assert result.is_error is True
+    assert "/summon" in result.content
+    assert "cannot be approved for a one-off run" in result.content
+    assert store.list_pending() == []
 
 
 @pytest.mark.parametrize(

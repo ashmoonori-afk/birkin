@@ -7,8 +7,10 @@ from threading import Event, Lock
 
 import pytest
 
-from birkin import approvals, config, store
+from birkin import agentruns, approvals, config, store
+from birkin.native.projection import public_native_mapping
 from birkin.workspace import approval_authority
+from birkin.workspace.approval_projection import approval_item
 from birkin.workspace.contracts import WorkspaceCommand
 from birkin.workspace.records import WorkspaceEvent
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
@@ -179,6 +181,113 @@ def test_snapshot_projects_pending_risk_and_sealed_approval(
     assert item["ui_state"] == "action_needed"
 
 
+def test_approval_item_names_category_target_and_questions() -> None:
+    operation = approval_item({
+        "id": "abc123def457",
+        "category": "operation",
+        "title": "",
+        "status": "pending",
+        "payload": {
+            "operation": {"tool": "run_shell", "input": {"command": "curl x"}},
+            "digest": "a" * 64,
+        },
+    })
+    question = approval_item({
+        "id": "abc123def458", "category": "question", "status": "pending",
+        "payload": {},
+    })
+
+    assert operation["target"] == "curl x"
+    assert operation["category_label"] == "차단된 작업 재실행"
+    assert operation["summary"] == operation["category_label"]
+    assert operation["needs_answers"] is False
+    assert "result_summary" not in operation
+    assert question["needs_answers"] is True
+    assert question["category_label"] == "질문 답변"
+
+
+def test_resolved_approval_item_carries_korean_outcome_without_raw_error() -> None:
+    failed = approval_item({
+        "id": "abc123def459",
+        "category": "shell",
+        "title": "배포",
+        "status": "error",
+        "execution_error": "action failed: boom",
+        "payload": {"command": "deploy"},
+    })
+    rejected = approval_item({
+        "id": "abc123def460", "category": "shell", "title": "배포",
+        "status": "rejected", "payload": {"command": "deploy"},
+    })
+
+    assert failed["result_code"] == "E_APPROVAL_ACTION_FAILED"
+    assert "boom" not in str(failed["result_summary"])
+    assert rejected["result_code"] == "rejected"
+    assert rejected["result_summary"] == "거부했습니다. 작업은 실행되지 않습니다."
+
+
+def test_approved_command_that_exited_non_zero_is_not_shown_as_succeeded() -> None:
+    failed = approval_item({
+        "id": "abc123def461", "category": "shell", "title": "테스트",
+        "status": "approved", "action_receipt": "[exit 1] 3 failed",
+        "payload": {"command": "pytest"},
+    })
+    passed = approval_item({
+        "id": "abc123def462", "category": "shell", "title": "테스트",
+        "status": "approved", "action_receipt": "[exit 0] ok",
+        "payload": {"command": "pytest"},
+    })
+
+    assert failed["result_code"] == "command_failed"
+    assert failed["ui_state"] == "failed"
+    assert passed["ui_state"] == "succeeded"
+
+
+def test_a_card_that_handed_its_attention_on_leaves_it_while_unconfirmed_ones_keep_it() -> None:
+    from birkin.moirai import outcome as moirai_outcome
+
+    # Given: an Office approval its overwrite follow-up replaced, an approved
+    # workflow waiting on its question, and one that did not report
+    # completion.
+    superseded = approval_item({
+        "id": "abc123def463", "category": "office_job", "title": "보고서 저장",
+        "status": "error", "failure_code": "OUTPUT_EXISTS",
+        "follow_up_approval_id": "abc123def464",
+        "payload": {"proposal_digest": "a" * 64},
+    })
+    waiting = approval_item({
+        "id": "abc123def465", "category": "moirai", "title": "워크플로",
+        "status": "approved",
+        "action_receipt": moirai_outcome.render(
+            {"status": "waiting_input", "run_id": "r1"}, name="hard"
+        ),
+        "payload": {},
+    })
+    unconfirmed = approval_item({
+        "id": "abc123def466", "category": "moirai", "title": "워크플로",
+        "status": "approved",
+        "action_receipt": "moirai: hard-task completed — 에이전트 2",
+        "payload": {},
+    })
+
+    # Then: the follow-up approval and the waiting workflow's own question
+    # are the cards that need the user, so the replaced approval has ended
+    # and the waiting one is paused. The action receipt is written once and
+    # never rewritten, so neither state may ask for the user forever.
+    assert superseded["result_code"] == "follow_up_required"
+    assert superseded["follow_up_approval_id"] == "abc123def464"
+    assert superseded["ui_state"] == "failed"
+    assert (waiting["result_code"], waiting["ui_state"]) == (
+        "workflow_waiting", "paused"
+    )
+    # A receipt that cannot show the run finished has no other card: this one
+    # is the only place the user is told to check the result, as with a
+    # partial run, so it keeps the attention state on purpose.
+    assert (unconfirmed["result_code"], unconfirmed["ui_state"]) == (
+        "workflow_unconfirmed", "action_needed"
+    )
+
+
 def test_snapshot_projects_office_approval_trust_details(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -219,6 +328,47 @@ def test_snapshot_projects_office_approval_trust_details(
     assert item["rejection_result"] == (
         "Rejecting leaves the source unchanged and writes no output."
     )
+
+
+def test_agent_linked_approval_names_the_summoned_agent_as_requester(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    run = agentruns.register_run(
+        "분기 매출 분석", agent="sheet-analyst", title="스프레드시트 분석가"
+    )
+    for pending_id, details in (
+        ("a9e171000001", {"agent_run_id": run["id"]}),
+        ("a9e171000002", {"agent_run_id": "ffffffffffff"}),
+        ("a9e171000003", None),
+    ):
+        _ = store.add_pending(
+            pending_id=pending_id, category="work_item", title="후속 업무 생성",
+            description="", payload={"action": "create"}, origin="test",
+            details=details,
+        )
+    _ = store.add_pending(
+        pending_id="a9e171000004", category="office_job", title="Save workbook",
+        description="",
+        payload={"proposal_digest": "a" * 64, "proposer": "native:session-1"},
+        origin="test",
+    )
+    service = WorkspaceService(root=tmp_path / "journal", session_id="session-1", handlers={})
+    snapshot = service.snapshot()
+    items = {
+        str(item["id"]): item
+        for item in next(
+            panel for panel in snapshot.panels if panel.key == "approvals"
+        ).items
+    }
+
+    assert items["a9e171000001"]["requester"] == "스프레드시트 분석가 에이전트"
+    assert items["a9e171000002"]["requester"] == "하위 에이전트"
+    assert "requester" not in items["a9e171000003"]
+    assert items["a9e171000004"]["requester"] == "native:session-1"
+    public = json.dumps(public_native_mapping(snapshot.to_json()), ensure_ascii=False)
+    assert "스프레드시트 분석가 에이전트" in public
+    assert "sheet-analyst" not in public
 
 
 def test_live_approval_event_preserves_risk_and_sealed_state() -> None:
@@ -435,6 +585,13 @@ def test_two_surfaces_resolve_one_approval_with_answered_elsewhere_event(
     assert sorted(outcomes) == ["answered_elsewhere", "approved"]
     assert loser_result == {"outcome": "answered_elsewhere", "approval_id": record["id"]}
     assert winner_result["outcome"] == "approved"
+    loser_event = next(
+        payload
+        for kind, payload in emitted
+        if kind == "approval.answered" and payload["outcome"] == "answered_elsewhere"
+    )
+    assert loser_event["result_code"] == "answered_elsewhere"
+    assert loser_event["ui_state"] != "failed"
 
 
 def test_snapshot_distinguishes_requested_effective_policy_and_pending_requests(

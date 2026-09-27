@@ -26,7 +26,7 @@ def test_goal_set_persists_and_show_renders_usage():
     assert "Birkin 보고서 완성" in out
 
     shown = _dispatch("/goal show")
-    assert "tokens" in shown
+    assert "토큰" in shown
 
 
 def test_goal_pause_and_done_transition_state():
@@ -66,6 +66,23 @@ def test_goal_done_keeps_the_goal_open_while_the_verifier_is_queued():
     assert current is not None and current.status == "active"
     assert len(store.list_pending()) == 1      # queued, not verified
     assert "/review" in out
+
+
+def test_goal_done_after_review_approval_finishes_the_goal(monkeypatch):
+    from birkin import approvals, goals, store
+
+    _dispatch('/goal set ship the release --gate "python -m pytest"')
+    _dispatch("/goal done")
+    [pending] = store.list_pending()
+    monkeypatch.setattr(approvals, "execute_action",
+                        lambda *_args, **_kwargs: "[exit 0] 2 passed")
+    assert approvals.approve(pending["id"], approved_by="human:test",
+                             approved_via="test").get("ok")
+
+    out = _dispatch("/goal done")
+
+    assert goals.get_active() is None
+    assert "목표를 완료했어요" in out
 
 
 def test_goal_set_rejects_an_unknown_option():

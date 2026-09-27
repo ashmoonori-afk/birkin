@@ -160,7 +160,7 @@ def test_research_cli_prints_the_complete_answer(capsys) -> None:
 
     output = capsys.readouterr().out
     assert answer in output
-    assert "연구 상태: 일부 완료" in output
+    assert "⚠️ 워크플로우 일부 완료" in output
     assert "미확정 또는 반박된 항목:\n- 추가 확인" in output
     assert "남은 제약:\n- 발행일 미확인" in output
     assert "검증 기준: 인용 실재는 코드 확인, 의미는 모델 감사" in output
@@ -179,5 +179,7 @@ def test_research_cli_reports_aborted_outer_run(capsys) -> None:
         "result": {"completion": "partial", "answer": "확인 중 중단됨"},
     }
     moirai_cli._print_outcome(outcome)
-    assert "연구 상태: 중단" in capsys.readouterr().out
+    output = capsys.readouterr().out
+    assert "⏹️ 워크플로우 중단" in output
+    assert "확인 중 중단됨" in output
     assert moirai_cli._outcome_exit_code(outcome) == 1

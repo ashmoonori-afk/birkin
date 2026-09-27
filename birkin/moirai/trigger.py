@@ -30,6 +30,10 @@ PROPOSAL_CLOSE = "</birkin-moirai-proposal>"
 MAX_ROLES = 6
 MAX_STEPS = 8
 
+# Under the approval journal's 2000-char result cap, so the receipt keeps the
+# run id line instead of losing it to a silent cut.
+_APPROVAL_RESULT_CHARS = 1900
+
 _MARKERS = (PROPOSAL_OPEN, PROPOSAL_CLOSE)
 
 
@@ -191,14 +195,15 @@ def _list(value: Any, max_items: int, cap: int) -> Optional[list[str]]:
 
 
 def queue(proposal: Proposal, *, task: str = "",
-          cfg: Optional[dict] = None) -> dict[str, Any]:
+          cfg: Optional[dict[str, Any]] = None,
+          origin: str = "moirai-auto") -> dict[str, Any]:
     """Route the proposal to the approval inbox the user already reviews."""
     from .. import approvals, config
     cfg = cfg if cfg is not None else config.load_config()
     return approvals.propose(
         category="moirai", title=proposal.title,
         description=f"{proposal.why}\n\n{proposal.render()}",
-        payload=proposal.as_payload(task), cfg=cfg, origin="moirai-auto")
+        payload=proposal.as_payload(task), cfg=cfg, origin=origin)
 
 
 def run_approved(payload: dict[str, Any],
@@ -208,21 +213,23 @@ def run_approved(payload: dict[str, Any],
     ``on_event`` receives the engine's events (``moirai.phase`` above all),
     which is how an approved hard task's progress reaches chat heartbeats
     instead of vanishing into a synchronous call.
+
+    The return value is the receipt the approver reads: the honest status
+    line and the result itself, not a pointer to a CLI command.
     """
     from . import cli as moirai_cli
+    from . import outcome
     from .engine import MoiraiError, load_script, run_script
     script_name = str((payload or {}).get("script") or "").strip()
     if not script_name:
-        return "moirai: 실행할 워크플로우가 지정되지 않았습니다"
+        return "❌ 실행할 워크플로우가 지정되지 않았어요."
     try:
         script = load_script(moirai_cli.resolve_script_path(script_name))
     except MoiraiError as exc:
-        return f"moirai: {exc}"
+        return f"❌ 워크플로우를 불러오지 못했어요.\n세부: {exc}"
     args = {"task": str((payload or {}).get("task") or "")}
     try:
         out = run_script(script, args=args, on_event=on_event)
     except MoiraiError as exc:
-        return f"moirai: 실행 실패 — {exc}"
-    return (f"moirai: {script.name} {out['status']} — "
-            f"에이전트 {out['agents']}, {out['seconds']}s "
-            f"(birkin moirai status {out['run_id']})")
+        return f"❌ 워크플로우를 끝까지 실행하지 못했어요.\n세부: {exc}"
+    return outcome.render(out, name=script.name, limit=_APPROVAL_RESULT_CHARS)

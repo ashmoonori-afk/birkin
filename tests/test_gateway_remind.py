@@ -46,7 +46,8 @@ def test_remind_is_privileged(tmp_path, monkeypatch):
     # open bot (no allowed_chat_ids) may not schedule
     gw = _gateway(tmp_path, monkeypatch, tg_allowed=())
     out = gw.handle("telegram", "99", "/remind 09:00 x")
-    assert "restricted" in out.lower()
+    from birkin.gateway.turn_admission import PRIVILEGED_COMMAND_REPLY
+    assert out == PRIVILEGED_COMMAND_REPLY
     from birkin import cron
     assert cron.load_jobs() == []
 

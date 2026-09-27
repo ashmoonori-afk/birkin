@@ -6,7 +6,7 @@ import hashlib
 import os
 import stat
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, cast
 
@@ -28,6 +28,8 @@ from .extract_contract import (
 )
 from .inspect_contract import build_inspection, verify_identity
 from .meeting_actions import review_meeting_actions
+from .operation_targets import ResolvedTarget, needs_replay, resolve_operation_targets
+from .path_security import canonical_name
 from .render_contract import render_document
 from .service_create import convert_document as convert_document_operation
 from .service_create import create_document as create_document_operation
@@ -39,8 +41,25 @@ from .validation import ValidationResult, validate_document
 from .xlsx_analysis import analyze_xlsx
 
 
+_IMPORT_CHUNK_BYTES = 1024 * 1024
+
+
 class _InspectAdapter(Protocol):
     def inspect(self, path: Path) -> Mapping[str, object]: ...
+
+
+def _bounded_chunks(source_fd: int, size: int, message: str) -> Iterator[bytes]:
+    """Read ``source_fd`` to its end, but never more than ``size`` bytes.
+
+    One byte past ``size`` means the file grew after it was verified, so the
+    read stops there instead of following a writer that keeps appending.
+    """
+    remaining = size
+    while chunk := os.read(source_fd, min(_IMPORT_CHUNK_BYTES, remaining + 1)):
+        if len(chunk) > remaining:
+            raise DocumentError(DocumentErrorCode.SOURCE_CHANGED, "import", message)
+        remaining -= len(chunk)
+        yield chunk
 
 
 class DocumentService:
@@ -120,8 +139,13 @@ class DocumentService:
         *,
         expected_sha256: str,
         output_name: str,
+        reuse_identical: bool = False,
     ) -> dict[str, object]:
-        """Copy one authority-validated import into the document jail."""
+        """Copy one authority-validated import into the document jail.
+
+        With ``reuse_identical``, an existing draft of the same name and
+        exactly the expected bytes is returned instead of an output collision.
+        """
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
@@ -134,51 +158,93 @@ class DocumentService:
                 "registered import is unavailable",
             ) from exc
         try:
-            metadata = os.fstat(source_fd)
-            if not stat.S_ISREG(metadata.st_mode):
-                raise DocumentError(
-                    DocumentErrorCode.PERMISSION_DENIED,
-                    "import",
-                    "registered import is not a regular file",
-                )
-            digest = hashlib.sha256()
-            while chunk := os.read(source_fd, 1024 * 1024):
-                digest.update(chunk)
-            if digest.hexdigest() != expected_sha256:
+            return self.import_descriptor(
+                source_fd,
+                suffix=source.suffix,
+                expected_sha256=expected_sha256,
+                output_name=output_name,
+                reuse_identical=reuse_identical,
+            )
+        finally:
+            os.close(source_fd)
+
+    def import_descriptor(
+        self,
+        source_fd: int,
+        *,
+        suffix: str,
+        expected_sha256: str,
+        output_name: str,
+        reuse_identical: bool = False,
+        expected_size: int | None = None,
+    ) -> dict[str, object]:
+        """Copy an already-verified open file into the document jail.
+
+        The caller keeps ``source_fd``; it is read from its start, so the
+        copy is of the file the caller verified, not whatever its path names
+        now. Neither pass reads past the verified size (``expected_size``,
+        or the size the file has on entry): a file that grew changed.
+        """
+        metadata = os.fstat(source_fd)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise DocumentError(
+                DocumentErrorCode.PERMISSION_DENIED,
+                "import",
+                "registered import is not a regular file",
+            )
+        size = metadata.st_size
+        if expected_size is not None and size != expected_size:
+            raise DocumentError(
+                DocumentErrorCode.SOURCE_CHANGED,
+                "import",
+                "registered import changed before document copy",
+            )
+        _ = os.lseek(source_fd, 0, os.SEEK_SET)
+        digest = hashlib.sha256()
+        for chunk in _bounded_chunks(
+            source_fd, size, "registered import changed before document copy"
+        ):
+            digest.update(chunk)
+        if digest.hexdigest() != expected_sha256:
+            raise DocumentError(
+                DocumentErrorCode.SOURCE_CHANGED,
+                "import",
+                "registered import changed before document copy",
+            )
+
+        def write(target: Path) -> None:
+            _ = os.lseek(source_fd, 0, os.SEEK_SET)
+            target_fd = os.open(
+                target,
+                os.O_WRONLY | getattr(os, "O_BINARY", 0),
+            )
+            copied = hashlib.sha256()
+            try:
+                for chunk in _bounded_chunks(
+                    source_fd, size, "registered import changed during document copy"
+                ):
+                    copied.update(chunk)
+                    view = memoryview(chunk)
+                    while view:
+                        written = os.write(target_fd, view)
+                        view = view[written:]
+                os.fsync(target_fd)
+            finally:
+                os.close(target_fd)
+            if copied.hexdigest() != expected_sha256:
                 raise DocumentError(
                     DocumentErrorCode.SOURCE_CHANGED,
                     "import",
-                    "registered import changed before document copy",
+                    "registered import changed during document copy",
                 )
-            output = self._workspace.output_path(output_name, source.suffix.lower())
 
-            def write(target: Path) -> None:
-                _ = os.lseek(source_fd, 0, os.SEEK_SET)
-                target_fd = os.open(
-                    target,
-                    os.O_WRONLY | getattr(os, "O_BINARY", 0),
-                )
-                copied = hashlib.sha256()
-                try:
-                    while chunk := os.read(source_fd, 1024 * 1024):
-                        copied.update(chunk)
-                        view = memoryview(chunk)
-                        while view:
-                            written = os.write(target_fd, view)
-                            view = view[written:]
-                    os.fsync(target_fd)
-                finally:
-                    os.close(target_fd)
-                if copied.hexdigest() != expected_sha256:
-                    raise DocumentError(
-                        DocumentErrorCode.SOURCE_CHANGED,
-                        "import",
-                        "registered import changed during document copy",
-                    )
-
+        try:
+            output = self._workspace.output_path(output_name, suffix.lower())
             copied_sha256 = self._workspace.atomic_publish(output, write)
-        finally:
-            os.close(source_fd)
+        except DocumentError as exc:
+            if not reuse_identical or exc.code is not DocumentErrorCode.OUTPUT_EXISTS:
+                raise
+            return self._identical_import(output_name, expected_sha256, exc)
         artifact = self._workspace.artifact(output)
         return {
             "artifact": artifact,
@@ -187,6 +253,30 @@ class DocumentService:
                 "artifact_id": artifact["artifact_id"],
                 "sha256": copied_sha256,
                 "copied": True,
+            },
+        }
+
+    def _identical_import(
+        self, output_name: str, expected_sha256: str, collision: DocumentError
+    ) -> dict[str, object]:
+        wanted = canonical_name(output_name)
+        try:
+            existing = next(
+                (item for item in self._workspace.drafts.iterdir() if canonical_name(item.name) == wanted),
+                None,
+            )
+            artifact = None if existing is None else self._workspace.artifact(existing)
+        except (DocumentError, OSError) as exc:
+            raise collision from exc
+        if artifact is None or artifact["content_hash"] != expected_sha256:
+            raise collision
+        return {
+            "artifact": artifact,
+            "receipt": {
+                "operation": "document_import",
+                "artifact_id": artifact["artifact_id"],
+                "sha256": expected_sha256,
+                "copied": False,
             },
         }
 
@@ -343,6 +433,23 @@ class DocumentService:
                 cast("dict[str, object]", rendered["receipt"])["output_artifact"] = output_artifact
                 return rendered
             return render_document(path, fmt, digest, output_format=output_format, page=page)
+
+    def resolve_operation_targets(
+        self,
+        source: Mapping[str, object],
+        operations: Sequence[Mapping[str, object]],
+    ) -> list[ResolvedTarget | None]:
+        """Replay field and placeholder operations against one verified snapshot."""
+        # The snapshot keeps the source suffix, so skip its copy when no
+        # operation of that format needs replay.
+        if not needs_replay(self._format(Path(str(source.get("uri", "")))), operations):
+            return [None] * len(operations)
+        with self._workspace.artifact_snapshot(source) as path:
+            fmt = self._format(path)
+            self._require_content(path, fmt)
+            return resolve_operation_targets(
+                path, fmt, self._workspace.hash_file(path), operations
+            )
 
     def fill_template(
         self,

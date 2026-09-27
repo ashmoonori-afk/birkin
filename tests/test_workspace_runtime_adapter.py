@@ -16,11 +16,13 @@ from birkin.computer_use.capability_types import (
 )
 from birkin.computer_use.runtime import UnavailableBackend
 from birkin.llm import LLMError, LLMStatus
+from birkin.native.projection import public_workspace_event
 from birkin.office.adapters.catalog import supported_formats
 from birkin.workspace import approval_authority
 from birkin.runtime import Session
 from birkin.workspace import WorkspaceEvent, WorkspaceService, runtime_adapter
 from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
+from birkin.workspace.snapshot import reduce_snapshot
 
 
 @final
@@ -309,6 +311,28 @@ def test_computer_use_surface_projects_an_unavailable_backend(
     permissions = cast(dict[str, object], status["permissions"])
     assert permissions["accessibility"] == "unknown"
     assert status["permission_prompted"] is False
+
+
+def test_external_agent_rows_use_task_summary_and_run_states() -> None:
+    done = runtime_adapter._external_item(
+        "tasks_runs", {"id": "abcd1234", "task": "분석", "status": "done"}, 0
+    )
+    failed = runtime_adapter._external_item(
+        "tasks_runs", {"id": "abcd1235", "task": "정리", "status": "error"}, 1
+    )
+    titled = runtime_adapter._external_item(
+        "tasks_runs",
+        {"id": "abcd1236", "title": "제목", "task": "작업", "status": "running"},
+        2,
+    )
+    summarized = runtime_adapter._external_item(
+        "tasks_runs", {"id": "abcd1237", "summary": "요약", "task": "작업"}, 3
+    )
+
+    assert (done["summary"], done["ui_state"]) == ("분석", "succeeded")
+    assert (failed["summary"], failed["ui_state"]) == ("정리", "failed")
+    assert (titled["summary"], titled["ui_state"]) == ("제목", "running")
+    assert summarized["summary"] == "요약"
 
 
 def test_runtime_import_formats_follow_office_catalog() -> None:
@@ -1022,10 +1046,255 @@ def test_approval_answer_event_carries_execution_receipt(
                 "decision": "approve",
                 "outcome": "approved",
                 "receipt": "exit 0: approved",
+                "result_summary": "승인한 작업을 완료했습니다.",
+                "result_code": "approved",
+                "ui_state": "succeeded",
             },
         ),
         ("workspace.refreshed", {"approval_requests": [], "work_items": []}),
     ]
+
+
+def _answering_adapter() -> tuple[
+    RuntimeWorkspaceAdapter, list[tuple[str, dict[str, object]]]
+]:
+    emitted: list[tuple[str, dict[str, object]]] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        emitted.append((event_type, payload))
+        return _event(event_type, payload)
+
+    return RuntimeWorkspaceAdapter("answer-session", emit), emitted
+
+
+def _approval_context(adapter: RuntimeWorkspaceAdapter) -> str:
+    return cast(str, getattr(adapter, "_pending_approval_context"))
+
+
+def _answered_payload(
+    emitted: list[tuple[str, dict[str, object]]],
+) -> dict[str, object]:
+    return next(payload for kind, payload in emitted if kind == "approval.answered")
+
+
+@pytest.mark.parametrize(
+    ("resolution", "status", "ui_state"),
+    [
+        ("approve", "approved", "succeeded"),
+        ("reject", "rejected", "blocked"),
+        ("error", "error", "failed"),
+    ],
+)
+def test_an_approval_answered_on_another_surface_reports_what_happened(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    resolution: str,
+    status: str,
+    ui_state: str,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+
+    def execute_action(
+        _category: str,
+        _payload: dict[str, object],
+        cfg: object = None,
+        on_event: object = None,
+    ) -> str:
+        del cfg, on_event
+        return "executed"
+
+    monkeypatch.setattr(approvals, "execute_action", execute_action)
+    record = store.add_pending(
+        category="memory", title="note", description="", payload={}, origin="test"
+    )
+    approval_id = cast(str, record["id"])
+    if resolution == "approve":
+        assert approvals.approve(
+            approval_id, approved_by="human:telegram:1", approved_via="gateway:telegram"
+        )["ok"] is True
+    elif resolution == "reject":
+        assert approvals.reject(
+            approval_id, rejected_by="human:telegram:1", rejected_via="gateway:telegram"
+        )["ok"] is True
+    else:
+        _ = store.resolve_pending(approval_id, "error")
+    adapter, emitted = _answering_adapter()
+
+    result = adapter.handlers()["approval.answer"](
+        {"approval_id": approval_id, "decision": "approve"}
+    )
+
+    assert result == {"outcome": "answered_elsewhere", "approval_id": approval_id}
+    context = _approval_context(adapter)
+    assert 'outcome="answered_elsewhere"' in context
+    if resolution != "error":
+        assert "완료하지 못했습니다" not in context
+        assert "텔레그램" in context
+    answered = _answered_payload(emitted)
+    assert answered["result_code"] == "answered_elsewhere"
+    assert answered["resolved_status"] == status
+    assert answered["ui_state"] == ui_state
+
+
+def test_an_overwrite_follow_up_is_not_reported_as_a_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from birkin import approval_text
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        del decision, reason, on_event
+        return {
+            "outcome": "follow_up_required",
+            "approval_id": approval_id,
+            "follow_up_approval_id": "fedcba987654",
+            "question": "overwrite?",
+        }
+
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    adapter, emitted = _answering_adapter()
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": "abc123def456", "decision": "approve"}
+    )
+
+    assert approval_text.FOLLOW_UP in _approval_context(adapter)
+    answered = _answered_payload(emitted)
+    assert answered["result_code"] == "follow_up_required"
+    # The follow-up card is what still needs the user, so the card it
+    # replaced ends as a failure, as its canonical projection says.
+    assert answered["ui_state"] == "failed"
+
+
+def test_a_waiting_workflow_card_leaves_the_attention_to_its_question(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from birkin.moirai import outcome as moirai_outcome
+    from birkin.workspace.approval_projection import approval_item
+
+    # Given: an approved workflow that stopped at a question of its own.
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        category="moirai", title="워크플로", description="", payload={}, origin="test",
+    )
+    waiting = moirai_outcome.render({"status": "waiting_input", "run_id": "r8"}, name="hard")
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        del decision, reason, on_event
+        _ = store.resolve_pending(approval_id, "approved", details={"action_receipt": waiting})
+        return {"outcome": "approved", "approval_id": approval_id, "receipt": waiting}
+
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    adapter, emitted = _answering_adapter()
+
+    # When: the approval is answered.
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": cast(str, record["id"]), "decision": "approve"}
+    )
+
+    # Then: the live card and its canonical projection agree that it is
+    # paused, not a second card asking for the user.
+    answered = _answered_payload(emitted)
+    resolved = store.get_pending(cast(str, record["id"]))
+    assert resolved is not None
+    assert answered["result_code"] == "workflow_waiting"
+    assert answered["ui_state"] == approval_item(resolved)["ui_state"] == "paused"
+    assert "질문에 대한 답을 기다리고" in _approval_context(adapter)
+
+
+def test_an_approved_command_that_failed_is_not_reported_as_completed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        category="shell", title="run", description="",
+        payload={"command": "false"}, origin="test",
+    )
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        del decision, reason, on_event
+        return {"outcome": "approved", "approval_id": approval_id, "receipt": "[exit 2] boom"}
+
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    adapter, emitted = _answering_adapter()
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": cast(str, record["id"]), "decision": "approve"}
+    )
+
+    context = _approval_context(adapter)
+    assert "완료되었습니다" not in context
+    assert "종료 코드 2" in context
+    answered = _answered_payload(emitted)
+    assert answered["result_code"] == "command_failed"
+    assert answered["ui_state"] == "failed"
+    events = (
+        _event("approval.requested", {"approval_id": record["id"]}),
+        _event("approval.answered", answered),
+    )
+    (item,) = next(
+        panel.items
+        for panel in reduce_snapshot("test-session", events).panels
+        if panel.key == "approvals"
+    )
+    assert item["ui_state"] == "failed"
+
+
+def test_only_a_moirai_worker_failure_is_answered_as_its_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    from birkin.moirai import outcome as moirai_outcome
+    from birkin.worker_request import DaedalusShow, approval_payload
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path / "home"))
+    record = store.add_pending(
+        category="worker", title="show", description="",
+        payload=approval_payload(DaedalusShow("notes")), origin="test",
+    )
+    waiting = moirai_outcome.render({"status": "waiting_input", "run_id": "r9"})
+
+    def decide(
+        approval_id: str,
+        *,
+        decision: str,
+        reason: str = "",
+        on_event: object = None,
+    ) -> dict[str, object]:
+        del decision, reason, on_event
+        return {
+            "outcome": "rejected_by_authority",
+            "approval_id": approval_id,
+            "error": f"action failed: worker exited with status 1: {waiting}",
+        }
+
+    monkeypatch.setattr(approval_authority, "decide", decide)
+    adapter, emitted = _answering_adapter()
+
+    _ = adapter.handlers()["approval.answer"](
+        {"approval_id": cast(str, record["id"]), "decision": "approve"}
+    )
+
+    assert _answered_payload(emitted)["result_code"] == "E_APPROVAL_ACTION_FAILED"
 
 
 def test_chat_completion_refreshes_provider_created_work_item_approval(
@@ -1334,12 +1603,139 @@ def test_event_type_table_pin() -> None:
         "tool.started",
         "tool.completed",
         "tool.failed",
-        "task.updated",
-        "task.updated",
+        "progress.updated",
+        "progress.updated",
         "progress.updated",
         "progress.updated",
         "progress.updated",
     ]
+
+
+_AGENT_RUN_ID = "abc123def456"
+
+
+def _agent_lifecycle(adapter: RuntimeWorkspaceAdapter) -> None:
+    adapter.runtime_event(
+        "subagent.start",
+        {
+            "task": "분기 매출 시트 분석",
+            "id": _AGENT_RUN_ID,
+            "agent": "sheet-analyst",
+            "agent_title": "스프레드시트 분석가",
+        },
+    )
+    adapter.runtime_event(
+        "subagent.done",
+        {
+            "chars": 12,
+            "id": _AGENT_RUN_ID,
+            "agent": "sheet-analyst",
+            "agent_title": "스프레드시트 분석가",
+        },
+    )
+
+
+def test_summoned_agent_lifecycle_is_named_korean_activity() -> None:
+    adapter, emitted = _runtime_adapter()
+
+    _agent_lifecycle(adapter)
+
+    assert [event_type for event_type, _payload in emitted] == [
+        "progress.updated",
+        "progress.updated",
+    ]
+    (_start_type, start), (_done_type, done) = emitted
+    assert start["summary"] == "스프레드시트 분석가 에이전트가 작업을 시작했습니다."
+    assert done["summary"] == "스프레드시트 분석가 에이전트가 작업을 마쳤습니다."
+    assert [start["ui_state"], done["ui_state"]] == ["running", "succeeded"]
+    for payload in (start, done):
+        assert payload["progress_id"] == f"agent-run:{_AGENT_RUN_ID}"
+        assert payload["agent_run_id"] == _AGENT_RUN_ID
+        assert payload["state"] in uistate.UI_STATES
+        assert payload["status"] == payload["state"]
+        assert "sheet-analyst" not in str(payload)
+        assert "분기 매출" not in str(payload)
+
+
+def test_failed_agent_run_and_research_step_report_failure() -> None:
+    adapter, emitted = _runtime_adapter()
+
+    adapter.runtime_event(
+        "subagent.done",
+        {"chars": 0, "id": _AGENT_RUN_ID, "is_error": True},
+    )
+    adapter.runtime_event("subagent.start", {"task": "[collect] 시장 조사"})
+    adapter.runtime_event("subagent.done", {"error": "Traceback boom"})
+    # A step that raised TimeoutError() carries an empty error text.
+    adapter.runtime_event("subagent.done", {"error": ""})
+
+    (_agent_type, agent), (_start_type, start), (_step_type, step), (
+        _silent_type, silent) = emitted
+    assert agent["summary"] == "하위 에이전트가 작업을 마치지 못했습니다."
+    assert agent["ui_state"] == agent["state"] == "failed"
+    assert start["summary"] == "하위 작업을 시작했습니다."
+    assert start["progress_id"] == "runtime:subagent.start:operation"
+    assert "agent_run_id" not in start
+    assert "시장 조사" not in str(start)
+    assert step["summary"] == "하위 작업을 완료하지 못했습니다."
+    assert step["ui_state"] == step["state"] == "failed"
+    assert "boom" not in str(step)
+    assert silent["summary"] == "하위 작업을 완료하지 못했습니다."
+    assert silent["ui_state"] == silent["state"] == "failed"
+
+
+def test_child_internal_events_are_not_journaled() -> None:
+    adapter, emitted = _runtime_adapter()
+
+    adapter.runtime_event(
+        "subagent.tool_start",
+        {"name": "analyze_workbook", "input": {"path": "/Users/me/a.xlsx"}},
+    )
+    adapter.runtime_event(
+        "subagent.tool_end",
+        {"name": "analyze_workbook", "is_error": False},
+    )
+    adapter.runtime_event("subagent.subagent.start", {"id": _AGENT_RUN_ID})
+
+    assert emitted == []
+
+
+def test_agent_activity_reduces_into_activity_not_work_items() -> None:
+    events: list[WorkspaceEvent] = []
+
+    def emit(event_type: str, payload: dict[str, object]) -> WorkspaceEvent:
+        event = WorkspaceEvent(
+            protocol_version=1,
+            session_id="agent-session",
+            cursor=len(events) + 1,
+            event_id=f"event-{len(events) + 1}",
+            type=event_type,
+            timestamp="2026-09-26T00:00:00Z",
+            actor_id="native:test",
+            command_id="command-1",
+            payload=payload,
+        )
+        events.append(event)
+        return event
+
+    adapter = RuntimeWorkspaceAdapter("agent-session", emit)
+    _agent_lifecycle(adapter)
+
+    panels = {
+        panel.key: panel.items
+        for panel in reduce_snapshot("agent-session", tuple(events)).panels
+    }
+    assert panels["tasks_runs"] == ()
+    assert [
+        (item["summary"], item["ui_state"]) for item in panels["activity_logs"]
+    ] == [
+        ("스프레드시트 분석가 에이전트가 작업을 시작했습니다.", "running"),
+        ("스프레드시트 분석가 에이전트가 작업을 마쳤습니다.", "succeeded"),
+    ]
+    for event in events:
+        public = public_workspace_event(event)["payload"]
+        assert isinstance(public, dict)
+        assert cast(dict[str, object], public)["summary"] == event.payload["summary"]
 
 
 def test_runtime_adapter_registers_the_working_memory_command(tmp_path: Path) -> None:

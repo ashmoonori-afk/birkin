@@ -16,6 +16,7 @@ from .turn_model_session import (
 )
 from .turn_support import (
     TELEGRAM_EXECUTION_POLICY,
+    TURN_EMPTY_REPLY,
     TURN_ERROR_REPLY,
     TURN_INTERRUPTED_REPLY,
     TURN_PARTIAL_SUFFIX,
@@ -76,7 +77,7 @@ def run_model_turn(
         reply = _ask_model(gateway, request, lease, prepared, on_text)
     except CodexTurnTimeout as exc:
         return recover_codex_timeout(
-            gateway, request, started, prepared.progress_seen, on_progress, exc
+            gateway, request, started, prepared.progress_seen, exc
         )
     except Exception as exc:  # Model boundary returns a safe reply.
         elapsed = time.monotonic() - started
@@ -91,7 +92,7 @@ def run_model_turn(
     if lease.interrupted.is_set() and not reply:
         reply = TURN_INTERRUPTED_REPLY
     complete_turn(gateway, request, lease.persistent, reply, started)
-    return reply or "(no reply)"
+    return reply or TURN_EMPTY_REPLY
 
 
 def _prepare_model_input(

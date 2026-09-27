@@ -47,13 +47,18 @@ def argv(request: WorkerRequest) -> tuple[str, ...]:
             from .moirai.cli import resolve_trusted_script
 
             path = str(resolve_trusted_script(script))
-            return (*prefix, "moirai", "run", path, "--args", args_json, "--defaults")
+            # --quiet: the receipt keeps the head of stdout, so it must open
+            # with the outcome, not the plan table and per-agent trace.
+            return (
+                *prefix, "moirai", "run", path, "--args", args_json,
+                "--defaults", "--quiet",
+            )
         case MoiraiList(limit=limit):
             return (*prefix, "moirai", "list", "--limit", str(limit))
         case MoiraiStatus(run_id=run_id):
             return (*prefix, "moirai", "status", run_id)
         case MoiraiResume(run_id=run_id):
-            return (*prefix, "moirai", "resume", run_id)
+            return (*prefix, "moirai", "resume", run_id, "--quiet")
         case MorpheusRun(dry_run=dry_run):
             return (*prefix, "morpheus", *(("--dry-run",) if dry_run else ()))
         case HarnessRequest(action=action, target=target, scope=scope):

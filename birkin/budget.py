@@ -210,11 +210,11 @@ def is_over(cfg: dict[str, Any]) -> tuple[bool, str]:
         return False, ""
     st = status(cfg)
     if st["over_daily"]:
-        return True, (f"[birkin] daily token budget reached: "
-                      f"used {st['used_today']} / cap {st['daily_cap']}. "
-                      f"Raise `budget_tokens_daily` in config or wait until tomorrow.")
+        return True, (f"[birkin] 오늘 토큰 예산을 모두 썼습니다 "
+                      f"(사용 {st['used_today']:,} / 한도 {st['daily_cap']:,}). "
+                      f"내일 다시 시도하거나 설정의 budget_tokens_daily 값을 늘리세요.")
     if st["over_monthly"]:
-        return True, (f"[birkin] monthly token budget reached: "
-                      f"used {st['used_month']} / cap {st['monthly_cap']}. "
-                      f"Raise `budget_tokens_monthly` or wait until next month.")
+        return True, (f"[birkin] 이번 달 토큰 예산을 모두 썼습니다 "
+                      f"(사용 {st['used_month']:,} / 한도 {st['monthly_cap']:,}). "
+                      f"다음 달에 다시 시도하거나 설정의 budget_tokens_monthly 값을 늘리세요.")
     return False, ""

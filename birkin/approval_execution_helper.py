@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from typing_extensions import assert_never
 
-from . import approval_dispatch, config, procreg, store
+from . import approval_dispatch, approval_mail_outcome, config, procreg, store
 from .approval_execution_codec import JSONValue
 from .approval_execution_events import emit_event
 from .approval_execution_journal import ExecutionJournal, JournalCorruptionError
@@ -118,7 +118,7 @@ def run(approval_id: str, owner_token: str) -> int:
         if os.environ.get("BIRKIN_APPROVAL_HELPER_TEST_EXIT") == _EXIT_AFTER_EFFECT:
             os._exit(87)
         with store.file_lock(path, timeout=30.0):
-            journal.succeeded(result)
+            record_result(journal, snapshot.category, result)
             project_terminal(approval_id, record, journal.load())
         return 0
     except store.FileLockTimeout:
@@ -179,6 +179,17 @@ def _prepare_locked(
             owner_generation=procreg.process_generation(os.getpid()),
         )
     return _PreparedExecution(snapshot=snapshot, record=record)
+
+
+def record_result(journal: ExecutionJournal, category: str, result: str) -> None:
+    """Journal a returned action; a mail send succeeds only once submitted."""
+    if (
+        category == "mail_send"
+        and approval_mail_outcome.receipt_state(result) != approval_mail_outcome.SUBMITTED
+    ):
+        journal.outcome_unknown(result)
+    else:
+        journal.succeeded(result)
 
 
 def _durable_result(snapshot: JournalSnapshot) -> str | None:
@@ -252,10 +263,21 @@ def project_terminal(
                 updates={"execution_error": snapshot.error or "cron store is busy"},
             )
         case JournalPhase.ACTION_OUTCOME_UNKNOWN:
+            updates: dict[str, JSONValue] = {"failure_stage": "action_outcome_unknown"}
+            if (
+                snapshot.category == "mail_send"
+                and snapshot.result is not None
+                and not isinstance(record.get("mail_recheck_state"), str)
+            ):
+                # Seed the recheck state from the unconfirmed receipt once; a
+                # re-projection must not overwrite a later manual recheck.
+                state = approval_mail_outcome.receipt_state(snapshot.result)
+                updates["mail_recheck_state"] = state
+                updates["recheckable"] = approval_mail_outcome.is_recheckable(state)
             _ = store.resolve_pending(
                 approval_id,
                 "action_outcome_unknown",
-                updates={"failure_stage": "action_outcome_unknown"},
+                updates=updates,
             )
         case (
             JournalPhase.ARMED

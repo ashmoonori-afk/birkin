@@ -53,6 +53,45 @@ def test_approval_activates_the_commitment():
     assert record["check_in_at"] == AT
 
 
+def test_proposal_and_its_result_read_as_korean_wall_clock_copy():
+    companion.bind_context(CHAT, owner_id="777")
+    companion.set_policy(enabled=True, timezone="Asia/Seoul",
+                         utc_offset_minutes=540)
+    status = companion.propose_checkin(outcome="ship the draft",
+                                       check_in_at="2026-10-28T09:00:00+09:00",
+                                       cfg={})
+    [pending] = [r for r in store.list_pending()
+                 if r.get("category") == "companion"]
+    for text in (pending["title"], pending["description"]):
+        assert any("\uac00" <= char <= "\ud7a3" for char in text)
+        assert CHAT not in text and "T09:00:00" not in text
+    assert "10월 28일 09:00에 텔레그램으로 " in pending["description"]
+
+    result = companion.apply_proposal(pending["payload"])
+
+    assert companion.get_commitment(status["commitment_id"])["status"] == "active"
+    assert "10월 28일 09:00" in result
+    assert CHAT not in result and "'" not in result
+
+
+def test_proposal_under_a_utc_policy_reads_the_users_own_offset():
+    """A legacy or UTC-host policy stores the UTC default; the time the model
+    wrote with +09:00 is still shown as the user's 09:00."""
+    companion.bind_context(CHAT, owner_id="777")
+    companion.set_policy(enabled=True, timezone="UTC", utc_offset_minutes=0)
+    status = companion.propose_checkin(outcome="ship the draft",
+                                       check_in_at="2026-10-28T09:00:00+09:00",
+                                       cfg={})
+    [pending] = [r for r in store.list_pending()
+                 if r.get("category") == "companion"]
+    assert "10월 28일 09:00에 텔레그램으로 " in pending["description"]
+
+    result = companion.apply_proposal(pending["payload"])
+
+    assert "10월 28일 09:00" in result
+    record = companion.get_commitment(status["commitment_id"])
+    assert "· 예정 시각: 10월 28일 09:00" in companion.why_message(record)
+
 def test_auto_approve_opt_in_applies_immediately():
     _bound()
     status = companion.propose_checkin(outcome="ship the draft",

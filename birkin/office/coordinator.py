@@ -14,14 +14,13 @@ from .coordinator_data import (
     job_operations,
     job_journal as _journal,
     required_mapping as _mapping,
-    required_sequence as _sequence,
     required_text as _text,
 )
-from .errors import DocumentError, DocumentErrorCode
+from .errors import DocumentErrorCode
 from .export_types import ExportRequest
 from .job import OfficeJob, OfficeJobTransitionSink
 from .job_runner import DocumentServiceRunner
-from .preview_semantics import PreviewSummary, summarize_operations
+from .preview_semantics import summarize_operations
 from .proposal_integrity import authority_digest
 from .retention import purge_expired_office_state
 from .service import DocumentService
@@ -48,44 +47,6 @@ class OfficeMutationRequest:
     operations: tuple[Mapping[str, object], ...]
     destination: Path
     overwrite_approved: bool = False
-
-
-def _semantic_summaries(
-    preview: Mapping[str, object], operations: tuple[Mapping[str, object], ...]
-) -> list[PreviewSummary]:
-    try:
-        return summarize_operations(preview, operations)
-    except DocumentError:
-        if len(operations) != 1:
-            raise
-        container = _mapping(preview.get("preview"), "structured preview")
-        nodes = _sequence(container.get("nodes"), "structured preview nodes")
-        if len(nodes) != 1:
-            raise
-        operation = operations[0]
-        node = nodes[0]
-        before = _text(node.get("text"), "preview node text")
-        # An empty value and placeholder_idx 0 are both accepted operations,
-        # so identity is decided by presence, never by truthiness.
-        after = str(operation.get("value", ""))
-        location_value = next(
-            (
-                operation[key]
-                for key in ("cell", "field", "placeholder_idx")
-                if operation.get(key) is not None
-            ),
-            None,
-        )
-        if location_value is None:
-            raise _error(
-                DocumentErrorCode.INVALID_INPUT,
-                "operation location must be a cell, field, or placeholder index",
-            )
-        return [{
-            "location": str(location_value),
-            "before": before,
-            "after": after,
-        }]
 
 
 @final
@@ -145,7 +106,12 @@ class OfficeCoordinator:
         preview = self._service.render_artifact(
             request.source, output_format="structured_preview"
         )
-        summaries = _semantic_summaries(preview, request.operations)
+        resolved = self._service.resolve_operation_targets(
+            request.source, request.operations
+        )
+        summaries = summarize_operations(
+            preview, request.operations, resolved=resolved
+        )
         job = OfficeJob(
             job_id=uuid.uuid4().hex,
             format_name=format_name,
@@ -198,7 +164,7 @@ class OfficeCoordinator:
             "semantic_summaries": summaries,
             "source_filename": source_filename,
             "rejection_result": (
-                "Rejecting leaves the source unchanged and writes no output."
+                "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다."
             ),
         }
         return payload

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from birkin.office.adapters.catalog import adapter_inventory
-from birkin.tools.documents import NAMES
+from birkin.tools.documents import NAMES, tools as document_tools
 
 ROOT = Path(__file__).parents[2]
 README_PATHS = (
@@ -141,6 +141,34 @@ def test_registered_tool_and_skill_identifiers_are_documented() -> None:
         for skill_id in SKILL_IDS
     )
     assert tuple(_skill_name(path) for path in skill_paths) == SKILL_IDS
+
+
+def test_local_import_refusals_match_across_tool_docs_and_skills() -> None:
+    # The model reads the skills before it calls the tool, so they must warn
+    # about every refusal the tool description and the READMEs publish.
+    descriptions = {tool.name: tool.description for tool in document_tools()}
+    assert "hard-linked files" in descriptions["local_document_import"]
+    english = (
+        ROOT / "README.md",
+        ROOT / "docs" / "office-support.md",
+        *(
+            ROOT / "skills" / "productivity" / skill_id / "SKILL.md"
+            for skill_id in SKILL_IDS
+        ),
+    )
+    for path in english:
+        line = next(
+            line
+            for line in _text(path).splitlines()
+            if "`local_document_import`" in line and "refused" in line
+        )
+        assert "hard-linked files" in line, path
+    korean = next(
+        line
+        for line in _text(ROOT / "README.ko.md").splitlines()
+        if "`local_document_import`" in line and "거부" in line
+    )
+    assert "하드 링크로 연결된 파일" in korean
 
 
 def test_version_and_provenance_publications_are_synchronized() -> None:

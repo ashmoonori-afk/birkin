@@ -16,7 +16,7 @@ from .approval_execution_codec import (
     parse_mapping,
 )
 from .approval_execution_events import drain_helper_stdout
-from .approval_execution_helper import project_terminal
+from .approval_execution_helper import project_terminal, record_result
 from .approval_execution_journal import (
     ExecutionJournal,
     JournalCorruptionError,
@@ -25,6 +25,14 @@ from .approval_execution_journal import (
 from .approval_execution_process import launch_helper
 from .approval_execution_state import JournalPhase
 from .approval_execution_types import EventSink
+from .approval_mail_outcome import (
+    NEEDS_REVIEW,
+    SUBMITTED,
+    is_recheckable,
+    receipt_state,
+    state_message,
+    unconfirmed_response,
+)
 
 
 def recover_all() -> list[str]:
@@ -109,12 +117,13 @@ def recover_one(
                                 result = reconcile_approved_send(snapshot.payload)
                             except (GraphError, OSError):
                                 journal.outcome_unknown()
+                            except ValueError:
+                                # The approved account, draft or remote id can
+                                # no longer be verified: neither a success nor
+                                # a frozen, invisible approval.
+                                journal.outcome_unknown('{"state": "needs_review"}')
                             else:
-                                parsed = json.loads(result)
-                                if isinstance(parsed, dict) and parsed.get("state") == "submitted":
-                                    journal.succeeded(result)
-                                else:
-                                    journal.outcome_unknown()
+                                record_result(journal, "mail_send", result)
                             project_terminal(approval_id, record, journal.load())
                         elif snapshot.category.startswith("office_"):
                             journal.resume_office()
@@ -200,6 +209,9 @@ def recover_one(
             "error": str(current.get("execution_error") or "cron store is busy"),
         }
     if status == "action_outcome_unknown":
+        if current.get("category") == "mail_send":
+            state = current.get("mail_recheck_state")
+            return unconfirmed_response(state if isinstance(state, str) else "unknown")
         return {"ok": False, "error": "action outcome is unknown", "recoverable": False}
     if status == "execution_frozen":
         return {
@@ -279,7 +291,7 @@ def recheck_unknown_mail_send(
                     "state": "submitted",
                     "recheckable": False,
                     "mail_rechecked_at": checked_at,
-                    "message": "Microsoft 365 발송 처리가 확인되었습니다",
+                    "message": state_message(SUBMITTED),
                 }
             if snapshot.phase is JournalPhase.SUCCEEDED:
                 return {"ok": False, "error": "재확인으로 확정된 발송 처리 기록이 아닙니다"}
@@ -296,7 +308,7 @@ def recheck_unknown_mail_send(
                     "ok": True,
                     "state": "needs_review",
                     "recheckable": False,
-                    "message": "연결 계정 또는 승인 내용을 확인할 수 없어 검토가 필요합니다",
+                    "message": state_message(NEEDS_REVIEW),
                 }
                 previous_checked_at = record.get("mail_rechecked_at")
                 if isinstance(previous_checked_at, str) and previous_checked_at:
@@ -315,9 +327,8 @@ def recheck_unknown_mail_send(
                 state = "unknown"
                 recheckable = True
             else:
-                parsed = json.loads(result)
-                state = str(parsed.get("state") if isinstance(parsed, dict) else "unknown")
-                recheckable = state not in {"submitted", "needs_review"}
+                state = receipt_state(result)
+                recheckable = is_recheckable(state)
                 if state == "submitted":
                     journal.confirm_mail_succeeded(result)
                     project_terminal(approval_id, record, journal.load())
@@ -339,7 +350,7 @@ def recheck_unknown_mail_send(
                         "state": "submitted",
                         "recheckable": False,
                         "mail_rechecked_at": checked_at,
-                        "message": "Microsoft 365 발송 처리가 확인되었습니다",
+                        "message": state_message(SUBMITTED),
                     }
 
             _ = store.resolve_pending(
@@ -351,17 +362,12 @@ def recheck_unknown_mail_send(
                     "mail_rechecked_at": checked_at,
                 },
             )
-            messages = {
-                "accepted": "Microsoft 365가 요청을 접수했지만 발송 처리는 아직 확인되지 않았습니다",
-                "needs_review": "연결 계정 또는 승인 내용을 확인할 수 없어 검토가 필요합니다",
-                "observed_non_draft": "원격 메일이 초안이 아님은 확인했지만 발송 시각은 확인되지 않았습니다",
-            }
             return {
                 "ok": True,
                 "state": state,
                 "recheckable": recheckable,
                 "mail_rechecked_at": checked_at,
-                "message": messages.get(state, "현재 원격 발송 상태를 확인할 수 없습니다"),
+                "message": state_message(state),
             }
     except store.FileLockTimeout:
         return {
@@ -405,7 +411,7 @@ def _migrate_legacy(
     digest = receipt.get("authority_digest") if receipt is not None else None
     journal.commit_attempt(owner_pid=0)
     if isinstance(result, str) and digest == authority_digest(record):
-        journal.succeeded(result)
+        record_result(journal, str(record.get("category") or ""), result)
     else:
         journal.outcome_unknown()
     project_terminal(journal.approval_id, record, journal.load())

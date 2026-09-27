@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -62,7 +63,7 @@ def test_usage_accumulates_and_pause_done_are_persisted():
     goals.set_goal("Count this turn")
     assert goals.add_usage(3, 4).tokens_used == 7
     assert goals.add_usage(2, 3).tokens_used == 12
-    assert "12 tokens" in goals.render_status()
+    assert "토큰 12" in goals.render_status()
 
     paused = goals.pause()
     assert paused is not None and paused.status == "paused"
@@ -81,8 +82,8 @@ def test_render_status_is_one_line_and_reports_usage_and_gate():
     rendered = goals.render_status()
     assert "\n" not in rendered
     assert len(rendered) < 140
-    assert "0 tokens" in rendered
-    assert "gate: pending" in rendered
+    assert "토큰 0" in rendered
+    assert "검증: 대기" in rendered
 
 
 def test_gate_is_queued_and_never_executed_without_shell_autoapproval(
@@ -146,6 +147,7 @@ def test_completion_requires_a_verifier_that_actually_passed(monkeypatch):
     assert queued is not None and queued.status == "active"
     assert goals.get_active() is not None
     assert len(store.list_pending()) == 1
+    assert re.search(r"[\uac00-\ud7a3]", store.list_pending()[0]["title"])
 
     monkeypatch.setattr(approvals, "execute_action",
                         lambda *_args, **_kwargs: "[exit 1] 1 failed")
@@ -164,3 +166,96 @@ def test_completion_requires_a_verifier_that_actually_passed(monkeypatch):
     assert outcome == "done"
     assert finished is not None and finished.status == "done"
     assert goals.get_active() is None
+
+
+def _approve_verifier(monkeypatch, receipt: str) -> str:
+    """Approve the one pending goal verifier with a stubbed shell run."""
+    [record] = [r for r in store.list_pending() if r.get("origin") == "goal"]
+    monkeypatch.setattr(approvals, "execute_action",
+                        lambda *_args, **_kwargs: receipt)
+    resolved = approvals.approve(record["id"], approved_by="human:test",
+                                 approved_via="test")
+    assert resolved.get("ok"), resolved
+    return record["id"]
+
+
+def test_approved_verifier_completes_the_goal_on_the_next_done(monkeypatch):
+    state = goals.set_goal("Gated finish", gate="python -m pytest")
+
+    _, outcome = goals.request_completion(state, {"auto_approve": []})
+
+    assert outcome == "queued"
+    [pending] = store.list_pending()
+    assert pending["payload"]["goal_slug"] == state.slug
+    _approve_verifier(monkeypatch, "[exit 0] 2 passed")
+
+    finished, outcome = goals.request_completion(goals.get_active(),
+                                                 {"auto_approve": []})
+
+    assert outcome == "done"
+    assert finished is not None and finished.status == "done"
+    assert goals.get_active() is None
+    assert [r for r in store.list_pending() if r.get("origin") == "goal"] == []
+
+
+def test_repeated_done_does_not_queue_duplicate_verifiers():
+    state = goals.set_goal("Gated finish", gate="python -m pytest")
+
+    goals.request_completion(state, {"auto_approve": []})
+    goals.request_completion(goals.get_active(), {"auto_approve": []})
+
+    assert len(store.list_pending()) == 1
+
+
+def test_a_failed_approved_run_is_reported_once_then_re_queued(monkeypatch):
+    state = goals.set_goal("Gated finish", gate="python -m pytest")
+    goals.request_completion(state, {"auto_approve": []})
+    approval_id = _approve_verifier(monkeypatch, "[exit 1] 1 failed")
+
+    failed, outcome = goals.request_completion(goals.get_active(),
+                                               {"auto_approve": []})
+
+    assert outcome == "failed"
+    assert failed is not None and failed.gate_last["ok"] is False
+    assert failed.gate_last["approval_id"] == approval_id
+
+    _, outcome = goals.request_completion(goals.get_active(),
+                                          {"auto_approve": []})
+
+    assert outcome == "queued"
+    assert len(store.list_pending()) == 1
+
+
+def test_an_old_goals_approval_cannot_complete_a_new_goal_with_the_same_objective(
+        monkeypatch):
+    state = goals.set_goal("Gated finish", gate="python -m pytest")
+    goals.request_completion(state, {"auto_approve": []})
+    approval_id = _approve_verifier(monkeypatch, "[exit 0] 2 passed")
+    path = config.pending_dir() / f"{approval_id}.json"
+    record = json.loads(path.read_text(encoding="utf-8"))
+    record["created"] = "2000-01-01T00:00:00+00:00"
+    path.write_text(json.dumps(record), encoding="utf-8")
+
+    fresh = goals.set_goal("Gated finish", gate="python -m pytest")
+    _, outcome = goals.request_completion(fresh, {"auto_approve": []})
+
+    assert outcome == "queued"
+    assert goals.get_active() is not None
+
+
+def test_a_non_goal_shell_approval_with_the_same_command_is_ignored(monkeypatch):
+    state = goals.set_goal("Gated finish", gate="python -m pytest")
+    other = store.add_pending(
+        category="shell", title="run tests", description="",
+        payload={"command": "python -m pytest", "goal_slug": state.slug,
+                 "goal_session": ""},
+        origin="mcp")
+    monkeypatch.setattr(approvals, "execute_action",
+                        lambda *_args, **_kwargs: "[exit 0] 2 passed")
+    assert approvals.approve(other["id"], approved_by="human:test",
+                             approved_via="test").get("ok")
+
+    _, outcome = goals.request_completion(state, {"auto_approve": []})
+
+    assert outcome == "queued"
+    assert goals.get_active() is not None

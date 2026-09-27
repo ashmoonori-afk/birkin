@@ -7,7 +7,7 @@ import threading
 import time
 
 from birkin import abortkey
-from birkin.agent import Agent
+from birkin.agent import ABORTED_NOTICE, Agent
 
 
 class _Reg:
@@ -28,7 +28,7 @@ def test_agent_aborts_before_first_turn():
     a = threading.Event()
     a.set()
     out = Agent(client=_Client(), system="", registry=_Reg()).run("hi", abort=a)
-    assert "aborted" in out.lower()
+    assert ABORTED_NOTICE in out
 
 
 def test_agent_abort_stops_after_a_tool_turn():
@@ -51,7 +51,7 @@ def test_agent_abort_stops_after_a_tool_turn():
             return super().execute(name, tool_input)
 
     out = Agent(client=_Client(), system="", registry=_AbortingReg()).run("do", abort=a)
-    assert calls["n"] == 1 and "aborted" in out.lower()
+    assert calls["n"] == 1 and ABORTED_NOTICE in out
 
 
 def test_parallel_abort_returns_promptly_with_valid_history():
@@ -116,7 +116,7 @@ def test_parallel_abort_returns_promptly_with_valid_history():
     assert not runner.is_alive()
     assert did_return, "parallel abort waited for the running tool"
     assert elapsed < 4
-    assert output and "aborted" in output[0].lower()
+    assert output and ABORTED_NOTICE in output[0]
     tool_uses = [
         block for message in agent.messages
         for block in message["content"] if block.get("type") == "tool_use"

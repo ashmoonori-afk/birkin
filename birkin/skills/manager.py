@@ -161,11 +161,25 @@ class SkillManager:
             metadata_scored.sort(
                 key=lambda x: (x[0], x[1], x[2]), reverse=True)
             return [s for _, _, _, s in metadata_scored[:limit]]
+
+        def body_terms(tokens: set[str]) -> set[str]:
+            # Korean glues particles and endings onto a stem (노트를,
+            # 정리해줘), so a query term may extend a body word — never the
+            # reverse, and never a fragment: '해줘' is not '정리해줘'.
+            return {term for term in terms if term in tokens or (
+                not term.isascii() and any(
+                    len(tok) > 1 and not tok.isascii() and term.startswith(tok)
+                    for tok in tokens))}
+
         body_scored = []
         for s in skills:
-            body_hits = len(matched_terms(s.body()))
-            if body_hits:
-                body_scored.append((body_hits, s))
+            hits = body_terms(set(re.findall(r"[^\W_]+", s.body().lower())))
+            korean = [t for t in hits if not t.isascii()]
+            # One generic Korean word in prose is not intent: need two
+            # distinct non-ASCII hits (or an ASCII hit, as before); otherwise
+            # return nothing so the CLI prompt carries the catalog index.
+            if hits and (len(hits) - len(korean) >= 1 or len(korean) >= 2):
+                body_scored.append((len(hits), s))
         body_scored.sort(key=lambda x: x[0], reverse=True)
         return [s for _, s in body_scored[:limit]]
 
@@ -221,7 +235,7 @@ class SkillManager:
             from .. import approvals
             res = approvals.propose(
                 category="skill",
-                title=f"new skill: {name}",
+                title=f"새 스킬: {name}",
                 description=desc,
                 payload={"action": "create", "name": name, "description": desc,
                          "body": body, "tags": inp.get("tags") or []},
@@ -252,7 +266,7 @@ class SkillManager:
             from .. import approvals
             res = approvals.propose(
                 category="skill",
-                title=f"improve skill: {name}",
+                title=f"스킬 개선: {name}",
                 description=addition[:160],
                 payload={"action": "improve", "target": skill.name,
                          "addition": addition},

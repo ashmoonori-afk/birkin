@@ -8,6 +8,8 @@ from dataclasses import dataclass
 from html import escape
 from typing import cast
 
+from birkin import approval_text
+
 
 _OFFICE_RECEIPT_PREFIX = "office:"
 
@@ -95,7 +97,7 @@ class OfficeReceiptProjection:
 
     def event_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
-            "summary": "Office export completed",
+            "summary": "Office 내보내기를 완료했습니다.",
             "approval_id": self.approval_id,
             "artifact_id": self.artifact_id,
             "job_id": self.job_id,
@@ -126,13 +128,43 @@ def approval_turn_context(
     outcome: str,
     receipt: OfficeReceiptProjection | None,
     error: str | None = None,
+    *,
+    resolved: Mapping[str, object] | None = None,
+    result_text: str = "",
+    presented: approval_text.ApprovalOutcomeText | None = None,
 ) -> str:
+    """The Korean outcome the next model turn sees for one approval answer.
+
+    ``resolved`` is the record as it stands after the decision; with it an
+    answer another surface already gave, or an approved command that exited
+    non-zero, is reported as what actually happened instead of as a failure
+    or a success. ``presented`` is the outcome the user was shown; an
+    action that may have run (an unconfirmed mail send) keeps its words.
+    """
+    model_outcome = outcome
     if outcome == "approved":
-        summary = "승인된 작업이 완료되었습니다."
-        if receipt is not None:
-            summary += f" 저장 위치: {receipt.destination}"
+        executed = approval_text.approve_outcome(
+            resolved, {"ok": True, "result": result_text}
+        )
+        if executed.ok:
+            summary = "승인된 작업이 완료되었습니다."
+            if receipt is not None:
+                summary += f" 저장 위치: {receipt.destination}"
+        else:
+            summary = executed.summary
     elif outcome == "rejected":
         summary = "승인 요청이 거부되어 작업을 실행하지 않았습니다."
+    elif outcome == "answered_elsewhere":
+        summary = approval_text.resolved_elsewhere(resolved).summary
+    elif outcome == "follow_up_required":
+        summary = approval_text.FOLLOW_UP
+    elif presented is not None and presented.ui_state == "action_needed":
+        # Calling it a failure would invite the model to repeat the action.
+        summary = presented.summary
+        if outcome == "rejected_by_authority":
+            # The wire outcome stays as is; the model is told the action may
+            # have run, not that it was refused.
+            model_outcome = "outcome_unknown"
     else:
         summary = "승인된 작업을 완료하지 못했습니다."
         if error:
@@ -140,6 +172,6 @@ def approval_turn_context(
     return (
         f'<approval-outcome lang="ko" '
         f'approval_id="{escape(approval_id, quote=True)}" '
-        f'outcome="{escape(outcome, quote=True)}">'
+        f'outcome="{escape(model_outcome, quote=True)}">'
         f"{escape(summary)}</approval-outcome>"
     )

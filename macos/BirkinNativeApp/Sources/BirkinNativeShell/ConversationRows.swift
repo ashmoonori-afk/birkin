@@ -72,14 +72,14 @@ public enum ConversationRows {
         switch kind {
         case "user_message":
             return ConversationRow(
-                id: id, kind: .user, state: .complete, cursor: raw.int("cursor"), title: "You",
+                id: id, kind: .user, state: .complete, cursor: raw.int("cursor"), title: title(.user),
                 text: text, attachments: attachments, failure: nil
             )
         case "assistant_stream", "assistant_message":
             return ConversationRow(
                 id: id, kind: .assistant,
                 state: kind == "assistant_stream" ? .streaming : .complete,
-                cursor: raw.int("cursor"), title: "Birkin", text: text,
+                cursor: raw.int("cursor"), title: title(.assistant), text: text,
                 attachments: [], failure: nil
             )
         default: return nil
@@ -130,14 +130,14 @@ public enum ConversationRows {
 
     private static func title(_ kind: ConversationRowKind) -> String {
         switch kind {
-        case .user: "You"
+        case .user: "사용자"
         case .assistant: "Birkin"
-        case .tool: "Tool"
-        case .approval: "Approval required"
-        case .question: "Question"
-        case .receipt: "Receipt"
-        case .failure: "Failed"
-        case .interrupted: "Interrupted"
+        case .tool: "진행"
+        case .approval: "승인 필요"
+        case .question: "질문"
+        case .receipt: "작업 영수증"
+        case .failure: "실패"
+        case .interrupted: "중단됨"
         }
     }
 }

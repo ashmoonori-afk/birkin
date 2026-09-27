@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import re
+import types
+
+import pytest
 
 from birkin.gateway.channels import telegram
 from birkin.gateway.channels.telegram import TelegramChannel
@@ -39,6 +42,124 @@ def test_photo_becomes_a_path_turn_with_caption(monkeypatch, tmp_path):
     out = ch._compose_media_text(msg)
     assert "이 영수증 정리해줘" in out
     assert "파일을 보냈습니다" in out and "f.jpg" in out    # local path handed off
+
+
+def test_office_document_note_points_at_local_import(monkeypatch, tmp_path):
+    ch = _ch(monkeypatch, tmp_path)
+    monkeypatch.setattr(ch, "_download_media",
+                        lambda fid: str(tmp_path / "uploads" / "d_보고서.DOCX"))
+    out = ch._compose_media_text({"document": {"file_id": "d", "file_size": 10}},
+                                 document_tools=True)
+    assert "파일을 보냈습니다" in out and "d_보고서.DOCX" in out
+    assert "local_document_import" in out and "inspect_document" in out
+
+
+def test_office_note_names_no_tool_the_session_cannot_call(monkeypatch, tmp_path):
+    ch = _ch(monkeypatch, tmp_path)
+    monkeypatch.setattr(ch, "_download_media",
+                        lambda fid: str(tmp_path / "uploads" / "d_보고서.docx"))
+    out = ch._compose_media_text({"document": {"file_id": "d", "file_size": 10}})
+    assert "d_보고서.docx" in out and "파일 읽기" in out
+    assert "local_document_import" not in out and "inspect_document" not in out
+
+
+def _registry_session(*names):
+    registry = types.SimpleNamespace(specs=lambda: [{"name": name} for name in names])
+    return types.SimpleNamespace(cfg={}, agent=types.SimpleNamespace(registry=registry))
+
+
+@pytest.mark.parametrize(
+    ("provider", "names", "expected"),
+    [
+        ("anthropic", ("local_document_import", "inspect_document"), True),
+        ("anthropic", ("inspect_document",), False),
+        ("codex-cli", ("local_document_import", "inspect_document"), False),
+        ("claude-cli", ("local_document_import", "inspect_document"), False),
+    ],
+)
+def test_only_a_native_registry_with_both_tools_imports_documents(
+        monkeypatch, provider, names, expected):
+    from birkin.gateway import core as gw_core
+
+    session = _registry_session(*names)
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: session)
+    gateway = gw_core.Gateway({"provider": provider, "gateway_prewarm": False})
+
+    assert gateway.can_import_documents() is expected
+    assert telegram._document_tools(gateway) is expected
+    assert telegram._document_tools(object()) is False
+
+
+def test_the_native_document_registry_offers_both_tools(monkeypatch, tmp_path):
+    from birkin.gateway import core as gw_core
+    from birkin.tools import build_registry
+    from birkin.tools._types import ToolContext
+
+    registry = build_registry(ToolContext(cfg={}, client=None, cwd=tmp_path),
+                              include={"documents"})
+    session = types.SimpleNamespace(cfg={}, agent=types.SimpleNamespace(registry=registry))
+    monkeypatch.setattr(gw_core, "build_session", lambda cfg: session)
+
+    assert gw_core.Gateway({"provider": "anthropic"}).can_import_documents()
+
+
+@pytest.mark.parametrize("imports", [True, False])
+def test_the_poll_loop_names_the_import_tools_only_when_the_gateway_has_them(
+        monkeypatch, tmp_path, imports):
+    ch = _ch(monkeypatch, tmp_path)
+    monkeypatch.setattr(ch, "_download_media",
+                        lambda fid: str(tmp_path / "uploads" / "d_보고서.docx"))
+    updates = [{"update_id": 10, "message": {
+        "chat": {"id": 42, "type": "private"}, "from": {"id": 42},
+        "document": {"file_id": "d", "file_size": 10}}}]
+    turns: list[str] = []
+
+    class _Gateway:
+        def command_menu(self):
+            return []
+
+        def take_restart_greeting(self, _channel):
+            return None
+
+        def interrupt(self, _channel, _chat_id):
+            return False
+
+        def can_import_documents(self):
+            return imports
+
+    def fake_call(method, _params, timeout=30):
+        if method != "getUpdates":
+            return {}
+        if not updates:
+            raise KeyboardInterrupt
+        return {"result": [updates.pop()]}
+
+    monkeypatch.setattr(ch, "_redeliver_pending", lambda: 0)
+    monkeypatch.setattr(telegram, "restore_stranded_claims", lambda: 0)
+    monkeypatch.setattr(ch, "_call", fake_call)
+    monkeypatch.setattr(ch, "_start_public_worker",
+                        lambda _registry, _key, target, _args=(): target() or object())
+    monkeypatch.setattr(ch, "_run_turn",
+                        lambda _gateway, _chat, text, *_a, **_k: turns.append(text))
+
+    with pytest.raises(KeyboardInterrupt):
+        ch.start(_Gateway())
+
+    (text,) = turns
+    assert "d_보고서.docx" in text
+    assert ("local_document_import" in text) is imports
+
+
+def test_photo_note_does_not_suggest_office_import(monkeypatch, tmp_path):
+    ch = _ch(monkeypatch, tmp_path)
+    out = ch._compose_media_text({"photo": [{"file_id": "L", "file_size": 9000}]})
+    assert "local_document_import" not in out
+
+
+def test_office_suffixes_match_what_local_import_accepts():
+    from birkin.office.local_import import SUPPORTED_SUFFIXES
+
+    assert telegram._OFFICE_SUFFIXES == SUPPORTED_SUFFIXES
 
 
 def test_voice_notes_stt_is_unset(monkeypatch, tmp_path):

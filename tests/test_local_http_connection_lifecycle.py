@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import io
+import queue
 import threading
 import types
 
@@ -142,4 +143,67 @@ def test_unauthorized_large_body_responses_are_complete() -> None:
         server_thread.join(timeout=2.0)
 
     assert responses == [(401, b'{"error": "unauthorized"}') for _ in range(32)]
+    assert not server_thread.is_alive()
+
+
+def test_rejected_host_and_content_type_drain_the_declared_body(monkeypatch) -> None:
+    # Given: POSTs rejected before the body is read (forged Host, non-JSON).
+    drained: queue.Queue[str] = queue.Queue()
+    original_drain = local_http._drain_rejected_body
+
+    def observed_drain(request) -> None:
+        original_drain(request)
+        drained.put(request.headers.get("Host", ""))
+
+    monkeypatch.setattr(local_http, "_drain_rejected_body", observed_drain)
+    gateway = types.SimpleNamespace(
+        handle=lambda *_args: "unexpected",
+        pending_hard_restart=False,
+    )
+    channel = LocalHTTPChannel(0, insecure_no_token=True)
+    server_thread = threading.Thread(
+        target=channel.start,
+        args=(gateway,),
+        daemon=True,
+    )
+    server_thread.start()
+    assert channel.wait_until_ready(1.0)
+
+    try:
+        # When: each request declares a body the handler never parses.
+        responses: list[tuple[int, bytes]] = []
+        for host, content_type in (
+            ("evil.example", "application/json"),
+            ("127.0.0.1", "text/plain"),
+        ):
+            connection = http.client.HTTPConnection(
+                "127.0.0.1",
+                channel.port,
+                timeout=local_http_timeout(),
+            )
+            try:
+                connection.request(
+                    "POST",
+                    "/message",
+                    body=b'{"text": "x"}',
+                    headers={"Host": host, "Content-Type": content_type},
+                )
+                response = connection.getresponse()
+                responses.append((response.status, response.read()))
+            finally:
+                connection.close()
+
+        # Then: both rejections arrive complete and both bodies are
+        # discarded, so Windows cannot reset the connection over unread
+        # bytes. The drain runs after the response, so wait for it.
+        assert responses == [
+            (403, b'{"error": "forbidden host"}'),
+            (415, b'{"error": "Content-Type must be application/json"}'),
+        ]
+        hosts = [drained.get(timeout=local_http_timeout()) for _ in range(2)]
+        assert sorted(hosts) == ["127.0.0.1", "evil.example"]
+    finally:
+        channel.stop()
+        server_thread.join(timeout=2.0)
+
     assert not server_thread.is_alive()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -205,6 +206,20 @@ def test_unattended_queues_for_approval_instead_of_running():
     assert len(pending) == 1
     assert pending[0]["category"] == "shell"
     assert pending[0]["payload"]["command"] == "git reset --hard"
+
+
+def test_unattended_queue_describes_the_command_in_korean():
+    from birkin import approvals
+    shellguard.check("git reset --hard", _ctx())
+
+    record = store.list_pending()[0]
+    assert re.search(r"[\uac00-\ud7a3]", record["title"])
+    assert "git reset --hard" in record["title"]
+    assert re.search(r"[\uac00-\ud7a3]", record["description"])
+    # The deny-reason loop still keys on the exact queued command.
+    approvals.reject(record["id"], reason="keep my work",
+                     rejected_by="human:test", rejected_via="test")
+    assert approvals.denial_reason_for("git reset --hard") == "keep my work"
 
 
 def test_unattended_runs_when_shell_is_auto_approved(tmp_path):

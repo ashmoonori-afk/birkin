@@ -78,6 +78,55 @@ def apply_approved(payload: dict[str, Any], _on_event: object = None) -> str:
     return json.dumps({"status": "applied", "connection": status()}, ensure_ascii=False, sort_keys=True)
 
 
+def request_error(payload: Mapping[str, object]) -> str | None:
+    """Stable code for a request apply_approved is sure to refuse, before anyone approves it."""
+    action = payload.get("action")
+    if action == "connect":
+        if not all(isinstance(payload.get(key), str) and str(payload[key]).strip() for key in ("account_id", "account_name", "secret_env")):
+            return "missing_account"
+        scopes = payload.get("scopes")
+        if isinstance(scopes, list) and any(isinstance(scope, str) and scope in WRITE_SCOPES for scope in scopes):
+            return "write_scope_on_connect"
+        try:
+            _scopes(scopes)
+        except (TypeError, ValueError):
+            return "unsupported_scope"
+        return None
+    if action in {"revoke", "reauthenticate"}:
+        if not _read():
+            return "not_connected"
+        if action == "reauthenticate" and "scopes" in payload:
+            try:
+                _scopes(payload["scopes"], allow_mail_write=True)
+            except (TypeError, ValueError):
+                return "unsupported_scope"
+        return None
+    return "unsupported_action"
+
+
+STATE_LABELS = {
+    "not_connected": "연결되지 않음",
+    "connected": "연결됨",
+    "verification_required": "계정 확인 대기",
+    "reauthentication_required": "다시 로그인 필요",
+    "token_expired": "인증 만료",
+    "sync_failed": "동기화 실패",
+    "revoked": "연결 해제됨",
+}
+STATE_NEXT_STEPS = {
+    "not_connected": "Microsoft 365 연결을 요청해 승인하세요.",
+    "verification_required": "메일이나 일정을 처음 읽을 때 로그인한 계정과 조직을 자동으로 확인합니다.",
+    "reauthentication_required": "토큰을 새로 발급해 지정한 환경 변수에 넣은 뒤 재인증을 요청하세요.",
+    "token_expired": "토큰을 새로 발급한 뒤 재인증을 요청하세요.",
+    "sync_failed": "잠시 후 다시 시도하고, 계속 실패하면 재인증을 요청하세요.",
+    "revoked": "다시 사용하려면 재인증을 요청하세요.",
+}
+
+
+def state_label(state: object) -> str:
+    return STATE_LABELS.get(str(state), "상태 확인 필요")
+
+
 def status(*, env: Mapping[str, str] | None = None) -> dict[str, object]:
     record = _read()
     if not record:
@@ -239,4 +288,4 @@ def record_sync_result(error: str | None) -> None:
         _write(current)
 
 
-__all__ = ["READ_SCOPES", "WRITE_SCOPES", "apply_approved", "approval_identity", "current_verified_identity", "record_sync_result", "status", "verified_approval_identity", "verify_approval_identity"]
+__all__ = ["READ_SCOPES", "STATE_LABELS", "STATE_NEXT_STEPS", "WRITE_SCOPES", "apply_approved", "approval_identity", "current_verified_identity", "record_sync_result", "request_error", "state_label", "status", "verified_approval_identity", "verify_approval_identity"]

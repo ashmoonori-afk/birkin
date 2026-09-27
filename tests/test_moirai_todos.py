@@ -102,7 +102,23 @@ class TestTodoList:
         t = todos.TodoList(["a"])
         t.start(9)
         t.done(-1)
+        t.fail(5)
         assert t.done_count == 0
+        assert t.failed_count == 0
+
+    def test_fail_marks_item_failed_and_blocks_completion(self) -> None:
+        """A step whose agent died is failed: not done, not pending again."""
+        t = todos.TodoList(["a", "b"])
+        t.start(0)
+        t.fail(0, note="agent died")
+        assert t.failed_count == 1
+        assert t.done_count == 0
+        assert t.is_complete is False
+        assert t.next_pending() == 1
+        assert "실패 1" in t.render()
+        t.start(1)
+        t.done(1)
+        assert t.is_complete is False        # one failure is never "complete"
 
 
 PATTERN = (Path(__file__).resolve().parent.parent
@@ -159,11 +175,14 @@ class TestHardTaskPattern:
         module = _load_pattern()
         m = _FakeM(["의존성 설치", "테스트 실행"],
                    [{"result": "설치 완료"}, {"result": "2162 passed"}])
-        report = module.main(m)
+        out = module.main(m)
+        report = out["answer"]
         workers = [c for c in m.calls if c["role"] == "worker"]
         assert len(workers) == 2
         assert "설치 완료" in report
         assert "2162 passed" in report
+        assert out["completion"] == "complete"
+        assert report.startswith("VERDICT: 완료")
 
     def test_each_step_announces_itself_through_phase(self) -> None:
         """m.phase() is the channel the gateway forwards to chat heartbeats."""
@@ -196,7 +215,7 @@ class TestHardTaskPattern:
         m = _FakeM(["빌드"],
                    [{"result": "빌드 성공", "followups": ["문서 갱신"]},
                     {"result": "문서 갱신 완료"}])
-        report = module.main(m)
+        report = module.main(m)["answer"]
         workers = [c for c in m.calls if c["role"] == "worker"]
         assert len(workers) == 2
         assert "문서 갱신 완료" in report
@@ -215,5 +234,30 @@ class TestHardTaskPattern:
         module = _load_pattern()
         endless = [{"result": "r", "followups": ["again"]}] * 50
         m = _FakeM(["seed"], endless)
-        report = module.main(m)
+        report = module.main(m)["answer"]
         assert "후속" in report or "cap" in report.lower()
+
+    def test_every_worker_failing_is_a_failed_task_not_a_complete_one(
+            self) -> None:
+        """A dead worker returns nothing; the verdict must not say 완료."""
+        module = _load_pattern()
+        m = _FakeM(["초안 작성", "검토"], [{}, {}])
+        out = module.main(m)
+        assert out["completion"] == "failed"
+        assert not out["answer"].startswith("VERDICT: 완료")
+        assert out["answer"].startswith("VERDICT: 미완료")
+        assert "실패 2" in out["answer"]
+        assert module.FAIL_NOTE in out["answer"]
+
+    def test_one_failed_step_of_two_is_partial(self) -> None:
+        module = _load_pattern()
+        m = _FakeM(["초안 작성", "검토"], [{}, {"result": "ok"}])
+        out = module.main(m)
+        assert out["completion"] == "partial"
+        assert out["answer"].startswith("VERDICT: 일부 완료")
+
+    def test_a_failed_step_still_advances_the_phase_numbering(self) -> None:
+        module = _load_pattern()
+        m = _FakeM(["하나", "둘"], [{}, {"result": "r2"}])
+        module.main(m)
+        assert any(p.startswith("할 일 2/2") for p in m.phases), m.phases

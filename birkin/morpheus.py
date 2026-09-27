@@ -87,7 +87,9 @@ nothing after it, the harness proposal block:
              "reason": "why this edit"}}]}}
 ```
 
-"action" is create|update|delete (update and delete need an "id"); "kind" is \
+"action" is create|update|delete; update and delete need the entry's "id". \
+Omit "id" on create (it is made from the title): a create id that is not 1-80 \
+lowercase ASCII letters, digits or '_' is rejected. "kind" is \
 prompt|memory|skill|subagent. Emit an empty "edits" list when the night taught \
 nothing worth keeping.
 
@@ -267,11 +269,12 @@ def _apply_harness_proposal(cfg: dict[str, Any], summary: str, *,
     if proposal is None:
         return None
     try:
+        # Global scope: a session renders global plus its own local state, so
+        # a per-run "morpheus" session scope was read by no session at all.
         result = harness.submit(
             proposal,
             cfg=cfg,
-            scope="local",
-            session_id=str(cfg.get("session_id") or "morpheus"),
+            scope="global",
             source="morpheus",
             origin="morpheus",
         )

@@ -28,9 +28,9 @@ from typing import Final, Protocol, TypeAlias, TypeGuard
 
 from typing_extensions import override
 
-from ... import config
+from ... import approval_text, config, risk
 from ...codex_session import codex_activity_label
-from ..turn_support import TURN_ERROR_REPLY, match_command
+from ..turn_support import TURN_EMPTY_REPLY, TURN_ERROR_REPLY, match_command
 from ..workflow import (
     WorkflowProposal,
     finish as finish_workflow,
@@ -63,8 +63,14 @@ _ATTACHMENT_RE = re.compile(
     + r"path=([\"'])(.+?)\1[ \t]*/?>[ \t]*(?:\n|$)"
 )
 _MAX_DOCUMENT_BYTES: Final = 50 * 1024 * 1024
+# Attachments local_document_import accepts (office.local_import.SUPPORTED_SUFFIXES).
+_OFFICE_SUFFIXES: Final = frozenset({".docx", ".xlsx", ".pptx", ".pdf", ".hwpx"})
 MAX_PUBLIC_WORKERS: Final = 4
-_BUSY_REPLY: Final = "Birkin is busy; try again shortly."
+_BUSY_REPLY: Final = "지금 다른 작업을 처리하고 있어요. 잠시 후 다시 시도해 주세요."
+_UNAUTHORIZED_TOAST: Final = "이 요청을 처리할 권한이 없습니다."
+# An approval card edited with its result stays under Telegram's 4096 cap.
+_EDIT_CHARS: Final = 4000
+_RESULT_BELOW: Final = "⬇ 결과가 길어 아래 메시지로 보냈어요."
 # How long a worker waits for the poll loop to ack the dispatched batch's
 # offset before it re-execs anyway (see TelegramChannel._poll_acked).
 _RESTART_ACK_TIMEOUT: Final = 5.0
@@ -73,6 +79,17 @@ _RESTART_ACK_TIMEOUT: Final = 5.0
 _SIDE_COMMANDS: Final = frozenset(
     {"help", "pending", "deny", "remind", "commitment", "checkin", "companion",
      "summon"}
+)
+# A refused check-in tap is explained by its stable CompanionError code, never
+# by the English exception text.
+_COMPANION_TOASTS: Final = {
+    "already_answered": "이미 응답한 체크인이에요.",
+    "invalid_transition": "이미 닫힌 약속이라 바꿀 수 없어요.",
+    "context_busy": "이 대화에 진행 중인 다른 약속이 있어서 다시 물어볼 수 없어요.",
+    "unknown_action": "알 수 없는 버튼이에요.",
+}
+_COMPANION_TOAST_FALLBACK: Final = (
+    "지금은 처리할 수 없어요. /commitment 로 상태를 확인해 주세요."
 )
 
 
@@ -120,6 +137,10 @@ class _TrustCheck(Protocol):
     def __call__(self, channel: str) -> bool: ...
 
 
+class _DocumentImporter(Protocol):
+    def can_import_documents(self) -> bool: ...
+
+
 class _ProgressChannel(Protocol):
     def progress_holder(self, chat_id: str) -> dict[str, object]: ...
     def typing_target(
@@ -159,6 +180,15 @@ def _is_action_resolver(value: object) -> TypeGuard[_ActionResolver]:
 
 def _is_action_claimer(value: object) -> TypeGuard[_ActionClaimer]:
     return callable(getattr(value, "claim_action", None))
+
+
+def _is_document_importer(value: object) -> TypeGuard[_DocumentImporter]:
+    return callable(getattr(value, "can_import_documents", None))
+
+
+def _document_tools(gateway: object) -> bool:
+    """Whether the gateway's model turns can import and inspect a document."""
+    return _is_document_importer(gateway) and gateway.can_import_documents() is True
 
 
 def _command_is_trusted(gateway: ChannelGateway) -> bool:
@@ -242,64 +272,9 @@ def verify_token(token: str) -> tuple[bool, str]:
     return True, str(result.get("username", "?"))
 
 
-def _payload_summary(category: str, payload: JsonObject) -> str:
-    """The consequential part of a proposal, so a one-tap approve isn't blind
-    (the CLI review shows the full payload; the button flow must too)."""
-    if category == "shell":
-        return f"↳ 실행: {str(payload.get('command', ''))[:200]}"
-    if category == "cron":
-        h, m = payload.get("hour", "?"), payload.get("minute", 0)
-        tgt = payload.get("deliver_chat_id")
-        return f"↳ 매일 {h}:{str(m).zfill(2)} {str(payload.get('value', ''))[:120]}" + (
-            f" → chat {tgt}" if tgt else ""
-        )
-    if category == "skill":
-        return f"↳ 스킬: {str(payload.get('name', payload.get('title', '')))[:120]}"
-    if category == "workflow":
-        raw_steps = payload.get("steps")
-        steps: list[JsonValue] = raw_steps if isinstance(raw_steps, list) else []
-        return "↳ " + " → ".join(str(step)[:60] for step in steps[:4])
-    if category == "operation":
-        operation = payload.get("operation")
-        if not _is_json_object(operation):
-            return "↳ operation: invalid payload"
-        tool = str(operation.get("tool", "?"))
-        gate = str(operation.get("gate", "?"))
-        cwd = str(operation.get("cwd", "?"))
-        raw_input = json.dumps(
-            operation.get("input", {}),
-            ensure_ascii=False,
-            sort_keys=True,
-        )
-        preview = raw_input[:1200]
-        if len(raw_input) > len(preview):
-            preview += f"… ({len(raw_input)} chars)"
-        environment = operation.get("environment")
-        env_summary = ""
-        if _is_json_object(environment):
-            env_summary = ", ".join(
-                f"{key}={value}" for key, value in sorted(environment.items())
-            )
-        digest = str(payload.get("digest", ""))[:16]
-        lines = [
-            f"↳ tool: {tool}",
-            f"gate: {gate}",
-            f"cwd: {cwd}",
-            f"input: {preview}",
-        ]
-        if env_summary:
-            lines.append(f"environment: {env_summary}")
-        lines.append(f"digest: {digest}")
-        return "\n".join(lines)
-    if category == "mail_send":
-        from ...tools.connections import mail_send_review_text
-
-        return f"↳ {mail_send_review_text(payload)}\n본문: {str(payload.get('body', ''))[:200]}"
-    if category == "calendar_event":
-        from ...tools.connections import calendar_event_review_text
-
-        return f"↳ {calendar_event_review_text(payload)}"
-    return f"↳ {str(payload)[:200]}" if payload else ""
+# The consequential part of a proposal, so a one-tap approve isn't blind; the
+# shared Korean summary is also what `birkin review` prints.
+_payload_summary = approval_text.payload_summary
 
 
 class _Streamer:
@@ -799,7 +774,7 @@ class TelegramChannel(Channel):
             else:
                 delivered = self._send_reply(chat_id, visible) is not False
         elif not paths:
-            delivered = self._send_reply(chat_id, "(no reply)") is not False
+            delivered = self._send_reply(chat_id, TURN_EMPTY_REPLY) is not False
         for path in paths:
             if not self._send_document(chat_id, path):
                 delivered = False
@@ -970,7 +945,7 @@ class TelegramChannel(Channel):
             self._answer_callback(cq_id, "이미 삭제된 약속이에요")
             return
         if record.get("context_id") != f"telegram:{chat_id}":
-            self._answer_callback(cq_id, "unauthorized")
+            self._answer_callback(cq_id, _UNAUTHORIZED_TOAST)
             return
         try:
             result = _invoke_companion_answer(
@@ -978,7 +953,9 @@ class TelegramChannel(Channel):
                 (commitment_id, verb, f"telegram:{chat_id}:{message_id}"),
             )
         except companion.CompanionError as exc:
-            self._answer_callback(cq_id, str(exc)[:190])
+            self._answer_callback(
+                cq_id, _COMPANION_TOASTS.get(exc.code, _COMPANION_TOAST_FALLBACK)
+            )
             return
         result_value = result["message"]
         if not isinstance(result_value, str):
@@ -1009,28 +986,29 @@ class TelegramChannel(Channel):
                     continue
             items.append(record)
         if not items:
-            _ = self._send_chunk(chat_id, "📭 No pending approvals.")
+            _ = self._send_chunk(chat_id, f"📭 {approval_text.EMPTY_QUEUE}")
             return
-        _ = self._send_chunk(chat_id, f"📋 {len(items)} pending approval(s):")
+        _ = self._send_chunk(
+            chat_id, f"📋 {approval_text.queue_heading(len(items))}:"
+        )
         for rec in items[:10]:
             raw_category = rec.get("category")
             category = raw_category if isinstance(raw_category, str) else ""
             raw_payload = rec.get("payload")
             payload = _json_object(raw_payload)
             text = (
-                f"[{category}] {rec.get('title')}\n"
-                f"{str(rec.get('description', ''))[:200]}\n"
+                f"{risk.label(risk.risk_for(category))} {approval_text.headline(rec)}\n"
+                f"{approval_text.description_text(rec, 200)}\n"
                 f"{_payload_summary(category, payload)}"
             )
+            params: dict[str, TelegramParam] = {"chat_id": chat_id, "text": text}
+            if approval_text.needs_answers(rec):
+                # A question is answered, never approved: buttons could only fail.
+                params["text"] = f"{text.rstrip()}\n{approval_text.NEEDS_ANSWERS}"
+            else:
+                params["reply_markup"] = self._approval_markup(str(rec.get("id", "")))
             try:
-                _ = self._call(
-                    "sendMessage",
-                    {
-                        "chat_id": chat_id,
-                        "text": text,
-                        "reply_markup": self._approval_markup(str(rec.get("id", ""))),
-                    },
-                )
+                _ = self._call("sendMessage", params)
             except Exception as exc:
                 print(f"[telegram] pending send error: {exc}")
 
@@ -1072,7 +1050,10 @@ class TelegramChannel(Channel):
         chat_type = str(chat.get("type", ""))
         if not self.allowed_chat_ids:
             # An OPEN bot must not allow one-tap approval of queued actions.
-            self._answer_callback(cq_id, "approvals need allowed_chat_ids")
+            self._answer_callback(
+                cq_id,
+                "승인 버튼을 쓰려면 먼저 channels.telegram.allowed_chat_ids를 설정하세요.",
+            )
             return
         # Approval is privileged, so gate on WHO tapped, not just the chat:
         # in an allowlisted group any member could otherwise approve. The
@@ -1081,9 +1062,9 @@ class TelegramChannel(Channel):
         if not self._sender_authorized(chat_id, from_id, chat_type, privileged=True):
             self._answer_callback(
                 cq_id,
-                "approvals in groups need allowed_sender_ids"
+                "그룹에서 승인하려면 channels.telegram.allowed_sender_ids를 설정하세요."
                 if chat_id in self.allowed_chat_ids and not self.allowed_sender_ids
-                else "unauthorized",
+                else _UNAUTHORIZED_TOAST,
             )
             return
         if ":" not in data:
@@ -1231,8 +1212,18 @@ class TelegramChannel(Channel):
         finally:
             stop.set()
             pinger.join(timeout=16)
-        if message_id:
-            _ = self._edit(chat_id, message_id, f"{original}\n\n{result}"[:4000])
+        if not message_id:
+            return
+        edited = f"{original}\n\n{result}"
+        if len(edited) <= _EDIT_CHARS:
+            _ = self._edit(chat_id, message_id, edited)
+            return
+        # Card and result do not fit one message: a cut would silently drop
+        # the result's own cut notice, so the result goes out on its own.
+        _ = self._edit(
+            chat_id, message_id, f"{original}\n\n{_RESULT_BELOW}"[:_EDIT_CHARS]
+        )
+        _ = self._send_plain(chat_id, result)
 
     def _answer_callback(self, cq_id: str, text: str) -> None:
         try:
@@ -1295,10 +1286,15 @@ class TelegramChannel(Channel):
             print(f"[telegram] media download failed: {exc}")
             return None
 
-    def _compose_media_text(self, msg: JsonObject) -> str | None:
+    def _compose_media_text(
+        self, msg: JsonObject, *, document_tools: bool = False
+    ) -> str | None:
         """Turn an inbound attachment into a text turn the agent can act on:
         download it and hand the agent the local path (a vision-capable CLI
-        reads an image directly). Returns None if there's no media."""
+        reads an image directly). Returns None if there's no media.
+
+        ``document_tools`` says the turn can call local_document_import and
+        inspect_document; only then does an Office note name them."""
         media = self._incoming_media(msg)
         if media is None:
             return None
@@ -1328,6 +1324,12 @@ class TelegramChannel(Channel):
             note = (
                 f"[사용자가 음성 메시지를 보냈습니다: {path}. 음성-텍스트 "
                 f"변환(STT)은 아직 설정돼 있지 않아 내용은 읽을 수 없어요.]"
+            )
+        elif document_tools and Path(path).suffix.lower() in _OFFICE_SUFFIXES:
+            note = (
+                f"[사용자가 파일을 보냈습니다: {path}. Office 문서라면 "
+                f"local_document_import 도구로 먼저 가져온 뒤 inspect_document로 "
+                f"확인하세요. 원본은 수정하지 마세요.]"
             )
         else:
             note = (
@@ -1565,7 +1567,7 @@ class TelegramChannel(Channel):
         else:
             delivered = self._deliver_reply(
                 chat_id,
-                reply or "(no reply)",
+                reply or TURN_EMPTY_REPLY,
                 streamer=streamer,
                 allow_attachments=trusted_chat,
             )
@@ -1618,7 +1620,7 @@ class TelegramChannel(Channel):
         obligation = delivery.record("telegram", chat_id, reply or "")
         trusted_chat = bool(self.allowed_chat_ids and chat_id in self.allowed_chat_ids)
         if self._deliver_reply(
-            chat_id, reply or "(no reply)", allow_attachments=trusted_chat
+            chat_id, reply or TURN_EMPTY_REPLY, allow_attachments=trusted_chat
         ):
             delivery.clear(obligation)
 
@@ -1746,7 +1748,9 @@ class TelegramChannel(Channel):
                     continue
                 if not text:
                     # No text — maybe an attachment (photo/voice/document). P2-1
-                    text = self._compose_media_text(msg) or ""
+                    text = self._compose_media_text(
+                        msg, document_tools=_document_tools(gateway)
+                    ) or ""
                 if not text:
                     continue
                 # Status and bookkeeping commands must not kill the turn (or

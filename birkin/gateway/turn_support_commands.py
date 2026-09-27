@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
-    ("help", "Show these commands", {"help", "commands", "start", "menu", "?"}),
-    ("new", "Start a fresh conversation (clear history)", {"new", "reset"}),
+    ("help", "명령 목록 보기", {"help", "commands", "start", "menu", "?"}),
+    ("new", "새 대화 시작 (대화 기록 비우기)", {"new", "reset"}),
     (
         "restart",
-        "Soft restart — reload config/persona/memory, clear sessions",
+        "가볍게 재시작 — 설정·페르소나·기억을 다시 불러오고 세션 비우기",
         {"restart", "restart-gateway", "restart_gateway", "restartgateway", "reload"},
     ),
     (
         "hard_restart",
-        "Hard restart — re-exec the gateway (picks up code changes)",
+        "완전 재시작 — 게이트웨이를 다시 실행해 코드 변경 반영",
         {
             "hard-restart",
             "hard_restart",
@@ -24,58 +24,56 @@ GATEWAY_COMMANDS: list[tuple[str, str, set[str]]] = [
     ),
     (
         "neurosis",
-        "Deep interview — clarify a vague idea before acting",
+        "심층 인터뷰 — 실행 전에 막연한 아이디어 구체화",
         {"neurosis", "interview"},
     ),
     (
         "models",
-        "List or select the gateway model (auto-restarts to apply)",
+        "게이트웨이 모델 보기·선택 (적용 시 자동 재시작)",
         {"models", "model"},
     ),
     (
         "effort",
-        "List or select Codex reasoning effort (auto-restarts to apply)",
+        "Codex 추론 강도 보기·선택 (적용 시 자동 재시작)",
         {"effort", "reasoning"},
     ),
     (
         "update",
-        "Remote update — pull new code from the repo, then auto restart",
+        "원격 업데이트 — 저장소에서 새 코드를 받고 자동 재시작",
         {"update", "upgrade", "pull"},
     ),
     (
         "pending",
-        "List pending approvals (approve/reject from chat)",
+        "대기 중인 승인 보기 (채팅에서 승인·거부)",
         {"pending", "approvals", "review"},
     ),
     (
         "deny",
-        "Refuse a pending action with a reason — /deny <id> <why>",
+        "사유와 함께 요청 거부 — /deny <id> <이유>",
         {"deny", "refuse"},
     ),
     (
         "remind",
-        "Schedule a daily message — /remind 09:00 <what to do>; "
-        + "/remind list; /remind del <id>",
+        "메시지 예약 — /remind 09:00 <할 일>; /remind list; /remind del <id>",
         {"remind", "cron", "schedule"},
     ),
     (
         "commitment",
-        "Show the commitment birkin is following up on",
+        "Birkin이 챙기고 있는 약속 보기",
         {"commitment", "commitments"},
     ),
     (
         "checkin",
-        "Check-in settings — /checkin; /checkin pause; /checkin on",
+        "체크인 설정 — /checkin; /checkin pause; /checkin on",
         {"checkin", "check_in", "checkins"},
     ),
-    ("companion", "Turn proactive follow-through off — /companion off", {"companion"}),
+    ("companion", "후속 확인 완전히 끄기 — /companion off", {"companion"}),
     (
         "summon",
-        "Summon a specialist agent — /summon <agent> <task>; "
-        + "the result is sent back to this chat",
+        "전문 에이전트 소환 — /summon <에이전트> <할 일>; 결과는 이 채팅으로 전송",
         {"summon"},
     ),
-    ("omo", "Control local OMO sessions", {"omo"}),
+    ("omo", "로컬 OMO 세션 제어", {"omo"}),
 ]
 
 PRIVILEGED_COMMANDS = {

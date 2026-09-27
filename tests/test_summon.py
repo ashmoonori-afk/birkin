@@ -7,11 +7,13 @@ import io
 import json
 import threading
 import types
+from collections import OrderedDict
 
 import pytest
 
 from birkin import agentruns, budget, store, summon
 from birkin import subagent as subagent_mod
+from birkin.agent import ABORTED_NOTICE
 from birkin.runtime import build_session
 
 
@@ -19,10 +21,9 @@ from birkin.runtime import build_session
 def _finish_detached_children(monkeypatch):
     # Detached children must end while this test's patches and BIRKIN_HOME are
     # still in place; otherwise they run the real agent loop after teardown and
-    # write run records into whichever home is current by then.
-    from birkin import slashcommands
-
-    monkeypatch.setattr(slashcommands, "_BACKGROUND_SUMMONS", {})
+    # write run records into whichever home is current by then. Detached run
+    # ids noted by earlier tests must not be announced in this one.
+    monkeypatch.setattr(agentruns, "_detached", OrderedDict())
     before = set(threading.enumerate())
     yield
     for thread in threading.enumerate():
@@ -329,7 +330,7 @@ def test_attached_child_stops_when_the_parent_is_interrupted():
 
     out = subagent_mod.run_subagent("long job", session.ctx, max_turns=8)
 
-    assert "aborted" in out
+    assert ABORTED_NOTICE in out
     assert client.calls <= 2
 
 
@@ -417,6 +418,64 @@ def test_keyboard_interrupt_finishes_the_durable_record(monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         subagent_mod.run_subagent("ctrl-c", session.ctx)
     assert agentruns.list_runs()[0]["status"] == "error"
+
+
+def _recording_emit(session, *, fail_on=None):
+    events = []
+
+    def emit(event, payload):
+        events.append((event, payload))
+        if event == fail_on:
+            raise RuntimeError("view failed")
+
+    session.ctx.emit = emit
+    return events
+
+
+def test_attached_summon_reports_its_title_to_the_parent_view(monkeypatch):
+    session = _session()
+    events = _recording_emit(session)
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "ok")
+
+    assert summon.summon("sheet-analyst", "분기 매출 분석", session.ctx) == "ok"
+
+    (start_event, start), (done_event, done) = events
+    run_id = agentruns.list_runs()[0]["id"]
+    assert (start_event, done_event) == ("subagent.start", "subagent.done")
+    for payload in (start, done):
+        assert payload["id"] == run_id
+        assert payload["agent"] == "sheet-analyst"
+        assert payload["agent_title"] == "스프레드시트 분석가"
+    assert "is_error" not in done
+    assert agentruns.get_run(run_id)["agent_title"] == "스프레드시트 분석가"
+
+
+def test_failed_attached_summon_closes_its_activity_row(monkeypatch):
+    def boom(self, text, on_text=None, abort=None):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("birkin.agent.Agent.run", boom)
+    session = _session()
+    events = _recording_emit(session)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        summon.summon("sheet-analyst", "분기 매출 분석", session.ctx)
+
+    run_id = agentruns.list_runs()[0]["id"]
+    assert [event for event, _payload in events] == [
+        "subagent.start", "subagent.done"]
+    assert events[-1][1] == {
+        "chars": 0, "id": run_id, "agent": "sheet-analyst",
+        "agent_title": "스프레드시트 분석가", "is_error": True,
+    }
+    assert agentruns.get_run(run_id)["status"] == "error"
+
+    # A view that fails while closing the row never masks the run's error.
+    failing = _session()
+    _recording_emit(failing, fail_on="subagent.done")
+    with pytest.raises(RuntimeError, match="boom"):
+        summon.summon("sheet-analyst", "분기 매출 분석", failing.ctx)
 
 
 # -- tree budget per task ----------------------------------------------------
@@ -507,13 +566,245 @@ def test_slash_summon_runs_in_front_and_in_background(monkeypatch):
     assert "분석 결과" in _slash("/summon sheet-analyst 합계 확인", session)
     out = _slash("/summon --bg researcher 경쟁사 조사", session)
     assert "/attach" in out and "백그라운드" in out
-    assert "[researcher]" in _slash("/agents", session)
+    title = summon.get_agent("researcher").title
+    assert f"[{title}]" in _slash("/agents", session)
 
 
 def test_slash_summon_explains_an_exhausted_budget():
     session = _session(budget_tokens_daily=10)
     store.save_run("chat", "earlier", usage={"estTokens": 50})
-    assert "토큰 예산" in _slash("/summon planner 계획", session)
+
+    out = _slash("/summon planner 계획", session)
+
+    assert "토큰 한도" in out
+    assert "/budget " not in out and "birkin budget" in out   # no /budget command
+    assert "50" in out and "10" in out                         # typed usage and cap
+    assert "맡겼어요" not in out and "소환했어요" not in out   # never claims a start
+    assert agentruns.list_runs() == []
+
+
+def test_slash_summon_explains_an_invalid_definition():
+    _write_agent("broken-one", _VALID.replace("contract-reviewer", "broken-one")
+                 .replace("tools: [documents, files]\n", ""))
+    with pytest.raises(summon.AgentDefinitionError):
+        summon.get_agent("broken-one")
+
+    out = _slash("/summon broken-one x", _session())
+
+    assert "정의" in out and "agents/broken-one.md" in out
+    assert "찾을 수 없어요" not in out
+
+
+def test_slash_summon_explains_a_full_tree_budget(monkeypatch):
+    session = _session()
+    session.ctx.tree_budget.max_concurrent = 1
+    held = session.ctx.tree_budget.reserve()
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "never")
+    try:
+        out = _slash("/summon planner 계획", session)
+    finally:
+        held.release()
+
+    first = out.strip().splitlines()[0]
+    assert "TreeBudgetExceeded" not in first and "동시에" in first
+    assert "실행 기록" not in first           # no run was created to look up
+    assert agentruns.list_runs() == []
+
+
+def test_summon_agent_view_shows_how_to_run_it():
+    out = _slash("/summon planner")
+    assert "/summon planner <" in out and "/summon --bg planner <" in out
+
+
+def test_bg_flag_after_the_agent_name(monkeypatch):
+    session = _session()
+    seen = {}
+
+    def spy(name, task, ctx, *, detach=False, **_kwargs):
+        seen.update(name=name, task=task, detach=detach)
+        return "Detached subagent 0123456789ab started."
+
+    monkeypatch.setattr(summon, "summon", spy)
+
+    out = _slash("/summon researcher --bg 조사", session)
+
+    assert seen == {"name": "researcher", "task": "조사", "detach": True}
+    assert "/attach 01234567" in out
+
+
+# -- foreground progress and a refusing view -----------------------------------
+
+def _refusing_sink(event, payload):
+    raise RuntimeError("workspace event emitted outside a command")
+
+
+def test_foreground_summon_survives_a_sink_that_rejects_events(monkeypatch):
+    session = _session()
+    session.ctx.emit = _refusing_sink
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "분석 결과")
+
+    out = _slash("/summon planner 계획 세워줘", session)
+
+    assert "분석 결과" in out and "끝내지 못했어요" not in out
+    assert [run["status"] for run in agentruns.list_runs()] == ["done"]
+    assert session.ctx.tree_budget.active == 0
+
+
+def test_run_subagent_releases_lease_and_finishes_record_when_emit_fails(
+        monkeypatch):
+    session = _session()
+    session.ctx.emit = _refusing_sink
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "ok")
+
+    assert subagent_mod.run_subagent("look", session.ctx) == "ok"
+
+    assert session.ctx.tree_budget.active == 0
+    assert agentruns.list_runs()[0]["status"] == "done"
+
+
+def test_run_subagent_finishes_record_when_the_agent_cannot_be_built(
+        monkeypatch):
+    session = _session()
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("no agent")
+
+    monkeypatch.setattr(subagent_mod, "Agent", broken)
+    with pytest.raises(RuntimeError, match="no agent"):
+        subagent_mod.run_subagent("look", session.ctx)
+
+    assert session.ctx.tree_budget.active == 0
+    assert agentruns.list_runs()[0]["status"] == "error"
+
+
+def test_slash_summon_works_in_the_workspace_terminal_session(
+        monkeypatch, tmp_path):
+    from birkin import config
+    from birkin.workspace import ProtocolError
+    from birkin.workspace.runtime_adapter import RuntimeWorkspaceAdapter
+
+    def refuse(event, payload):
+        raise ProtocolError("workspace event emitted outside a command")
+
+    monkeypatch.setattr(config, "load_config",
+                        lambda: {"provider": "codex-cli", "model": ""})
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "계획 결과")
+    adapter = RuntimeWorkspaceAdapter("t", refuse, workspace_root=tmp_path)
+    try:
+        session = adapter.runtime_session()
+        for index in range(5):       # more than the concurrency cap of 4
+            out = _slash(f"/summon planner 계획 {index}", session)
+            assert "계획 결과" in out, out
+        assert session.ctx.tree_budget.active == 0
+        out = _slash("/summon --bg researcher 조사", session)
+        assert "/attach" in out and "한도" not in out, out
+    finally:
+        adapter.close()
+    assert all(run["status"] != "error" for run in agentruns.list_runs())
+
+
+def test_foreground_summon_shows_child_steps_and_a_result_header():
+    session = _session()
+    session.ctx.client = _ScriptedClient([_tool_call(1)])
+
+    out = _slash("/summon planner 계획 세워줘", session)
+
+    title = summon.get_agent("planner").title
+    assert "에이전트에게 맡겼어요" in out and "Ctrl-C" in out
+    assert out.index("→ list_files") < out.index("final answer")
+    assert f"✓ {title} 작업을 마쳤어요" in out
+    assert "None" not in out and "\x1b" not in out
+
+
+def test_summon_progress_follows_only_its_own_run_across_threads(
+        monkeypatch):
+    # research_run's moirai workers and a nested subagent emit their own
+    # subagent.* events through the child's sink, from pool threads.
+    from birkin import slashcommands as sc, ui
+
+    monkeypatch.setattr(ui, "plain_mode", lambda: False)    # a TTY
+    spinners = []
+
+    class _Recorded(ui.Spinner):
+        def start(self):
+            spinners.append(self)
+            super().start()
+
+    monkeypatch.setattr(ui, "Spinner", _Recorded)
+    progress = sc.SummonProgress(summon.get_agent("researcher"))
+    lanes = 4
+    barrier = threading.Barrier(lanes)
+
+    def lane(index):
+        barrier.wait()
+        progress.emit("subagent.start", {"task": f"[worker-{index}] 조사"})
+        progress.emit("subagent.start", {"task": "하위", "id": f"n{index}"})
+        progress.emit("subagent.tool_start", {"name": "web_search"})
+        progress.emit("subagent.done", {"chars": 1})
+
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            with progress:
+                progress.emit("subagent.start", {"task": "조사", "id": "own"})
+                threads = [threading.Thread(target=lane, args=(index,))
+                           for index in range(lanes)]
+                for thread in threads:
+                    thread.start()
+                for thread in threads:
+                    thread.join()
+        live = [s for s in spinners
+                if s._thread is not None and s._thread.is_alive()]
+    finally:
+        for spinner in spinners:
+            spinner._stop.set()
+    out = buf.getvalue()
+
+    assert out.count("에이전트에게 맡겼어요") == 1, out
+    assert out.count("→ web_search") == lanes
+    assert spinners and not live
+
+
+def test_a_run_without_text_reads_in_korean_on_every_terminal_surface(
+        monkeypatch, capsys):
+    from birkin import cli
+
+    session = _session()
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "")
+
+    front = _slash("/summon planner 계획", session)
+    (run,) = agentruns.list_runs()
+    attach = _slash(f"/attach {run['id'][:8]}", session)
+    finished = _wait_for_finish(monkeypatch)
+    _slash("/summon --bg researcher 조사", session)
+    assert finished.wait(5)
+    notice = _announce()
+    assert cli.main(["summon", "meeting-scribe", "정리"]) == 0
+    captured = capsys.readouterr()
+
+    for out in (front, attach, notice, captured.err):
+        assert "결과 텍스트가 없습니다." in out, out
+    for out in (front, attach, notice, captured.err, captured.out):
+        assert "returned no text" not in out, out
+    assert captured.out == ""          # stdout carries only a result
+
+
+def test_cli_summon_answer_matching_the_notice_copy_stays_on_stdout(
+        monkeypatch, capsys):
+    from birkin import cli
+
+    # A real answer is a result even when its text equals the notice copy.
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None:
+                        summon.NO_TEXT_COPY)
+
+    assert cli.main(["summon", "meeting-scribe", "정리"]) == 0
+    assert capsys.readouterr().out.strip() == summon.NO_TEXT_COPY
 
 
 def test_send_refuses_a_finished_run():
@@ -540,7 +831,39 @@ def test_cli_summon_lists_shows_runs_and_rejects(monkeypatch, capsys):
     monkeypatch.setattr("birkin.agent.Agent.run",
                         lambda self, text, on_text=None, abort=None: "회의 정리")
     assert cli.main(["summon", "meeting-scribe", "액션", "아이템"]) == 0
-    assert "회의 정리" in capsys.readouterr().out
+    captured = capsys.readouterr()
+    assert captured.out.strip() == "회의 정리"    # stdout stays pipeable
+    assert "에이전트에게 맡겼어요" in captured.err
+    assert "작업을 마쳤어요" in captured.err
+
+
+def test_cli_summon_ctrl_c_exits_cleanly(monkeypatch, capsys):
+    from birkin import cli
+
+    def interrupted(self, text, on_text=None, abort=None):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr("birkin.agent.Agent.run", interrupted)
+
+    assert cli.main(["summon", "planner", "x"]) == 130
+    err = capsys.readouterr().err
+    assert "중단" in err and "Traceback" not in err
+    assert agentruns.list_runs()[0]["status"] == "error"
+
+
+def test_cli_summon_budget_refusal_names_birkin_budget(monkeypatch, capsys):
+    from birkin import cli, config
+
+    real = config.load_config
+    monkeypatch.setattr(config, "load_config",
+                        lambda: {**real(), "provider": "codex-cli",
+                                 "model": "", "budget_tokens_daily": 10})
+    store.save_run("chat", "earlier", usage={"estTokens": 50})
+
+    assert cli.main(["summon", "planner", "x"]) == 1
+    captured = capsys.readouterr()
+    assert "birkin budget" in captured.err and captured.out == ""
+    assert "맡겼어요" not in captured.err
 
 
 def test_background_summon_is_announced_once_it_finishes(monkeypatch):
@@ -577,6 +900,91 @@ def test_background_summon_is_announced_once_it_finishes(monkeypatch):
     out = buf.getvalue()
     assert out.count("리서처 작업이 끝났어요") == 1
     assert "경쟁사 3곳 비교 완료" in out
+
+
+def _wait_for_finish(monkeypatch):
+    finished = threading.Event()
+    real_finish = agentruns.finish_run
+
+    def spy_finish(run_id, status, result=""):
+        record = real_finish(run_id, status, result)
+        finished.set()
+        return record
+
+    monkeypatch.setattr(agentruns, "finish_run", spy_finish)
+    return finished
+
+
+def _announce() -> str:
+    from birkin import slashcommands as sc
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        sc.announce_finished_summons()
+        sc.announce_finished_summons()
+    return buf.getvalue()
+
+
+def test_background_notice_previews_the_conclusion_of_a_long_result(
+        monkeypatch):
+    from birkin import ui
+
+    session = _session()
+    finished = _wait_for_finish(monkeypatch)
+    monkeypatch.setattr(
+        "birkin.agent.Agent.run",
+        lambda self, text, on_text=None, abort=None:
+        "결론: 경쟁사 세 곳 모두 가격을 올렸어요.\n" + "근거 " * 3000)
+
+    _slash("/summon --bg researcher 경쟁사 조사", session)
+    assert finished.wait(5)
+    out = _announce()
+
+    assert out.count("리서처 작업이 끝났어요") == 1
+    (preview,) = [line for line in out.splitlines() if "결론:" in line]
+    assert ui.cell_width(preview) <= 242
+
+
+def test_model_detached_spawn_is_announced_once(monkeypatch):
+    from birkin.tools import subagent_tool
+
+    session = _session()
+    finished = _wait_for_finish(monkeypatch)
+    monkeypatch.setattr("birkin.agent.Agent.run",
+                        lambda self, text, on_text=None, abort=None: "조사 끝")
+    tool = next(t for t in subagent_tool.subagent_tools()
+                if t.name == "spawn_subagent")
+
+    res = tool.fn({"task": "t", "detach": True}, session.ctx)
+    assert not res.is_error
+    assert finished.wait(5)
+    out = _announce()
+
+    assert out.count("하위 에이전트 작업이 끝났어요") == 1
+    assert "조사 끝" in out
+
+
+def test_notice_and_roster_escape_controls(monkeypatch):
+    session = _session()
+    finished = _wait_for_finish(monkeypatch)
+    monkeypatch.setattr(
+        "birkin.agent.Agent.run",
+        lambda self, text, on_text=None, abort=None:
+        "결과 \x1b]52;c;ZXZpbA==\x07 끝")
+    (summon.agents_dir()).mkdir(parents=True, exist_ok=True)
+    # Windows refuses code points 1-31 in file names, so the hostile name
+    # uses a format character (RLO), which the roster escapes the same way.
+    (summon.agents_dir() / "bad\u202egnp.md").write_text(
+        "---\ndescription: x\n---\nx\n", encoding="utf-8")
+
+    _slash("/summon --bg researcher 조사", session)
+    assert finished.wait(5)
+    notice = _announce()
+    roster = _slash("/summon")
+
+    assert "\x1b" not in notice and "\\u001b" in notice
+    assert "\u202e" not in roster and "\\u202e" in roster
+    assert "결과" in notice and "리서처" in roster     # Hangul unchanged
 
 
 def test_approvals_raised_inside_a_run_are_linked_to_it(monkeypatch):

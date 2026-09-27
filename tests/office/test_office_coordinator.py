@@ -17,6 +17,7 @@ from birkin.office.service import DocumentService
 from birkin.tools import build_registry
 from birkin.tools._types import ToolContext
 from birkin.workspace.approval_projection import approval_item
+from tests.office.fixture_builders import build_docx_template
 
 
 def _xlsx(path: Path) -> Path:
@@ -250,7 +251,7 @@ def test_request_queues_bound_approval_without_mutating_files(
     assert payload["proposer"] == "user:local-contract"
     assert payload["source_filename"] == "source.xlsx"
     assert payload["rejection_result"] == (
-        "Rejecting leaves the source unchanged and writes no output."
+        "거부하면 원본은 변경되지 않으며 새 파일도 저장되지 않습니다."
     )
     assert isinstance(payload["authority_digest"], str)
     card = approval_item(record)
@@ -262,6 +263,40 @@ def test_request_queues_bound_approval_without_mutating_files(
     assert record["description"] == "Revenue!A1 변경: 7 → 9"
     assert _sha256(source) == source_sha256
     assert not destination.exists()
+
+
+def test_field_fill_approval_description_uses_the_korean_field_label(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Given: a DOCX template whose content control is tagged "customer".
+    home = tmp_path / "home"
+    caller = tmp_path / "caller"
+    (home / "office").mkdir(parents=True)
+    caller.mkdir()
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    source = build_docx_template(home / "office" / "quote.docx")
+
+    # When: the registered tool queues a field fill.
+    result = build_registry(
+        ToolContext(cfg={}, client=None, cwd=caller, record_source="user:field-label"),
+        include={"documents"},
+    ).execute("office_job_request", {
+        "request": "quote.docx Word 문서의 customer 필드를 채워줘",
+        "source": {"content_hash": _sha256(source), "uri": str(source)},
+        "outcome": "고객명 채우기",
+        "operations": [{"field": "customer", "value": "홍길동"}],
+        "destination": str(caller / "quote-filled.docx"),
+    })
+    body = cast("dict[str, object]", json.loads(cast(str, result.content)))
+
+    # Then: the stored location stays neutral and the description is Korean.
+    assert not result.is_error, body
+    record = store.get_pending(cast(str, body["id"]))
+    assert record is not None
+    assert cast("dict[str, object]", record["payload"])["semantic_summaries"] == [
+        {"location": "docx field customer", "before": "PLACEHOLDER", "after": "홍길동"}
+    ]
+    assert record["description"] == "DOCX 필드 'customer' 변경: PLACEHOLDER → 홍길동"
 
 
 def test_direct_resume_is_policy_denied_without_file_mutation(

@@ -25,6 +25,7 @@ class GetRoute(Enum):
     CONFIG = auto()
     AGENT_RUNS = auto()
     AGENT_RUN = auto()
+    AGENT_ROSTER = auto()
     ACTION_RECEIPT = auto()
     CHECKPOINTS = auto()
     EVENTS = auto()
@@ -98,6 +99,7 @@ def match_get(raw_path: str) -> RouteMatch[GetRoute]:
         "/api/jobs": GetRoute.JOBS,
         "/api/runs": GetRoute.RUNS,
         "/api/approvals": GetRoute.APPROVALS,
+        "/api/agents": GetRoute.AGENT_ROSTER,
         "/api/skills": GetRoute.SKILLS,
         "/.well-known/agent-card.json": GetRoute.AGENT_CARD,
     }

@@ -17,6 +17,7 @@ NAMES = (
     "review_meeting_actions",
     "list_work_items",
     "work_item_request",
+    "local_document_import",
     "m365_document_import",
     "search_office_sources",
     "list_office_batches",
@@ -222,6 +223,16 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
                     resolve_connected=resolve_source,
                     limit=payload.get("limit", 20),
                 )
+            elif name == "local_document_import":
+                from .. import config
+                from ..office.local_import import import_local_document
+
+                result = import_local_document(
+                    service,
+                    payload["path"],
+                    workspace=ctx.cwd,
+                    birkin_home=config.birkin_home(),
+                )
             elif name == "m365_document_import":
                 from ..m365_drive import import_document
 
@@ -298,6 +309,48 @@ def _handler(name: str) -> Callable[[ToolInput, ToolContext], ToolResult]:
     return run
 
 
+_ARTIFACT_SOURCE_TOOLS = frozenset({
+    "inspect_document", "extract_document", "analyze_workbook",
+    "compare_documents", "render_artifact", "validate_artifact",
+    "search_office_sources",
+})
+
+
+def _description(name: str) -> str:
+    if name == "office_job_request":
+        return (
+            "Request approval for an Office document mutation or creation. "
+            "To change an existing source, provide source and operations; a "
+            "regular DOCX body paragraph operation is "
+            '{"locator":{"format":"docx","index":1},"value":"new text"}, '
+            "where index is one-based. A DOCX content control or HWPX field "
+            'operation is {"field":"customer","value":"new text"}. To create a '
+            "new document, provide format and content instead of source and "
+            "operations. Also provide request, outcome, and destination in "
+            "either case."
+        )
+    if name == "local_document_import":
+        return (
+            "Copy one local Office file (docx, xlsx, pptx, pdf, hwpx) into "
+            "Birkin's Office document jail and return its artifact reference. "
+            "path is relative to the current workspace folder (or absolute "
+            "inside it); Telegram attachments under BIRKIN_HOME/uploads and "
+            "files in BIRKIN_HOME/office/artifacts/incoming are also accepted. "
+            "Pass the returned artifact as source to inspect_document, "
+            "extract_document, analyze_workbook, compare_documents, or "
+            "office_job_request. The original file is never modified; "
+            "symlinks, hard-linked files, paths outside those folders, and "
+            "other Birkin state are refused."
+        )
+    description = f"Office Work OS: {name.replace('_', ' ')}."
+    if name in _ARTIFACT_SOURCE_TOOLS:
+        description += (
+            " Sources are artifacts returned by local_document_import or "
+            "m365_document_import."
+        )
+    return description
+
+
 def tools() -> list[Tool]:
     schemas = {
         "list_document_adapters": _object({}),
@@ -367,6 +420,10 @@ def tools() -> list[Tool]:
                 {"if": {"properties": {"action": {"enum": ["update", "complete"]}}}, "then": {"required": ["id"]}},
             ],
         },
+        "local_document_import": _object(
+            {"path": {"type": "string", "minLength": 1, "maxLength": 4096}},
+            ["path"],
+        ),
         "m365_document_import": _object(
             {"drive_item_id": {"type": "string", "minLength": 1, "maxLength": 512}},
             ["drive_item_id"],
@@ -496,21 +553,6 @@ def tools() -> list[Tool]:
         ),
     }
     return [
-        Tool(
-            name,
-            (
-                "Request approval for an Office document mutation or creation. "
-                "To change an existing source, provide source and operations; a "
-                "regular DOCX body paragraph operation is "
-                '{"locator":{"format":"docx","index":1},"value":"new text"}, '
-                "where index is one-based. To create a new document, provide "
-                "format and content instead of source and operations. Also provide "
-                "request, outcome, and destination in either case."
-                if name == "office_job_request"
-                else f"Office Work OS: {name.replace('_', ' ')}."
-            ),
-            schemas[name],
-            _handler(name),
-        )
+        Tool(name, _description(name), schemas[name], _handler(name))
         for name in NAMES
     ]

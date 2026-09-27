@@ -12,7 +12,7 @@ from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from . import config, store
-from .m365_graph import GraphClient, graph_client
+from .m365_graph import GraphClient, graph_client, verified_graph_client
 from .m365_connection import verify_approval_identity
 from .office.artifact_serialization import canonical_json
 
@@ -33,7 +33,7 @@ def calendar_view(start: object, end: object, *, client: GraphClient | None = No
     if last <= first or last - first > timedelta(days=31):
         raise ValueError("calendar range must be positive and at most 31 days")
     query = urlencode({"startDateTime": first.isoformat(), "endDateTime": last.isoformat(), "$top": 500})
-    graph = client or graph_client()
+    graph = client or verified_graph_client()
     path = f"/me/calendarView?{query}"
     values: list[object] = []
     for _ in range(MAX_CALENDAR_PAGES):

@@ -65,6 +65,15 @@ class SummonError(ValueError):
     """A summon request or agent definition was rejected."""
 
 
+class AgentDefinitionError(SummonError):
+    """The named agent has a definition file, but it failed validation."""
+
+    def __init__(self, name: str, reason: str):
+        super().__init__(f"agent definition {name!r} is invalid: {reason}")
+        self.name = name
+        self.reason = reason
+
+
 @dataclass(frozen=True)
 class AgentSpec:
     """One summonable specialist."""
@@ -119,10 +128,12 @@ BUILTIN_AGENTS: tuple[AgentSpec, ...] = (
         title="문서 분석가",
         description="DOCX·PPTX·PDF·HWPX 문서를 검사·추출·비교하고 핵심을 요약합니다.",
         instructions=(
-            "You are an Office document analyst. Inspect before you extract, "
-            "use Birkin's registered document tools (inspect_document, "
-            "extract_document, compare_documents), quote the exact location "
-            "of every finding, and never modify the source document."
+            "You are an Office document analyst. Import local files with "
+            "local_document_import before inspecting, inspect before you "
+            "extract, use Birkin's registered document tools "
+            "(inspect_document, extract_document, compare_documents), quote "
+            "the exact location of every finding, and never modify the "
+            "source document."
         ),
         tools=("documents", "files"),
         skills=("office-work-os",),
@@ -132,7 +143,8 @@ BUILTIN_AGENTS: tuple[AgentSpec, ...] = (
         title="스프레드시트 분석가",
         description="XLSX·CSV 데이터를 분석하고 수치를 검증해 표와 함께 보고합니다.",
         instructions=(
-            "You are a spreadsheet analyst. Use analyze_workbook and "
+            "You are a spreadsheet analyst. Import local files with "
+            "local_document_import before inspecting, use analyze_workbook and "
             "extract_document, cite sheet names and cell ranges for every "
             "number, recompute totals you report, and call out missing, "
             "hidden, or inconsistent data instead of guessing."
@@ -146,7 +158,8 @@ BUILTIN_AGENTS: tuple[AgentSpec, ...] = (
         description="회의 메모나 녹취에서 결정 사항·할 일·담당자·기한을 뽑아 정리합니다.",
         instructions=(
             "You turn meeting material into decisions, action items, owners, "
-            "and due dates. Use review_meeting_actions for documents, keep "
+            "and due dates. Import local files with local_document_import "
+            "before inspecting, use review_meeting_actions for documents, keep "
             "each action verifiable, mark unknown owners or dates as unknown, "
             "and propose follow-up work items only through work_item_request."
         ),
@@ -327,7 +340,7 @@ def get_agent(name: str) -> AgentSpec:
         return spec
     reason = rejected.get(f"{key}.md") if key not in roster else None
     if reason:
-        raise SummonError(f"agent definition {key!r} is invalid: {reason}")
+        raise AgentDefinitionError(key, reason)
     raise SummonError(
         f"unknown agent {key!r}; available: {', '.join(sorted(roster))}")
 
@@ -357,6 +370,23 @@ def detached_run_id(result: str) -> str:
     """The run id inside ``run_subagent``'s detached acknowledgement, or ""."""
     match = _DETACHED_RE.search(str(result or ""))
     return match.group(1) if match else ""
+
+
+NO_TEXT_COPY = "결과 텍스트가 없습니다."
+
+
+def has_text(result: object) -> bool:
+    """Whether a finished run returned text, judged on the raw result rather
+    than on ``run_subagent``'s no-text stand-in or an empty result."""
+    from .subagent import NO_TEXT_RESULT  # local: subagent imports tools
+
+    return str(result or "").strip() not in ("", NO_TEXT_RESULT)
+
+
+def result_text(result: object) -> str:
+    """A finished run's result as a person sees it: the text itself, or Korean
+    copy for ``run_subagent``'s no-text stand-in or an empty result."""
+    return str(result or "") if has_text(result) else NO_TEXT_COPY
 
 
 def summon(name: str, task: str, parent_ctx: Any, *, detach: bool = False,

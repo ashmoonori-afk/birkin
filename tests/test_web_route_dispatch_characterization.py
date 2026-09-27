@@ -127,6 +127,7 @@ def test_every_get_route_variant_is_reachable_from_characterized_paths() -> None
         "/api/config",
         "/api/agent-runs",
         "/api/agent-runs/000000000000",
+        "/api/agents",
         "/api/actions/000000000000/receipt",
         "/api/checkpoints",
         "/api/events",

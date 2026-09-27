@@ -33,6 +33,7 @@ NAMES = {
     "review_meeting_actions",
     "list_work_items",
     "work_item_request",
+    "local_document_import",
     "m365_document_import",
     "search_office_sources",
     "list_office_batches",
@@ -123,6 +124,16 @@ def test_registry_removes_direct_mutations_and_keeps_one_coordinator(
     # Then: only reads and the approval coordinator can reach Office work.
     assert names == NAMES
     assert names.isdisjoint(REMOVED_MUTATIONS)
+
+
+def test_source_tools_point_the_model_at_the_import_tools(tmp_path: Path) -> None:
+    registry = build_registry(_ctx(tmp_path), include={"documents"})
+    descriptions = {spec["name"]: spec["description"] for spec in registry.specs()}
+
+    assert "local_document_import" in descriptions["inspect_document"]
+    assert "m365_document_import" in descriptions["extract_document"]
+    assert "BIRKIN_HOME/uploads" in descriptions["local_document_import"]
+    assert '{"field":"customer"' in descriptions["office_job_request"]
 
 
 def test_office_rollback_is_queued_for_approval(

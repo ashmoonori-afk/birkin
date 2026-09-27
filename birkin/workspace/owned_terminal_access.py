@@ -51,8 +51,8 @@ class TerminalAccessAuthority:
         if approval_id is None:
             proposal: dict[str, object] = approvals.propose(
                 category="shell",
-                title="Native terminal shell access",
-                description="Allow a Python-owned interactive shell for the native human.",
+                title="앱 터미널 셸 사용 승인",
+                description="이 앱 사용자에게 Birkin이 관리하는 대화형 셸을 엽니다.",
                 payload=self._approval_payload(cwd),
                 cfg=self._config_loader(),
                 origin="native_human",

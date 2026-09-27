@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import secrets
-import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -46,9 +45,14 @@ def request_input(
     allow_clarification: bool = True,
 ) -> NoReturn | dict[str, Any]:
     """Create a wait or consume the answer assigned to this resumed run."""
-    if threading.current_thread() is not threading.main_thread():
+    # A checkpoint belongs to the workflow's main lane (_WORKER_ID), not to
+    # the OS main thread: an answer given from the dashboard, gateway or
+    # Telegram resumes the run on that server's worker thread. Inside
+    # m.parallel the lane would swallow the suspension and orphan the wait,
+    # so refuse before any wait row exists.
+    if run.in_parallel_lane():
         raise ContinuationError(
-            "Moirai input checkpoints are only allowed on the main worker"
+            "Moirai input checkpoints are not allowed inside m.parallel lanes"
         )
     normalized = actions.normalize_questions(questions)
     timeout = max(1, min(86_400, int(timeout_seconds)))
@@ -197,10 +201,12 @@ def accept(
     resume_result: dict[str, Any] | None = None
     try:
         resume_result = resume(action_id)
-    except Exception:
-        # The accepted event is the durable recovery source. A process restart
-        # or later recover() call resumes it; acceptance must not be rolled back.
-        pass
+    except Exception as exc:
+        # The accepted event is the durable recovery source; acceptance must
+        # not be rolled back. But the answerer must learn the workflow did
+        # not continue, instead of a card that reads "queued" forever.
+        print(f"[moirai] resume {action_id} failed: {exc}", flush=True)
+        resume_result = _resume_failure(action_id)
     result = {
         "ok": True,
         "event": "action_resolved",
@@ -211,6 +217,29 @@ def accept(
     if resume_result is not None:
         result["continuation"] = resume_result
     return result
+
+
+def _resume_failure(action_id: str) -> dict[str, Any]:
+    """What an answerer is told when the synchronous resume raised."""
+    wait = journal.get_input_wait(action_id)
+    if wait is not None and wait.get("state") == "error":
+        # recover() never retries an errored wait: say so on the card too.
+        store.resolve_pending(
+            action_id, "answered", details={"resume_state": "error"})
+        return {
+            "ok": False,
+            "resume_state": "error",
+            "message": (
+                "답변은 저장했지만 워크플로우를 이어서 실행하지 못했어요. "
+                "실행 기록에서 원인을 확인해 주세요."
+            ),
+        }
+    # Still accepted or dispatching: recover() resumes it at the next start.
+    return {
+        "ok": False,
+        "resume_state": "queued",
+        "message": "답변을 저장했어요. 워크플로우는 Birkin을 다시 시작하면 이어서 실행돼요.",
+    }
 
 
 def resume(

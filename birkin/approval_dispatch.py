@@ -14,6 +14,12 @@ from .approval_execution_types import SealedApprovalId
 from .operation_policy import retry_environment
 from .proc import ShellCommand, run_shell_command, shell_env
 
+# Shell results that return normally but ran nothing (or nothing to the end);
+# approval_text reads them as failures, never as a success.
+SHELL_TIMEOUT_RESULT = "Command timed out."
+SHELL_EMPTY_RESULT = "No command to run."
+SHELL_CWD_MISSING_PREFIX = "Working directory does not exist:"
+
 
 @dataclass(frozen=True, slots=True)
 class DispatchOptions:
@@ -65,6 +71,51 @@ class _HarnessExecutor(Protocol):
     def apply_approved_edit(self, payload: dict[str, Any]) -> str: ...
 
 
+def cron_registration(payload: dict[str, Any]) -> dict[str, Any]:
+    """The exact ``cron.add_job`` arguments an approved cron payload registers.
+
+    Review surfaces render from this same normalisation, so what a reviewer
+    approves is what gets scheduled. A schedule the grammar cannot parse is
+    refused instead of silently becoming a daily 09:00 job.
+    """
+
+    def clock(value: Any, default: int, maximum: int) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError, OverflowError):
+            parsed = default
+        return max(0, min(maximum, parsed))
+
+    def optional_text(value: Any) -> str | None:
+        text = str(value).strip() if value is not None else ""
+        return text or None
+
+    schedule = payload.get("schedule")
+    try:
+        parsed_schedule = cron.parse_schedule(str(schedule)) if schedule else None
+    except OverflowError:  # a duration too large for a date, e.g. '99999999999999분'
+        parsed_schedule = None
+    if schedule and parsed_schedule is None:
+        raise ValueError(
+            f"unrecognized schedule: {str(schedule)!r}; use 'HH:MM', "
+            "'매일 HH:MM', '매주 <요일> HH:MM', 'every 30m', '30분마다', "
+            "or a 5-field cron expression such as '0 9 * * 1-5'"
+        )
+    return {
+        "name": payload.get("name", "job"),
+        "hour": clock(payload.get("hour", 9), 9, 23),
+        "minute": clock(payload.get("minute", 0), 0, 59),
+        "action_type": payload.get("type", "prompt"),
+        "value": payload.get("value", ""),
+        "deliver_chat_id": payload.get("deliver_chat_id"),
+        "deliver_channel": str(payload.get("deliver_channel") or "telegram"),
+        "schedule": str(schedule) if schedule else None,
+        "monitor_url": optional_text(payload.get("monitor_url")),
+        "monitor_script": optional_text(payload.get("monitor_script")),
+        "max_bytes": payload.get("max_bytes"),
+    }
+
+
 def execute_action(
     category: str,
     payload: dict[str, Any],
@@ -73,35 +124,7 @@ def execute_action(
     """Carry out an action that already has durable approval authority."""
     configured = options or DispatchOptions()
     if category == "cron":
-
-        def clock(value: Any, default: int, maximum: int) -> int:
-            try:
-                parsed = int(value)
-            except (TypeError, ValueError):
-                parsed = default
-            return max(0, min(maximum, parsed))
-
-        schedule = payload.get("schedule")
-        if schedule and cron.parse_schedule(str(schedule)) is None:
-            schedule = None
-
-        def optional_text(value: Any) -> str | None:
-            text = str(value).strip() if value is not None else ""
-            return text or None
-
-        job = cron.add_job(
-            name=payload.get("name", "job"),
-            hour=clock(payload.get("hour", 9), 9, 23),
-            minute=clock(payload.get("minute", 0), 0, 59),
-            action_type=payload.get("type", "prompt"),
-            value=payload.get("value", ""),
-            deliver_chat_id=payload.get("deliver_chat_id"),
-            deliver_channel=str(payload.get("deliver_channel") or "telegram"),
-            schedule=str(schedule) if schedule else None,
-            monitor_url=optional_text(payload.get("monitor_url")),
-            monitor_script=optional_text(payload.get("monitor_script")),
-            max_bytes=payload.get("max_bytes"),
-        )
+        job = cron.add_job(**cron_registration(payload))
         return (
             f"Registered cron job '{job['name']}' at "
             f"{cron.schedule_display(job)} (id {job['id']})."
@@ -132,10 +155,10 @@ def execute_action(
             return "Approved native terminal lease."
         command = str(payload.get("command") or "")
         if not command:
-            return "No command to run."
+            return SHELL_EMPTY_RESULT
         cwd = Path(str(payload.get("cwd") or Path.cwd())).expanduser().resolve()
         if not cwd.is_dir():
-            return f"Working directory does not exist: {cwd}"
+            return f"{SHELL_CWD_MISSING_PREFIX} {cwd}"
         environment = shell_env()
         command_name = (
             command.strip()
@@ -168,7 +191,7 @@ def execute_action(
                 )
             )
         except subprocess.TimeoutExpired:
-            return "Command timed out."
+            return SHELL_TIMEOUT_RESULT
         output = (result.stdout or "") + (result.stderr or "")
         return f"[exit {result.returncode}] {output[:2000]}"
     if category == "office_create":

@@ -75,11 +75,13 @@ def test_gateway_deny_command_parses_id_and_reason(tmp_path, monkeypatch):
     )
     assert "거부" in out
     assert store.get_pending(aid)["deny_reason"] == "그 디렉터리는 커밋돼 있어요"
-    assert "already resolved" in gw.deny_command(
+    # A second deny reports the earlier refusal instead of overwriting it.
+    assert "이미 거부되어 작업을 실행하지 않았습니다" in gw.deny_command(
         f"{aid} 다시",
         actor_id="human:telegram:42",
         via="gateway:telegram",
     )
+    assert store.get_pending(aid)["deny_reason"] == "그 디렉터리는 커밋돼 있어요"
 
 
 def test_deny_is_a_privileged_gateway_command():

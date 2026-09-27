@@ -302,9 +302,9 @@ def _queue_for_approval(
         payload["cwd"] = str(cwd)
     try:
         status = approvals.propose(
-            category="shell", title=f"shell: {command[:60]}",
-            description=f"Flagged by shellguard ({why}). Requested by an "
-                        f"unattended birkin turn.",
+            category="shell", title=f"Shell 명령 실행: {command[:60]}",
+            description=f"위험할 수 있는 명령이라 실행 전에 확인이 필요합니다 "
+                        f"(감지 규칙: {why}). 사람이 없는 실행 중에 요청되었습니다.",
             payload=payload,
             cfg=cfg,
             origin="shellguard",

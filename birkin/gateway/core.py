@@ -6,7 +6,7 @@ import re
 import sys
 import threading
 import time
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from types import ModuleType
@@ -21,7 +21,7 @@ from typing import (
 
 from typing_extensions import NotRequired, override
 
-from .. import config, models, pools, promptgate, security, store
+from .. import approval_text, config, models, pools, promptgate, security, store
 from ..approval_execution_codec import JSONValue
 from ..claude_session import ClaudeStreamSession
 from ..codex_session import CodexAppServerSession
@@ -40,6 +40,7 @@ from .turn_support import (
     TURN_ERROR_REPLY as TURN_ERROR_REPLY,
     TURN_INTERRUPTED_REPLY as TURN_INTERRUPTED_REPLY,
     TURN_MOIRAI_RECOVERY_ERROR_REPLY as TURN_MOIRAI_RECOVERY_ERROR_REPLY,
+    TURN_MOIRAI_RECOVERY_PROPOSED_REPLY as TURN_MOIRAI_RECOVERY_PROPOSED_REPLY,
     TURN_PARTIAL_SUFFIX as TURN_PARTIAL_SUFFIX,
     UNTRUSTED_CHANNEL_REPLY as UNTRUSTED_CHANNEL_REPLY,
     ask_session as ask_session,
@@ -120,11 +121,13 @@ class _QuietHours(TypedDict, total=False):
 class _CompanionPolicy(TypedDict, total=False):
     enabled: bool
     timezone: str
+    utc_offset_minutes: int
     quiet_hours: _QuietHours
     daily_cap: int
 
 
 class _Commitment(TypedDict):
+    id: str
     status: str
     outcome: str
     next_action: NotRequired[str]
@@ -165,12 +168,22 @@ class _CompanionModule(Protocol):
 
     def list_commitments(self, *, context_id: str = "") -> list[_Commitment]: ...
 
+    def local_time_label(self, record: _Commitment) -> str: ...
+
+    def local_zone(self) -> tuple[str, int]: ...
+
 
 def _has_companion_contract(module: ModuleType) -> TypeGuard[_CompanionModule]:
     return all(
         hasattr(module, name)
-        for name in ("pause_all", "resume", "get_policy", "list_commitments")
+        for name in ("pause_all", "resume", "get_policy", "list_commitments",
+                     "local_time_label", "local_zone")
     )
+
+
+# Open commitment statuses /commitment lists, as the words the user sees.
+_COMMITMENT_LABELS = {"active": "진행 중", "snoozed": "미룸", "blocked": "막힘",
+                      "missed": "놓침"}
 
 
 def _utc_stamp() -> str:
@@ -317,6 +330,15 @@ _BACK_GREETING: Final = "다시 왔습니다 👋 무엇을 도와드릴까요?"
 _RESTART_GREETING: Final = (
     "✅ 재시작 완료! 코드·설정을 새로 반영했어요. " + _BACK_GREETING
 )
+SOFT_RESTART_REPLY: Final = (
+    "♻️ 게이트웨이를 다시 시작했어요 — 설정, 페르소나, 기억, 스킬을 "
+    + "다시 불러오고 대화 세션을 비웠습니다.\n\n"
+    + _BACK_GREETING
+)
+RESTART_CONFIG_ERROR_REPLY: Final = (
+    "⚠ 설정 파일에 오류가 있어 재시작하지 못했어요. "
+    + "설정을 고친 뒤 /restart 를 다시 보내 주세요."
+)
 
 
 def _split_schedule(arg: str) -> tuple[dict[str, JSONValue] | None, str]:
@@ -349,6 +371,42 @@ def _restart_marker_path() -> Path:
 
 # Telegram delivery sends at most 3500 characters; leave room for the notice.
 _SUMMON_PREVIEW_CHARS = 3200
+
+
+def _outcome_reply(outcome: approval_text.ApprovalOutcomeText) -> str:
+    """An approval's Korean outcome for chat, cut only with a word about it.
+
+    The detail can be the receipt itself (a workflow report, a command's
+    output); a silent cut hides the part the approver was waiting for.
+    """
+    text = outcome.render(limit=sys.maxsize)
+    if len(text) <= _SUMMON_PREVIEW_CHARS:
+        return text
+    return (text[:_SUMMON_PREVIEW_CHARS]
+            + "\n\n… 결과가 길어 앞부분만 보여드려요.")
+
+
+def _approve_reply(aid: str, out: Mapping[str, object]) -> str:
+    """Read one approve result against the record as it stands afterwards.
+
+    A failure is logged with its stable code and the bounded raw error; the
+    chat only ever sees the Korean explanation.
+    """
+    from ..workspace.redaction import bounded_error_text
+
+    # A worker report or command output is the receipt the approver waited
+    # for: bound it only by the chat cap, whose cut _outcome_reply announces.
+    outcome = approval_text.approve_outcome(
+        store.get_pending(aid), out, output_chars=_SUMMON_PREVIEW_CHARS
+    )
+    if not outcome.ok:
+        raw = str(out.get("error") or out.get("result") or "")
+        print(
+            f"[gateway] approval {aid} not completed: {outcome.code}: "
+            + bounded_error_text(raw),
+            flush=True,
+        )
+    return _outcome_reply(outcome)
 
 
 class Gateway:
@@ -677,13 +735,10 @@ class Gateway:
         try:
             self.session = build_session(cfg)
         except ConfigError as exc:
-            return f"[restart] config error: {exc}"
+            print(f"[gateway] restart config error: {exc}", flush=True)
+            return RESTART_CONFIG_ERROR_REPLY
         self.prewarm()  # rebuild the spare from the RELOADED config
-        return (
-            "♻️ Gateway restarted — reloaded config, persona, memory and "
-            + "skills; warm sessions cleared (conversations start fresh).\n\n"
-            + _BACK_GREETING
-        )
+        return SOFT_RESTART_REPLY
 
     def load_restart_notice(self, notice: dict[str, JSONValue]) -> None:
         self._restart_notice = notice
@@ -691,6 +746,18 @@ class Gateway:
     @property
     def persistent(self) -> bool:
         return self._persistent
+
+    def can_import_documents(self) -> bool:
+        """Whether a model turn here can call local_document_import and inspect_document.
+
+        Only a native provider runs Birkin's own tool registry; a CLI provider
+        reaches Birkin through the MCP server, whose gateway scope carries no
+        document tools.
+        """
+        if self.cfg.get("provider") in config.CLI_PROVIDERS:
+            return False
+        names = {spec.get("name") for spec in self.session.agent.registry.specs()}
+        return {"local_document_import", "inspect_document"} <= names
 
     def sweep_sessions(self) -> int:
         return self._claude_sessions.sweep()
@@ -935,15 +1002,17 @@ class Gateway:
         reviewable: list[dict[str, JSONValue]] = approvals.reviewable_pending()
         items = risk_module.sort_by_risk(reviewable)
         if not items:
-            return "📭 No pending approvals."
-        lines = [f"📋 {len(items)} pending approval(s):"]
+            return f"📭 {approval_text.EMPTY_QUEUE}"
+        lines = [f"📋 {approval_text.queue_heading(len(items))}:"]
         for rec in items[:10]:
-            lines.append(
-                f"- [{rec.get('category')}] {rec.get('title')} (id {rec.get('id')})"
-            )
+            line = f"- {approval_text.headline(rec)} (id {rec.get('id')})"
+            if approval_text.needs_answers(rec):
+                line += " · 답변 필요"
+            lines.append(line)
         lines.append(
-            "Approve/reject in the CLI with `birkin review` — or "
-            + "tap the buttons if your channel shows them."
+            "승인·거부는 버튼이 보이는 채널에서 누르거나 터미널에서 "
+            + "`birkin review`로 처리하세요. 거부 사유를 남기려면 "
+            + "/deny <id> <이유>를 보내세요."
         )
         return "\n".join(lines)
 
@@ -982,12 +1051,23 @@ class Gateway:
                 raise RuntimeError("companion contract is unavailable")
             policy = companion_module.get_policy()
             quiet = policy.get("quiet_hours", {})
-            return (
+            status = (
                 f"체크인: {'켜짐' if policy.get('enabled') else '꺼짐'}\n"
                 f"시간대: {policy.get('timezone')}\n"
                 f"방해 금지: {quiet.get('start')}–{quiet.get('end')}\n"
                 f"하루 최대: {policy.get('daily_cap')}회"
             )
+            # /checkin on adopts this machine's zone only over the untouched
+            # UTC default, so the hint appears exactly when it would help.
+            local_name = companion_module.local_zone()[0]
+            if (policy.get("enabled") and policy.get("timezone") == "UTC"
+                    and not policy.get("utc_offset_minutes")
+                    and local_name != "UTC"):
+                status += (
+                    f"\n시간대가 UTC로 되어 있어요. 이 컴퓨터 시간대"
+                    f"({local_name})로 맞추려면 /checkin on 을 다시 보내 주세요."
+                )
+            return status
 
         companion_module = companion
         if not _has_companion_contract(companion_module):
@@ -995,19 +1075,35 @@ class Gateway:
         records = [
             r
             for r in companion_module.list_commitments(context_id=context_id)
-            if r["status"] in ("active", "blocked", "snoozed")
+            if r["status"] in _COMMITMENT_LABELS
         ]
         if not records:
             return (
                 "지금 따라가고 있는 약속이 없어요. "
                 "`birkin companion add` 로 등록할 수 있어요."
             )
+        # A chat holds one pending commitment, so a missed one can be asked
+        # again only while no other is pending.
+        busy = any(r["status"] in ("active", "snoozed") for r in records)
         lines: list[str] = []
         for record in records:
-            lines.append(f"[{record['status']}] {record['outcome']}")
+            lines.append(
+                f"[{_COMMITMENT_LABELS[record['status']]}] {record['outcome']}"
+            )
             if record.get("next_action"):
                 lines.append(f"  다음 할 일: {record.get('next_action')}")
-            lines.append(f"  예정: {record.get('check_in_at') or '-'}")
+            lines.append(f"  예정: {companion_module.local_time_label(record)}")
+            if record["status"] == "missed":
+                retry = "" if busy else (
+                    "다시 물어보게 하려면 "
+                    + f"`birkin companion answer {record['id']} --do snooze`, "
+                )
+                lines.append(
+                    "  예정 시각이 지나 묻지 못했어요. "
+                    + retry
+                    + f"정리하려면 `birkin companion answer {record['id']} "
+                    + "--do stop` 을 실행해 주세요."
+                )
             lines.append(f"  출처: {record.get('source_ref') or '-'}")
         return "\n".join(lines)
 
@@ -1138,19 +1234,18 @@ class Gateway:
                 approved_by=actor_id,
                 approved_via=via,
             )
-            if not out.get("ok"):
-                return f"⚠ {out.get('error', 'approve failed')}"
-            store.append_activity(f"approval[{aid}]: approved via gateway")
-            return f"✅ approved — {out.get('result', '')}"[:500]
+            if out.get("ok"):
+                store.append_activity(f"approval[{aid}]: approved via gateway")
+            return _approve_reply(aid, out)
         out = approvals.reject(
             aid,
             rejected_by=actor_id,
             rejected_via=via,
         )
         if not out.get("ok"):
-            return "⚠ not found or already resolved"
+            return approval_text.reject_outcome(out, store.get_pending(aid)).render()
         store.append_activity(f"approval[{aid}]: rejected via gateway")
-        return "❌ rejected"
+        return f"❌ {approval_text.REJECTED}"
 
     def summon_command(self, arg: str, channel: str, chat_id: str) -> str:
         """Summon a specialist for THIS (already-trusted) chat.
@@ -1197,7 +1292,7 @@ class Gateway:
 
         def work() -> None:
             try:
-                text = summon.summon(spec.name, task, ctx)
+                text = summon.result_text(summon.summon(spec.name, task, ctx))
             except summon.SummonBudgetExceeded:
                 text = "토큰 예산을 다 써서 작업을 시작하지 못했어요."
             except Exception as exc:
@@ -1241,7 +1336,7 @@ class Gateway:
             rejected_via=via,
         )
         if not out.get("ok"):
-            return "⚠ not found or already resolved"
+            return approval_text.reject_outcome(out, store.get_pending(aid)).render()
         store.append_activity(
             f"approval[{aid}]: rejected via gateway"
             + (f" — {reason[:120]}" if reason else "")
@@ -1260,14 +1355,18 @@ class Gateway:
         via: str,
     ) -> tuple[str, bool]:
         from .. import approvals
+
         out = approvals.claim(
             aid,
             approved_by=actor_id,
             approved_via=via,
         )
         if not out.get("ok"):
-            return f"⚠ {out.get('error', 'approve failed')}", False
-        return "✅ approved — 실행 중", True
+            outcome = approval_text.approve_outcome(store.get_pending(aid), out)
+            return outcome.render(), False
+        # No check mark before the action ran: the Telegram channel replaces
+        # this line with the final outcome once execution finishes.
+        return f"⏳ {approval_text.CLAIMED}", True
 
     def execute_claimed_action(
         self, aid: str, on_progress: ProgressCallback = None
@@ -1296,10 +1395,9 @@ class Gateway:
         out = approvals.execute_claimed(
             aid, on_event=_on_event if on_progress is not None else None
         )
-        if not out.get("ok"):
-            return f"⚠ {out.get('error', 'approve failed')}"
-        store.append_activity(f"approval[{aid}]: approved via gateway")
-        return f"✅ approved — {out.get('result', '')}"[:500]
+        if out.get("ok"):
+            store.append_activity(f"approval[{aid}]: approved via gateway")
+        return _approve_reply(aid, out)
 
     def restore_action_claim(self, aid: str) -> None:
         from .. import approvals

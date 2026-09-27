@@ -34,3 +34,89 @@ def test_briefing_schedule_supports_pause_resume_and_skip(tmp_path: Path, monkey
     before = cron.load_jobs()[0]["next_run"]
     _ = apply_schedule({"action": "skip", "job_id": job["id"]})
     assert cron.load_jobs()[0]["next_run"] != before
+
+
+def _connect_with_graph(tmp_path: Path, monkeypatch, *, remote_id: str) -> None:
+    from birkin.m365_connection import apply_approved
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("BIRKIN_M365_TOKEN", "secret-value")
+    apply_approved({"action": "connect", "account_id": "user-1", "account_name": "ada@example.com", "scopes": ["Mail.Read", "Calendars.Read"], "secret_env": "BIRKIN_M365_TOKEN"})
+
+    class FakeGraph:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        def request(self, _method, path, *_args, **_kwargs):
+            if path.startswith("/me?"):
+                return {"id": remote_id, "userPrincipalName": "ada@example.com"}
+            if path.startswith("/organization"):
+                return {"value": [{"id": "tenant-1"}]}
+            if path.startswith("/me/messages"):
+                return {"value": [{"id": "m1"}]}
+            if path.startswith("/me/calendarView"):
+                return {"value": [{"id": "e1"}]}
+            raise AssertionError(path)
+
+    monkeypatch.setattr("birkin.m365_graph.GraphClient", FakeGraph)
+
+
+def test_briefing_right_after_connect_reads_mail_and_calendar(tmp_path: Path, monkeypatch) -> None:
+    _connect_with_graph(tmp_path, monkeypatch, remote_id="user-1")
+
+    report = generate({"id": "briefing-1", "next_run": "2026-09-05T09:00:00"}, now=datetime(2026, 9, 5, tzinfo=timezone.utc))
+
+    assert report["unreadable_connections"] == []
+    assert report["unread_mail"] == [{"id": "m1"}] and report["calendar"] == [{"id": "e1"}]
+
+
+def test_briefing_keeps_verification_reason_on_mismatch(tmp_path: Path, monkeypatch) -> None:
+    _connect_with_graph(tmp_path, monkeypatch, remote_id="someone-else")
+
+    report = generate({"id": "briefing-1", "next_run": "2026-09-05T09:00:00"}, now=datetime(2026, 9, 5, tzinfo=timezone.utc))
+
+    assert report["unreadable_connections"] == [{"source": "microsoft-365", "reason": "verification_required"}]
+
+
+def test_briefing_after_transient_verification_failure_reads_nothing_unverified(tmp_path: Path, monkeypatch) -> None:
+    import io
+    import json
+    import urllib.error
+
+    from birkin.m365_connection import apply_approved
+    from birkin.m365_graph import ORIGIN
+
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    monkeypatch.setenv("BIRKIN_M365_TOKEN", "secret-value")
+    apply_approved({"action": "connect", "account_id": "user-1", "account_name": "ada@example.com", "scopes": ["Mail.Read", "Calendars.Read"], "secret_env": "BIRKIN_M365_TOKEN"})
+    paths: list[str] = []
+    busy = [True]
+
+    class Response(io.BytesIO):
+        def __enter__(self) -> "Response":
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            self.close()
+
+    def opener(request, *, timeout):
+        path = request.full_url.removeprefix(ORIGIN).split("?")[0]
+        paths.append(path)
+        if path == "/me" and busy:
+            busy.clear()
+            raise urllib.error.HTTPError(request.full_url, 503, "busy", {}, None)
+        bodies = {
+            "/me": {"id": "someone-else", "userPrincipalName": "ada@example.com"},
+            "/organization": {"value": [{"id": "tenant-1"}]},
+            "/me/messages": {"value": [{"id": "m1"}]},
+            "/me/calendarView": {"value": [{"id": "e1"}]},
+        }
+        return Response(json.dumps(bodies[path]).encode())
+
+    monkeypatch.setattr("birkin.m365_graph.open_no_redirect", opener)
+
+    report = generate({"id": "briefing-1", "next_run": "2026-09-05T09:00:00"}, now=datetime(2026, 9, 5, tzinfo=timezone.utc))
+
+    assert report["calendar"] == [] and report["unread_mail"] == []
+    assert not {"/me/messages", "/me/calendarView"} & set(paths)
+    assert {item["source"] for item in report["unreadable_connections"]} == {"calendar", "mail"}

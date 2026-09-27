@@ -73,6 +73,11 @@ def register(
         action="store_true",
         help="save the chosen bindings as your defaults",
     )
+    moi.add_argument(
+        "--quiet",
+        action="store_true",
+        help="print only the final result (used by approved worker runs)",
+    )
     moi.add_argument("--limit", type=int, default=10)
     moi.set_defaults(func=handlers["_cmd_moirai"])
 

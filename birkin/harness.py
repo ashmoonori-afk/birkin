@@ -51,6 +51,8 @@ REFINE_REQUEST_MAX_BYTES = 40_000
 REFINE_REQUEST_QUERY_LIMIT = 100
 _WORKING_SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _REFINE_REQUEST_ID = re.compile(r"^rr_[0-9]{8}-[0-9]{6}_[0-9a-f]{16}$")
+# The shape slug() produces; an edit's own id must have it too.
+_ENTRY_ID = re.compile(r"^[a-z0-9_]{1,80}$")
 
 STATE_FILE = "harness_state.json"
 HISTORY_FILE = "refinements.jsonl"
@@ -62,6 +64,11 @@ _KIND_HEADINGS = {
     "skill_note": "스킬 노트 (skill_note, 실행 불가)",
     "subagent": "위임 역할 (subagent)",
 }
+# The Korean name each heading leads with, for one-line change summaries.
+_KIND_LABELS = {
+    kind: heading.partition(" (")[0] for kind, heading in _KIND_HEADINGS.items()
+}
+_ACTION_LABELS = {"create": "추가", "update": "수정", "delete": "삭제"}
 
 
 def _session_key(session_id: str | None) -> str:
@@ -453,8 +460,14 @@ def _policy_markers() -> tuple[str, ...]:
     )
 
 
-def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
-    """Return an error string, or None when the edit is structurally sound."""
+def validate_edit(
+    edit: Any, *, max_content: int = MAX_CONTENT, restoring: bool = False
+) -> str | None:
+    """Return an error string, or None when the edit is structurally sound.
+
+    ``restoring`` marks a rollback's inverse edit, whose id comes from the
+    recorded refinement rather than from a proposal.
+    """
     if not isinstance(edit, dict):
         return "edit must be an object"
     action = str(edit.get("action", "")).strip().lower()
@@ -465,6 +478,19 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return "kind 'skill' is not executable; use 'skill_note' for harness metadata"
     if kind not in KINDS:
         return f"unknown kind {kind!r}"
+    # A create's id is proposal text like the title, but it keys the new entry
+    # and is echoed into history, CLI output and approval text, so nothing but
+    # the plain slug that slug() itself produces is accepted. An update or
+    # delete only names an entry that must already exist, whatever id an
+    # earlier version stored it under.
+    eid = edit.get("id")
+    if (
+        action == "create"
+        and not restoring
+        and eid not in (None, "")
+        and not (isinstance(eid, str) and _ENTRY_ID.fullmatch(eid))
+    ):
+        return "id must be 1-80 lowercase ASCII letters, digits or '_'"
     if action == "delete":
         return None if edit.get("id") else "delete needs an id"
     if action == "update" and not edit.get("id"):
@@ -476,7 +502,7 @@ def validate_edit(edit: Any, *, max_content: int = MAX_CONTENT) -> str | None:
         return "create needs content"
     if content is not None and len(str(content)) > max_content:
         return f"content too long ({len(str(content))} > {max_content})"
-    if action != "delete" and kind in {"memory", "skill"}:
+    if action != "delete" and kind in {"memory", "skill", "skill_note"}:
         from .persistence_safety import unsafe_persistence_reason
 
         unsafe = unsafe_persistence_reason(edit.get("title"), content)
@@ -602,7 +628,9 @@ def apply(
     touched: set[str] = set()
 
     for edit in edits:
-        error = validate_edit(edit, max_content=max_content)
+        error = validate_edit(
+            edit, max_content=max_content, restoring=rollback_of is not None
+        )
         if error:
             record = dict(edit) if isinstance(edit, dict) else {"edit": edit}
             applied.append({**record, "applied": False, "error": error})
@@ -769,6 +797,26 @@ def rollback(
     )
 
 
+# Kinds the unattended nightly run may write to GLOBAL state without a human:
+# notes only. Prompt and subagent edits steer every session, so they stay
+# queued even when harness_auto_approve is widened.
+_UNATTENDED_GLOBAL_AUTO = frozenset({"memory", "skill_note"})
+
+
+def _unattended_may_apply(edit: dict[str, Any], state: dict[str, Any]) -> bool:
+    """The nightly run adds notes; it may change or remove only its own.
+
+    An entry a human approved (or anything else wrote) keeps needing a human,
+    so a steered night cannot quietly reword or delete a user's rule.
+    """
+    if str(edit["action"]).strip().lower() == "create":
+        return True
+    kind = str(edit["kind"]).strip().lower()
+    eid = str(edit.get("id") or slug(edit.get("title", ""), kind))
+    existing = (state.get("entries") or {}).get(kind, {}).get(eid)
+    return existing is None or existing.get("source") == "morpheus"
+
+
 def auto_kinds(cfg: dict[str, Any] | None) -> set[str]:
     raw = (cfg or {}).get("harness_auto_approve")
     if raw is None:
@@ -792,6 +840,8 @@ def submit(
     An edit whose kind is not in ``harness_auto_approve`` is queued for
     ``birkin review`` and is NOT written now; a structurally invalid edit is
     rejected outright rather than queued, so a human never reviews garbage.
+    The unattended global path (origin ``morpheus``) narrows that further: see
+    ``_UNATTENDED_GLOBAL_AUTO`` and :func:`_unattended_may_apply`.
     """
     from . import approvals
 
@@ -799,7 +849,26 @@ def submit(
     max_edits = int(cfg.get("harness_max_edits") or MAX_EDITS)
     raw_edits = proposal.get("edits")
     edits = list(raw_edits)[:max_edits] if isinstance(raw_edits, list) else []
-    auto = auto_kinds(cfg) if scope == "local" else set()
+    unattended = scope != "local" and origin == "morpheus"
+    current: dict[str, Any] | None = None
+    if scope == "local":
+        auto = auto_kinds(cfg)
+    elif unattended:
+        from .persistence_safety import unsafe_persistence_reason
+
+        auto = auto_kinds(cfg) & _UNATTENDED_GLOBAL_AUTO
+        # The summary and expected outcome are rendered into every session's
+        # prompt as the refinement history, so they get the same screen as
+        # edit content; a hit sends the whole proposal to a human.
+        if unsafe_persistence_reason(
+            proposal.get("summary"),
+            proposal.get("rationale"),
+            proposal.get("expectedOutcome"),
+        ):
+            auto = set()
+        current = load(scope, session_id=session_id)
+    else:
+        auto = set()
 
     auto_edits: list[dict[str, Any]] = []
     queued: list[dict[str, Any]] = []
@@ -812,14 +881,14 @@ def submit(
             rejected.append({**record, "applied": False, "error": error})
             continue
         kind = str(edit["kind"]).strip().lower()
-        if kind in auto:
+        if kind in auto and (current is None or _unattended_may_apply(edit, current)):
             auto_edits.append(edit)
             continue
         label = edit.get("title") or edit.get("id") or kind
         queued.append(
             approvals.propose(
                 category="harness",
-                title=f"harness {edit['action']} {kind}: {label}",
+                title=f"하네스 변경 ({edit['action']} · {kind}): {label}",
                 description=str(edit.get("reason") or proposal.get("rationale") or "")[
                     :400
                 ],
@@ -838,7 +907,10 @@ def submit(
 
     applied: dict[str, Any] | None = None
     if auto_edits:
-        current = load(scope, session_id=session_id)
+        # The snapshot the ownership check read is the baseline, so an entry a
+        # human touched since then is dropped rather than overwritten.
+        if current is None:
+            current = load(scope, session_id=session_id)
         applied = apply(
             current,
             {**proposal, "edits": auto_edits},
@@ -1235,6 +1307,53 @@ def snapshot(session_id: str | None) -> dict[str, Any]:
     }
 
 
+def _change_summary(changes: object) -> str:
+    """Count a refinement's changes by kind and action for the prompt.
+
+    Entry ids are proposal text, and a refinement recorded before ids were
+    screened may carry any id at all, so the prompt never echoes them.
+    """
+    counts: dict[str, int] = {}
+    for change in changes if isinstance(changes, list) else []:
+        action, _, target = " ".join(str(change).split()).partition(" ")
+        kind = target.partition(":")[0].lower()
+        label = _ACTION_LABELS.get(action.lower())
+        key = (
+            f"{_KIND_LABELS[kind]} {label}" if label and kind in KINDS else "기타 변경"
+        )
+        counts[key] = counts.get(key, 0) + 1
+    return ", ".join(f"{key} {n}건" for key, n in counts.items()) or "(적용 없음)"
+
+
+# Writers that store entries no human approved: the nightly run and the
+# in-session review (see morpheus.py and harness_review.py).
+_UNATTENDED_SOURCES = frozenset({"morpheus", "in-session"})
+
+
+def _unattended(entry: dict[str, Any]) -> bool:
+    return entry.get("source") in _UNATTENDED_SOURCES
+
+
+def _drop_unattended_first(
+    lines: list[str], unattended: list[int], last_other: int, budget: int
+) -> None:
+    """Drop unattended entry lines until every other entry survives the cut.
+
+    The budget cut keeps a prefix of the block, so an entry listed under a
+    later kind would go before the unattended ones listed above it. Those go
+    first instead, the lowest-ranked first, with any heading they leave empty.
+    """
+    for index in reversed([i for i in unattended if i < last_other]):
+        # The cut keeps a line only when the newline after it fits too.
+        if len("\n".join(lines[: last_other + 1])) < budget:
+            return
+        del lines[index]
+        last_other -= 1
+        if lines[index - 1].startswith("### ") and lines[index] == "":
+            del lines[index - 2 : index]
+            last_other -= 2
+
+
 def render_block(
     state: dict[str, Any],
     *,
@@ -1255,6 +1374,8 @@ def render_block(
         lines.append(f"revision: {revision}")
     lines.append("아래는 요약이다. 라우팅 힌트로 쓰고 상세가 필요하면 조회하라.")
 
+    unattended: list[int] = []  # lines listing an entry no human approved
+    last_other = -1  # the last line listing any other entry
     for kind in KINDS:
         records = entries.get(kind) or {}
         if not records:
@@ -1262,6 +1383,10 @@ def render_block(
         ordered = sorted(
             records.values(), key=lambda e: str(e.get("updated_at", "")), reverse=True
         )
+        # What was written unattended (the nightly run, an in-session review)
+        # ranks after everything else, so it takes only the slots others leave
+        # free and can never push an approved entry out of the prompt.
+        ordered.sort(key=_unattended)
         lines.append("")
         lines.append(f"### {_KIND_HEADINGS[kind]}")
         for entry in ordered[:per_kind]:
@@ -1269,6 +1394,10 @@ def render_block(
             title = _clip(entry.get("title", entry.get("id", "?")), 80)
             body = _clip(entry.get("content", ""), width)
             version = entry.get("version", 1)
+            if _unattended(entry):
+                unattended.append(len(lines))
+            else:
+                last_other = len(lines)
             lines.append(f"- [{scope}] {title} — {body} (v{version})")
 
     recent = refinements[-history_limit:]
@@ -1277,7 +1406,7 @@ def render_block(
         lines.append("### 최근 정련")
         for event in recent:
             trigger = _clip(event.get("trigger", ""), 120)
-            changes = ", ".join(event.get("changes") or []) or "(적용 없음)"
+            changes = _change_summary(event.get("changes"))
             lines.append(f"- {event.get('id')} {trigger} → {_clip(changes, width)}")
             outcome = _clip(event.get("outcome", ""), 120)
             if outcome:
@@ -1285,7 +1414,11 @@ def render_block(
 
     block = "\n".join(lines)
     if budget and len(block) > budget:
-        block = block[:budget].rsplit("\n", 1)[0] + "\n- (예산 초과분 생략)"
+        _drop_unattended_first(lines, unattended, last_other, budget)
+        block = "\n".join(lines)
+        if len(block) > budget:
+            block = block[:budget].rsplit("\n", 1)[0]
+        block += "\n- (예산 초과분 생략)"
     return block
 
 

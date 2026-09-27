@@ -8,7 +8,7 @@ metadata:
   birkin:
     tags: [productivity, office, documents, dispatcher]
     formats: [docx, xlsx, pptx, pdf, hwpx]
-    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, m365_document_import, search_office_sources, list_office_batches, office_batch_request, list_office_templates, office_template_request, resolve_office_template, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
+    requires_tools: [list_document_adapters, inspect_document, extract_document, analyze_workbook, review_meeting_actions, list_work_items, work_item_request, local_document_import, m365_document_import, search_office_sources, list_office_batches, office_batch_request, list_office_templates, office_template_request, resolve_office_template, compare_documents, render_artifact, validate_artifact, office_job_request, office_rollback_request]
     inspect_first: inspect_document
     write_policy: copy-on-write
     extension_conversion: txt-only
@@ -49,12 +49,12 @@ Call `inspect_document` before reading or requesting a change to an existing art
 
 ## Backup/Copy-on-Write
 
-Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin`. Every input `uri` must resolve inside its `office` subtree and match `content_hash`. Managed drafts remain under `/workspace/.birkin/office/artifacts/drafts`; tools never overwrite a source.
+Call `local_document_import` with the file path (relative to the current folder, a Telegram attachment path, or a file in `BIRKIN_HOME/office/artifacts/incoming`) and use the returned `artifact` as every later `source`; never copy files into the jail with shell commands. Every input `uri` must resolve inside `BIRKIN_HOME/office` and match `content_hash`. Managed drafts remain under `BIRKIN_HOME/office/artifacts/drafts`; tools never overwrite a source.
 
 ## Procedure
 
 1. Use `list_document_adapters` when capability discovery is needed.
-2. For an existing file, call `inspect_document`, then `extract_document` with explicit bounds when reading.
+2. For an existing local file, call `local_document_import` first, then `inspect_document` on the returned `artifact`, then `extract_document` with explicit bounds when reading.
 3. Use `compare_documents` for independent byte, bounded semantic, and ZIP-package results; PDF package comparison and all visual comparison remain unavailable.
 4. Use `validate_artifact` and review every layer, including warnings and not-run checks.
 5. Request `render_artifact` with `output_format: structured_preview`; never substitute that result for a visual render.
@@ -71,6 +71,7 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `review_meeting_actions`: required `notes` and evidence-bound `candidates`; returns a deduplicated draft and never persists unconfirmed actions.
 - `list_work_items`: optional `timezone_name`; returns today, overdue, needs-confirmation, and recent-completion groups.
 - `work_item_request`: approval-gated create, meeting confirmation, update, or completion; preserves session and source references.
+- `local_document_import`: required `path`; copies one local DOCX, XLSX, PPTX, PDF, or HWPX file from the current folder, `BIRKIN_HOME/uploads`, or `BIRKIN_HOME/office/artifacts/incoming` into the Office jail without changing the original and returns its `artifact`. Symlinks, hard-linked files, other paths, and Birkin state are refused.
 - `m365_document_import`: required Graph `drive_item_id`; downloads a bounded authenticated copy into the Office jail and records account/item/eTag/hash provenance. Use its `provenance.import_id` for an `allowed_connection` search source.\n- `search_office_sources`: required `query` and scoped `sources`; connected sources accept only a trusted `import_id` and recheck the current account, permission, and eTag before search.
 - `list_office_batches`: optional `limit`; reports each batch and per-file result.
 - `office_batch_request`: required `items` or `retry_batch_id`; approval-binds and sequentially runs canonical per-file Office jobs.
@@ -84,6 +85,12 @@ Set `BIRKIN_HOME` to the managed workspace jail, for example `/workspace/.birkin
 - `office_rollback_request`: required `job_id` from the durable exported Office job.
 
 ## Typed Examples
+
+Import a local file first; the returned `artifact` is the `source` for every later call:
+
+```json
+{"path":"reports/source.docx"}
+```
 
 With `BIRKIN_HOME=/workspace/.birkin`, inspect and extract only an in-jail artifact:
 

@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import json
 import shlex
-from dataclasses import dataclass, field
+import threading
+import time
+from dataclasses import dataclass, field, is_dataclass, replace
 from datetime import datetime
 from typing import Any, Callable, Optional, cast
 
@@ -448,7 +450,36 @@ def work_command(session: object, arg: str) -> None:
     print("/work now opens inside `birkin chat`; start the unified workspace.")
 
 
-def _agent_run_rows() -> list[tuple[dict[str, Any], int]]:
+_RUN_STATUS_LABELS = {
+    "running": "실행 중",
+    "done": "완료",
+    "error": "실패",
+    "stale": "응답 없음",
+}
+_AGENTS_RECENT_ROOTS = 20
+_AGENTS_HINT = "/attach <ID> 따라가기 · /send <ID> <메시지> 방향 바꾸기"
+_RUN_ID_HINT = "ID는 /agents 에서 볼 수 있어요."
+# A progress-trail line is "<event> <tool name>"; show what it means.
+_TRAIL_TEXT = {
+    "steer": "↪ 보낸 메시지를 반영했어요",
+    "compact": "대화 내용을 요약해 정리했어요",
+    "warning": "! 경고가 있었어요",
+    "ooda_stall": "↻ 진행이 막혀 방향을 다시 잡았어요",
+}
+
+
+def _flat(text: object) -> str:
+    """One terminal line of possibly model- or file-authored text.
+
+    Whitespace collapses and control/format characters become visible
+    escapes, so a task or title cannot move the cursor or write the
+    clipboard (an OSC 52 sequence) on the user's terminal.
+    """
+    return ui.printable(" ".join(str(text or "").split()))
+
+
+def _agent_run_rows(roots: list[dict[str, Any]] | None = None,
+                    ) -> list[tuple[dict[str, Any], int]]:
     from . import agentruns
     rows: list[tuple[dict[str, Any], int]] = []
 
@@ -457,114 +488,225 @@ def _agent_run_rows() -> list[tuple[dict[str, Any], int]]:
         for child in run.get("children", []):
             visit(child, depth + 1)
 
-    for root in agentruns.list_runs():
+    for root in (agentruns.list_runs() if roots is None else roots):
         visit(root, 0)
     return rows
 
 
-def _find_agent_run(run_id: str) -> dict[str, Any] | None:
+def _match_agent_runs(key: str) -> list[dict[str, Any]]:
+    """Runs whose id is ``key``, else whose id starts with it.
+
+    Rows come from list_runs, so a full id and a prefix see the same status
+    (a dead worker reads "stale" either way) and heartbeat age.
+    """
+    runs = [run for run, _depth in _agent_run_rows()]
+    exact = [run for run in runs if run["id"] == key]
+    return exact or [run for run in runs if run["id"].startswith(key)]
+
+
+def _resolve_run(key: str, usage: str) -> dict[str, Any] | None:
+    """The one run ``key`` names, or None after telling the user why not."""
+    if not key:
+        print(f"{RED}사용법: {usage}{RESET}")
+        print(f"{DIM}{_RUN_ID_HINT}{RESET}")
+        return None
+    matches = _match_agent_runs(key)
+    shown = ui.fit(_flat(key), 40)
+    if not matches:
+        print(f"{RED}'{shown}' 실행을 찾을 수 없어요. "
+              f"/agents 로 ID를 확인하세요.{RESET}")
+        return None
+    if len(matches) > 1:
+        print(f"{RED}'{shown}'(으)로 시작하는 실행이 {len(matches)}개예요. "
+              f"ID를 더 길게 입력하세요.{RESET}")
+        return None
+    return matches[0]
+
+
+def _agent_titles() -> dict[str, str]:
+    from . import summon
+    roster, _rejected = summon.load_roster()
+    return {name: spec.title for name, spec in roster.items()}
+
+
+def _run_title(run: dict[str, Any], titles: dict[str, str]) -> str:
+    agent = run.get("agent")
+    if not agent:
+        return ""
+    return str(titles.get(agent) or run.get("agent_title") or agent)
+
+
+def _run_label(run: dict[str, Any]) -> str:
+    if run.get("status") == "running" and run.get("control_state") == "blocked":
+        return "일시정지"
+    return _RUN_STATUS_LABELS.get(str(run.get("status")), "알 수 없음")
+
+
+def _run_time(run: dict[str, Any]) -> str:
     from . import agentruns
-    exact = agentruns.get_run(run_id)
-    if exact is not None:
-        return exact
-    matches = [run for run, _depth in _agent_run_rows()
-               if run["id"].startswith(run_id)]
-    return matches[0] if len(matches) == 1 else None
+    status = run.get("status")
+    if status == "running":
+        return f"{ui.duration_ko(agentruns.elapsed_seconds(run))}째"
+    if status == "stale":
+        # list_runs computes heartbeat_age for every row.
+        return f"신호 끊김 {ui.duration_ko(run.get('heartbeat_age', 0))}"
+    return f"{ui.duration_ko(agentruns.elapsed_seconds(run))} 걸림"
 
 
-@command("agents", "List durable parent/child agent runs.", "/agents")
+@command("agents", "에이전트 실행 목록과 상태를 봐요.", "/agents [all]")
 def _agents(session: Any, arg: str) -> None:
-    rows = _agent_run_rows()
-    if not rows:
-        print(f"{DIM}No agent runs.{RESET}")
-        return
-    print(f"{BOLD}Agent runs{RESET}")
-    for run, depth in rows:
-        prefix = "  " + "  " * depth
-        age = int(run.get("heartbeat_age", 0))
-        label = f"[{run['agent']}] " if run.get("agent") else ""
-        print(f"{prefix}{CYAN}{run['id'][:8]}{RESET}  "
-              f"{run['status']:<8}  {(label + run['task'])[:36]:<36}  "
-              f"{DIM}hb {age}s ago{RESET}")
+    import shutil
 
-
-@command("attach", "Attach to a durable agent run and follow it live.",
-         "/attach <run-id>")
-def _attach(session: Any, arg: str) -> None:
     from . import agentruns
-    run = _find_agent_run(arg.strip()) if arg.strip() else None
-    if run is None:
-        print(f"{RED}No run {arg.strip()!r}. See /agents.{RESET}")
+    choice = arg.strip().lower()
+    if choice not in ("", "all"):
+        print(f"{RED}사용법: /agents [all]{RESET}")
         return
-    print(f"{BOLD}{run['id']}{RESET}  {run['status']}")
-    print(run["task"])
+    roots = agentruns.list_runs()
+    if not roots:
+        print(f"{DIM}아직 실행한 에이전트가 없어요. "
+              f"/summon 으로 전문가 에이전트를 불러 보세요.{RESET}")
+        return
+    hidden = 0
+    if choice != "all" and len(roots) > _AGENTS_RECENT_ROOTS:
+        hidden = len(_agent_run_rows(roots[:-_AGENTS_RECENT_ROOTS]))
+        roots = roots[-_AGENTS_RECENT_ROOTS:]
+    titles = _agent_titles()
+    cols = shutil.get_terminal_size((100, 30)).columns
+    print(f"{BOLD}에이전트 실행{RESET}")
+    for run, depth in _agent_run_rows(roots):
+        # Display-width padding keeps a Hangul row aligned with an ASCII one;
+        # the task goes last so nothing to its right can be pushed out.
+        prefix = "  " + "  " * depth
+        label = ui.pad(_run_label(run), 10)
+        when = ui.pad(_run_time(run), 20)
+        used = ui.cell_width(f"{prefix}{run['id'][:8]}  {label}  {when}  ")
+        title = _run_title(run, titles)
+        task = _flat(f"[{title}] {run['task']}" if title else run["task"])
+        print(f"{prefix}{CYAN}{run['id'][:8]}{RESET}  {label}  "
+              f"{DIM}{when}{RESET}  {ui.fit(task, max(20, cols - used))}")
+    if hidden:
+        print(f"{DIM}이전 기록 {hidden}개는 생략했어요 · "
+              f"/agents all 로 모두 보기{RESET}")
+    print(f"{DIM}{_AGENTS_HINT}{RESET}")
+
+
+def _trail_text(line: str) -> str:
+    event, _sep, name = str(line).partition(" ")
+    if event == "tool_start" and name:
+        return f"→ {ui.printable(name)}"
+    if event == "tool_end" and name:
+        # The trail does not record whether the tool failed, so no ✓.
+        return f"← {ui.printable(name)} 끝"
+    return _TRAIL_TEXT.get(event) or ui.printable(line)
+
+
+@command("attach", "실행 중인 에이전트를 따라가고 결과를 봐요.",
+         "/attach <실행 ID>")
+def _attach(session: Any, arg: str) -> None:
+    from . import agentruns, summon
+    run = _resolve_run(arg.strip(), "/attach <실행 ID>")
+    if run is None:
+        return
+    id8 = run["id"][:8]
+    title = _run_title(run, _agent_titles())
+    print(f"{BOLD}{id8}{RESET}  {_run_label(run)}"
+          + (f" · {_flat(title)}" if title else ""))
+    print(ui.printable_block(run["task"]))
     if run["status"] == "running":
-        print(f"{DIM}following — Ctrl-C detaches and leaves it running{RESET}")
+        print(f"{DIM}진행 상황을 따라가는 중이에요. Ctrl-C 를 누르면 여기서만 "
+              f"빠져나오고 작업은 계속돼요.{RESET}")
     try:
-        final = agentruns.follow(run["id"],
-                                 lambda line: print(f"{DIM}  {line}{RESET}"))
+        final = agentruns.follow(
+            run["id"], lambda line: print(f"{DIM}  {_trail_text(line)}{RESET}"))
     except KeyboardInterrupt:
-        print(f"\n{DIM}Detached. {run['id'][:8]} keeps running.{RESET}")
+        print(f"\n{DIM}따라가기를 멈췄어요. {id8} 작업은 계속 진행돼요.{RESET}")
         return
     if final is None:
-        print(f"{RED}Run {run['id'][:8]} is gone.{RESET}")
+        print(f"{RED}{id8} 실행 기록을 찾을 수 없어요.{RESET}")
         return
-    if final["status"] not in ("running", run["status"]):
-        # A stale record still reads "running"; the header already said so.
-        print(f"{BOLD}{final['status']}{RESET}")
-    if final.get("result"):
-        print(f"\n{final['result']}")
+    if final["status"] == "running":
+        # follow() stops on a running record only once its heartbeat is stale.
+        age = agentruns._age_seconds(final.get("last_heartbeat"))
+        print(f"{YELLOW}{id8} 작업이 응답하지 않아요 "
+              f"(마지막 신호 {ui.duration_ko(age)} 전).{RESET}")
+        return
+    took = ui.duration_ko(agentruns.elapsed_seconds(final))
+    result = str(final.get("result") or "")
+    if final["status"] == "error":
+        print(f"{RED}작업이 실패했어요.{RESET} {DIM}· {took}{RESET}")
+        if result:
+            print(f"{DIM}세부: {ui.fit(_flat(result), 200)}{RESET}")
+        return
+    print(f"{BOLD}{_run_label(final)}{RESET} {DIM}· {took}{RESET}")
+    if final["status"] == "done":
+        shown = summon.result_text(result)
+        print(f"\n{ui.render_markdown(ui.printable_block(shown))}")
 
 
-@command("send", "Queue a message for a running agent.",
-         "/send <run-id> <message>")
+@command("send", "실행 중인 에이전트에게 메시지를 보내 방향을 바꿔요.",
+         "/send <실행 ID> <메시지>")
 def _send(session: Any, arg: str) -> None:
     from . import agentruns
     parts = arg.split(maxsplit=1)
     if len(parts) != 2 or not parts[1].strip():
-        print(f"{RED}Usage: /send <run-id> <message>{RESET}")
+        print(f"{RED}사용법: /send <실행 ID> <메시지>{RESET}")
+        print(f"{DIM}{_RUN_ID_HINT}{RESET}")
         return
-    run = _find_agent_run(parts[0])
-    if run is not None and run["status"] != "running":
-        # A finished run never drains its inbox; queueing would only claim a
-        # delivery that cannot happen.
-        print(f"{RED}{run['id'][:8]} 실행은 이미 끝나서 메시지를 전달할 수 "
+    run = _resolve_run(parts[0], "/send <실행 ID> <메시지>")
+    if run is None:
+        return
+    id8 = run["id"][:8]
+    # Neither a dead worker nor a finished run drains its inbox; queueing
+    # would only claim a delivery that cannot happen.
+    if run["status"] == "stale":
+        print(f"{RED}{id8} 실행이 응답하지 않아 메시지를 전달할 수 없어요. "
+              f"/agents 로 상태를 확인하세요.{RESET}")
+        return
+    if run["status"] != "running":
+        print(f"{RED}{id8} 실행은 이미 끝나서 메시지를 전달할 수 "
               f"없어요. 새 작업은 /summon 으로 시작하세요.{RESET}")
         return
-    if run is None or not agentruns.append_message(run["id"], parts[1].strip()):
-        print(f"{RED}No run {parts[0]!r}. See /agents.{RESET}")
+    if not agentruns.append_message(run["id"], parts[1].strip()):
+        print(f"{RED}{id8}에 메시지를 보내지 못했어요.{RESET}")
         return
-    print(f"{GREEN}Queued for {run['id'][:8]}.{RESET}")
+    print(f"{GREEN}{id8}에 메시지를 보냈어요.{RESET} "
+          f"{DIM}다음 단계에서 반영돼요.{RESET}")
 
 
-# Background summons started with /summon --bg in this process: run id ->
-# specialist title. The REPL announces each once it finishes, so delegated
-# work reports back instead of waiting for the user to remember /attach.
-_BACKGROUND_SUMMONS: dict[str, str] = {}
-_ANNOUNCE_PREVIEW_CHARS = 280
+_ANNOUNCE_PREVIEW_CELLS = 240
 
 
 def announce_finished_summons() -> None:
-    """Print a short completion notice for finished background summons."""
-    from . import agentruns
-    for run_id, title in list(_BACKGROUND_SUMMONS.items()):
+    """Print a short completion notice for each finished detached run.
+
+    Every detached run started in this process is announced once, whether
+    /summon --bg or the model's spawn_subagent started it, so delegated work
+    reports back instead of waiting for the user to remember /attach.
+    """
+    from . import agentruns, summon
+    titles: dict[str, str] | None = None
+    for run_id in agentruns.detached_here():
         run = agentruns.get_run(run_id)
         if run is not None and run["status"] == "running":
             continue
-        _BACKGROUND_SUMMONS.pop(run_id, None)
+        agentruns.forget_detached(run_id)
         if run is None:
             continue
+        if titles is None:
+            titles = _agent_titles()
+        title = _flat(_run_title(run, titles) or "하위 에이전트")
+        took = ui.duration_ko(agentruns.elapsed_seconds(run))
         if run["status"] == "done":
-            preview = " ".join(str(run.get("result") or "").split())
-            if len(preview) > _ANNOUNCE_PREVIEW_CHARS:
-                preview = preview[:_ANNOUNCE_PREVIEW_CHARS] + "…"
-            print(f"{GREEN}✓ {title} 작업이 끝났어요.{RESET} "
-                  f"{DIM}/attach {run_id[:8]} 로 전체 결과를 볼 수 있어요.{RESET}")
-            if preview:
-                print(f"  {preview}")
+            print(f"{GREEN}✓ {title} 작업이 끝났어요{RESET} {DIM}· {took}  "
+                  f"/attach {run_id[:8]} 로 결과를 볼 수 있어요.{RESET}")
+            # The stored result keeps its head, where the conclusion is.
+            preview = ui.fit(_flat(summon.result_text(run.get("result"))),
+                             _ANNOUNCE_PREVIEW_CELLS)
+            print(f"  {preview}")
         else:
-            print(f"{RED}✗ {title} 작업이 실패했어요.{RESET} "
-                  f"{DIM}/attach {run_id[:8]} 로 기록을 확인하세요.{RESET}")
+            print(f"{RED}✗ {title} 작업이 실패했어요{RESET} {DIM}· {took}  "
+                  f"/attach {run_id[:8]} 로 기록을 확인하세요.{RESET}")
 
 
 def _print_roster() -> None:
@@ -573,44 +715,196 @@ def _print_roster() -> None:
     print(f"{BOLD}소환할 수 있는 에이전트{RESET}")
     for spec in sorted(roster.values(), key=lambda item: item.name):
         mark = f" {DIM}(사용자 정의){RESET}" if spec.source == "user" else ""
-        print(f"  {CYAN}{spec.name:<15}{RESET} {spec.title}{mark}")
-        print(f"  {'':<15} {DIM}{spec.description}{RESET}")
+        print(f"  {CYAN}{spec.name:<15}{RESET} {_flat(spec.title)}{mark}")
+        print(f"  {'':<15} {DIM}{_flat(spec.description)}{RESET}")
     for file_name, reason in sorted(rejected.items()):
-        print(f"{YELLOW}  {file_name}: 정의가 올바르지 않아 건너뛰었어요 "
-              f"(세부: {reason}){RESET}")
+        print(f"{YELLOW}  {_flat(file_name)}: 정의가 올바르지 않아 건너뛰었어요 "
+              f"(세부: {_flat(reason)}){RESET}")
     print(f"{DIM}사용법: /summon <에이전트> <할 일>  ·  "
           f"백그라운드: /summon --bg <에이전트> <할 일>{RESET}")
 
 
 def _print_agent(spec: Any) -> None:
-    print(f"{BOLD}{spec.title}{RESET} ({spec.name})")
-    print(spec.description)
+    print(f"{BOLD}{_flat(spec.title)}{RESET} ({spec.name})")
+    print(_flat(spec.description))
     print(f"{DIM}도구 그룹: {', '.join(spec.tools)}{RESET}")
     if spec.skills:
-        print(f"{DIM}미리 불러오는 스킬: {', '.join(spec.skills)}{RESET}")
+        print(f"{DIM}미리 불러오는 스킬: {_flat(', '.join(spec.skills))}{RESET}")
     print(f"{DIM}최대 턴: {spec.max_turns}"
           f"{'  ·  모델: ' + spec.model if spec.model else ''}{RESET}")
+    print(f"{DIM}사용법: /summon {spec.name} <할 일>  ·  "
+          f"백그라운드: /summon --bg {spec.name} <할 일>{RESET}")
 
 
-@command("summon", "Summon a named specialist agent to handle a task.",
-         "/summon [--bg] [agent] [task]")
-def _summon(session: Any, arg: str) -> None:
-    from . import summon
-    text = arg.strip()
+def summon_context(ctx: Any, emit: Any) -> Any:
+    """``ctx`` for a user-started summon, with its own progress sink.
+
+    The session's sink is never handed over: the workspace one refuses
+    events outside its own command, which failed every foreground /summon in
+    ``birkin chat`` and stranded its run record and tree-budget lease. The
+    tree budget and abort stay the session's shared objects.
+    """
+    if is_dataclass(ctx) and not isinstance(ctx, type):
+        return replace(ctx, emit=emit)
+    return ctx
+
+
+def summon_budget_refusal(cfg: dict[str, Any]) -> str:
+    """Why a summon was refused for the token budget, from typed usage."""
+    from . import budget
+    st = budget.status(cfg)
+    check = "사용량은 /status 나 터미널의 birkin budget 으로 확인할 수 있어요."
+    if st.get("over_daily"):
+        return (f"오늘 토큰 한도(사용 {st['used_today']:,} / 한도 "
+                f"{st['daily_cap']:,})를 다 써서 지금은 소환할 수 없어요. "
+                f"내일 다시 시도하거나 config.json의 budget_tokens_daily를 "
+                f"늘리세요. {check}")
+    if st.get("over_monthly"):
+        return (f"이번 달 토큰 한도(사용 {st['used_month']:,} / 한도 "
+                f"{st['monthly_cap']:,})를 다 써서 지금은 소환할 수 없어요. "
+                f"다음 달에 다시 시도하거나 config.json의 "
+                f"budget_tokens_monthly를 늘리세요. {check}")
+    return f"토큰 한도를 다 써서 지금은 소환할 수 없어요. {check}"
+
+
+def summon_failure_text(exc: Exception, spec: Any, cfg: dict[str, Any], *,
+                        runs_at: str = "/agents 에서") -> tuple[str, str]:
+    """A Korean explanation and an optional detail line for a failed summon.
+
+    ``runs_at`` says where the run list lives for this surface.
+    """
+    from . import budget, summon
+    if isinstance(exc, summon.SummonBudgetExceeded):
+        return summon_budget_refusal(cfg), ""
+    if isinstance(exc, budget.TreeBudgetExceeded):
+        # Refused before a run existed, so there is no record to look up.
+        return ("지금은 동시에 돌릴 수 있는 에이전트 수나 이번 작업의 위임 "
+                f"한도를 넘었어요. {runs_at} 진행 중인 작업을 확인하고 끝난 뒤 "
+                "다시 시도하세요.", _flat(exc))
+    return (f"{_flat(spec.title)} 작업을 끝내지 못했어요. {runs_at} 실행 "
+            "기록을 확인하세요.",
+            ui.fit(_flat(f"{type(exc).__name__}: {exc}"), 200))
+
+
+class SummonProgress:
+    """Progress for one user-started summon, fed through the run's ``emit``.
+
+    It prints the start line once the run is registered (so a refused summon
+    never claims it started), one line per child tool call, and keeps a
+    spinner with the elapsed time between them. ``stream=None`` writes to the
+    current stdout, styled; another stream gets plain lines. Used as a
+    context manager around the summon, so the spinner always stops.
+
+    The child's tools share this sink: research_run's moirai workers and a
+    nested subagent emit their own ``subagent.*`` events, from pool threads.
+    So only the first ``subagent.start`` that carries a run id is this run's
+    (moirai's carry none), and a lock serializes the spinner and the lines.
+    """
+
+    def __init__(self, spec: Any, *, stream: Any = None,
+                 spinner: bool = True):
+        self._title = _flat(spec.title)
+        self._name = spec.name
+        self._stream = stream
+        self._dim, self._reset = (DIM, RESET) if stream is None else ("", "")
+        self._use_spinner = spinner
+        self._spinner: ui.Spinner | None = None
+        self._active = False
+        self._run_id = ""
+        self._lock = threading.Lock()
+        self.started_at = time.monotonic()
+
+    def _spin(self, on: bool) -> None:
+        # Callers hold self._lock.
+        if self._spinner is not None:
+            self._spinner.stop()
+            self._spinner = None
+        if on and self._use_spinner and self._active:
+            self._spinner = ui.Spinner(f"{self._title} 작업 중…",
+                                       "Ctrl-C 로 중단", since=self.started_at)
+            self._spinner.start()
+
+    def __enter__(self) -> "SummonProgress":
+        with self._lock:
+            self.started_at = time.monotonic()
+            self._active = True
+            self._spin(True)
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        with self._lock:
+            self._active = False
+            self._spin(False)
+
+    def emit(self, event: str, payload: dict[str, Any]) -> None:
+        name = ui.printable(payload.get("name") or "도구")
+        run_id = payload.get("id")
+        if event == "subagent.start":
+            if not isinstance(run_id, str) or not run_id:
+                return
+            line = (f"{self._title}({self._name}) 에이전트에게 맡겼어요. "
+                    "끝날 때까지 기다려요 · Ctrl-C 로 중단")
+        elif event == "subagent.tool_start":
+            line = f"  → {name}"
+        elif event == "subagent.tool_end" and payload.get("is_error"):
+            line = f"  ✗ {name} 실패"
+        elif event == "subagent.steer":
+            line = "  ↪ 보낸 메시지를 반영했어요"
+        else:
+            return
+        with self._lock:
+            if event == "subagent.start":
+                if self._run_id:
+                    return          # a nested run, not this one
+                self._run_id = run_id
+            self._spin(False)
+            print(f"{self._dim}{line}{self._reset}", file=self._stream,
+                  flush=True)
+            self._spin(True)
+
+    def done_line(self) -> str:
+        took = ui.duration_ko(time.monotonic() - self.started_at)
+        green = GREEN if self._stream is None else ""
+        return (f"{green}✓ {self._title} 작업을 마쳤어요{self._reset} "
+                f"{self._dim}· {took}{self._reset}")
+
+
+def _split_summon_arg(arg: str) -> tuple[bool, list[str]]:
+    """``(background, [agent, task])``: --bg may come first or after the name."""
     background = False
-    head, _sep, rest = text.partition(" ")
+    head, _sep, rest = arg.strip().partition(" ")
+    text = arg.strip()
     if head == "--bg":
         background, text = True, rest.strip()
     parts = text.split(maxsplit=1)
+    if len(parts) == 2:
+        after = parts[1].split(maxsplit=1)
+        if after[0] == "--bg":
+            background = True
+            parts = parts[:1] + after[1:]
+    return background, parts
+
+
+@command("summon", "전문가 에이전트에게 일을 맡겨요.",
+         "/summon [--bg] [에이전트] [할 일]")
+def _summon(session: Any, arg: str) -> None:
+    from . import summon
+    background, parts = _split_summon_arg(arg)
     if not parts:
         _print_roster()
         return
     try:
         spec = summon.get_agent(parts[0])
+    except summon.AgentDefinitionError as exc:
+        name = _flat(exc.name)
+        print(f"{RED}'{name}' 에이전트 정의 파일(agents/{name}.md)에 문제가 "
+              f"있어 소환할 수 없어요. 파일을 고친 뒤 다시 시도하세요.{RESET}")
+        print(f"{DIM}세부: {_flat(exc.reason)}{RESET}")
+        return
     except summon.SummonError as exc:
-        print(f"{RED}'{parts[0]}' 에이전트를 찾을 수 없어요. "
+        print(f"{RED}'{ui.fit(_flat(parts[0]), 40)}' 에이전트를 찾을 수 없어요. "
               f"/summon 으로 목록을 확인하세요.{RESET}")
-        print(f"{DIM}세부: {exc}{RESET}")
+        print(f"{DIM}세부: {_flat(exc)}{RESET}")
         return
     if len(parts) == 1:
         _print_agent(spec)
@@ -619,35 +913,35 @@ def _summon(session: Any, arg: str) -> None:
     if ctx is None:
         print(f"{RED}이 세션에서는 에이전트를 소환할 수 없어요.{RESET}")
         return
-    print(f"{DIM}{spec.title}({spec.name})을(를) 소환했어요"
-          f"{' — 백그라운드에서 진행합니다' if background else ''}…{RESET}")
+    progress = SummonProgress(spec, spinner=not background)
+    run_ctx = summon_context(ctx, None if background else progress.emit)
     abort = getattr(ctx, "abort", None)
     if not background and abort is not None:
         abort.clear()  # a new command: drop a stale Esc from an earlier turn
     try:
-        result = summon.summon(spec.name, parts[1], ctx, detach=background)
+        with progress:
+            result = summon.summon(spec.name, parts[1], run_ctx,
+                                   detach=background)
     except KeyboardInterrupt:
         print(f"\n{YELLOW}소환을 중단했어요.{RESET}")
         return
-    except summon.SummonBudgetExceeded as exc:
-        print(f"{RED}토큰 예산을 다 써서 지금은 소환할 수 없어요. "
-              f"/budget 으로 사용량을 확인하세요.{RESET}")
-        print(f"{DIM}세부: {exc}{RESET}")
-        return
     except Exception as exc:
-        print(f"{RED}{spec.title}이(가) 작업을 끝내지 못했어요. "
-              f"/agents 에서 실행 기록을 확인하세요.{RESET}")
-        print(f"{DIM}세부: {type(exc).__name__}: {str(exc)[:200]}{RESET}")
+        message, detail = summon_failure_text(exc, spec, ctx.cfg)
+        print(f"{RED}{message}{RESET}")
+        if detail:
+            print(f"{DIM}세부: {detail}{RESET}")
         return
-    run_id = summon.detached_run_id(result) if background else ""
-    if run_id:
-        _BACKGROUND_SUMMONS[run_id] = spec.title
-        print(f"{GREEN}백그라운드에서 실행 중이에요.{RESET} "
-              f"/attach {run_id[:8]} 로 따라가고, "
-              f"/send {run_id[:8]} <메시지> 로 방향을 바꿀 수 있어요. "
-              "끝나면 여기서 알려드릴게요.")
+    if background:
+        run_id = summon.detached_run_id(result)
+        print(f"{GREEN}{_flat(spec.title)}({spec.name}) 에이전트에게 맡겼어요 "
+              f"— 백그라운드에서 진행해요.{RESET}")
+        if run_id:
+            print(f"/attach {run_id[:8]} 로 따라가고, "
+                  f"/send {run_id[:8]} <메시지> 로 방향을 바꿀 수 있어요. "
+                  "끝나면 여기서 알려드릴게요.")
         return
-    print(result)
+    print(progress.done_line())
+    print(ui.render_markdown(ui.printable_block(summon.result_text(result))))
 
 
 @command("details", "Toggle verbose tool traces (full input + result snippet).",
@@ -683,44 +977,45 @@ def _goal(session: Any, arg: str) -> None:
     try:
         parts = shlex.split(arg)
     except ValueError as exc:
-        print(f"{RED}Invalid /goal arguments: {exc}{RESET}")
+        print(f"{RED}/goal 인자를 읽을 수 없어요. 따옴표 짝을 확인해 주세요.{RESET}")
+        print(f"{DIM}세부: {exc}{RESET}")
         return
     if not parts:
-        print(f"{DIM}Usage: /goal set <objective> [--gate \"command\"] "
+        print(f"{DIM}사용법: /goal set <목표> [--gate \"검증 명령\"] "
               f"| show | pause | done{RESET}")
         return
 
     action = parts.pop(0).lower()
     if action == "show":
         status = goals.render_status()
-        print(status or f"{DIM}No active goal.{RESET}")
+        print(status or f"{DIM}진행 중인 목표가 없어요.{RESET}")
         return
     if action == "pause":
         state = goals.pause()
-        print(f"{DIM}Goal paused.{RESET}" if state else
-              f"{DIM}No active goal.{RESET}")
+        print(f"{DIM}목표를 잠시 멈췄어요.{RESET}" if state else
+              f"{DIM}진행 중인 목표가 없어요.{RESET}")
         return
     if action == "done":
         state = goals.get_active()
         if state is None:
-            print(f"{DIM}No active goal.{RESET}")
+            print(f"{DIM}진행 중인 목표가 없어요.{RESET}")
             return
         final, outcome = goals.request_completion(state, session.cfg)
         if outcome == "queued":
-            print(f"{DIM}Verifier queued for approval: {state.gate_cmd}{RESET}")
-            print(f"{RED}Goal stays open until it passes — approve it with "
-                  f"/review, then run /goal done again.{RESET}")
+            print(f"{DIM}검증 명령이 승인을 기다리고 있어요: {state.gate_cmd}{RESET}")
+            print(f"{RED}/review 에서 승인한 뒤 /goal done 을 다시 실행하면 "
+                  f"결과를 확인해 목표를 마무리해요.{RESET}")
             return
         if outcome == "failed":
-            print(f"{RED}Verifier failed; goal stays open.{RESET}")
+            print(f"{RED}검증 명령이 실패해서 목표를 계속 진행 중으로 둘게요.{RESET}")
             tail = str((final.gate_last or {}).get("output_tail") or "").strip()
             if tail:
                 print(f"{DIM}{tail[-500:]}{RESET}")
             return
-        print(f"{GREEN}Goal done: {state.objective}{RESET}")
+        print(f"{GREEN}목표를 완료했어요: {state.objective}{RESET}")
         return
     if action != "set":
-        print(f"{RED}Unknown /goal action {action!r}.{RESET}")
+        print(f"{RED}알 수 없는 /goal 동작이에요: {action}{RESET}")
         return
 
     objective: list[str] = []
@@ -730,26 +1025,26 @@ def _goal(session: Any, arg: str) -> None:
         part = parts[i]
         if part == "--gate":
             if i + 1 >= len(parts):
-                print(f"{RED}{part} needs a value.{RESET}")
+                print(f"{RED}--gate 뒤에 검증 명령을 적어 주세요.{RESET}")
                 return
             gate = parts[i + 1]
             i += 2
             continue
         if part.startswith("--"):
-            print(f"{RED}Unknown /goal option {part!r}.{RESET}")
+            print(f"{RED}알 수 없는 /goal 옵션이에요: {part}{RESET}")
             return
         objective.append(part)
         i += 1
     try:
         state = goals.set_goal(" ".join(objective), gate=gate)
-    except ValueError as exc:
-        print(f"{RED}{exc}{RESET}")
+    except ValueError:   # the only one set_goal raises here: no objective
+        print(f"{RED}목표 내용을 적어 주세요.{RESET}")
         return
-    print(f"{GREEN}Goal set: {state.objective}{RESET}")
+    print(f"{GREEN}목표를 정했어요: {state.objective}{RESET}")
     print(goals.render_status())
     if state.gate_cmd:
-        print(f"{DIM}The verifier runs through the approval queue "
-              f"when /goal done is used.{RESET}")
+        print(f"{DIM}/goal done 을 실행하면 검증 명령이 승인 대기열을 거쳐 "
+              f"실행돼요.{RESET}")
 
 
 @command("cron", "List scheduled cron jobs.", "/cron")
@@ -775,23 +1070,23 @@ def _permission(session: Any, arg: str) -> None:
         session.client.cli_access = sub[1]   # apply to the live session
         config.save_config(session.cfg)
         if sub[1] == "full":
-            print(f"{YELLOW}⚠ 'full': the CLI agent now bypasses all approvals & "
-                  f"sandbox — it can run ANY command / edit ANY file.{RESET}")
+            print(f"{YELLOW}⚠ 'full': 이제 CLI 에이전트가 모든 승인과 샌드박스를 "
+                  f"건너뛰어 어떤 명령이든 실행하고 어떤 파일이든 수정할 수 "
+                  f"있습니다.{RESET}")
     elif len(sub) == 2 and sub[0] == "unattended-full" and sub[1] in ("on", "off"):
         # Let the UNATTENDED nightly Morpheus run keep cli_access "full" (the
         # reachable gateway is ALWAYS workspace regardless). Default off.
         session.cfg["allow_unattended_full"] = (sub[1] == "on")
         config.save_config(session.cfg)
         if sub[1] == "on":
-            print(f"{YELLOW}⚠ unattended-full ON: the nightly Morpheus run may now "
-                  f"bypass sandbox/approvals (needs cli_access 'full' too). The "
-                  f"gateway stays sandboxed.{RESET}")
+            print(f"{YELLOW}⚠ unattended-full 켜짐: 야간 Morpheus 실행이 샌드박스와 "
+                  f"승인을 건너뛸 수 있습니다 (cli_access 'full'도 필요). "
+                  f"게이트웨이는 계속 샌드박스 안에서 실행됩니다.{RESET}")
     elif len(sub) == 2 and sub[0] in ("add", "remove"):
         cat = sub[1]
         if sub[0] == "add" and cat in ("shell", "cron", "worker"):
-            print(f"{YELLOW}⚠ auto-approving '{cat}' lets the unattended nightly "
-                    f"routine run it without asking (incl. shell at the "
-                    f"configured Morpheus time).{RESET}")
+            print(f"{YELLOW}⚠ '{cat}' 자동 승인을 켜면 야간 루틴이 묻지 않고 "
+                  f"실행합니다 (Morpheus 예약 시각의 shell 포함).{RESET}")
         if sub[0] == "add" and cat not in auto:
             auto.append(cat)
         elif sub[0] == "remove" and cat in auto:
@@ -799,8 +1094,8 @@ def _permission(session: Any, arg: str) -> None:
         session.cfg["auto_approve"] = auto
         config.save_config(session.cfg)
     uf = "on" if session.cfg.get("allow_unattended_full") else "off"
-    print(f"{DIM}Auto-approved: {', '.join(auto) or '(none)'} · "
-          f"CLI access: {session.cfg.get('cli_access', 'workspace')} · "
+    print(f"{DIM}자동 승인: {', '.join(auto) or '(없음)'} · "
+          f"CLI 권한: {session.cfg.get('cli_access', 'workspace')} · "
           f"unattended-full: {uf} "
           f"(/permission access workspace|full · unattended-full on|off){RESET}")
 

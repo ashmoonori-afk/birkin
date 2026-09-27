@@ -245,6 +245,19 @@ def test_moirai_hard_task_reaches_typed_script_args() -> None:
     command = call.argv()
     args_index = command.index("--args")
     assert json.loads(command[args_index + 1]) == {"task": sentinel}
+    # The receipt keeps the head of stdout: it must be the outcome, not the
+    # plan table, so the approved run is quiet. The script stays positional.
+    assert "--quiet" in command
+    assert command[5].endswith("hard_task.py")
+
+
+def test_moirai_resume_runs_quietly() -> None:
+    call = worker_call.resolve(
+        {"worker": "moirai", "action": "resume", "run_id": "20260926-000000-abcd"}
+    )
+    command = call.argv()
+    assert command[3:6] == ("moirai", "resume", "20260926-000000-abcd")
+    assert command[-1] == "--quiet"
 
 
 def test_approval_digest_tampering_fails_before_subprocess(monkeypatch: Any) -> None:

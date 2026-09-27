@@ -152,7 +152,7 @@ def test_an_approved_proposal_actually_runs_the_workflow(monkeypatch):
         "moirai", {"script": "cross-examine", "task": "무엇을 비교"})
     assert ran["script"] == "cross-examine"
     assert ran["args"]["task"] == "무엇을 비교"
-    assert "completed" in out and "rid" in out
+    assert out.startswith("✅ 워크플로우 완료") and "rid" in out
 
 
 def test_an_approved_proposal_naming_a_missing_workflow_fails_loudly():
@@ -202,7 +202,8 @@ def test_only_research_tool_exposes_moirai_to_a_model():
 # ---------------- the note must ask for output something consumes ---------
 
 def test_the_note_never_asks_for_an_envelope_nothing_parses():
-    """R60: `parse`/`queue` have no production caller on any surface.
+    """R60: `parse` has no production caller on any surface (`queue`'s one
+    caller is the gateway timeout recovery, which builds its proposal in code).
 
     A note that demands the envelope makes an opted-in user's turn come back
     as raw markup with their question unanswered, so the note must ask for

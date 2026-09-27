@@ -319,14 +319,14 @@ def render_status() -> str:
     state = get_active()
     if state is None:
         return ""
-    parts = [f"goal: {_short_objective(state.objective)}",
-             f"{state.tokens_used} tokens"]
+    parts = [f"목표: {_short_objective(state.objective)}",
+             f"토큰 {state.tokens_used}"]
     if state.gate_cmd:
         if state.gate_last is None:
-            gate = "pending"
+            gate = "대기"
         else:
-            gate = "pass" if state.gate_last.get("ok") else "fail"
-        parts.append(f"gate: {gate}")
+            gate = "통과" if state.gate_last.get("ok") else "실패"
+        parts.append(f"검증: {gate}")
     return " | ".join(parts)
 
 
@@ -374,68 +374,43 @@ def request_completion(
     tier = _tier_for(signals, cfg)
     if tier == "fast" and (state.gate_last or {}).get("ok"):
         return done(session_id=state.session_id), "done"
-    queued = not approvals.is_auto("shell", cfg)
-    updated = run_gate(state, cfg, signals=signals)
-    if queued:
+    updated, verified = _gate(state, cfg, signals=signals)
+    if not verified:
         return updated, "queued"
     if not (updated.gate_last or {}).get("ok"):
         return updated, "failed"
     return done(session_id=state.session_id), "done"
 
 
-def run_gate(
-    state: GoalState,
-    cfg: dict[str, Any],
-    *,
-    signals: confidence.Signals | None = None,
-) -> GoalState:
-    """Run or queue ``state``'s verifier through the shell approval pipeline.
+def _is_verifier_for(record: dict[str, Any], state: GoalState,
+                     command: str) -> bool:
+    """Whether an approval record is ``state``'s verifier, proposed after the
+    goal was set: an older goal with the same objective has the same slug."""
+    payload = record.get("payload")
+    return (record.get("category") == "shell"
+            and record.get("origin") == "goal"
+            and isinstance(payload, dict)
+            and payload.get("command") == command
+            and payload.get("goal_slug") == state.slug
+            and payload.get("goal_session") == (state.session_id or "")
+            and str(record.get("created") or "") >= state.created_at)
 
-    The command is never passed to subprocess here. Non-auto-approved shell
-    actions are proposals; auto-approved actions use the approval executor that
-    handles shell payloads everywhere else.
 
-    When ``signals`` is given, its confidence tier annotates the recorded
-    gate result (``gate_last["confidence"]``) so a later completion check can
-    see how shaky the turn that produced it was. The tier never changes what
-    runs: a verifier that is configured is always run or queued, because a
-    gate skipped on a hunch is not a gate. Anything wrong with the scoring
-    path itself is dropped — gate execution must not fail on telemetry.
-    """
-    command = (state.gate_cmd or "").strip()
-    if not command:
-        return state
-    confidence_note = _confidence_note(signals, cfg)
-    if not approvals.is_auto("shell", cfg):
-        approvals.propose(
-            category="shell", title=f"goal verifier: {command[:60]}",
-            description=f"Verify session goal '{state.objective[:120]}'.",
-            payload={"command": command}, cfg=cfg, origin="goal")
-        with _domain_lock():
-            path = _path(state.slug, state.session_id)
-            with store.file_lock(path):
-                current = _load(path)
-                if current is None:
-                    return state
-                if current.gate_cmd != command:
-                    current = _save(replace(
-                        current,
-                        gate_cmd=command,
-                        updated_at=_now(),
-                    ))
-                return current
+def _approved_verifier(state: GoalState, command: str) -> dict[str, Any] | None:
+    """The newest approved run of ``state``'s verifier not yet folded in."""
+    runs = [record for record in store.list_resolved("approved")
+            if _is_verifier_for(record, state, command)]
+    if not runs:
+        return None
+    latest = max(runs, key=lambda record: (str(record.get("resolved_at") or ""),
+                                           str(record.get("created") or "")))
+    if latest.get("id") == (state.gate_last or {}).get("approval_id"):
+        return None   # already reported; a failed run is not reused
+    return latest
 
-    try:
-        output = approvals.execute_action(
-            "shell", {"command": command}, cfg=cfg)
-        ok = str(output).startswith("[exit 0]")
-    except Exception as exc:
-        output = f"action failed: {exc}"
-        ok = False
-    gate_last = {"ok": ok, "output_tail": str(output)[-_GATE_OUTPUT_TAIL:],
-                 "at": _now()}
-    if confidence_note:
-        gate_last["confidence"] = confidence_note
+
+def _record_gate(state: GoalState, command: str,
+                 gate_last: dict[str, Any]) -> GoalState:
     with _domain_lock():
         path = _path(state.slug, state.session_id)
         with store.file_lock(path):
@@ -448,3 +423,89 @@ def run_gate(
                 gate_last=gate_last,
                 updated_at=_now(),
             ))
+
+
+def run_gate(
+    state: GoalState,
+    cfg: dict[str, Any],
+    *,
+    signals: confidence.Signals | None = None,
+) -> GoalState:
+    """Run or queue ``state``'s verifier; see :func:`_gate`."""
+    return _gate(state, cfg, signals=signals)[0]
+
+
+def _gate(
+    state: GoalState,
+    cfg: dict[str, Any],
+    *,
+    signals: confidence.Signals | None = None,
+) -> tuple[GoalState, bool]:
+    """Run or queue ``state``'s verifier through the shell approval pipeline.
+
+    Returns ``(goal, verified)``: ``verified`` is True when ``gate_last`` now
+    holds a fresh result. The command is never passed to subprocess here.
+    Non-auto-approved shell actions are proposals, and the first call after a
+    human approved one reads that run's recorded result back instead of
+    queueing it again; auto-approved actions use the approval executor that
+    handles shell payloads everywhere else.
+
+    When ``signals`` is given, its confidence tier annotates the recorded
+    gate result (``gate_last["confidence"]``) so a later completion check can
+    see how shaky the turn that produced it was. The tier never changes what
+    runs: a verifier that is configured is always run or queued, because a
+    gate skipped on a hunch is not a gate. Anything wrong with the scoring
+    path itself is dropped — gate execution must not fail on telemetry.
+    """
+    command = (state.gate_cmd or "").strip()
+    if not command:
+        return state, False
+    confidence_note = _confidence_note(signals, cfg)
+    if not approvals.is_auto("shell", cfg):
+        approved = _approved_verifier(state, command)
+        if approved is not None:
+            output = str(approved.get("action_receipt") or "")
+            gate_last: dict[str, Any] = {
+                "ok": output.startswith("[exit 0]"),
+                "output_tail": output[-_GATE_OUTPUT_TAIL:],
+                "at": str(approved.get("resolved_at") or _now()),
+                "approval_id": str(approved.get("id") or ""),
+            }
+            if confidence_note:
+                gate_last["confidence"] = confidence_note
+            return _record_gate(state, command, gate_last), True
+        if not any(_is_verifier_for(record, state, command)
+                   for record in store.list_pending()):
+            approvals.propose(
+                category="shell", title=f"목표 확인 명령: {command[:60]}",
+                description=(f"세션 목표 '{state.objective[:120]}'의 달성 여부를 "
+                             "확인하는 명령입니다."),
+                payload={"command": command, "goal_slug": state.slug,
+                         "goal_session": state.session_id or ""},
+                cfg=cfg, origin="goal")
+        with _domain_lock():
+            path = _path(state.slug, state.session_id)
+            with store.file_lock(path):
+                current = _load(path)
+                if current is None:
+                    return state, False
+                if current.gate_cmd != command:
+                    current = _save(replace(
+                        current,
+                        gate_cmd=command,
+                        updated_at=_now(),
+                    ))
+                return current, False
+
+    try:
+        output = approvals.execute_action(
+            "shell", {"command": command}, cfg=cfg)
+        ok = str(output).startswith("[exit 0]")
+    except Exception as exc:
+        output = f"action failed: {exc}"
+        ok = False
+    gate_last = {"ok": ok, "output_tail": str(output)[-_GATE_OUTPUT_TAIL:],
+                 "at": _now()}
+    if confidence_note:
+        gate_last["confidence"] = confidence_note
+    return _record_gate(state, command, gate_last), True

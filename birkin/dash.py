@@ -561,14 +561,12 @@ def _loop(session, w, keys, state):
                 return                             # leave dash into the loaded convo
             state["note"] = f"⚠ {error}"
         elif state["section"] == "승인" and rows and key in ("a", "d"):
-            out = _resolve_approval(rows[state["cursor"]],
-                                    approve=(key == "a"))
+            row = rows[state["cursor"]]
+            out = _resolve_approval(row, approve=(key == "a"))
             # Approving a queued shell command used to print nothing at all:
             # success, a non-zero exit and a raised exception were the same
             # blank screen. The row vanishing is not an outcome report.
-            state["note"] = (f"\u2713 {str(out.get('result') or '완료')[:120]}"
-                             if out.get("ok")
-                             else f"\u26a0 {out.get('error') or '실패'}")
+            state["note"] = _approval_note(row["id"], out, approve=(key == "a"))
             snap = snapshot(session)
 
 
@@ -603,3 +601,12 @@ def _resolve_approval(row, *, approve: bool) -> dict[str, Any]:
         ) or {"ok": False, "error": "결과 없음"}
     except Exception as exc:
         return {"ok": False, "error": str(exc)[:120]}
+
+
+def _approval_note(aid: str, out: dict[str, Any], *, approve: bool) -> str:
+    """One Korean status line; the check mark only for a real success."""
+    from . import approval_text, store
+    outcome = approval_text.decision_outcome(
+        store.get_pending(aid), out, approve=approve)
+    return outcome.render(marks=approval_text.TERMINAL_MARKS,
+                          limit=120).replace("\n", " · ")

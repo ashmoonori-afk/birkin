@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import quote
 
 from . import config, store
-from .m365_graph import GraphClient, GraphError, GraphUncertainError, graph_client
+from .m365_graph import GraphClient, GraphError, GraphUncertainError, graph_client, verified_graph_client
 from .m365_connection import verify_approval_identity
 from .office.artifact_serialization import canonical_json
 
@@ -28,7 +28,7 @@ def list_messages(*, unread_only: bool = True, limit: int = 20, client: GraphCli
     if unread_only:
         query += "&$filter=isRead%20eq%20false"
     query += f"&$top={limit}"
-    result = (client or graph_client()).request("GET", f"/me/messages?{query}")
+    result = (client or verified_graph_client()).request("GET", f"/me/messages?{query}")
     values = result.get("value", [])
     return {"messages": values if isinstance(values, list) else [], "source": "microsoft-graph", "bounded": True}
 

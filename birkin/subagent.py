@@ -8,6 +8,7 @@ isolated and side-effect-light. Results are returned to the caller as text.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
 import threading
@@ -25,6 +26,9 @@ _BLOCKED_POLL_SECONDS = 1.0
 # An image block's base64 payload says nothing about its token cost; count a
 # fixed allowance instead so a screenshot does not dominate the estimate.
 _IMAGE_CHARS = 6400
+# Stands in for a run that ended without text. The parent model reads it, so it
+# stays English; people see ``summon.result_text``'s Korean copy instead.
+NO_TEXT_RESULT = "(subagent returned no text)"
 
 
 def _block_chars(block: Any) -> int:
@@ -88,6 +92,15 @@ class _MeteredClient:
     @property
     def est_tokens(self) -> int:
         return (self.chars + 3) // 4
+
+
+def _safe_emit(emit: Any, event: str, payload: dict[str, Any]) -> None:
+    """Forward one event to the parent's view; a failing view never breaks
+    the run (the same rule as ``Agent._emit``). A sink that refuses events
+    outside its own command used to strand the record and its lease."""
+    if emit:
+        with contextlib.suppress(Exception):
+            emit(event, payload)
 
 
 class _ChildAbort:
@@ -207,7 +220,9 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
             available_tools=set(registry.names()),
         )
         specialist_name = specialist.name if specialist is not None else None
-        run = agentruns.register_run(task, agent=specialist_name)
+        specialist_title = getattr(specialist, "title", None) or None
+        run = agentruns.register_run(task, agent=specialist_name,
+                                     title=specialist_title)
     except Exception:
         if lease is not None:
             lease.release()
@@ -238,22 +253,31 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
         agentruns.progress(run_id, f"{event} {payload.get('name') or ''}")
         wait_while_blocked()
         deliver_messages()
-        if emit:
-            emit("subagent." + event, payload)
+        _safe_emit(emit, "subagent." + event, payload)
 
-    # No self-improvement nudges: a child has no memory and only load_skill,
-    # so "call create_skill / remember" would point at tools it lacks.
-    agent = Agent(client=client, system=system, registry=registry,
-                  max_turns=max_turns, model=sub_model, on_event=on_event,
-                  self_improve=False)
-
-    if emit:
-        emit("subagent.start", {
+    # From here until execute() owns the run, a failure must still finish the
+    # record and release the lease, or the run reads "running" until it goes
+    # stale and the slot counts against every later delegation.
+    try:
+        # No self-improvement nudges: a child has no memory and only
+        # load_skill, so "call create_skill / remember" would point at tools
+        # it lacks.
+        agent = Agent(client=client, system=system, registry=registry,
+                      max_turns=max_turns, model=sub_model, on_event=on_event,
+                      self_improve=False)
+        _safe_emit(emit, "subagent.start", {
             "task": task[:200], "id": run_id, "agent": specialist_name,
+            "agent_title": specialist_title,
         })
+    except BaseException as exc:
+        agentruns.finish_run(run_id, "error", f"{type(exc).__name__}: {exc}")
+        if lease is not None:
+            lease.release()
+        raise
 
     def execute() -> str:
         result = ""
+        failed = False
         done = threading.Event()
         timer: threading.Timer | None = None
         if parent_ctx.tree_budget is not None:
@@ -286,11 +310,12 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
                 and parent_ctx.tree_budget.expired()
             ):
                 raise RuntimeError("subagent tree deadline exceeded")
-            result = raw_result or "(subagent returned no text)"
+            result = raw_result or NO_TEXT_RESULT
             agentruns.finish_run(run_id, "done", result)
         except BaseException as exc:
             # BaseException: a Ctrl-C in the REPL must not leave the durable
             # record "running" until it goes stale.
+            failed = True
             agentruns.finish_run(run_id, "error", f"{type(exc).__name__}: {exc}")
             raise
         finally:
@@ -313,8 +338,17 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
                 )
             except OSError:
                 pass  # accounting must not mask the run's own outcome
-        if emit:
-            emit("subagent.done", {"chars": len(result), "id": run_id})
+            if failed:
+                # A live view that saw subagent.start must also see the run
+                # end; a failing view must not replace the run's own error.
+                _safe_emit(emit, "subagent.done", {
+                    "chars": 0, "id": run_id, "agent": specialist_name,
+                    "agent_title": specialist_title, "is_error": True,
+                })
+        _safe_emit(emit, "subagent.done", {
+            "chars": len(result), "id": run_id, "agent": specialist_name,
+            "agent_title": specialist_title,
+        })
         return result
 
     if not detach:
@@ -331,5 +365,7 @@ def run_subagent(task: str, parent_ctx: ToolContext, *,
 
     threading.Thread(target=background, name=f"birkin-subagent-{run_id}",
                      daemon=True).start()
+    # The REPL announces it once it finishes, whoever started it.
+    agentruns.note_detached(run_id)
     return (f"Detached subagent {run_id} started. Follow it with "
             f"/attach {run_id[:8]} and steer it with /send {run_id[:8]} <text>.")

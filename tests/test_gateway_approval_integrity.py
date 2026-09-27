@@ -313,3 +313,114 @@ def test_cron_approval_restore_does_not_overwrite_changed_state(
 
     assert result == {"ok": False, "error": "approval store is busy"}
     assert store.get_pending(rec["id"])["status"] == "rejected"
+
+
+def _approval_gateway(tmp_path, monkeypatch):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    cfg = {**config.DEFAULT_CONFIG, "provider": "claude-cli",
+           "gateway_prewarm": False, "checkpoints": False,
+           "channels": {"telegram": {"allowed_chat_ids": ["42"]}}}
+    config.save_config(cfg)
+    from birkin.gateway.core import Gateway
+    return Gateway(config.load_config())
+
+
+def test_a_failed_shell_approval_is_never_reported_with_a_check_mark(
+    tmp_path, monkeypatch
+) -> None:
+    gw = _approval_gateway(tmp_path, monkeypatch)
+    rec = store.add_pending(category="shell", title="fails", description="",
+                            payload={"command": "exit 3", "cwd": str(tmp_path)},
+                            origin="test")
+
+    claimed, ok = gw.claim_action(rec["id"], actor_id="human:telegram:42",
+                                  via="gateway:telegram")
+    final = gw.execute_claimed_action(rec["id"])
+
+    assert ok is True and claimed.startswith("⏳")
+    assert final.startswith("⚠")
+    assert "종료 코드 3" in final
+    assert "approved" not in final
+
+
+def test_an_integrity_failure_is_logged_not_shown_raw(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    gw = _approval_gateway(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        approvals, "execute_claimed",
+        lambda aid, on_event=None: {
+            "ok": False,
+            "error": "approval execution could not be armed: /secret/path",
+        },
+    )
+
+    reply = gw.execute_claimed_action("abcdef012345")
+
+    assert "/secret/path" not in reply
+    assert "could not be armed" not in reply
+    assert "E_APPROVAL_INTEGRITY" in capsys.readouterr().out
+
+
+def test_an_office_receipt_reads_as_destination_not_json(
+    tmp_path, monkeypatch
+) -> None:
+    import json
+
+    gw = _approval_gateway(tmp_path, monkeypatch)
+    rec = store.add_pending(category="office_job", title="report", description="",
+                            payload={"job_id": "job-1"}, origin="test")
+    receipt = json.dumps({
+        "publication": {"artifact": {"artifact_id": "art-1"}},
+        "export": {
+            "path": "/home/u/out/report.docx",
+            "issued_at": "2026-09-26T00:00:00+00:00",
+            "expires_at": "2026-10-26T00:00:00+00:00",
+        },
+        "validation": {"valid": True, "layers": {"fidelity": {"status": "pass"}}},
+    })
+    monkeypatch.setattr(
+        approvals, "execute_claimed",
+        lambda aid, on_event=None: {"ok": True, "result": receipt},
+    )
+
+    reply = gw.execute_claimed_action(rec["id"])
+
+    assert "{" not in reply
+    assert "/home/u/out/report.docx" in reply
+    assert "구조 검증" in reply
+
+
+def test_pending_text_uses_korean_labels_and_marks_questions(
+    tmp_path, monkeypatch
+) -> None:
+    from birkin import approval_text
+
+    gw = _approval_gateway(tmp_path, monkeypatch)
+    store.add_pending(category="cron", title="daily", description="",
+                      payload={"value": "hi"}, origin="test")
+    store.add_pending(category="question", title="Q", description="which?",
+                      payload={}, origin="test")
+
+    text = gw.pending_text()
+
+    assert "[cron]" not in text
+    assert approval_text.category_label("cron") in text
+    assert " · 답변 필요" in text
+
+
+def test_a_tap_on_a_record_approved_in_the_terminal_says_so(
+    tmp_path, monkeypatch
+) -> None:
+    gw = _approval_gateway(tmp_path, monkeypatch)
+    rec = store.add_pending(category="memory", title="note", description="",
+                            payload={}, origin="test")
+    monkeypatch.setattr(approvals, "execute_action",
+                        lambda category, payload, cfg=None, on_event=None: "saved")
+    assert approvals.approve(rec["id"], approved_by="human:terminal",
+                             approved_via="terminal:review")["ok"] is True
+
+    reply = gw.resolve_action(rec["id"], approve=True,
+                              actor_id="human:telegram:42", via="gateway:telegram")
+
+    assert "터미널에서 이미 승인" in reply

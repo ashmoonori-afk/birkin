@@ -46,14 +46,14 @@ Copy-Item $source $incoming
 
 ### 3. 한국어로 첫 리포트 요청
 
-`birkin chat`에서 `incoming의 매출.xlsx를 검사하고 주요 변화와 확인할 항목을 한국어 리포트 초안으로 정리해 줘. 원본은 수정하지 마.`라고 요청합니다. 파일 생성이나 내보내기가 제안되면 다른 PowerShell에서 `birkin review`를 실행해 source, destination, operation, overwrite 여부를 확인하고 승인합니다.
+`birkin chat`에서 `incoming의 매출.xlsx를 검사하고 주요 변화와 확인할 항목을 한국어 리포트 초안으로 정리해 줘. 원본은 수정하지 마.`라고 요청합니다. 파일 생성이나 내보내기가 제안되면 다른 PowerShell에서 `birkin review`를 실행해 원본, 저장 위치, 작업 내용, 덮어쓰기 여부를 확인하고 승인합니다.
 
 ## 왜 birkin인가?
 
 - **근거가 남는 리서치**: 공개 원문을 수집하고 출처로 확인한 사실, 근거에 기반한 추론, 아직 풀지 못한 질문을 나눠 결과와 인용을 함께 보관합니다.
 - **Office 문서 검사와 변경 준비**: DOCX, XLSX, PPTX, PDF, HWPX를 읽고 추출·비교·검증하며, 새 문서를 만들거나 제한된 범위에서 원본을 보존한 채 수정합니다.
 - **실행 전 검토**: 원본, 저장 위치, 정확한 변경 내용, 덮어쓰기 여부, 위험, 승인 상태를 보고 승인하거나 거부합니다.
-- **추측하지 않는 복구**: 작업 기록과 영수증으로 완료·일부 완료·실패·결과 불확실을 구분합니다. 메일 발송 결과가 불확실하면 다시 보내기 전에 원격 상태부터 확인합니다.
+- **추측하지 않는 복구**: 작업 기록과 영수증으로 완료·일부 완료·실패·결과 불확실을 구분합니다. 메일 발송 결과가 불확실하면 다시 보내기 전에 원격 상태부터 확인합니다. 승인한 메일을 Microsoft 365가 접수만 했다면 발송 완료로 알리지 않고, 재확인으로 실제 발송 처리가 관측될 때까지 결과 확인 필요 상태로 둡니다.
 - **로컬 우선 보관**: 세션, 기억, 승인, 감사 기록은 기본적으로 `BIRKIN_HOME` 아래에 둡니다. 설정한 모델 제공자는 요청 내용을 받을 수 있으며 Microsoft 365는 사용자가 연결한 경우에만 접속합니다.
 - **필요한 화면 선택**: 터미널이나 로컬 Web 업무 공간에서 시작하고 Windows와 macOS Native 앱에서도 같은 Python 권한을 사용합니다.
 - **전문 에이전트 소환**: `sheet-analyst`, `meeting-scribe` 같은 이름 있는 에이전트에게 작업을 맡깁니다. 각자 전용 지침과 더 좁은 도구 권한을 가지며 대화, CLI, 신뢰된 Telegram 대화에서 부를 수 있습니다.
@@ -175,11 +175,11 @@ Office 기능은 범위가 정해진 문서 작업이며 데스크톱 Office 프
 | `hwpx` | bounded | conditional | bounded | structural | layered | bounded | bounded | structured-preview |
 <!-- office-support-matrix:end -->
 
-정확히 등록된 도구는 `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `m365_document_import`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, `office_rollback_request`입니다. Machine catalog는 각 adapter의 `public_entrypoint`를 하위 capability와 별도로 기록합니다.
+정확히 등록된 도구는 `list_document_adapters`, `inspect_document`, `extract_document`, `analyze_workbook`, `review_meeting_actions`, `list_work_items`, `work_item_request`, `local_document_import`, `m365_document_import`, `search_office_sources`, `list_office_batches`, `office_batch_request`, `list_office_templates`, `office_template_request`, `resolve_office_template`, `compare_documents`, `render_artifact`, `validate_artifact`, `office_job_request`, `office_rollback_request`입니다. Machine catalog는 각 adapter의 `public_entrypoint`를 하위 capability와 별도로 기록합니다.
 
 동기화된 skill ID는 `office-work-os`, `office-documents`, `word-documents`, `spreadsheets`, `presentations`, `pdf-documents`, `korean-hwp-documents`입니다.
 
-입력은 `BIRKIN_HOME/office`에 격리됩니다. `BIRKIN_HOME=/workspace/.birkin`이면 `/workspace/.birkin/office/artifacts/incoming` 아래로 가져옵니다. 추출은 `max_text_bytes`를 받고 변환에는 명시적인 `loss_budget`이 필요하며 semantic render는 `output_format: "structured_preview"`를 사용합니다. PDF만 한 페이지 이미지를 조건부로 render할 수 있고, 지원하지 않는 다른 visual 요청은 `RENDER_UNAVAILABLE`을 반환합니다.
+입력은 `BIRKIN_HOME/office`에 격리됩니다. `BIRKIN_HOME=/workspace/.birkin`이면 `/workspace/.birkin/office/artifacts/incoming` 아래로 가져옵니다. `local_document_import`는 현재 작업 폴더, 텔레그램 첨부 폴더(`BIRKIN_HOME/uploads`), `BIRKIN_HOME/office/artifacts/incoming`에 있는 Office 파일 하나를 원본을 바꾸지 않고 격리 경로로 복사합니다. 이 범위 밖의 경로, 심볼릭 링크, 하드 링크로 연결된 파일, 그 밖의 Birkin 내부 파일은 거부합니다. 양식 필드(DOCX 콘텐츠 컨트롤과 HWPX 필드의 `{"field": ..., "value": ...}`)와 PPTX 개체 틀은 `office_job_request`로 채울 수 있으며, 승인 화면에는 대상마다 현재 텍스트가 그대로 표시됩니다. 추출은 `max_text_bytes`를 받고 변환에는 명시적인 `loss_budget`이 필요하며 semantic render는 `output_format: "structured_preview"`를 사용합니다. PDF만 한 페이지 이미지를 조건부로 render할 수 있고, 지원하지 않는 다른 visual 요청은 `RENDER_UNAVAILABLE`을 반환합니다.
 
 정확한 인자, provenance, 제한, 거부 조건은 [버전이 지정된 Office 지원 계약](./docs/office-support.md#office-work-os-v2)에 있습니다.
 
@@ -195,7 +195,7 @@ Office 기능은 범위가 정해진 문서 작업이며 데스크톱 Office 프
 birkin --version
 birkin --help
 birkin chat --dry-run "이 요청을 요약해줘" # prompt packet만 만들고 전송하지 않음
-birkin review                              # 대기 중인 승인 검토
+birkin review                              # 대기 중인 승인 검토 (실패한 작업은 ✗로 표시)
 ```
 
 전체 설정표는 [설정 참조](./docs/config-reference.ko.md)에 있습니다. 사용자용 한국어와 protocol·진단용 영어의 기준은 [언어 정책](./docs/language-policy.md)을 따릅니다.
@@ -220,7 +220,11 @@ birkin summon sheet-analyst                      # 에이전트 한 명의 설�
 birkin summon meeting-scribe "incoming/주간회의.docx에서 할 일을 뽑아 줘"
 ```
 
-`birkin chat`에서는 `/summon <에이전트> <할 일>`이 바로 실행되고, `/summon --bg <에이전트> <할 일>`은 백그라운드에서 실행됩니다. 백그라운드 작업이 끝나면 다음 입력 전에 터미널이 결과를 알려 주며, `/agents`, `/attach`, `/send`로 진행을 따라가거나 방향을 바꿀 수 있습니다. 신뢰된 Telegram 대화에서 `/summon <에이전트> <할 일>`을 보내면 진행 중인 대화를 끊지 않고 에이전트가 시작되며, 끝나면 같은 대화로 결과가 전송됩니다. 로컬 HTTP나 음성 채널에서 소환했다면 `birkin chat`의 `/agents`와 `/attach`로 확인합니다. native API 모델 제공자를 쓰고 `egress.enforced=false`이며 모델 preset이 위임을 허용하면 모델도 `spawn_subagent`의 `agent` 값으로 에이전트를 소환할 수 있습니다.
+`birkin summon`은 진행 상황을 stderr에, 결과만 stdout에 출력하므로 결과를 파이프나 파일로 그대로 받을 수 있습니다. 에이전트가 결과 텍스트를 내지 않으면 stdout은 비어 있고 stderr에 그 사실을 알려 줍니다. Ctrl-C로 멈출 수 있습니다. `birkin chat`에서는 `/summon <에이전트> <할 일>`이 바로 실행되어 에이전트가 거치는 단계를 보여 주고 Ctrl-C로 멈출 수 있으며, `/summon --bg <에이전트> <할 일>`(또는 `/summon <에이전트> --bg <할 일>`)은 백그라운드에서 실행됩니다. 직접 시작했든 모델이 `spawn_subagent`로 시작했든 백그라운드 작업이 끝나면 다음 입력 전에 터미널이 결과의 앞부분과 함께 알려 주고, 그때까지 상태 줄에 실행 중인 에이전트 수가 표시됩니다. `/agents`는 최근 최상위 실행 20개를 각각의 하위 실행과 함께 보여 주고(`/agents all`은 전체), `/attach`와 `/send`로 진행을 따라가거나 방향을 바꿀 수 있습니다. 신뢰된 Telegram 대화에서 `/summon <에이전트> <할 일>`을 보내면 진행 중인 대화를 끊지 않고 에이전트가 시작되며, 끝나면 같은 대화로 결과가 전송됩니다. 로컬 HTTP나 음성 채널에서 소환했다면 `birkin chat`의 `/agents`와 `/attach`로 확인합니다. native API 모델 제공자를 쓰고 `egress.enforced=false`이며 모델 preset이 위임을 허용하면 모델도 `spawn_subagent`의 `agent` 값으로 에이전트를 소환할 수 있습니다.
+
+`birkin web`의 작업 패널은 소환할 수 있는 에이전트와 시작 방법을 보여 주고, 소환한 실행마다 에이전트, 경과 시간, 결과를 표시합니다. 진행 중인 실행에는 조정 지시를 보내거나, 다음 단계 전에 일시 중지하거나, 다시 재개할 수 있습니다. 작업 패널이 열려 있거나 진행 중인 실행이 있으면 목록을 30초마다 새로 고칩니다. 소환된 에이전트가 요청한 승인에는 그 에이전트와 실행이 표시되고, 관련 실행으로 바로 이동할 수 있습니다.
+
+데스크톱 앱과 브라우저 작업 공간에서는 모델이 소환한 전문 에이전트의 시작과 완료가 진행 상황에 에이전트 이름으로 표시되고, 소환된 에이전트가 올린 승인 요청에는 요청자로 해당 에이전트가 표시됩니다.
 
 직접 만든 전문가는 `BIRKIN_HOME/agents/<이름>.md`로 추가합니다.
 
@@ -492,8 +496,14 @@ You review contracts for risky clauses and cite the exact clause location.
 - 읽기와 검사는 쓰기 권한을 만들지 않습니다. Office 변경은 `office_job_request`, 되돌리기는 `office_rollback_request`를 통해서만 요청합니다.
 - 승인은 원본 hash, 작업 내용, 저장 위치, 덮어쓰기 선택, 제안자를 정확히 묶습니다. 입력이 바뀌면 실행을 중단합니다.
 - Browser와 Computer Use는 선택 기능이며 설정 전에는 꺼져 있습니다. 허용 목록, 작업 횟수 제한, 승인 정책의 적용을 받습니다.
-- Telegram으로 먼저 보내는 메시지(cron·`/remind` 작업, Morpheus 요약, `/summon` 결과)는 `channels.telegram.allowed_chat_ids`에 등록한 대화에만 전송되며, 목록이 비어 있으면 아무것도 보내지 않습니다. 로컬 HTTP나 음성 채널에서 등록한 `/remind`는 허용된 대화가 정확히 하나일 때만 Telegram으로 전달되고, 그렇지 않으면 등록을 거부합니다.
+- Telegram으로 먼저 보내는 메시지(cron·`/remind` 작업, 약속 체크인, Morpheus 요약, `/summon` 결과)는 `channels.telegram.allowed_chat_ids`에 등록한 대화에만 전송되며, 목록이 비어 있으면 아무것도 보내지 않습니다. 로컬 HTTP나 음성 채널에서 등록한 `/remind`는 허용된 대화가 정확히 하나일 때만 Telegram으로 전달되고, 그렇지 않으면 등록을 거부합니다.
+- 예약 작업(cron) 승인 카드는 Telegram, 웹 승인 화면, 네이티브 앱에서 실제로 등록될 일정, 작업 종류, 전체 명령·스크립트·URL을 작업을 등록하는 코드와 같은 계산으로 보여 줍니다. Birkin이 해석할 수 없는 일정은 매일 09:00 작업으로 등록하지 않고 제안 단계에서 거부합니다. 작업 제안 카드를 포함한 Telegram 승인 카드와 전체 요청 데이터 줄을 포함한 `birkin review`는 모델이 작성한 모든 항목의 제어 문자를 이스케이프하고(메일 본문은 줄바꿈만 그대로 두고, 설명은 줄바꿈을 그대로 두되 모든 줄을 │로 시작해 카드의 다른 줄처럼 보이지 않게 합니다) 긴 명령·메일 본문·요청 데이터·워크플로우 계획을 자르면 잘랐다고 알려 주며, Telegram 승인 결과는 실제로 성공했을 때만 ✅로 표시합니다. 0이 아닌 종료 코드로 끝난 명령이나 워커, 일부만 완료되었거나 답을 기다리는 워크플로우 실행, 다른 곳에서 이미 처리된 요청은 그 사실대로 알려 줍니다.
+- 약속 체크인은 직접 켜기 전까지 보내지 않습니다. 켤 때 시간대를 따로 정해 두지 않았다면 이 컴퓨터의 시간대를 방해 금지 시간의 기준으로 씁니다. 미룬 체크인은 미룬 시간이 끝나면 한 번 다시 묻고(그 시각이 방해 금지 시간에 걸리면 방해 금지 시간이 끝난 뒤), 제때 보내지 못한 체크인은 늦게 보내지 않고 놓친 것으로 표시합니다. 한 대화에는 기다리는 체크인이 하나만 있을 수 있어서, 놓친 체크인은 그 대화에 진행 중인 다른 약속이 없을 때만 미루거나 다시 예약할 수 있습니다.
+- 야간 Morpheus 실행은 `harness_auto_approve`에 해당 종류가 있을 때(기본값)만, 항목과 제안 요약이 모두 비밀값·프롬프트 인젝션 검사를 통과하면 모든 세션이 읽는 전역 harness에 memory·skill_note 항목을 바로 추가합니다. 바로 고치거나 지울 수 있는 항목은 Morpheus가 직접 쓴 뒤 아무도 바꾸지 않은 것뿐입니다. 각 세션 프롬프트에서 사용자 승인 없이 쓰인 항목(야간 실행이나 세션 중 검토가 쓴 항목)은 다른 항목보다 뒤에 나열되고 `harness_prompt_budget`이 모자라면 가장 먼저 빠지므로, 사용자가 승인한 항목을 프롬프트에서 밀어낼 수 없습니다. 다른 항목의 변경, 요약이 검사를 통과하지 못한 제안, prompt·subagent 수정은 `harness_auto_approve`에 들어 있어도 항상 `birkin review` 승인을 기다립니다.
 - 소환한 에이전트의 도구 그룹은 Birkin이 이미 적용하는 정책(비활성화한 도구, 모델 preset, 강제 egress)을 좁히기만 하고 넓히지 않습니다. 소환된 에이전트는 다른 에이전트를 소환할 수 없고, 중요한 작업은 여전히 승인을 기다리며, 모든 실행은 토큰 예산에 포함됩니다. egress가 강제된 기본 설정에서는 사용자만 `/summon`이나 `birkin summon`으로 소환할 수 있고, 모델용 `spawn_subagent` 도구는 계속 제외됩니다.
+- 모니터 작업이 변경을 감지하면 가져온 페이지나 스크립트 출력은 실행마다 새로 만든 외부 콘텐츠 경계 안에서만 모델에 전달되며 작업 지시를 위한 참고 데이터로만 쓰입니다. 스킬은 가져온 내용이 아니라 작업 지시를 기준으로 고릅니다. 실행 자체는 기본 도구 목록과 승인 정책을 그대로 따릅니다.
+- Microsoft 365를 처음 연결할 때는 위임 읽기 권한만 기록합니다. 쓰기 권한을 포함한 연결 요청이나 연결이 없는 상태의 연결 해제·재인증 요청은 승인 요청을 만들기 전에 거부합니다. 쓰기 권한은 재인증으로 추가합니다. 연결이나 재인증 뒤 처음 메일·일정·회의를 읽을 때 로그인한 계정과 조직을 확인하고, 일치하지 않으면 읽지 않습니다.
+- gateway 모델 응답이 시간 제한에 걸리면 Birkin은 그 사실을 기록하고, 신뢰된 사용자가 있는 채널에서만 남은 작업을 이어서 할 `hard-task` 워크플로우 제안을 승인 목록에 올립니다. 승인하기 전에는(Telegram에서는 `/pending`) 아무것도 실행하지 않으며, `auto_approve`에 `moirai`가 있을 때만 바로 실행합니다. 그 밖의 채널에는 받은 부분 답변이나 오류만 보내고 워크플로우를 만들지 않습니다. 워크플로우 결과는 상태 줄(완료·일부 완료·실패와 실패 건수)과 보고서 본문으로 전달되며, 모든 단계가 실패한 hard task는 완료가 아니라 실패로 보고합니다.
 - 모델 제공자 응답, HTTP 접수, 로컬 영수증, 확인된 원격 상태는 서로 다른 증거입니다. 외부 결과를 관측할 수 없으면 `unknown`이나 `needs_review` 상태를 유지합니다.
 
 ## 확인된 범위와 현재 한계

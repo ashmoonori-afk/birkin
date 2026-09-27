@@ -161,6 +161,9 @@ def panel_item(event: WorkspaceEvent) -> dict[str, object]:
         "office_phase",
         "validation_summary",
         "visual_validation_summary",
+        "result_summary",
+        "result_code",
+        "resolved_status",
     ):
         value = event.payload.get(field)
         if isinstance(value, str) and value:
@@ -225,6 +228,9 @@ def _reconcile_answered_approval(
         "refusal_code",
         "validation_summary",
         "visual_validation_summary",
+        "result_summary",
+        "result_code",
+        "resolved_status",
     }
     for index, current in enumerate(items):
         if current.get("id") != approval_id:

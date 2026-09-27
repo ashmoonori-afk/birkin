@@ -23,6 +23,7 @@ from . import (
     approval_dispatch,
     approval_execution,
     approval_questions,
+    approval_text,
     risk,
     store,
     worker_hooks,
@@ -77,6 +78,10 @@ def propose(
     parsed_continuation = (
         worker_hooks.validate(continuation) if continuation is not None else None
     )
+    if category == "cron":
+        # Refuse a schedule the grammar cannot parse before anyone is asked
+        # to approve it; the model sees the error and can re-emit a valid one.
+        _ = approval_dispatch.cron_registration(payload or {})
     auto = (
         category != "operation"
         and continuation is None
@@ -269,26 +274,55 @@ def denial_reason_for(command: str) -> str:
     return newest
 
 
+# A terminal can show an approved command's whole receipt (the executor keeps
+# at most 2000 characters of it), within _print_outcome's 2400 limit.
+_REVIEW_OUTPUT_CHARS = 2000
+
+
+def _print_outcome(outcome: approval_text.ApprovalOutcomeText, raw_error: object) -> None:
+    from . import ui
+
+    rendered = outcome.render(marks=approval_text.TERMINAL_MARKS, limit=2400)
+    print("   " + rendered.replace("\n", "\n     "))
+    if outcome.tone == "failure" and raw_error and str(raw_error) != outcome.summary:
+        from .workspace.redaction import bounded_error_text
+
+        detail = bounded_error_text(str(raw_error))[:200].replace("\n", " ")
+        print(f"     {ui.DIM}세부: {detail} (코드: {outcome.code}){ui.RESET}")
+    print()
+
+
 def review_cli() -> int:
     pending = risk.sort_by_risk(reviewable_pending())
     if not pending:
-        print("No pending approvals.")
+        print(approval_text.EMPTY_QUEUE)
         return 0
     from . import ui
 
     on_event = ui.make_event_printer()
-    print(f"{len(pending)} pending action(s) (highest-risk first).\n")
+    print(f"{approval_text.queue_heading(len(pending))}\n")
     for rec in pending:
         tier = risk.risk_for(rec.get("category", ""))
-        print(f"── {risk.label(tier)} [{tier}/{rec['category']}] {rec['title']}")
-        print(f"   {rec['description']}")
-        print(f"   payload: {rec.get('payload')}")
+        payload = rec.get("payload") or {}
+        print(f"── {risk.label(tier)} {approval_text.headline(rec)}")
+        for line in approval_text.description_text(rec).split("\n"):
+            print(f"   {line}")
+        if isinstance(payload, dict):
+            summary = approval_text.payload_summary(
+                str(rec.get("category") or ""), payload, fallback=False,
+                where="terminal")
+            for line in summary.splitlines():
+                print(f"   {line}")
+        print(f"   {ui.DIM}{approval_text.payload_detail(payload, limit=None)}{ui.RESET}")
         if rec.get("continuation") is not None:
-            print(f"   then: {worker_hooks.describe(rec['continuation'])}")
+            print(f"   승인 후 이어서: {approval_text.continuation_summary(rec['continuation'])}")
+        if approval_text.needs_answers(rec):
+            print(f"   {approval_text.NEEDS_ANSWERS}\n")
+            continue
         try:
-            choice = input("   approve? [y]es / [n]o / [s]kip: ").strip().lower()
+            choice = input("   승인할까요? [y] 승인 / [n] 거부 / [s] 건너뛰기: ").strip().lower()
         except (EOFError, KeyboardInterrupt):
-            print("\nstopped.")
+            print("\n검토를 중단했습니다.")
             break
         if choice in ("y", "yes"):
             res = approve(
@@ -297,22 +331,25 @@ def review_cli() -> int:
                 approved_by="human:terminal",
                 approved_via="terminal:review",
             )
-            print(f"   ✓ {res.get('result', res)}\n")
+            outcome = approval_text.approve_outcome(
+                store.get_pending(rec["id"]), res, output_chars=_REVIEW_OUTPUT_CHARS)
+            _print_outcome(outcome, res.get("error"))
         elif choice in ("n", "no"):
             why = ""
             try:
-                why = input("   why? (optional, helps the agent) ").strip()
+                why = input("   거부 이유 (선택, 에이전트에게 전달됩니다): ").strip()
             except (EOFError, KeyboardInterrupt):
                 why = ""
-            reject(
+            res = reject(
                 rec["id"],
                 reason=why,
                 rejected_by="human:terminal",
                 rejected_via="terminal:review",
             )
-            print("   ✗ rejected\n")
+            outcome = approval_text.reject_outcome(res, store.get_pending(rec["id"]))
+            _print_outcome(outcome, res.get("error"))
         else:
-            print("   … skipped\n")
+            print("   … 건너뛰었습니다.\n")
     return 0
 
 

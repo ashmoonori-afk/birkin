@@ -32,7 +32,7 @@ public struct MessageStreamView: View {
                 if row.state == .streaming || row.state == .running {
                     ProgressView().controlSize(.small)
                         .accessibilityLabel(row.state == .streaming
-                            ? "답변 작성 중" : "도구 실행 중")
+                            ? "답변 작성 중" : "진행 중")
                 }
                 if let failure = row.failure {
                     Text(failure.message).font(.caption).foregroundStyle(.red)

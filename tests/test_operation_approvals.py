@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import re
 from pathlib import Path
 
 import pytest
 
-from birkin import approval_execution, approvals, config, store
+from birkin import approval_execution, approvals, config, operation_approval, store
 from birkin.tools import ToolContext, build_registry
 from birkin.tools import files
 from birkin.tools import shell as shell_mod
@@ -49,6 +51,41 @@ def test_fs_jail_block_queues_exact_manual_operation(tmp_path: Path) -> None:
     assert pending[0]["payload"]["operation"]["input"]["path"] == str(target)
     assert pending[0]["payload"]["operation"]["cwd"] == str(workspace.resolve())
     assert pending[0]["payload"]["digest"]
+
+
+def test_default_policy_shell_retry_is_described_in_korean(tmp_path: Path) -> None:
+    # Given: the default configuration, where the shell tool group is disabled.
+    cfg = config.load_config()
+    registry = build_registry(ToolContext(cfg=cfg, client=None, cwd=tmp_path))
+
+    # When: the model asks to run a shell command anyway.
+    registry.execute("run_shell", {"command": "echo x"})
+
+    # Then: the queued retry says what approving bypasses and what it runs,
+    # while the digest still binds the exact canonical operation.
+    record = store.list_pending()[0]
+    assert re.search(r"[\uac00-\ud7a3]", record["title"])
+    assert re.search(r"[\uac00-\ud7a3]", record["description"])
+    assert "echo x" in record["description"]
+    assert "egress" in record["description"]
+    payload = record["payload"]
+    assert payload["digest"] == hashlib.sha256(
+        operation_approval._canonical(payload["operation"])
+    ).hexdigest()
+
+
+def test_fs_jail_retry_description_names_the_target(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = tmp_path / "outside.txt"
+    registry = build_registry(
+        ToolContext(cfg={"fs_jail": True}, client=None, cwd=workspace),
+        include={"files"},
+    )
+
+    registry.execute("write_file", {"path": str(target), "content": "x"})
+
+    assert str(target) in store.list_pending()[0]["description"]
 
 
 def test_permission_error_queues_operation_without_retrying(

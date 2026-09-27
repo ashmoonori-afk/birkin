@@ -8,7 +8,7 @@ from birkin import cli
 from birkin.gateway import core
 from birkin.gateway import turn_router
 from birkin.gateway.telegram_lease import format_gateway_diagnostics
-from birkin.gateway.turn_support import PRIVILEGED_COMMANDS
+from birkin.gateway.turn_support import OMO_RESTRICTED_REPLY, PRIVILEGED_COMMANDS
 from birkin.omo import OmoController, parse_omo_command
 from birkin.omo_rpc import command_for_session
 from tests.omo_gateway_support import (
@@ -59,13 +59,8 @@ def test_gateway_registers_authorizes_and_closes_omo(monkeypatch) -> None:
     assert gateway.handle("telegram", "42", "/omo help").startswith(
         "OMO session control"
     )
-    assert (
-        gateway.handle("telegram", "99", "/omo help")
-        == "OMO control is restricted to configured Telegram chat IDs."
-    )
-    assert gateway.handle("http", "42", "/omo help") == (
-        "OMO control is restricted to configured Telegram chat IDs."
-    )
+    assert gateway.handle("telegram", "99", "/omo help") == OMO_RESTRICTED_REPLY
+    assert gateway.handle("http", "42", "/omo help") == OMO_RESTRICTED_REPLY
     gateway.shutdown()
     assert rpc.closed
 
@@ -128,11 +123,9 @@ def test_omo_gateway_routes_only_authorized_explicit_commands(monkeypatch) -> No
         assert gateway.handle("telegram", "42", "/omo help").startswith(
             "OMO session control"
         )
-        assert gateway.handle("telegram", "99", "/omo help") == (
-            "OMO control is restricted to configured Telegram chat IDs."
-        )
-        assert gateway.handle("local_http", "42", "/omo help") == (
-            "OMO control is restricted to configured Telegram chat IDs."
+        assert gateway.handle("telegram", "99", "/omo help") == OMO_RESTRICTED_REPLY
+        assert (
+            gateway.handle("local_http", "42", "/omo help") == OMO_RESTRICTED_REPLY
         )
         assert (
             gateway.handle("telegram", "42", "ordinary message")

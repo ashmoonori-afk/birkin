@@ -28,7 +28,8 @@ def test_summon_lists_and_describes_the_roster(tmp_path, monkeypatch):
 def test_summon_is_privileged(tmp_path, monkeypatch):
     gw = _gateway(tmp_path, monkeypatch, tg_allowed=())
     out = gw.handle("telegram", "99", "/summon researcher 조사해줘")
-    assert "restricted" in out.lower()
+    from birkin.gateway.turn_admission import PRIVILEGED_COMMAND_REPLY
+    assert out == PRIVILEGED_COMMAND_REPLY
 
 
 def test_summon_runs_off_the_lock_and_reports_back_to_this_chat(
@@ -92,3 +93,24 @@ def test_long_summon_results_say_they_were_shortened(tmp_path, monkeypatch):
     assert done.wait(5)
     assert len(delivered["text"]) < 3500
     assert "앞부분만 보냈어요" in delivered["text"]
+
+
+def test_a_summon_without_text_reports_it_in_korean(tmp_path, monkeypatch):
+    from birkin import scheduler, summon
+
+    gw = _gateway(tmp_path, monkeypatch)
+    delivered = {}
+    done = threading.Event()
+    # run_subagent's stand-in when the agent returned no text.
+    monkeypatch.setattr(summon, "summon",
+                        lambda *a, **k: "(subagent returned no text)")
+
+    def fake_deliver(name, chat_id, text, *, channel="telegram"):
+        delivered["text"] = text
+        done.set()
+        return "sent"
+
+    monkeypatch.setattr(scheduler, "deliver", fake_deliver)
+    gw.handle("telegram", "42", "/summon researcher 조사")
+    assert done.wait(5)
+    assert delivered["text"] == "결과 텍스트가 없습니다."

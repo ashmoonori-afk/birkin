@@ -23,11 +23,75 @@ def test_register_get_heartbeat_and_finish_run():
     assert updated is not None
     assert updated["last_heartbeat"] >= old_heartbeat
 
-    result = "prefix-" + "z" * (agentruns.RESULT_TAIL_CHARS + 20)
+    result = "prefix-" + "z" * (agentruns.RESULT_MAX_CHARS + 20) + "END"
     done = agentruns.finish_run(rec["id"], "done", result)
     assert done is not None
     assert done["status"] == "done"
-    assert done["result"] == result[-agentruns.RESULT_TAIL_CHARS:]
+    # The head (where a summoned agent puts its conclusion) and the tail both
+    # survive the bound.
+    stored = done["result"]
+    assert stored.startswith("prefix-") and stored.endswith("END")
+    assert agentruns.RESULT_CUT_MARKER in stored
+    assert len(stored) <= (agentruns.RESULT_MAX_CHARS
+                           + len(agentruns.RESULT_CUT_MARKER))
+
+    short = agentruns.register_run("short")
+    assert agentruns.finish_run(short["id"], "done", "짧은 결과")["result"] == (
+        "짧은 결과")
+
+
+def test_elapsed_seconds_counts_running_runs_and_measures_finished_ones():
+    start = datetime.now(timezone.utc) - timedelta(seconds=90)
+    running = {"status": "running", "started_at": start.isoformat()}
+    assert 89 <= agentruns.elapsed_seconds(running) <= 91
+
+    finished = {"status": "done", "started_at": start.isoformat(),
+                "last_heartbeat": (start + timedelta(seconds=30)).isoformat()}
+    assert 29 <= agentruns.elapsed_seconds(finished) <= 31
+
+
+def test_running_count_ignores_finished_and_stale_records():
+    import os
+    import time
+
+    live = agentruns.register_run("live")
+    done = agentruns.register_run("done")
+    agentruns.finish_run(done["id"], "done", "x")
+    stale = agentruns.register_run("stale")
+    agentruns._update(stale["id"], {
+        "last_heartbeat": (datetime.now(timezone.utc)
+                           - timedelta(seconds=600)).isoformat()})
+    old = time.time() - 600
+    os.utime(config.agent_runs_dir() / f"{stale['id']}.json", (old, old))
+
+    assert agentruns.running_count() == 1
+    agentruns.finish_run(live["id"], "done", "x")
+    assert agentruns.running_count() == 0
+
+
+def test_detached_registry_is_bounded_and_forgets(monkeypatch):
+    from collections import OrderedDict
+
+    monkeypatch.setattr(agentruns, "_detached", OrderedDict())
+    for index in range(agentruns.DETACHED_MAX + 3):
+        agentruns.note_detached(f"{index:012x}")
+    noted = agentruns.detached_here()
+    assert len(noted) == agentruns.DETACHED_MAX
+    assert noted[0] == f"{3:012x}"
+    agentruns.forget_detached(noted[0])
+    assert noted[0] not in agentruns.detached_here()
+
+
+def test_agent_title_is_collapsed_bounded_and_kept_only_with_an_agent():
+    titled = agentruns.register_run("t", agent="x", title="  계약\n검토자 ")
+    assert titled["agent_title"] == "계약 검토자"
+    assert agentruns.get_run(titled["id"])["agent_title"] == "계약 검토자"
+
+    assert "agent_title" not in agentruns.register_run("t", title="계약 검토자")
+    assert "agent_title" not in agentruns.register_run("t", agent="x", title="  ")
+
+    long = agentruns.register_run("t", agent="x", title="가" * 100)
+    assert long["agent_title"] == "가" * agentruns.AGENT_TITLE_MAX_CHARS == "가" * 60
 
 
 def test_progress_trail_is_bounded_and_follow_streams_new_lines():

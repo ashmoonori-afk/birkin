@@ -44,6 +44,7 @@ def _banner(session: Session) -> None:
         pass
     print(f" {DIM}{n} skill(s) · vault {session.memory.vault}{RESET}")
     print(f" {YELLOW}/help{RESET} 명령 · {YELLOW}/work{RESET} 워크벤치 · "
+          f"{YELLOW}/summon{RESET} 전문가 · "
           f"{YELLOW}/status{RESET} 상태 · {YELLOW}?{RESET} 도움말 · "
           f"{YELLOW}Esc{RESET} 중단 · Ctrl-C 종료")
 
@@ -206,10 +207,11 @@ def run_legacy(
             stop_spin()
             if listener_cell["v"] is not None:
                 listener_cell["v"].stop()
-            print(f"\n{YELLOW}⚠ {why}{RESET}\n  {command[:300]}")
+            print(f"\n{YELLOW}⚠ 위험할 수 있는 명령입니다 (감지 규칙: {why}){RESET}"
+                  f"\n  {command[:300]}")
             try:
-                answer = input("  run [o]nce / this [s]ession / "
-                               "[a]lways / [d]eny? ").strip().lower()
+                answer = input("  [o] 한 번 실행 / [s] 이 세션 동안 허용 / "
+                               "[a] 항상 허용 / [d] 거부: ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 answer = "deny"
             listener_cell["v"] = abortkey.listen_for_interrupt(

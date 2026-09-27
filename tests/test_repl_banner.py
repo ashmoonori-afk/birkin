@@ -32,6 +32,7 @@ def test_banner_shows_the_live_status_line(monkeypatch):
 def test_banner_advertises_the_new_surfaces(monkeypatch):
     out = _banner_output(monkeypatch)
     assert "/work" in out and "/status" in out
+    assert "/summon" in out
 
 
 def test_banner_does_not_show_edit_key_hint(monkeypatch):

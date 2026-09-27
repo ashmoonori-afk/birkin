@@ -120,6 +120,46 @@ def test_pending_workflows_are_visible_only_to_origin_chat(monkeypatch) -> None:
     assert "other" not in rendered
 
 
+def test_pending_cards_are_korean_and_questions_get_no_buttons(monkeypatch) -> None:
+    from birkin import approval_text
+
+    # Given
+    class _Gateway:
+        @staticmethod
+        def pending_actions():
+            return [
+                {"id": "a" * 12, "category": "question", "title": "Q",
+                 "description": "which one?", "payload": {}},
+                {"id": "b" * 12, "category": "operation", "title": "retry",
+                 "description": "blocked", "payload": {
+                     "operation": {"version": 1, "tool": "run_shell",
+                                   "input": {"command": "ls"}, "cwd": "/w",
+                                   "gate": "tool_policy"},
+                     "digest": "c" * 64}},
+            ]
+
+    channel = TelegramChannel("token", allowed_chat_ids=["42"])
+    chunks: list[str] = []
+    messages: list[dict[str, Any]] = []
+    monkeypatch.setattr(channel, "_send_chunk", lambda _chat, text: chunks.append(text))
+    monkeypatch.setattr(
+        channel, "_call",
+        lambda _method, params, timeout=60: messages.append(params) or {"ok": True},
+    )
+
+    # When
+    channel._send_pending_buttons(_Gateway(), "42")
+
+    # Then
+    assert chunks == [f"📋 {approval_text.queue_heading(2)}:"]
+    question, operation = messages
+    assert "reply_markup" not in question
+    assert approval_text.NEEDS_ANSWERS in question["text"]
+    assert "reply_markup" in operation
+    assert "[operation]" not in operation["text"]
+    assert approval_text.category_label("operation") in operation["text"]
+
+
 def test_malformed_proposal_falls_back_to_normal_reply(monkeypatch) -> None:
     # Given
     raw = f"{workflow.PROPOSAL_OPEN}not-json{workflow.PROPOSAL_CLOSE}"

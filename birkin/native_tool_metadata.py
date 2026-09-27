@@ -77,6 +77,7 @@ NATIVE_TOOL_METADATA = MappingProxyType(
         "m365_mail_send_request": False,
         "m365_mail_send_recheck": False,
         "m365_meeting_prepare": True,
+        "local_document_import": False,
         "m365_document_import": False,
         "m365_review_comment": False,
         "m365_review_draft": False,

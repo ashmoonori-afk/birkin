@@ -6,7 +6,13 @@ import threading
 from typing import Protocol
 
 from .. import pools, updater
-from .turn_support import TURN_ERROR_REPLY, TurnContract, gateway_help_text
+from .turn_support import (
+    NEW_CONVERSATION_REPLY,
+    OMO_RESTRICTED_REPLY,
+    TURN_ERROR_REPLY,
+    TurnContract,
+    gateway_help_text,
+)
 from .turn_types import (
     AskSession,
     CommandOutcome,
@@ -16,6 +22,12 @@ from .turn_types import (
     ModelLease,
     TurnLease,
     TurnRequest,
+)
+
+
+HARD_RESTART_REPLY = (
+    "♻️ 게이트웨이를 다시 실행해 코드와 설정 변경을 적용합니다. "
+    "잠시 후 다시 연결돼요…"
 )
 
 
@@ -62,7 +74,7 @@ class CommandContract(TurnContract, Protocol):
     @staticmethod
     def handle_omo(gateway: GatewayTurn, channel: str, chat_id: str, text: str) -> str:
         if not gateway._omo_command_trusted(channel, chat_id):
-            return "OMO control is restricted to configured Telegram chat IDs."
+            return OMO_RESTRICTED_REPLY
         return gateway._omo_controller.handle(text)
 
     @staticmethod
@@ -106,7 +118,7 @@ class CommandContract(TurnContract, Protocol):
         gateway._chats[key] = []
         _ = gateway._last_substantive_requests.pop(key, None)
         gateway._history_seeded.add(key)
-        return "Started a new conversation."
+        return NEW_CONVERSATION_REPLY
 
 
 def dispatch_command_or_acquire(
@@ -131,10 +143,7 @@ def dispatch_command_or_acquire(
                 f"[gateway] HARD restart requested via {channel}:{chat_id}",
                 flush=True,
             )
-            return CommandReply(
-                "♻️ Hard restart — re-executing `birkin gateway` to pick up "
-                + "code + config changes. Reconnecting in a moment…"
-            )
+            return CommandReply(HARD_RESTART_REPLY)
         if command == "update":
             return CommandReply(_update_command(gateway, request))
         if command == "pending":

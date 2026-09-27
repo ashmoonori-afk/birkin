@@ -439,6 +439,15 @@ def resolve_approval(aid: str, *, approve: bool) -> dict[str, Any]:
         return {"ok": False, "error": str(exc)[:200]}
 
 
+def approval_note(aid: str, out: dict[str, Any], *, approve: bool) -> str:
+    """One Korean status line; the check mark only for a real success."""
+    from . import approval_text, store
+    outcome = approval_text.decision_outcome(
+        store.get_pending(aid), out, approve=approve)
+    return outcome.render(marks=approval_text.TERMINAL_MARKS,
+                          limit=120).replace("\n", " · ")
+
+
 # -- main loop --------------------------------------------------------------
 
 def _size() -> tuple[int, int]:
@@ -578,8 +587,6 @@ def _loop(session: Any, snap: dict[str, Any], w, keys,
             state.pop("confirmation", None)
             state["note"] = "요청 전송 중"
             out = resolve_approval(item["id"], approve=(key == "a"))
-            state["note"] = (f"✓ {str(out.get('result') or '처리됨')[:100]}"
-                             if out.get("ok")
-                             else f"⚠ {out.get('error') or '실패'}")
+            state["note"] = approval_note(item["id"], out, approve=(key == "a"))
             snap = snapshot(session)
             last = now

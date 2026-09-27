@@ -57,6 +57,22 @@ def test_warm_on_routes_to_warm_session_and_reuses_it(tmp_path, monkeypatch):
     assert fake.closed is True and s._warm is None
 
 
+def test_warm_turn_routes_skills_from_route_query(tmp_path, monkeypatch):
+    s = _session(tmp_path, monkeypatch, repl_warm_session=True)
+    fake = _FakeWarm()
+    monkeypatch.setattr(s, "_build_warm", lambda: fake)
+    routed: list[str] = []
+    monkeypatch.setattr(
+        s, "_route_cli_skills",
+        lambda text, _loaded=None: routed.append(text) or [])
+
+    s.ask("report changes\n\nfetched page text", route_query="report changes",
+          record_turn=False)
+
+    assert routed == ["report changes"]
+    assert fake.asks[-1].endswith("report changes\n\nfetched page text")
+
+
 def test_codex_warm_forwards_progress_callback(tmp_path, monkeypatch):
     s = _session(tmp_path, monkeypatch, provider="codex-cli",
                  repl_warm_session=True, self_improve=False)

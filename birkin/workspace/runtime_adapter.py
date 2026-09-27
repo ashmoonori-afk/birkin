@@ -12,7 +12,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import cast, final
 
-from .. import approvals, config, risk, store, transcripts, uistate, workbench
+from .. import (
+    approval_text,
+    approvals,
+    config,
+    risk,
+    store,
+    transcripts,
+    uistate,
+    workbench,
+)
 from ..browser_aside_control import BrowserControlAuthority
 from ..browser_aside_service import BrowserAsideService
 from ..computer_use.events import ComputerEvent
@@ -28,7 +37,11 @@ from ..office.service import DocumentService
 from ..runtime import Session, build_session
 
 from . import approval_authority
-from .decision_text import llm_status_summary, provider_failure
+from .decision_text import (
+    agent_run_summary,
+    llm_status_summary,
+    provider_failure,
+)
 from .approval_receipts import (
     OfficeReceiptProjection,
     approval_turn_context,
@@ -77,6 +90,7 @@ def _external_item(
     summary = (
         item.get("summary")
         or item.get("title")
+        or item.get("task")
         or item.get("name")
         or item.get("path")
         or identifier
@@ -87,8 +101,10 @@ def _external_item(
         "running": "running",
         "pending": "pending",
         "failed": "failed",
+        "error": "failed",
         "complete": "succeeded",
         "completed": "succeeded",
+        "done": "succeeded",
         "succeeded": "succeeded",
     }.get(status.lower(), status)
     kinds = {
@@ -104,6 +120,22 @@ def _external_item(
         "ui_state": state,
         "kind": kinds.get(panel_key, panel_key),
     }
+
+
+def _answer_presentation(
+    result: Mapping[str, object],
+    current: Mapping[str, object] | None,
+    receipt: str,
+) -> approval_text.ApprovalOutcomeText:
+    """Korean copy and a stable code for one workspace approval answer."""
+    outcome = result.get("outcome")
+    if outcome == "approved":
+        return approval_text.approve_outcome(current, {"ok": True, "result": receipt})
+    if outcome == "rejected":
+        return approval_text.reject_outcome({"ok": True}, current)
+    if outcome == "answered_elsewhere":
+        return approval_text.resolved_elsewhere(current)
+    return approval_text.error_outcome(result, record=current)
 
 
 @final
@@ -289,6 +321,9 @@ class RuntimeWorkspaceAdapter:
         if event == "computer_use":
             self._computer_event(payload)
             return
+        if event.startswith("subagent."):
+            self._subagent_progress(event, payload)
+            return
         if event == "office_progress":
             _ = self._emit(
                 "progress.updated",
@@ -311,8 +346,6 @@ class RuntimeWorkspaceAdapter:
         event_type = {
             "tool_start": "tool.started",
             "tool_end": "tool.completed",
-            "subagent.start": "task.updated",
-            "subagent.done": "task.updated",
             "compact": "progress.updated",
             "steer": "progress.updated",
         }.get(event, "progress.updated")
@@ -325,8 +358,6 @@ class RuntimeWorkspaceAdapter:
                 if is_error
                 else "도구 실행을 완료했습니다."
             ),
-            "subagent.start": "백그라운드 작업을 시작했습니다.",
-            "subagent.done": "백그라운드 작업을 완료했습니다.",
             "compact": "대화 컨텍스트를 정리했습니다.",
             "steer": "실행 방향을 업데이트했습니다.",
         }.get(event, "진행 상태가 업데이트되었습니다.")
@@ -380,6 +411,49 @@ class RuntimeWorkspaceAdapter:
                     if isinstance(value, str) and value in allowed:
                         safe["runtime_diagnostic"][key] = value
         _ = self._emit(event_type, safe)
+
+    def _subagent_progress(
+        self,
+        event: str,
+        payload: dict[str, object],
+    ) -> None:
+        # A child's own tool calls stay on its durable run trail (/attach);
+        # the workspace shows only when the summoned agent starts and ends.
+        if event not in {"subagent.start", "subagent.done"}:
+            return
+        raw_id = payload.get("id")
+        run_id = raw_id if isinstance(raw_id, str) and raw_id else ""
+        # moirai's error text may be empty (TimeoutError()); the key marks it.
+        failed = event == "subagent.done" and (
+            bool(payload.get("is_error")) or "error" in payload
+        )
+        state = uistate.from_runtime(event, is_error=failed).state
+        safe: dict[str, object] = {
+            "progress_id": (
+                f"agent-run:{run_id}"
+                if run_id
+                else f"runtime:{event}:operation"
+            ),
+            "runtime_event": event,
+            "summary": agent_run_summary(
+                event,
+                linked=bool(run_id),
+                title=payload.get("agent_title"),
+                failed=failed,
+            ),
+            "state": state,
+            "status": state,
+            "ui_state": (
+                "failed"
+                if failed
+                else "succeeded"
+                if event == "subagent.done"
+                else "running"
+            ),
+        }
+        if run_id:
+            safe["agent_run_id"] = run_id
+        _ = self._emit("progress.updated", safe)
 
     def _refresh_review_panels(self) -> None:
         from ..work_items import projected_rows
@@ -1196,6 +1270,23 @@ class RuntimeWorkspaceAdapter:
             question = result.get("question")
             if isinstance(question, str):
                 event_payload["question"] = question
+        current: dict[str, object] | None = store.get_pending(approval_id)
+        receipt_text = receipt if isinstance(receipt, str) else ""
+        presented = _answer_presentation(result, current, receipt_text)
+        event_payload["result_summary"] = presented.summary
+        event_payload["result_code"] = presented.code
+        from .approval_projection import decided_ui_state
+
+        card_state = decided_ui_state(presented)
+        if card_state:
+            # The card state must agree with the summary: an approved command
+            # that exited non-zero is not a success. It is the same rule as
+            # the snapshot projection of this record.
+            event_payload["ui_state"] = card_state
+        if result["outcome"] == "answered_elsewhere" and current is not None:
+            # The record was resolved on another surface; show what actually
+            # happened to it instead of a generic failure.
+            event_payload["resolved_status"] = str(current.get("status") or "")
         _ = self._emit("approval.answered", event_payload)
         if receipt_projection is not None:
             _ = self._emit(
@@ -1222,6 +1313,9 @@ class RuntimeWorkspaceAdapter:
             str(result["outcome"]),
             receipt_projection,
             str(error) if isinstance(error, str) else None,
+            resolved=current,
+            result_text=receipt_text,
+            presented=presented,
         )
         return {str(key): value for key, value in result.items()}
 

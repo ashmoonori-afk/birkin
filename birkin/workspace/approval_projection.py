@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 from typing import TypeGuard, cast
 
-from birkin import approvals, config, risk, store
+from birkin import agentruns, approval_text, approvals, config, risk, store
 
 from .contracts import json_object
 from .approval_receipts import OfficeReceiptProjection
+from .decision_text import agent_run_label
 
 
 def _is_object_mapping(value: object) -> TypeGuard[dict[str, object]]:
@@ -60,6 +61,21 @@ def approval_policy() -> dict[str, object]:
     }
 
 
+# A decided card whose remaining attention another card carries: the
+# overwrite follow-up approval, or the question a waiting workflow raised
+# (moirai.continuation publishes it). The action receipt is written once, so
+# these outcomes would otherwise ask for the user after that card is done.
+_HANDED_OFF_UI_STATES = {
+    "follow_up_required": "failed",
+    "workflow_waiting": "paused",
+}
+
+
+def decided_ui_state(outcome: approval_text.ApprovalOutcomeText) -> str:
+    """The card state of a decided approval, on every surface that shows it."""
+    return _HANDED_OFF_UI_STATES.get(outcome.code, outcome.ui_state)
+
+
 def approval_item(record: dict[str, object]) -> dict[str, object]:
     status = str(record.get("status") or "pending")
     category = str(record.get("category") or "")
@@ -95,11 +111,22 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
             and all(char in "0123456789abcdef" for char in payload["content_sha256"])
         )
     )
+    description = str(record.get("description") or "")
+    if category == "cron" and _is_object_mapping(payload):
+        from birkin.cron_review import cron_review_lines
+
+        # The model writes title and description; the reviewer must also see
+        # the schedule, action type and command that will actually register.
+        description = "\n".join(
+            [*cron_review_lines(payload), *([description] if description else [])]
+        )
     item: dict[str, object] = {
         "id": str(record.get("id") or ""),
-        "summary": str(record.get("title") or category or "Approval"),
-        "description": str(record.get("description") or ""),
+        "summary": str(record.get("title") or approval_text.category_label(category)),
+        "description": description,
         "category": category,
+        "category_label": approval_text.category_label(category),
+        "needs_answers": approval_text.needs_answers(record),
         "status": status,
         "risk": risk.risk_for(category),
         "sealed": sealed,
@@ -108,6 +135,19 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
         "ui_state": "action_needed" if status == "pending" else _ui_state(status),
         "created": str(record.get("created") or ""),
     }
+    target = approval_text.request_target(record)
+    if target:
+        item["target"] = target
+    if status != "pending":
+        # What actually happened, in the same words every surface uses; the
+        # raw execution error stays out of the summary, and the card state
+        # agrees with it.
+        outcome = approval_text.record_outcome(record)
+        item["result_summary"] = outcome.summary
+        item["result_code"] = outcome.code
+        card_state = decided_ui_state(outcome)
+        if card_state:
+            item["ui_state"] = card_state
     resolved_at = record.get("resolved_at")
     if isinstance(resolved_at, str) and resolved_at:
         item["resolved_at"] = resolved_at
@@ -130,6 +170,9 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
         overwrite_approved = payload.get("overwrite_approved")
         if isinstance(overwrite_approved, bool):
             item["overwrite_approved"] = overwrite_approved
+    agent_requester = _agent_requester(record)
+    if agent_requester is not None:
+        item["requester"] = agent_requester
     expires_at = record.get("expires_at")
     if isinstance(expires_at, str) and expires_at:
         item["expires_at"] = expires_at
@@ -171,6 +214,21 @@ def approval_item(record: dict[str, object]) -> dict[str, object]:
                 }
             )
     return item
+
+
+def _agent_requester(record: dict[str, object]) -> str | None:
+    """Name the summoned agent whose run raised this approval, if any.
+
+    Presentation only: the proposer stays in the sealed payload and digest.
+    """
+    run_id = record.get("agent_run_id")
+    if not isinstance(run_id, str) or not run_id:
+        return None
+    run: dict[str, object] | None = agentruns.get_run(run_id)
+    title: object = None
+    if run is not None:
+        title = run.get("agent_title") or run.get("agent")
+    return agent_run_label(title)
 
 
 def _ui_state(status: str) -> str:

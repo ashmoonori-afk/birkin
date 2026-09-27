@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import threading
 import time
 import uuid
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
@@ -14,7 +16,12 @@ from . import config
 from .store import _read_json, _write_json, file_lock
 
 TASK_MAX_CHARS = 500
-RESULT_TAIL_CHARS = 4000
+AGENT_TITLE_MAX_CHARS = 60
+# A long result keeps its head (summoned agents lead with the conclusion) and
+# its tail, joined by a language-neutral marker.
+RESULT_MAX_CHARS = 4000
+RESULT_HEAD_CHARS = 3000
+RESULT_CUT_MARKER = "\n…\n"
 STALE_AFTER_SECONDS = 180
 # A bounded progress trail is what makes /attach an attach rather than a record
 # dump: sequence numbers (not list positions) survive the trail rotating.
@@ -24,6 +31,13 @@ FOLLOW_INTERVAL_SECONDS = 0.5
 _STATUSES = {"running", "done", "error", "stale"}
 _active_run_id: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "birkin_active_agent_run", default=None)
+# Detached runs started in this process, oldest first, so the REPL can
+# announce each one when it finishes (whoever started it: /summon --bg or the
+# model's spawn_subagent). In-process only and bounded: a gateway or web
+# process notes ids it never drains.
+DETACHED_MAX = 64
+_detached: OrderedDict[str, None] = OrderedDict()
+_detached_lock = threading.Lock()
 
 
 def _now() -> str:
@@ -59,10 +73,12 @@ def _is_record(value: Any) -> bool:
 
 
 def register_run(task: str, parent_id: str | None = None,
-                 agent: str | None = None) -> dict[str, Any]:
+                 agent: str | None = None,
+                 title: str | None = None) -> dict[str, Any]:
     """Create and persist a running record, returning a copy of it.
 
-    ``agent`` names the summoned specialist (``birkin.summon``), if any.
+    ``agent`` names the summoned specialist (``birkin.summon``), if any, and
+    ``title`` is its display title, kept only alongside ``agent``.
     """
     run_id = uuid.uuid4().hex[:12]
     now = _now()
@@ -77,6 +93,9 @@ def register_run(task: str, parent_id: str | None = None,
     }
     if agent:
         rec["agent"] = str(agent)[:32]
+        label = " ".join(str(title or "").split())[:AGENT_TITLE_MAX_CHARS]
+        if label:
+            rec["agent_title"] = label
     _write_json(_record_path(run_id), rec)
     return dict(rec)
 
@@ -175,15 +194,77 @@ def follow(run_id: str, on_line: Callable[[str], None], *,
         wait(interval)
 
 
+def _bounded_result(text: str) -> str:
+    """``text`` unchanged when it fits, else its head and tail around a marker."""
+    if len(text) <= RESULT_MAX_CHARS:
+        return text
+    tail = RESULT_MAX_CHARS - RESULT_HEAD_CHARS
+    return text[:RESULT_HEAD_CHARS] + RESULT_CUT_MARKER + text[-tail:]
+
+
 def finish_run(run_id: str, status: str, result: str = "") -> dict[str, Any] | None:
-    """Finalize a run as done/error/stale and retain only the result tail."""
+    """Finalize a run as done/error/stale and retain a bounded result."""
     if status not in _STATUSES - {"running"}:
         raise ValueError(f"invalid agent run status: {status!r}")
     return _update(run_id, {
         "status": status,
         "last_heartbeat": _now(),
-        "result": str(result or "")[-RESULT_TAIL_CHARS:],
+        "result": _bounded_result(str(result or "")),
     })
+
+
+def elapsed_seconds(rec: dict[str, Any]) -> int:
+    """How long a run has been going, or how long it took once it stopped.
+
+    A stopped run's duration ends at its last heartbeat: finish_run stamps it,
+    and a stale run went quiet there.
+    """
+    started = _age_seconds(rec.get("started_at"))
+    if rec.get("status") == "running":
+        return started
+    return max(0, started - _age_seconds(rec.get("last_heartbeat")))
+
+
+def running_count() -> int:
+    """Count runs that are running with a fresh heartbeat.
+
+    Cheap enough for a status line read on every turn: a live run's record is
+    rewritten by its heartbeat, so only files written within the stale window
+    are opened, however many finished records have piled up.
+    """
+    cutoff = time.time() - STALE_AFTER_SECONDS
+    count = 0
+    for path in config.agent_runs_dir().glob("*.json"):
+        try:
+            if path.stat().st_mtime < cutoff:
+                continue
+        except OSError:
+            continue
+        rec = _read_json(path, None)
+        if (_is_record(rec) and rec["status"] == "running"
+                and _age_seconds(rec["last_heartbeat"]) <= STALE_AFTER_SECONDS):
+            count += 1
+    return count
+
+
+def note_detached(run_id: str) -> None:
+    """Remember a detached run started in this process until it is announced."""
+    with _detached_lock:
+        _detached[run_id] = None
+        _detached.move_to_end(run_id)
+        while len(_detached) > DETACHED_MAX:
+            _detached.popitem(last=False)
+
+
+def detached_here() -> list[str]:
+    """Detached run ids noted in this process and not yet forgotten."""
+    with _detached_lock:
+        return list(_detached)
+
+
+def forget_detached(run_id: str) -> None:
+    with _detached_lock:
+        _detached.pop(run_id, None)
 
 
 def list_runs() -> list[dict[str, Any]]:

@@ -3,8 +3,12 @@ multiple tool_use blocks in a single assistant turn."""
 
 from __future__ import annotations
 
+import re
+
 from birkin.agent import Agent
 from birkin.tools import ToolResult
+
+_HANGUL = re.compile(r"[\uac00-\ud7a3]")
 
 
 class _Reg:
@@ -53,8 +57,27 @@ def test_max_turns_guard_reports_and_stops():
     agent = Agent(client=_AlwaysTool(), system="s", registry=_Reg(),
                   max_turns=3, self_improve=False)
     out = agent.run("loop please")
-    assert "Reached the maximum number of tool turns" in out
+    assert agent.last_stop == "max_turns"
     assert "3" in out  # the limit is reported
+    assert _HANGUL.search(out.rsplit("[birkin]", 1)[-1])
+
+
+def test_max_tokens_stop_is_typed_and_explained():
+    class _CutOff:
+        provider = "anthropic"
+        model = "m"
+
+        def complete(self, *, system, messages, tools, model=None, on_text=None,
+                     abort=None):
+            return {"role": "assistant", "stop_reason": "max_tokens",
+                    "content": [{"type": "text", "text": "partial answer"}]}
+
+    agent = Agent(client=_CutOff(), system="s", registry=_Reg(),
+                  max_turns=3, self_improve=False)
+    out = agent.run("write a lot")
+    assert agent.last_stop == "max_tokens"
+    assert out.startswith("partial answer")
+    assert _HANGUL.search(out.rsplit("[birkin]", 1)[-1])
 
 
 def test_tool_error_is_propagated_into_messages():

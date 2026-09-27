@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import re
+
+import pytest
 
 from birkin import mcp_server
 
@@ -282,6 +285,26 @@ def test_mcp_create_respects_manual_skill_approval(tmp_path, monkeypatch):
     assert not (config.user_skills_dir() / "queued-mcp" / "SKILL.md").exists()
     assert len(store.list_pending()) == 1
     assert store.list_pending()[0]["origin"] == "mcp"
+
+
+@pytest.mark.parametrize(
+    ("tool", "args"),
+    [
+        ("create_skill", {"name": "titled-skill", "description": "d", "body": "b"}),
+        ("improve_skill", {"target": "web-research", "addition": "new note"}),
+    ],
+)
+def test_queued_skill_proposals_have_korean_titles(tmp_path, monkeypatch, tool, args):
+    monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
+    from birkin import config, store
+    config.save_config({**config.DEFAULT_CONFIG, "auto_approve": []})
+    tools = mcp_server._build_tools()
+
+    text, err = tools[tool]["handler"](args)
+
+    assert err is False, text
+    [record] = store.list_pending()
+    assert re.search(r"[\uac00-\ud7a3]", record["title"])
 
 
 def test_mcp_load_sees_skill_after_external_manual_approval(

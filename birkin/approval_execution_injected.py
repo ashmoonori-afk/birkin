@@ -9,6 +9,7 @@ from .approval_execution_codec import JSONValue, parse_mapping
 from .approval_execution_journal import ExecutionJournal, JournalCorruptionError
 from .approval_execution_state import JournalPhase
 from .approval_execution_types import ActionExecutor, EventSink
+from .approval_mail_outcome import receipt_state, unconfirmed_response
 from .office.errors import DocumentError, DocumentErrorCode
 
 
@@ -18,7 +19,7 @@ def execute(
     on_event: EventSink | None,
 ) -> dict[str, JSONValue]:
     """Invoke an injected executor under the production journal contract."""
-    from .approval_execution_helper import project_terminal
+    from .approval_execution_helper import project_terminal, record_result
 
     path = config.pending_dir() / f"{approval_id}.json"
     journal = ExecutionJournal(approval_id)
@@ -110,10 +111,13 @@ def execute(
         return _persist_failure(approval_id, journal, exc)
     try:
         with store.file_lock(path):
-            journal.succeeded(result)
-            project_terminal(approval_id, record, journal.load())
+            record_result(journal, category, result)
+            snapshot = journal.load()
+            project_terminal(approval_id, record, snapshot)
     except (OSError, store.FileLockTimeout, JournalCorruptionError) as exc:
         return _persist_failure(approval_id, journal, exc)
+    if snapshot.phase is JournalPhase.ACTION_OUTCOME_UNKNOWN:
+        return unconfirmed_response(receipt_state(snapshot.result))
     return {
         "ok": True,
         "result": result if category.startswith("office_") else result[:2000],
@@ -138,6 +142,13 @@ def _persist_failure(
                     "recoverable": True,
                     "result": journal.load().result or "",
                 }
+            if (
+                phase is JournalPhase.ACTION_OUTCOME_UNKNOWN
+                and journal.load().category == "mail_send"
+            ):
+                # The send ran but was not confirmed; never report it as a
+                # failure. Recovery projects the journal on the next pass.
+                return unconfirmed_response(receipt_state(journal.load().result))
             if phase is JournalPhase.ATTEMPT_COMMITTED:
                 journal.failed(str(exc))
                 current = store.get_pending(approval_id)
