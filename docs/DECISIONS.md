@@ -8,6 +8,30 @@ older ones (noted inline).
 
 ---
 
+## ADR-054 — birkin-mnemosyne 0.4.0's lexical core is ported in-tree, not depended on
+
+- **Context.** birkin-mnemosyne 0.4.0 added a Unicode-aware tokenizer, a
+  code-switch script bonus and a zlib-compressed index cache. Birkin has two
+  lexical engines of its own: `birkin/mnemosyne.py` (behind `memory_search`,
+  with the ADR-043 ranking) and the bundled `birkin_mnemosyne` package (a
+  typed split of upstream 0.3.0, shipped in the wheel).
+- **Decision.** Port the 0.4.0 lexical core into both in-tree copies. Add no
+  dependency. The bundled package keeps upstream's behaviour; the engine
+  behind `memory_search` takes three measured adaptations (stems out of the
+  document length, stems ignored in code-switched queries with more than one
+  alphabetic word, possessive `'s` dropped). Upstream's optional semantic
+  mode is not ported; Birkin's own opt-in vector signal stays off by default.
+- **Rationale.** birkin-mnemosyne is not on PyPI, and a direct-URL dependency
+  cannot be uploaded to PyPI, so either would block a Birkin release. The
+  wheel already ships the `birkin_mnemosyne` import package, so depending on
+  the distribution as well would have two distributions own one package.
+- **Alternatives.** A PyPI dependency (not available), a direct-URL
+  dependency (blocks release; `tests/test_mnemosyne_packaging.py` forbids
+  it), an optional extra (same two problems, and the default path would not
+  improve).
+- **Status.** Accepted 2026-09-30. Numbers, including the slices that did
+  not improve: `benchmarks/RESULTS.md`.
+
 ## ADR-053 — Inspected outbound egress is the default trust boundary
 
 - **Context.** Birkin tools and CLI-backed agents could reach external services
