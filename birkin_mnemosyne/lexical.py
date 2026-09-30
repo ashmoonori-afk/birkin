@@ -103,8 +103,11 @@ def tokenize(text: str) -> list[str]:
 def script(token: str) -> str:
     """Return the script class used by the code-switch bonus.
 
-    Han and kana share ``"cjk"``; digit-only tokens belong to no script.
+    Han and kana share ``"cjk"``; digit-only and empty tokens belong to no
+    script.
     """
+    if not token:
+        return ""
     first = token[0]
     if "\uac00" <= first <= "\ud7a3":
         return "hangul"

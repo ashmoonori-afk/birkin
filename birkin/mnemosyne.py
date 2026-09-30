@@ -214,7 +214,10 @@ def tokenize(text: str) -> list[str]:
 def _script(token: str) -> str:
     """Script class used by the code-switch bonus: "hangul", "cjk" (Han and
     kana together - one Japanese phrase mixes both), "latin" for every other
-    letter, and "" for digit-only tokens, which belong to no language."""
+    letter, and "" for digit-only and empty tokens, which belong to no
+    language."""
+    if not token:
+        return ""
     c = token[0]
     if _HANGUL_CHAR.match(c):
         return "hangul"

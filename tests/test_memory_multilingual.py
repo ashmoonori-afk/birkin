@@ -132,6 +132,14 @@ def test_bm25_single_script_and_digits_stay_plain(engine: ModuleType) -> None:
     assert with_digits["a"] == pytest.approx(single("2024") + single(HANGUL_QUERY))
 
 
+def test_bm25_ignores_an_empty_term(engine: ModuleType) -> None:
+    postings = {"cat": {"a": 1}}
+
+    assert engine.bm25_scores([""], postings, {"a": 1}, 1.0, 1) == {}
+    assert engine.bm25_scores(["", "cat"], postings, {"a": 1}, 1.0, 1) == (
+        engine.bm25_scores(["cat"], postings, {"a": 1}, 1.0, 1))
+
+
 @pytest.mark.parametrize(("query", "expected"), [
     ("車検 期限", "shaken"),
     ("搬到杭州", "moving"),
