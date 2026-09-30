@@ -8,7 +8,7 @@ from pathlib import Path
 from . import frontmatter
 from .index_config import WIKILINK_RE
 from .index_types import NoteEntry
-from .lexical import tokenize
+from .lexical import doc_length, tokenize
 from .json_types import JsonObject
 
 
@@ -60,7 +60,7 @@ def note_entry(path: Path, rel: str) -> NoteEntry | None:
         "summary": summary,
         "mtime": stat.st_mtime,
         "size": stat.st_size,
-        "doclen": sum(terms.values()),
+        "doclen": doc_length(terms),
         "terms": terms,
     }
 

@@ -84,7 +84,7 @@ vault/
 ├── inbox → (zone-less legacy files at vault root; Morpheus files them away)
 ├── identity/    people/    projects/    knowledge/    journal/
 ├── _archive/                  ← excluded from search/render by default
-├── .birkin-index.json         ← CACHE (rebuildable): postings, doclen, note meta
+├── .birkin-index.json.z       ← CACHE (rebuildable, zlib JSON): doclen, terms, note meta
 └── .birkin-dynamics.json      ← STATE (persistent): per-note dynamics, zone EMA
 ```
 
@@ -119,7 +119,13 @@ vault/
 - Upgrade migration: **none**. Legacy flat files stay in the inbox until
   Morpheus (or the user) files them. Index builds lazily on first use.
 
-### 5.2 Index (`.birkin-index.json`) — cache, rebuildable
+### 5.2 Index (`.birkin-index.json.z`) — cache, rebuildable
+
+The file is compact UTF-8 JSON compressed with zlib level 1 (about a fifth of
+the plain size; rankings are unchanged because the content is the same). A
+plain `.birkin-index.json` left by an older version is deleted on the next
+save. The shape below is the original v1 sketch; the current version stores
+per-note `terms` and rebuilds the postings in memory.
 
 ```jsonc
 { "version": 1,
@@ -141,11 +147,20 @@ vault/
   retrieval call runs the stat pass so externally edited notes (Obsidian)
   are visible immediately; add throttling only if a real vault ever exceeds
   ~10k notes (same revisit point as FTS5).
-- **Tokenizer** (Korean-aware, stdlib): lowercase; ASCII `[a-z0-9]+` words;
-  Hangul runs emitted whole **plus** all character bigrams of each run
-  (`"메모리"` → `메모리, 메모, 모리`). Bigrams give substring-ish recall for
-  Korean without a morphological analyzer.
-- Corruption or version mismatch → full rebuild (it's a cache). Atomic write
+- **Tokenizer** (Unicode-aware, stdlib): NFKC + casefold; words of any
+  alphabet become one accent-folded token (`azafrán` → `azafran`, `Straße` →
+  `strasse`) plus, from six letters, a five-letter truncation stem
+  (`verlangerung` → `verla~`) so inflections meet; the English possessive
+  `'s` is dropped; Hangul, Han and kana runs are emitted whole **plus** their
+  unigrams and character bigrams (`豚骨` → `豚骨, 豚, 骨`), which gives
+  substring-ish recall for Korean, Japanese and Chinese without a
+  morphological analyzer. Stems stay out of the document length, and a query
+  that mixes a Hangul/Han/kana term with more than one alphabetic word
+  ignores them. Ported from birkin-mnemosyne 0.4.0 and adapted to this
+  engine's query-side idf weight; the measured per-language effect and the
+  reason for each adaptation are in `benchmarks/RESULTS.md`.
+- Corruption (bad bytes, truncated file, malformed entries) or version
+  mismatch → full rebuild (it's a cache). Atomic write
   via the existing `_atomic_write`; all mutation under one module `RLock`.
 
 ### 5.3 Dynamics (`.birkin-dynamics.json`) — state, survives rebuilds

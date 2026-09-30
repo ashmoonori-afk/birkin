@@ -12,7 +12,7 @@ import re
 from datetime import date
 from typing import Any, Protocol, Sequence
 
-from .mnemosyne import slug, tokenize
+from .mnemosyne import STEM_MARK, slug, tokenize
 
 
 class EmbeddingBackend(Protocol):
@@ -102,8 +102,10 @@ def entity_scores(query: str, entries: dict[str, dict[str, Any]]) -> dict[str, f
 def _entity_terms(text: str) -> set[str]:
     # Mnemosyne's tokenizer preserves Hangul behavior; single-character ASCII
     # noise is dropped so articles do not become graph entities.
+    # Truncation stems are a lexical recall aid, not entities: "kuber~" must
+    # not link Kubernetes to Kuberflow.
     return {term for term in tokenize(re.sub(r"[^\w가-힣]+", " ", text))
-            if len(term) > 1}
+            if len(term) > 1 and not term.endswith(STEM_MARK)}
 
 
 def parse_day(raw: Any) -> date | None:

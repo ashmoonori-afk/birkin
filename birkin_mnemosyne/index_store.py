@@ -5,12 +5,18 @@ from __future__ import annotations
 import json
 import os
 import threading
+import zlib
 from collections.abc import Callable
 from pathlib import Path
 
-from .atomic import atomic_write
+from .atomic import atomic_write, atomic_write_bytes
 from .index_codec import decode_dynamics, decode_notes
-from .index_config import DYNAMICS_FILE, INDEX_FILE, INDEX_VERSION
+from .index_config import (
+    DYNAMICS_FILE,
+    INDEX_FILE,
+    INDEX_VERSION,
+    LEGACY_INDEX_FILE,
+)
 from .index_types import DynamicsState, NoteEntry, ScanEntry
 from .json_types import load_json
 
@@ -51,11 +57,12 @@ class IndexStore:
     def _load(self) -> None:
         notes: dict[str, NoteEntry] = {}
         try:
-            data = load_json(self._index_path.read_text(encoding="utf-8"))
+            raw = zlib.decompress(self._index_path.read_bytes())
+            data = load_json(raw.decode("utf-8", "surrogatepass"))
             if isinstance(data, dict) and data.get("version") == INDEX_VERSION:
                 notes = decode_notes(data.get("notes"))
-        except (OSError, json.JSONDecodeError, AttributeError):
-            notes = {}
+        except (OSError, ValueError, zlib.error):
+            notes = {}  # missing, older or corrupt cache: refresh() rebuilds it
         self._notes = notes
         self._postings = {}
         for note_slug, entry in notes.items():
@@ -73,14 +80,19 @@ class IndexStore:
         self._dyn = state
 
     def _save_index(self) -> None:
+        # Compact UTF-8 JSON, DEFLATE-compressed at level 1. ``surrogatepass``
+        # keeps a file name with undecodable bytes from failing the flush.
+        raw = json.dumps(
+            {"version": INDEX_VERSION, "notes": self._notes or {}},
+            separators=(",", ":"),
+            ensure_ascii=False,
+        )
         try:
-            atomic_write(
+            atomic_write_bytes(
                 self._index_path,
-                json.dumps(
-                    {"version": INDEX_VERSION, "notes": self._notes},
-                    separators=(",", ":"),
-                ),
+                zlib.compress(raw.encode("utf-8", "surrogatepass"), 1),
             )
+            (self.vault / LEGACY_INDEX_FILE).unlink(missing_ok=True)
         except OSError:
             pass
 

@@ -3,7 +3,8 @@
 Two things, both built from the Python standard library alone:
 
 - **Retrieval** (:class:`Mnemosyne`): Markdown notes in zone directories, an
-  Okapi-BM25 inverted index with a Hangul-bigram tokenizer, and a usage-driven
+  Okapi-BM25 inverted index with a Unicode-aware tokenizer (accent folding,
+  stems, Hangul bigrams, Han/kana unigrams and bigrams), and a usage-driven
   Ebbinghaus decay wired into the ranking.
 - **Curation** (:func:`run_curation_pass`): the *CurationPlan/1* interface —
   the model emits a typed JSON plan, a deterministic executor validates,

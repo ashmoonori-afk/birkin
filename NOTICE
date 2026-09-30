@@ -11,6 +11,9 @@ Birkin includes the `birkin_mnemosyne` runtime from birkin-mnemosyne 0.3.0
 (commit 36814c13b44260a0c1ada53d142b2940fff134df), Copyright (c) 2026
 ashmoonori, under the MIT License. Its license and notice are preserved in
 `LICENSES/birkin-mnemosyne-LICENSE` and `LICENSES/birkin-mnemosyne-NOTICE`.
+The lexical retrieval core of birkin-mnemosyne 0.4.0 (Unicode-aware tokenizer,
+code-switch script bonus, zlib-compressed index cache) is backported into that
+copy; the optional semantic and MCP modules of 0.4.0 are not bundled.
 
 Portions of the bundled skill catalog (`skills/`) are styled after, and in some
 cases ported from, the open-source catalogs of:

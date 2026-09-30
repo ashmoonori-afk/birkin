@@ -13,9 +13,10 @@ STALE_DAYS: Final = 90
 MAX_ZONES: Final = 24
 RELATED_LIMIT: Final = 5
 RELATED_QUERY_TERMS: Final = 12
-INDEX_VERSION: Final = 1
+INDEX_VERSION: Final = 4  # 2-3: Unicode tokenizer, stems; 4: zlib file
 
-INDEX_FILE: Final = ".mnemosyne-index.json"
+INDEX_FILE: Final = ".mnemosyne-index.json.z"
+LEGACY_INDEX_FILE: Final = ".mnemosyne-index.json"  # pre-v4 cache, removed on save
 DYNAMICS_FILE: Final = ".mnemosyne-dynamics.json"
 ARCHIVE_ZONE: Final = "_archive"
 IDENTITY_ZONE: Final = "identity"

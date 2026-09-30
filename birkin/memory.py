@@ -31,8 +31,9 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 from . import config, store, transcripts
-from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, TYPE_ZONE, Mnemosyne,
-                        _entry_expired, tokenize)
+from .mnemosyne import (ARCHIVE_ZONE, IDENTITY_ZONE, STEM_MARK, STEM_MIN,
+                        TYPE_ZONE, Mnemosyne, _entry_expired, _script,
+                        normalize_with_offsets, tokenize)
 from .mnemosyne import atomic_write as _atomic_write
 from .mnemosyne import slug as _slug
 from .profile_actions import ProfileActions, validate_profile_text
@@ -1252,6 +1253,23 @@ def memory_activity_line(name: str, content: str) -> str | None:
     return None
 
 
+def _word_char(c: str) -> bool:
+    """A letter/digit of a non-CJK word, as tokenize() groups them."""
+    return c.isalnum() and _script(c) not in ("cjk", "hangul")
+
+
+def _stem_word_at(low: str, i: int) -> bool:
+    """True when a word starts at ``i`` that tokenize() would stem (alphabetic,
+    at least STEM_MIN letters)."""
+    if i and _word_char(low[i - 1]):
+        return False
+    j = i
+    while j < len(low) and _word_char(low[j]):
+        j += 1
+    word = low[i:j]
+    return word.isalpha() and len(word) >= STEM_MIN
+
+
 def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
     """Best multi-term window: the ``width``-char span containing the most
     DISTINCT query terms (earliest on ties); falls back to the head.
@@ -1263,15 +1281,21 @@ def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
     """
     if isinstance(terms, str):
         terms = [terms]
-    low = text.lower()
+    # Terms come from tokenize(), so the text is searched in the same
+    # normalised form and the window is cut from the original by offset.
+    low, offsets = normalize_with_offsets(text)
     hits: list[tuple[int, str]] = []              # (position, term)
     for term in {t for t in terms if t}:
+        # a truncation stem ("verla~") matches the start of a word
+        stem = term.endswith(STEM_MARK)
+        needle = term[:-len(STEM_MARK)] if stem else term
         start = 0
         while True:
-            i = low.find(term, start)
+            i = low.find(needle, start)
             if i < 0:
                 break
-            hits.append((i, term))
+            if not stem or _stem_word_at(low, i):
+                hits.append((i, needle))
             start = i + 1
     if not hits:
         return text.strip()[:width]
@@ -1293,8 +1317,8 @@ def _snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
             # text[:best_start+width] excluded a hit sitting exactly at +width.
             best_distinct, best_start, best_end = len(inwin), hits[j][0], pos + len(term)
     start = max(0, best_start - width // 8)
-    end = max(best_start + width, best_end)
-    return text[start:end].replace("\n", " ").strip()
+    end = min(len(low), max(best_start + width, best_end))
+    return text[offsets[start]:offsets[end]].replace("\n", " ").strip()
 
 
 def _title_from(note: str) -> str:

@@ -3,6 +3,7 @@ zone-aware render, and the new memory tools."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from birkin import config, mnemosyne
@@ -167,6 +168,10 @@ def test_purge_expired_archives_without_unlinking():
     text = re.sub(r"expires_at: .+", "expires_at: 2020-01-01",
                   p.read_text(encoding="utf-8"))
     p.write_text(text, encoding="utf-8")
+    # The rewrite keeps the file size, and a filesystem with coarse timestamps
+    # can also keep the mtime; move it so the stat-fingerprinted index re-reads.
+    stat = p.stat()
+    os.utime(p, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
     assert m.purge_expired() == 1
     archived = _vault() / mnemosyne.ARCHIVE_ZONE / "ephemeral.md"
     assert not p.exists()

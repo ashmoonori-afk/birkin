@@ -23,7 +23,7 @@ from .index_config import (
 )
 from .index_entry import entry_expired
 from .index_types import IndexStats, SearchHit, StaleNote
-from .lexical import bm25_scores, slug, tokenize
+from .lexical import STEM_MARK, bm25_scores, slug, tokenize
 
 
 class MemoryEngine(DynamicsEngine):
@@ -114,7 +114,11 @@ class MemoryEngine(DynamicsEngine):
         top_terms = [
             term
             for term, _frequency in sorted(
-                entry["terms"].items(),
+                (
+                    item
+                    for item in entry["terms"].items()
+                    if not item[0].endswith(STEM_MARK)
+                ),
                 key=lambda item: item[1],
                 reverse=True,
             )[:RELATED_QUERY_TERMS]

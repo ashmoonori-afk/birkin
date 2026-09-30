@@ -11,7 +11,12 @@ birkin's memory palace (design: ``docs/mnemosyne-design.md``):
   the *inbox*. ``_archive`` is the soft-forget zone (hermes curator's
   "archive, never delete").
 - **BM25** — Okapi ranking over the index (k1/b as in mempalace's searcher),
-  with a Korean-aware tokenizer (Hangul runs + character bigrams).
+  with a Unicode-aware tokenizer (NFKC + casefold, accent-folded words of any
+  alphabet plus a truncation stem, Hangul/Han/kana runs with their unigrams
+  and bigrams) and a small bonus for notes that match every script of a
+  code-switched query. Limit: scripts whose words contain combining vowel
+  signs (Devanagari, Thai) are split at those signs, because the stdlib
+  ``re`` has no ``\\p{M}``.
 - **Dynamics** — per-note Ebbinghaus decay + Hebbian potentiation adapted
   from mempalace ``dynamics.py`` and — unlike mempalace — wired into ranking.
 - **Zone priority** — per-zone EMA of accesses with daily decay; boosts
@@ -23,7 +28,7 @@ candidates and applies decisions.
 
 Two sidecar files live next to the notes:
 
-- ``.birkin-index.json``    — CACHE, rebuildable at any time.
+- ``.birkin-index.json.z``  — CACHE (zlib JSON), rebuildable at any time.
 - ``.birkin-dynamics.json`` — STATE (usage); survives index rebuilds.
 """
 
@@ -35,6 +40,8 @@ import os
 import re
 import tempfile
 import threading
+import unicodedata
+import zlib
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -56,9 +63,12 @@ STALE_EFF, STALE_DAYS = 0.1, 90       # hermes curator archive tier
 MAX_ZONES = 24
 RELATED_LIMIT = 5                     # A-MEM: keep top-k small
 RELATED_QUERY_TERMS = 12
-INDEX_VERSION = 4
+INDEX_VERSION = 5                     # 5: Unicode tokenizer, stems, zlib file
+SCRIPT_BONUS = 0.5                    # per extra query script a note matches
+STEM_PREFIX, STEM_MIN, STEM_MARK = 5, 6, "~"   # truncation stem of long words
 
-INDEX_FILE = ".birkin-index.json"
+INDEX_FILE = ".birkin-index.json.z"
+LEGACY_INDEX_FILE = ".birkin-index.json"   # pre-v5 cache, removed on save
 DYNAMICS_FILE = ".birkin-dynamics.json"
 ARCHIVE_ZONE = "_archive"
 # identity is the always-rendered "L0" zone; it never counts as stale.
@@ -66,8 +76,23 @@ IDENTITY_ZONE = "identity"
 
 ZONE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 WIKILINK_RE = re.compile(r"\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]")
-_ASCII_RE = re.compile(r"[a-z0-9]+")
-_CJK_RE = re.compile(r"[가-힣ㄱ-ㅎㅏ-ㅣᄀ-ᇿ぀-ヿ一-鿿]+")
+_HAN_KANA = ("\u3005\u3007\u3040-\u309f\u30a1-\u30fa\u30fc-\u30ff\u31f0-\u31ff"
+             "\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\U00020000-\U0003134f")
+# Syllables plus conjoining jamo; NFKC turns compatibility jamo into the latter.
+_HANGUL = "\uac00-\ud7a3\u1100-\u11ff"
+_HAN_KANA_CHAR = re.compile(f"[{_HAN_KANA}]")
+_HANGUL_CHAR = re.compile(f"[{_HANGUL}]")
+# one match per run: (Hangul/Han/kana run | any other letters/digits)
+_RUN_RE = re.compile(rf"([{_HANGUL}{_HAN_KANA}]+)|([^\W_{_HANGUL}{_HAN_KANA}]+)")
+# The English possessive clitic (Nana's -> nana), as search analyzers drop it.
+# Left in, the lone "s" is a rare term that the query weight makes decisive.
+_POSSESSIVE_RE = re.compile(r"(?<=\w)['\u2019]s\b")
+# Every key _note_entry writes; a cached entry without one of them is re-parsed.
+_ENTRY_KEYS = frozenset({
+    "title", "rel", "zone", "type", "sources", "record_source", "trust",
+    "shared_read_only", "tags", "links", "created", "updated", "confidence",
+    "polarity", "expires_at", "valid_at", "invalid_at", "supersedes",
+    "summary", "mtime", "size", "doclen", "terms"})
 
 # Mechanical default placement for *new* notes (mempalace FOLDER_ROOM_MAP
 # analog); Morpheus refines placement nightly via memory_rezone.
@@ -87,17 +112,21 @@ def slug(title: str) -> str:
 def atomic_write(path: Path, text: str) -> None:
     """Write via temp sibling + os.replace so a crash can't truncate the file
     and a concurrent reader never sees a half-written one."""
+    # The bytes on disk are exactly the UTF-8 encoding of `text` on every
+    # platform (no "\n" -> "\r\n" rewrite on Windows), so digests taken over
+    # the text match the file that was written.
+    atomic_write_bytes(path, text.encode("utf-8"))
+
+
+def atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Binary form of :func:`atomic_write`."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
                                     prefix=path.name + ".", suffix=".tmp")
     tmp = Path(tmp_name)
     try:
-        # newline="" keeps the bytes on disk byte-identical to the UTF-8
-        # encoding of `text` on every platform. Without it Windows rewrites
-        # "\n" as "\r\n", so digests taken over the text no longer match the
-        # file that was written.
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as fh:
-            fh.write(text)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
         os.replace(tmp, path)
     except OSError:
         try:
@@ -109,19 +138,92 @@ def atomic_write(path: Path, text: str) -> None:
 
 # -- pure functions -----------------------------------------------------------
 
-def tokenize(text: str) -> list[str]:
-    """Lowercased ASCII words plus CJK runs, unigrams, and bigrams.
+def _fold_char(c: str) -> str:
+    """Strip accents from Latin letters only (é -> e, ệ -> e); other scripts
+    keep their marks (kana voicing marks, Cyrillic й)."""
+    if ord(c) >= 0x250 and not "\u1e00" <= c <= "\u1eff":
+        return c
+    base = "".join(x for x in unicodedata.normalize("NFD", c)
+                   if not unicodedata.combining(x))
+    return base if len(base) == 1 else c
 
-    Each CJK run preserves exact matching, its unigrams recover remembered
-    characters, and its bigrams retain substring recall without an analyzer.
+
+_HALFWIDTH_VOICING = frozenset("\uff9e\uff9f")
+
+
+def normalize_with_offsets(text: str) -> tuple[str, list[int]]:
+    """``text`` normalised exactly like :func:`tokenize` sees it (NFKC,
+    casefold, Latin accent folding) plus, for every normalised character,
+    the index of the original character it came from (and ``len(text)`` as
+    a final sentinel), so a match found in the normalised text can be cut
+    out of the original. Works per base character + the marks that compose
+    with it (combining marks, halfwidth voicing marks, Hangul medial/final
+    jamo)."""
+    if text.isascii():
+        return text.lower(), list(range(len(text) + 1))
+    out: list[str] = []
+    offsets: list[int] = []
+    i, n = 0, len(text)
+    while i < n:
+        j = i + 1
+        while j < n and (unicodedata.combining(text[j])
+                         or text[j] in _HALFWIDTH_VOICING
+                         or "\u1160" <= text[j] <= "\u11ff"):
+            j += 1
+        cluster = unicodedata.normalize("NFKC", text[i:j]).casefold()
+        if not cluster.isascii():
+            cluster = "".join(map(_fold_char, cluster))
+        out.append(cluster)
+        offsets.extend([i] * len(cluster))
+        i = j
+    offsets.append(n)
+    return "".join(out), offsets
+
+
+def tokenize(text: str) -> list[str]:
+    """NFKC + casefold, then per run of one script class:
+
+    - words of any alphabet -> one accent-folded token (``azafrán`` ->
+      ``azafran``, ``Straße`` -> ``strasse``), plus for words of 6+ letters
+      a truncation stem of their first 5 letters (``verlangerung`` ->
+      ``verla~``) so inflections and compounds meet (``verlängert``);
+    - Hangul/Han/kana runs -> the run, its unigrams and its bigrams, each
+      once: the run preserves exact matching, the unigrams recover remembered
+      characters, and the bigrams retain substring recall without an analyzer.
+
+    A possessive ``'s`` is dropped before the runs are cut.
     """
-    low = text.lower()
-    toks = _ASCII_RE.findall(low)
-    for run in _CJK_RE.findall(low):
-        toks.extend(dict.fromkeys([run, *run,
-                                   *(run[i:i + 2]
-                                     for i in range(len(run) - 1))]))
+    toks: list[str] = []
+    norm = (text.lower() if text.isascii()
+            else unicodedata.normalize("NFKC", text).casefold())
+    if "'" in norm or "\u2019" in norm:
+        norm = _POSSESSIVE_RE.sub("", norm)
+    for run, word in _RUN_RE.findall(norm):
+        if word:
+            folded = word if word.isascii() else "".join(map(_fold_char, word))
+            toks.append(folded)
+            if len(folded) >= STEM_MIN and folded.isalpha():
+                toks.append(folded[:STEM_PREFIX] + STEM_MARK)
+        else:
+            toks.extend(dict.fromkeys([run, *run,
+                                       *(run[i:i + 2]
+                                         for i in range(len(run) - 1))]))
     return toks
+
+
+def _script(token: str) -> str:
+    """Script class used by the code-switch bonus: "hangul", "cjk" (Han and
+    kana together - one Japanese phrase mixes both), "latin" for every other
+    letter, and "" for digit-only and empty tokens, which belong to no
+    language."""
+    if not token:
+        return ""
+    c = token[0]
+    if _HANGUL_CHAR.match(c):
+        return "hangul"
+    if _HAN_KANA_CHAR.match(c):
+        return "cjk"
+    return "" if token.isdigit() else "latin"
 
 
 def bm25_scores(terms: list[str], postings: dict[str, dict[str, int]],
@@ -133,20 +235,48 @@ def bm25_scores(terms: list[str], postings: dict[str, dict[str, int]],
     question mixes one or two terms that identify the note with a dozen that
     appear everywhere; weighting the query side by idf lets the rare term
     decide the ranking instead of being outvoted by common ones.
+
+    Queries that mix scripts get a coordination factor ``1 + SCRIPT_BONUS x
+    (scripts matched - 1)``: in a code-switched query ("moving checklist
+    手続き") the rare English words otherwise let English notes that match
+    only them outrank the note that matches both halves. Single-script
+    queries are unaffected.
+
+    Truncation stems are ignored when a query that holds a Hangul, Han or
+    kana term also holds more than one alphabetic word. There each long
+    English word would score twice (word + stem) against English notes, and
+    with the query weight above that lifts them over the note written in the
+    other language. A lone alphabetic word in such a query is its anchor
+    (a Korean question quoting one English term) and keeps its stem. Both
+    halves were chosen on the dev split of the multilingual benchmark, see
+    ``benchmarks/RESULTS.md``.
     """
     scores: dict[str, float] = {}
+    scripts: dict[str, set[str]] = {}
     avgdl = avgdl or 1.0
-    for t in dict.fromkeys(terms):          # unique, order-preserving
+    uniq = list(dict.fromkeys(terms))       # unique, order-preserving
+    query_scripts = {_script(t) for t in uniq} - {""}
+    if query_scripts & {"hangul", "cjk"} and sum(
+            1 for t in uniq
+            if _script(t) == "latin" and not t.endswith(STEM_MARK)) > 1:
+        uniq = [t for t in uniq if not t.endswith(STEM_MARK)]
+    for t in uniq:
         post = postings.get(t)
         if not post:
             continue
         df = len(post)
         idf = math.log(1 + (n_docs - df + 0.5) / (df + 0.5))
         qw = idf                            # query-side weight (idf^1)
+        script = _script(t)
         for s, tf in post.items():
             dl = doclens.get(s, avgdl)
             denom = tf + K1 * (1 - B + B * dl / avgdl)
             scores[s] = scores.get(s, 0.0) + qw * idf * tf * (K1 + 1) / denom
+            if script:
+                scripts.setdefault(s, set()).add(script)
+    if len(query_scripts) > 1:
+        for s in scores:
+            scores[s] *= 1 + SCRIPT_BONUS * max(0, len(scripts.get(s, ())) - 1)
     return scores
 
 
@@ -343,8 +473,44 @@ def _note_entry(path: Path, rel: str) -> dict[str, Any] | None:
                        if isinstance(meta.get("supersedes"), list) else []),
         "summary": summary,
         "mtime": st.st_mtime, "size": st.st_size,
-        "doclen": sum(terms.values()), "terms": terms,
+        "doclen": _doc_length(terms), "terms": terms,
     }
+
+
+def _doc_length(terms: dict[str, int]) -> int:
+    """BM25 document length. Truncation stems are left out: they repeat a
+    word that is already counted, and letting them in changes the length
+    normalisation of queries that never use a stem."""
+    return sum(tf for t, tf in terms.items() if not t.endswith(STEM_MARK))
+
+
+def _encode_index(notes: dict[str, dict[str, Any]]) -> bytes:
+    """The index cache: compact UTF-8 JSON, DEFLATE-compressed (zlib level 1).
+    ``surrogatepass`` keeps a note whose file name holds undecodable bytes
+    from failing the flush."""
+    raw = json.dumps({"version": INDEX_VERSION, "notes": notes},
+                     separators=(",", ":"), ensure_ascii=False)
+    return zlib.compress(raw.encode("utf-8", "surrogatepass"), 1)
+
+
+def _valid_entry(entry: Any) -> bool:
+    if not isinstance(entry, dict) or not _ENTRY_KEYS <= entry.keys():
+        return False
+    terms = entry.get("terms")
+    return isinstance(terms, dict) and all(
+        isinstance(tf, int) for tf in terms.values())
+
+
+def _decode_index(blob: bytes) -> dict[str, dict[str, Any]]:
+    """Entries of a current-version cache; malformed entries are left out so
+    the next refresh re-parses their notes."""
+    data = json.loads(zlib.decompress(blob).decode("utf-8", "surrogatepass"))
+    if not isinstance(data, dict) or data.get("version") != INDEX_VERSION:
+        return {}
+    notes = data.get("notes")
+    if not isinstance(notes, dict):
+        return {}
+    return {s: e for s, e in notes.items() if _valid_entry(e)}
 
 
 def _entry_expired(entry: dict[str, Any], today: date) -> bool:
@@ -404,15 +570,10 @@ class Mnemosyne:
         return self.vault / DYNAMICS_FILE
 
     def _load(self) -> None:
-        notes: dict[str, dict[str, Any]] = {}
         try:
-            data = json.loads(self._index_path.read_text(encoding="utf-8"))
-            if data.get("version") == INDEX_VERSION:
-                loaded = data.get("notes")
-                if isinstance(loaded, dict):
-                    notes = loaded
-        except (OSError, json.JSONDecodeError, AttributeError):
-            notes = {}
+            notes = _decode_index(self._index_path.read_bytes())
+        except (OSError, ValueError, zlib.error):
+            notes = {}   # missing, older or corrupt cache: refresh() rebuilds it
         self._notes = notes
         self._postings = {}
         for s, e in notes.items():
@@ -435,9 +596,9 @@ class Mnemosyne:
 
     def _save_index(self) -> None:
         try:
-            atomic_write(self._index_path, json.dumps(
-                {"version": INDEX_VERSION, "notes": self._notes},
-                separators=(",", ":")))
+            atomic_write_bytes(self._index_path,
+                               _encode_index(self._notes or {}))
+            (self.vault / LEGACY_INDEX_FILE).unlink(missing_ok=True)
         except OSError:
             pass   # cache flush is best-effort; rebuilt on next load
 
@@ -721,7 +882,8 @@ class Mnemosyne:
         e = self.note_meta(s)
         if e is None:
             return []
-        top_terms = [t for t, _ in sorted(e.get("terms", {}).items(),
+        top_terms = [t for t, _ in sorted(((t, n) for t, n in e.get("terms", {}).items()
+                                           if not t.endswith(STEM_MARK)),
                                           key=lambda kv: kv[1], reverse=True)
                      [:RELATED_QUERY_TERMS]]
         linked = {slug(t) for t in e.get("links", [])} | {s}
