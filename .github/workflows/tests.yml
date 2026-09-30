@@ -173,6 +173,8 @@ jobs:
           birkin/github_action.py
           birkin/hooks.py
           birkin/sandbox_worktree.py
+      - name: Multilingual memory recall
+        run: python -m pytest -p no:cacheprovider -o addopts= -v tests/test_memory_multilingual.py
       - run: python -m pytest -p no:cacheprovider -o addopts= -q -m "not live and not locked_env" --cov=birkin --cov-report=term-missing --cov-fail-under=75
 
   native-macos-swift:
