@@ -337,7 +337,9 @@ def close_watcher() -> None:
 
 try:
     command = subprocess.run(
-        ["/bin/ps", "-o", "command=", "-p", str(pid)],
+        # -ww: without it ps cuts the command at COLUMNS, and a cut command
+        # fails the ownership check below, leaving the bridge running.
+        ["/bin/ps", "-ww", "-o", "command=", "-p", str(pid)],
         check=False,
         capture_output=True,
         text=True,
