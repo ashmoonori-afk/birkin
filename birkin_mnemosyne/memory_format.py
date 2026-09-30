@@ -7,6 +7,7 @@ from datetime import date
 
 from .index_types import NoteEntry
 from .json_types import JsonObject, JsonValue
+from .lexical import STEM_MARK, STEM_MIN, normalize_with_offsets, script
 
 
 def compose_frontmatter(
@@ -79,6 +80,21 @@ def json_int(value: JsonValue, default: int) -> int:
             return default
 
 
+def _word_char(character: str) -> bool:
+    return character.isalnum() and script(character) not in ("cjk", "hangul")
+
+
+def _stem_word_at(lowered: str, index: int) -> bool:
+    """Return whether a word that ``tokenize`` would stem starts at ``index``."""
+    if index and _word_char(lowered[index - 1]):
+        return False
+    end = index
+    while end < len(lowered) and _word_char(lowered[end]):
+        end += 1
+    word = lowered[index:end]
+    return word.isalpha() and len(word) >= STEM_MIN
+
+
 def snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
     """Return the densest query-term window, earliest on score ties."""
     match terms:
@@ -86,15 +102,18 @@ def snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
             query_terms = [terms]
         case list():
             query_terms = terms
-    lowered = text.lower()
+    lowered, offsets = normalize_with_offsets(text)
     hits: list[tuple[int, str]] = []
     for term in {term for term in query_terms if term}:
+        is_stem = term.endswith(STEM_MARK)
+        needle = term[: -len(STEM_MARK)] if is_stem else term
         start = 0
         while True:
-            index = lowered.find(term, start)
+            index = lowered.find(needle, start)
             if index < 0:
                 break
-            hits.append((index, term))
+            if not is_stem or _stem_word_at(lowered, index):
+                hits.append((index, needle))
             start = index + 1
     if not hits:
         return text.strip()[:width]
@@ -117,5 +136,5 @@ def snippet(text: str, terms: list[str] | str, width: int = 240) -> str:
             best_start = hits[left][0]
             best_end = position + len(term)
     start = max(0, best_start - width // 8)
-    end = max(best_start + width, best_end)
-    return text[start:end].replace("\n", " ").strip()
+    end = min(len(lowered), max(best_start + width, best_end))
+    return text[offsets[start]:offsets[end]].replace("\n", " ").strip()

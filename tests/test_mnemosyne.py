@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import zlib
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -52,7 +53,8 @@ def test_tokenize_hangul_runs_and_bigrams():
     [
         ("회의", ["회의", "회", "의"]),
         ("김철수", ["김철수", "김", "철", "수", "김철", "철수"]),
-        ("ㅋㅋ", ["ㅋㅋ", "ㅋ"]),
+        # NFKC turns compatibility jamo into conjoining jamo on both sides.
+        ("\u314b\u314b", ["\u110f\u110f", "\u110f"]),
         ("東京", ["東京", "東", "京"]),
         ("カナ", ["カナ", "カ", "ナ"]),
     ],
@@ -233,12 +235,12 @@ def test_search_rebuilds_legacy_index_after_tokenizer_change():
     m = _mem()
     m.write_note("김철수", "프로젝트 담당자")
     index_path = _vault() / mnemosyne.INDEX_FILE
-    index = json.loads(index_path.read_text(encoding="utf-8"))
+    index = json.loads(zlib.decompress(index_path.read_bytes()))
     terms = index["notes"]["김철수"]["terms"]
     terms.pop("김")
     index["notes"]["김철수"]["doclen"] -= 1
-    index["version"] = 3
-    index_path.write_text(json.dumps(index), encoding="utf-8")
+    index["version"] = mnemosyne.INDEX_VERSION - 1
+    index_path.write_bytes(zlib.compress(json.dumps(index).encode("utf-8")))
     # When: a fresh engine opens the existing cache.
     eng = mnemosyne.Mnemosyne(_vault())
     # Then: it rebuilds rather than preserving the incompatible old postings.

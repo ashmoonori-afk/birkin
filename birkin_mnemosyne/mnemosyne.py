@@ -34,6 +34,7 @@ from .index_config import (
     IDENTITY_ZONE as IDENTITY_ZONE,
     INDEX_FILE as INDEX_FILE,
     INDEX_VERSION as INDEX_VERSION,
+    LEGACY_INDEX_FILE as LEGACY_INDEX_FILE,
     MAX_ZONES as MAX_ZONES,
     RELATED_LIMIT as RELATED_LIMIT,
     RELATED_QUERY_TERMS as RELATED_QUERY_TERMS,
@@ -51,7 +52,12 @@ from .index_types import NoteEntry
 from .json_types import JsonValue
 from .lexical import B as B
 from .lexical import K1 as K1
+from .lexical import SCRIPT_BONUS as SCRIPT_BONUS
+from .lexical import STEM_MARK as STEM_MARK
+from .lexical import STEM_MIN as STEM_MIN
+from .lexical import STEM_PREFIX as STEM_PREFIX
 from .lexical import bm25_scores as bm25_scores
+from .lexical import normalize_with_offsets as normalize_with_offsets
 from .lexical import slug as slug
 from .lexical import tokenize as tokenize
 
