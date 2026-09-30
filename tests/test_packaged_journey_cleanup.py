@@ -194,8 +194,12 @@ exit 73
         assert not output.is_symlink()
 
 
+@pytest.mark.parametrize(
+    "columns", [None, "80"], ids=["inherited-width", "narrow-columns"]
+)
 def test_cleanup_reaps_the_owned_app_bridge_process_group_before_reporting(
     tmp_path: Path,
+    columns: str | None,
 ) -> None:
     evidence = tmp_path / "evidence"
     dist = tmp_path / "dist"
@@ -246,10 +250,14 @@ exit 73
     _ = helper.chmod(0o755)
     _ = app.chmod(0o755)
 
+    # ps cuts command lines at COLUMNS; a terminal or a test runner may set it.
+    env = dict(os.environ)
+    if columns is not None:
+        env["COLUMNS"] = columns
     result = subprocess.run(
         ["bash", str(SCRIPT), str(evidence), str(dist)],
         cwd=ROOT,
-        env=os.environ,
+        env=env,
         text=True,
         capture_output=True,
         timeout=30,
