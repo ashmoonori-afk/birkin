@@ -43,7 +43,7 @@ jobs:
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.2.22"
-      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,office,office-advanced,browser]" PyYAML
+      - run: python -m pip install --upgrade pip && python -m pip install -e ".[dev,office,office-advanced,browser]" PyYAML pytest-xdist==3.8.0
       - name: Install Chromium with Linux dependencies
         if: runner.os == 'Linux'
         run: python -m playwright install --with-deps chromium
@@ -175,7 +175,7 @@ jobs:
           birkin/sandbox_worktree.py
       - name: Multilingual memory recall
         run: python -m pytest -p no:cacheprovider -o addopts= -v tests/test_memory_multilingual.py
-      - run: python -m pytest -p no:cacheprovider -o addopts= -q -m "not live and not locked_env" --cov=birkin --cov-report=term-missing --cov-fail-under=75
+      - run: python -m pytest -p no:cacheprovider -o addopts= -q -m "not live and not locked_env" -n auto --durations=25 --cov=birkin --cov-report=term-missing --cov-fail-under=75
 
   native-macos-swift:
     name: Native macOS Swift build and test
