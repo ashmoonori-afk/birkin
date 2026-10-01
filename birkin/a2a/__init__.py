@@ -95,8 +95,11 @@ def _text_of(message: Any) -> str:
     """The text a peer sent, from A2A's parts list."""
     if not isinstance(message, dict):
         return ""
+    parts = message.get("parts")
+    if not isinstance(parts, list):
+        return ""
     pieces = []
-    for part in message.get("parts") or []:
+    for part in parts:
         if isinstance(part, dict) and part.get("kind") == "text":
             pieces.append(str(part.get("text") or ""))
     return "\n".join(p for p in pieces if p).strip()
