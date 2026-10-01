@@ -22,7 +22,7 @@ from birkin.web import server as web
 def live(monkeypatch, tmp_path):
     """A real dashboard server on an ephemeral port."""
     monkeypatch.setenv("BIRKIN_HOME", str(tmp_path))
-    started: list = []
+    started: list[tuple[HTTPServer, threading.Thread]] = []
 
     def _start(cfg):
         monkeypatch.setattr(web.config, "load_config", lambda: cfg)
@@ -47,7 +47,7 @@ def _get(url: str) -> tuple[int, bytes]:
         return exc.code, exc.read()
 
 
-def _post(url: str, payload: dict, token: str | None) -> tuple[int, bytes]:
+def _post(url: str, payload: dict[str, object], token: str | None) -> tuple[int, bytes]:
     request = urllib.request.Request(
         url, data=json.dumps(payload).encode("utf-8"),
         headers={"Content-Type": "application/json",
@@ -149,3 +149,25 @@ def test_the_default_runner_resolves_the_real_session_api() -> None:
     assert called, "the runner calls nothing recognisable"
     for name in called:
         assert hasattr(runtime, name), f"runtime has no {name}"
+
+
+def test_scalar_message_parts_return_rpc_error_over_http(live, monkeypatch) -> None:
+    def must_not_run(text: str) -> str:
+        raise AssertionError("Malformed parts reached execution")
+
+    monkeypatch.setattr(web, "_a2a_run", must_not_run)
+    base = live({"a2a_enabled": True})
+    code, body = _post(
+        f"{base}/a2a",
+        {
+            "jsonrpc": "2.0",
+            "id": "malformed-parts",
+            "method": "message/send",
+            "params": {"message": {"parts": 1}},
+        },
+        web._TOKEN,
+    )
+    assert code == 200
+    reply = json.loads(body)
+    assert reply["id"] == "malformed-parts"
+    assert reply["error"]["code"] == -32602

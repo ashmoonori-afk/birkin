@@ -147,3 +147,21 @@ class TestOffByDefault:
         """Turning on an inbound execution surface needs a real boolean."""
         assert a2a.enabled({"a2a_enabled": "false"}) is False
         assert a2a.enabled({"a2a_enabled": "yes"}) is False
+
+
+def test_scalar_message_parts_are_invalid_without_execution() -> None:
+    def must_not_run(text: str) -> str:
+        raise AssertionError("Malformed parts reached execution")
+
+    for parts in (1, True):
+        reply = a2a.handle(
+            {
+                "jsonrpc": "2.0",
+                "id": "malformed-parts",
+                "method": "message/send",
+                "params": {"message": {"parts": parts}},
+            },
+            run=must_not_run,
+        )
+        assert reply["id"] == "malformed-parts"
+        assert reply["error"]["code"] == a2a.INVALID_PARAMS
