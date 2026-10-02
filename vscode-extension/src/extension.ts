@@ -142,8 +142,11 @@ export function activate(context: vscode.ExtensionContext): void {
       `Restore checkpoint ${picked.checkpoint.short}? Birkin snapshots the current state first.`,
       { modal: true }, "Restore");
     if (confirm !== "Restore") return;
-    await client.rollback(runtime, picked.checkpoint.hash, workspace);
-    void vscode.window.showInformationMessage("Birkin restored the checkpoint.");
+    const proposal = await client.rollback(runtime, picked.checkpoint.hash, workspace);
+    const message = `Birkin submitted a checkpoint restore proposal (${proposal.approval_id}). Whether files are restored now depends on the approval policy.`;
+    void vscode.window.showInformationMessage(message, "Review Approvals").then((action) => {
+      if (action === "Review Approvals") void vscode.commands.executeCommand("birkin.reviewApprovals");
+    });
   })));
 
   context.subscriptions.push(vscode.commands.registerCommand("birkin.refreshStatus", () => status.refresh()));

@@ -25,14 +25,43 @@ describe("Birkin client", () => {
   });
 
   it("limits rollback requests to explicit files mode", async () => {
-    const request = vi.fn<Request>().mockResolvedValue({ status: 200, body: '{"ok":true}' });
-    await new BirkinClient(request).rollback(runtime, "abc123abc123", "/tmp/workspace");
+    const request = vi.fn<Request>().mockResolvedValue({
+      status: 202,
+      body: '{"ok":true,"approval_required":true,"approval_id":"a1b2c3d4e5f6","mode":"files"}',
+    });
+    const proposal = await new BirkinClient(request).rollback(runtime, "abc123abc123", "/tmp/workspace");
     expect(request).toHaveBeenCalledWith(
       `${runtime.url}/api/checkpoints/abc123abc123/restore`,
       expect.objectContaining({
         body: JSON.stringify({ workspace: "/tmp/workspace", mode: "files" }),
       }),
     );
+    expect(proposal).toEqual({ approval_id: "a1b2c3d4e5f6" });
+  });
+
+  it("returns the restore proposal without treating acceptance as completion", async () => {
+    const request: Request = async () => ({
+      status: 202,
+      body: '{"ok":true,"approval_required":true,"approval_id":"a1b2c3d4e5f6","mode":"files"}',
+    });
+    const proposal = await new BirkinClient(request).rollback(runtime, "abc123abc123", "/tmp/workspace");
+    expect(proposal).not.toBeUndefined();
+    expect(proposal.approval_id).toBe("a1b2c3d4e5f6");
+  });
+
+  it("rejects a restore response that does not require approval", async () => {
+    const request: Request = async () => ({ status: 202, body: '{"ok":true}' });
+    await expect(new BirkinClient(request).rollback(runtime, "abc123abc123", "/tmp/workspace"))
+      .rejects.toMatchObject({ code: "contract" });
+  });
+
+  it("rejects a restore response without an approval identifier", async () => {
+    const request: Request = async () => ({
+      status: 202,
+      body: '{"ok":true,"approval_required":true,"approval_id":""}',
+    });
+    await expect(new BirkinClient(request).rollback(runtime, "abc123abc123", "/tmp/workspace"))
+      .rejects.toMatchObject({ code: "contract" });
   });
 
   it("surfaces HTTP failures as typed transport errors", async () => {

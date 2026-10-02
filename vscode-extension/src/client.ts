@@ -1,6 +1,6 @@
 import { BirkinError } from "./errors.js";
-import { parseApprovals, parseCheckpoints, parseReply, parseStatus } from "./contracts.js";
-import type { Approval, Checkpoint, DashboardSession, EditorContext, RuntimeStatus } from "./types.js";
+import { parseApprovals, parseCheckpoints, parseReply, parseRestoreProposal, parseStatus } from "./contracts.js";
+import type { Approval, Checkpoint, DashboardSession, EditorContext, RestoreProposal, RuntimeStatus } from "./types.js";
 
 export type Request = (
   url: string,
@@ -56,8 +56,10 @@ export class BirkinClient {
     return parseCheckpoints(decode(await this.get(runtime, `/api/checkpoints${query}`)));
   }
 
-  public async rollback(runtime: DashboardSession, hash: string, workspace: string): Promise<void> {
-    decode(await this.post(runtime, `/api/checkpoints/${hash}/restore`, { workspace, mode: "files" }));
+  public async rollback(runtime: DashboardSession, hash: string, workspace: string): Promise<RestoreProposal> {
+    return parseRestoreProposal(
+      decode(await this.post(runtime, `/api/checkpoints/${hash}/restore`, { workspace, mode: "files" })),
+    );
   }
 
   public async status(

@@ -38,6 +38,10 @@ export interface Checkpoint {
   readonly reason: string;
 }
 
+export interface RestoreProposal {
+  readonly approval_id: string;
+}
+
 export interface DashboardSession {
   readonly url: string;
   readonly token: string;

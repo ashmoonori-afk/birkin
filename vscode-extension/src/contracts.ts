@@ -1,5 +1,5 @@
 import { BirkinError } from "./errors.js";
-import type { Approval, Checkpoint, ProposedChange, RuntimeStatus } from "./types.js";
+import type { Approval, Checkpoint, ProposedChange, RestoreProposal, RuntimeStatus } from "./types.js";
 
 type JsonObject = Readonly<Record<string, unknown>>;
 
@@ -43,6 +43,15 @@ export function parseCheckpoints(value: unknown): readonly Checkpoint[] {
     return { hash: stringField(item, "hash"), short: stringField(item, "short"),
       date: stringField(item, "date"), reason: stringField(item, "reason") };
   });
+}
+
+export function parseRestoreProposal(value: unknown): RestoreProposal {
+  if (!isObject(value) || value.ok !== true || value.approval_required !== true) {
+    throw new BirkinError("Birkin did not accept a restore proposal", "contract");
+  }
+  const id = stringField(value, "approval_id");
+  if (!id) throw new BirkinError("Birkin response is missing approval_id", "contract");
+  return { approval_id: id };
 }
 
 export function parseStatus(value: unknown): RuntimeStatus {
