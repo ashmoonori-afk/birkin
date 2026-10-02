@@ -53,8 +53,25 @@ async function showText(title: string, text: string, language = "markdown"): Pro
   void vscode.window.setStatusBarMessage(`Birkin: ${title}`, 3000);
 }
 
-export function activate(context: vscode.ExtensionContext): void {
-  const client = new BirkinClient();
+async function rollbackWorkspace(): Promise<string | undefined> {
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders === undefined || folders.length === 0) {
+    throw new Error("Open a workspace before rollback.");
+  }
+  const editor = vscode.window.activeTextEditor;
+  const active = editor === undefined
+    ? undefined
+    : vscode.workspace.getWorkspaceFolder(editor.document.uri);
+  if (active !== undefined) return active.uri.fsPath;
+  if (folders.length === 1) return folders[0]?.uri.fsPath;
+  const picked = await vscode.window.showQuickPick(
+    folders.map((folder) => ({ label: folder.name, description: folder.uri.fsPath, folder })),
+    { placeHolder: "체크포인트를 되돌릴 워크스페이스 폴더를 선택하세요" },
+  );
+  return picked?.folder.uri.fsPath;
+}
+
+export function activate(context: vscode.ExtensionContext, client: BirkinClient = new BirkinClient()): void {
   const diffs = new DiffStore();
   const status = new StatusController(client, dashboard);
   const session = `vscode:${vscode.workspace.name ?? "default"}`;
@@ -130,8 +147,8 @@ export function activate(context: vscode.ExtensionContext): void {
   })));
 
   context.subscriptions.push(vscode.commands.registerCommand("birkin.rollback", guarded(async () => {
-    const workspace = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (workspace === undefined) throw new Error("Open a workspace before rollback.");
+    const workspace = await rollbackWorkspace();
+    if (workspace === undefined) return;
     const runtime = await dashboard();
     const checkpoints = await client.checkpoints(runtime, workspace);
     const picked = await vscode.window.showQuickPick(checkpoints.map((checkpoint) => ({
