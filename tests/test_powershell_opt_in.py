@@ -43,6 +43,9 @@ def test_powershell_is_disabled_by_default() -> None:
         "pwsh.exe -NoProfile -Command Get-Date",
         r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe Get-Date",
         "cmd /c powershell -NoProfile -Command Get-Date",
+        "for %i in (x) do @powershell -NoProfile -Command Write-Output AUDIT_PROBE",
+        "if 1==1 @pwsh.exe -NoProfile -Command Get-Date",
+        'cmd /c "for %i in (x) do @powershell -NoProfile -Command Get-Date"',
     ],
 )
 def test_powershell_queues_even_when_shell_auto_approval_is_enabled(
@@ -77,11 +80,57 @@ def test_powershell_queues_even_when_shell_auto_approval_is_enabled(
     assert len(pending) == 1
     record: dict[str, object] = pending[0]
     assert record["category"] == "operation"
+    payload = record["payload"]
+    assert isinstance(payload, dict)
+    operation = payload["operation"]
+    assert isinstance(operation, dict)
+    assert operation["gate"] == "powershell_opt_in"
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "echo powershell_notes.txt",
+        "echo mypwsh.exe",
+    ],
+)
+def test_powershell_name_substrings_do_not_require_opt_in(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    calls: list[str] = []
+
+    def run(request: ShellCommand) -> _Completed:
+        calls.append(request.command)
+        return _Completed()
+
+    monkeypatch.setattr(
+        shell_mod,
+        "run_shell_command",
+        run,
+    )
+    registry = _registry(tmp_path, {"shell_approval": "off"})
+
+    result = registry.execute("run_shell", {"command": command})
+
+    assert result.is_error is False
+    assert calls == [command]
+    assert store.list_pending() == []
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "for %i in (x) do @powershell -NoProfile -Command Write-Output AUDIT_PROBE",
+        "if 1==1 @pwsh.exe -NoProfile -Command Get-Date",
+        'cmd /c "for %i in (x) do @powershell -NoProfile -Command Get-Date"',
+    ],
+)
 def test_powershell_config_opt_in_allows_execution(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    command: str,
 ) -> None:
     calls: list[str] = []
 
@@ -102,18 +151,24 @@ def test_powershell_config_opt_in_allows_execution(
         },
     )
 
-    result = registry.execute(
-        "run_shell",
-        {"command": "powershell -NoProfile -Command Get-Date"},
-    )
+    result = registry.execute("run_shell", {"command": command})
 
     assert result.is_error is False
-    assert calls == ["powershell -NoProfile -Command Get-Date"]
+    assert calls == [command]
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        "powershell -NoProfile -Command Get-Date",
+        "for %i in (x) do @powershell -NoProfile -Command Write-Output AUDIT_PROBE",
+        'cmd /c "for %i in (x) do @powershell -NoProfile -Command Get-Date"',
+    ],
+)
 def test_manual_approval_runs_exact_powershell_command_once(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
+    command: str,
 ) -> None:
     calls: list[str] = []
 
@@ -127,7 +182,6 @@ def test_manual_approval_runs_exact_powershell_command_once(
         run,
     )
     registry = _registry(tmp_path, {"shell_approval": "off"})
-    command = "powershell -NoProfile -Command Get-Date"
     blocked = registry.execute("run_shell", {"command": command})
     record: dict[str, object] = store.list_pending()[0]
     approval_id = record["id"]

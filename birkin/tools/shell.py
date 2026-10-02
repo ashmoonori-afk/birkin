@@ -20,12 +20,11 @@ from ._types import Tool, ToolContext, ToolResult
 # the full output to disk first — slicing it away here would destroy it.
 MAX_OUTPUT = 5_000_000
 DEFAULT_TIMEOUT = 120
+# Conservative executable-name match: a literal powershell/pwsh token anywhere in
+# the command, with an optional .exe and path prefix. Cmd wrappers (for, if, call,
+# start, nested `cmd /c`) execute their body, so prefix anchoring is not enough.
 _POWERSHELL_SEGMENT = re.compile(
-    (
-        r"(?:^|[;&|]\s*|\bcmd(?:\.exe)?\s+/[ck]\s+)"
-        + r"(?:call\s+)?(?:\"?[^\s\";&|]*[\\/])?"
-        + r"(?:powershell|pwsh)(?:\.exe)?(?:\"|\s|$)"
-    ),
+    r"(?:^|[\s@\"'(\\/;,&|])(?:[^\s\";&|]*[\\/])?(?:powershell|pwsh)(?:\.exe)?(?:\"|\s|$)",
     re.IGNORECASE,
 )
 
