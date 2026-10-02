@@ -1,5 +1,6 @@
 import json
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -152,14 +153,85 @@ def test_legacy_migration_rereads_after_acquiring_lock(
     assert [job["id"] for job in jobs] == ["legacy", "concurrent"]
 
 
-def test_cron_schema_declares_exact_schedule_variants() -> None:
+def _shipped_cron_schema():
     import importlib.resources
+
+    from jsonschema import Draft202012Validator
 
     schema = json.loads(
         importlib.resources.files("birkin").joinpath(
             "schemas/cron-job-v1.schema.json"
         ).read_text(encoding="utf-8")
     )
+    Draft202012Validator.check_schema(schema)
+    return schema
+
+
+def _daily_timezone_job() -> dict[str, Any]:
+    """A complete v1 record whose daily schedule carries a timezone."""
+    return {
+        "schema_version": 1,
+        "id": "tz-daily",
+        "name": "tz-daily",
+        "hour": 9,
+        "minute": 0,
+        "type": "shell",
+        "value": "echo hi",
+        "enabled": True,
+        "deliver_chat_id": None,
+        "created": "2026-05-28T08:00:00",
+        "last_run": None,
+        "schedule": {
+            "kind": "daily",
+            "display": "09:00",
+            "hour": 9,
+            "minute": 0,
+            "timezone": "Asia/Seoul",
+        },
+        "next_run": "2026-05-29T00:00:00",
+    }
+
+
+def test_cron_schema_accepts_daily_timezone() -> None:
+    from jsonschema import Draft202012Validator
+
+    schema = _shipped_cron_schema()
+    for timezone in ("Asia/Seoul", None):
+        job = _daily_timezone_job()
+        job["schedule"]["timezone"] = timezone
+
+        assert cron._validate_job(job, 0) == job
+        Draft202012Validator(schema).validate(job)
+
+    # Absent timezone stays valid: the field is optional.
+    job = _daily_timezone_job()
+    del job["schedule"]["timezone"]
+    assert cron._validate_job(job, 0) == job
+    Draft202012Validator(schema).validate(job)
+
+
+def test_cron_schema_timezone_stays_scoped_to_daily() -> None:
+    from jsonschema import Draft202012Validator
+
+    validator = Draft202012Validator(_shipped_cron_schema())
+
+    for timezone in (7, True):
+        job = _daily_timezone_job()
+        job["schedule"]["timezone"] = timezone
+        assert list(validator.iter_errors(job))
+
+    for schedule in (
+        {"kind": "interval", "display": "every hour", "minutes": 60},
+        {"kind": "once", "display": "once", "run_at": "2026-05-29T09:00:00"},
+        {"kind": "cron", "display": "09:00", "expr": "0 9 * * *"},
+    ):
+        job = _daily_timezone_job()
+        job["schedule"] = {**schedule, "timezone": "Asia/Seoul"}
+        assert list(validator.iter_errors(job))
+
+
+def test_cron_schema_declares_exact_schedule_variants() -> None:
+    schema = _shipped_cron_schema()
     variants = schema["properties"]["schedule"]["oneOf"]
 
     assert {
