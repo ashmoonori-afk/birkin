@@ -99,9 +99,12 @@ public sealed partial class NativeClientConnection : INativeClientConnection
             ?? throw new NativeProtocolError("E_STATE", "connection session is unavailable");
         var transport = _transport
             ?? throw new NativeProtocolError("E_STATE", "connection is not active");
+        var capability = CurrentCapability
+            ?? throw new NativeProtocolError("E_CAPABILITY_EXPIRED", "session capability is unavailable");
         var switched = current with
         {
             Identity = current.Identity with { SessionId = sessionId },
+            SessionCapability = capability,
         };
         _session = switched;
         IsProjectionCurrent = false;
@@ -237,6 +240,8 @@ public sealed partial class NativeClientConnection : INativeClientConnection
     {
         IsProjectionCurrent = false;
         var session = _session ?? throw new NativeProtocolError("E_STATE", "connection session is unavailable");
+        var capability = CurrentCapability
+            ?? throw new NativeProtocolError("E_CAPABILITY_EXPIRED", "session capability is unavailable");
         var revisions = _projectionStore.SurfaceRevisions.ToDictionary(
             pair => pair.Key,
             _ => 0L,
@@ -246,7 +251,7 @@ public sealed partial class NativeClientConnection : INativeClientConnection
             session.InstanceId,
             revisions,
             isCanonicalRepair: true);
-        var subscribe = NativeHandshake.CreateSubscribe(session, NextId(), repair);
+        var subscribe = NativeHandshake.CreateSubscribe(session with { SessionCapability = capability }, NextId(), repair);
         Claim(subscribe.Id);
         await (_transport ?? throw new NativeProtocolError("E_STATE", "connection is not active"))
             .SendAsync(subscribe, cancellationToken).ConfigureAwait(false);

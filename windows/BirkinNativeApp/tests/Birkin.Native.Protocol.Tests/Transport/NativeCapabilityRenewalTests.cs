@@ -1,3 +1,4 @@
+using System.Reflection;
 using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Tests.Support;
 using Birkin.Native.Protocol.Transport;
@@ -81,6 +82,68 @@ public sealed class NativeCapabilityRenewalTests
         Assert.IsNull(connection.CurrentCapability);
         Assert.IsNull(connection.PredecessorCapability);
     }
+
+    [DataTestMethod]
+    [DataRow("repair")]
+    [DataRow("switch")]
+    public async Task Subscribe_AfterTwoRenewals_UsesLatestCapabilityAndCorrectIdentity(string path)
+    {
+        // Given
+        await using var server = new LoopbackServerHarness();
+        using var discovery = TestDiscovery.Create(server.Port);
+        await using var connection = new NativeClientConnection();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await server.CompleteHandshakeAsync(connection, discovery, deadline.Token);
+        await RenewOnceAsync(connection, server, "renewal-1", "renewed-capability", deadline.Token);
+        await RenewOnceAsync(connection, server, "renewal-2", "latest-capability", deadline.Token);
+        var invoking = path == "repair"
+            ? InvokeAsync(connection, "RequestCanonicalReplayAsync", 42L, deadline.Token)
+            : InvokeAsync(connection, "SwitchSessionAsync", "switched-app", deadline.Token);
+        var receivingSubscribe = server.ReceiveAsync();
+
+        // When
+        await invoking;
+        var subscribe = await receivingSubscribe;
+
+        // Then
+        Assert.AreEqual("subscribe", subscribe.Kind.WireName);
+        Assert.AreEqual("latest-capability", String(subscribe.Body, "session_capability"));
+        Assert.AreEqual(
+            path == "repair" ? "native-app" : "switched-app",
+            String(subscribe.Body, "session_id"));
+        Assert.AreEqual(
+            path == "repair" ? 42L : 0L,
+            ((NativeJsonInteger)subscribe.Body["after_cursor"]!).Value);
+        if (path == "repair")
+        {
+            Assert.AreEqual(TestDiscovery.InstanceId, String(subscribe.Body, "known_instance_id"));
+        }
+        else
+        {
+            Assert.IsInstanceOfType<NativeJsonNull>(subscribe.Body["known_instance_id"]);
+        }
+    }
+
+    private static async Task RenewOnceAsync(
+        NativeClientConnection connection,
+        LoopbackServerHarness server,
+        string frameId,
+        string token,
+        CancellationToken cancellationToken)
+    {
+        var renewal = new NativeEnvelope(NativeMessageKind.CapabilityRenewed, frameId, Object(
+            ("token", new NativeJsonString(token)),
+            ("expires_at", new NativeJsonString("2026-08-24T03:00:00+00:00")),
+            ("hard_expires_at", new NativeJsonString("2026-08-24T08:00:00+00:00"))));
+        var receivingRenewal = connection.ReceiveAsync(cancellationToken).AsTask();
+        await server.SendAsync(renewal);
+        _ = await receivingRenewal;
+    }
+
+    private static Task InvokeAsync(object target, string method, params object[] arguments) =>
+        ((ValueTask)target.GetType()
+            .GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(target, arguments)!).AsTask();
 
     private static NativeJsonObject Object(params (string Key, NativeJsonValue Value)[] pairs) =>
         new(pairs.Select(pair => new KeyValuePair<string, NativeJsonValue>(pair.Key, pair.Value)));
