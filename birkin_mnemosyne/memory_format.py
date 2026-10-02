@@ -10,6 +10,12 @@ from .json_types import JsonObject, JsonValue
 from .lexical import STEM_MARK, STEM_MIN, normalize_with_offsets, script
 
 
+def encode_source(source: str) -> str:
+    """Quote one source so commas, quotes, and backslashes survive a round trip."""
+    escaped = source.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 def compose_frontmatter(
     *,
     title: str,
@@ -24,7 +30,7 @@ def compose_frontmatter(
     version: int = 1,
 ) -> str:
     """Compose the original stable note-frontmatter representation."""
-    encoded_sources = ", ".join(f'"{source}"' for source in sources)
+    encoded_sources = ", ".join(encode_source(source) for source in sources)
     encoded_tags = ", ".join(str(tag) for tag in tags)
     expiry_line = f"expires_at: {expires_at}\n" if expires_at else ""
     return "".join(

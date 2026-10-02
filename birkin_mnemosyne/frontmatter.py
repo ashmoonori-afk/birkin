@@ -51,8 +51,23 @@ def _indent(s: str) -> int:
 def _split_commas(s: str) -> list[str]:
     out: list[str] = []
     depth = 0
+    quote: str | None = None
+    escaped = False
     buf: list[str] = []
     for ch in s:
+        if quote is not None:
+            buf.append(ch)
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                quote = None
+            continue
+        if ch in "\"'" and not (buf and buf[-1].strip()):
+            quote = ch
+            buf.append(ch)
+            continue
         if ch in "[{":
             depth += 1
         elif ch in "]}":
@@ -67,10 +82,26 @@ def _split_commas(s: str) -> list[str]:
     return [x.strip() for x in out if x.strip()]
 
 
+def _decode_quoted(s: str, quote: str) -> str:
+    if quote != "\"":
+        return s
+    out: list[str] = []
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if ch == "\\" and i + 1 < len(s) and s[i + 1] in "\\\"":
+            out.append(s[i + 1])
+            i += 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def _parse_value(s: str) -> JsonValue:
     s = s.strip()
     if len(s) >= 2 and s[0] in "\"'" and s[-1] == s[0]:
-        return s[1:-1]
+        return _decode_quoted(s[1:-1], s[0])
     if s.startswith("[") and s.endswith("]"):
         inner = s[1:-1].strip()
         return [_parse_value(x) for x in _split_commas(inner)] if inner else []
