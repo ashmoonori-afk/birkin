@@ -5,7 +5,7 @@ namespace Birkin.Native.Protocol.Projection;
 /// <summary>Replay hints for the next authenticated subscription.</summary>
 public sealed class NativeProjectionSubscription
 {
-    internal NativeProjectionSubscription(
+    public NativeProjectionSubscription(
         long afterCursor,
         string? knownInstanceId,
         IReadOnlyDictionary<string, long> surfaceRevisions,

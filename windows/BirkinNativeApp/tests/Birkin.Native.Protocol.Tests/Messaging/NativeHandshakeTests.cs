@@ -1,5 +1,6 @@
 using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Messaging;
+using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Protocol.Transport;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -61,6 +62,39 @@ public sealed class NativeHandshakeTests
             new[] { "chat.send", "office.create" },
             session.AdvertisedCommands.ToArray());
         Assert.IsInstanceOfType<IReadOnlySet<string>>(session.AdvertisedCommands);
+    }
+
+    [DataTestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void CreateSubscribe_WhenCanonicalRepair_ForcesSnapshotIdentity(bool isCanonicalRepair)
+    {
+        // Given
+        var session = NativeHandshake.ValidateReady(
+            Ready("client-1"),
+            new NativeHandshakeExpectation("client-1", Version, Announcement()));
+        var subscription = new NativeProjectionSubscription(
+            7,
+            InstanceId,
+            new Dictionary<string, long> { ["office"] = 3 },
+            isCanonicalRepair);
+
+        // When
+        var subscribe = NativeHandshake.CreateSubscribe(session, "client-2", subscription);
+
+        // Then
+        if (isCanonicalRepair)
+        {
+            Assert.IsInstanceOfType<NativeJsonNull>(subscribe.Body["known_instance_id"]);
+        }
+        else
+        {
+            Assert.AreEqual(InstanceId, String(subscribe.Body, "known_instance_id"));
+        }
+        Assert.AreEqual(7L, ((NativeJsonInteger)subscribe.Body["after_cursor"]!).Value);
+        var surfaces = (NativeJsonObject)subscribe.Body["surfaces"]!;
+        Assert.AreEqual(1, surfaces.Count);
+        Assert.AreEqual(3L, ((NativeJsonInteger)surfaces["office"]!).Value);
     }
 
     [DataTestMethod]
