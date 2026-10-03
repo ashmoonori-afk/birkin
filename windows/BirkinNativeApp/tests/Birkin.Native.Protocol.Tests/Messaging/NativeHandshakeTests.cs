@@ -1,5 +1,6 @@
 using Birkin.Native.Protocol.Framing;
 using Birkin.Native.Protocol.Messaging;
+using Birkin.Native.Protocol.Projection;
 using Birkin.Native.Protocol.Transport;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -64,6 +65,92 @@ public sealed class NativeHandshakeTests
     }
 
     [DataTestMethod]
+    [DataRow(true, true, 0L, DisplayName = "Canonical repair must request a replacement snapshot")]
+    [DataRow(true, true, 7L, DisplayName = "Canonical repair at a positive cursor stays canonical")]
+    [DataRow(false, true, 0L, DisplayName = "Ordinary replay keeps the known instance identity")]
+    [DataRow(false, true, 7L, DisplayName = "Ordinary replay at a positive cursor keeps the identity")]
+    [DataRow(true, false, 0L, DisplayName = "Canonical repair without identity stays null")]
+    [DataRow(false, false, 7L, DisplayName = "Ordinary replay without identity stays null")]
+    public void CreateSubscribe_WhenRepairOrReplayIsRequested_SerializesTheExactWireContract(
+        bool isCanonicalRepair,
+        bool hasKnownIdentity,
+        long afterCursor)
+    {
+        // Given
+        var session = NativeHandshake.ValidateReady(
+            Ready("client-1", commands: ["chat.send"]),
+            new NativeHandshakeExpectation("client-1", Version, Announcement()));
+        var subscription = new NativeProjectionSubscription(
+            afterCursor,
+            hasKnownIdentity ? InstanceId : null,
+            new Dictionary<string, long>(StringComparer.Ordinal) { ["office"] = 3 },
+            isCanonicalRepair);
+
+        // When
+        var subscribe = NativeHandshake.CreateSubscribe(session, "client-subscribe", subscription);
+
+        // Then
+        NativeBodyValidator.Validate(subscribe, NativeMessageOrigin.Client);
+        Assert.AreEqual(NativeMessageKind.Subscribe, subscribe.Kind);
+        Assert.AreEqual("client-subscribe", subscribe.Id);
+        Assert.IsNull(subscribe.InReplyTo);
+        CollectionAssert.AreEquivalent(
+            new[] { "session_id", "after_cursor", "known_instance_id", "session_capability", "surfaces" },
+            subscribe.Body.Pairs.Select(pair => pair.Key).ToArray());
+        Assert.AreEqual(session.SessionId, String(subscribe.Body, "session_id"));
+        Assert.AreEqual(session.Capability, String(subscribe.Body, "session_capability"));
+        Assert.AreEqual(afterCursor, ((NativeJsonInteger)subscribe.Body["after_cursor"]!).Value);
+        var surfaces = (NativeJsonObject)subscribe.Body["surfaces"]!;
+        Assert.AreEqual(1, surfaces.Count);
+        Assert.AreEqual(3L, ((NativeJsonInteger)surfaces["office"]!).Value);
+        if (isCanonicalRepair || !hasKnownIdentity)
+        {
+            Assert.IsInstanceOfType<NativeJsonNull>(subscribe.Body["known_instance_id"]);
+        }
+        else
+        {
+            Assert.IsInstanceOfType<NativeJsonString>(subscribe.Body["known_instance_id"]);
+            Assert.AreEqual(InstanceId, String(subscribe.Body, "known_instance_id"));
+        }
+    }
+
+    [TestMethod]
+    public void CreateSubscribe_WhenOnlyTheSessionIsKnown_StillRequestsTheInitialCanonicalSnapshot()
+    {
+        // Given / When
+        var session = NativeHandshake.ValidateReady(
+            Ready("client-1"),
+            new NativeHandshakeExpectation("client-1", Version, Announcement()));
+        var subscribe = NativeHandshake.CreateSubscribe(session, "client-2");
+        var rehydrated = NativeReconnect.Prepare(new NativeProjectionStore(), session.Identity);
+        var rehydratedSubscribe = NativeHandshake.CreateSubscribe(session, "client-3", rehydrated);
+
+        // Then
+        Assert.IsInstanceOfType<NativeJsonNull>(subscribe.Body["known_instance_id"]);
+        Assert.IsTrue(rehydrated.IsCanonicalRepair);
+        Assert.IsInstanceOfType<NativeJsonNull>(rehydratedSubscribe.Body["known_instance_id"]);
+    }
+
+    [TestMethod]
+    public void Prepare_WhenRehydratingALiveStore_MarksCanonicalRepairAsTheRepairPath()
+    {
+        // Given
+        var store = new NativeProjectionStore();
+        var identity = new NativeReadyIdentity("native-app", InstanceId, Version);
+        store.ApplySnapshot(Snapshot(InstanceId, cursor: 4), identity);
+
+        // When
+        var replay = NativeReconnect.Prepare(store, identity);
+        var repair = new NativeProjectionSubscription(4, InstanceId, store.SurfaceRevisions, isCanonicalRepair: true);
+
+        // Then
+        Assert.IsFalse(replay.IsCanonicalRepair);
+        Assert.AreEqual(InstanceId, replay.KnownInstanceId);
+        Assert.IsTrue(repair.IsCanonicalRepair);
+        Assert.AreNotEqual(replay.IsCanonicalRepair, repair.IsCanonicalRepair);
+    }
+
+    [DataTestMethod]
     [DataRow("chat.send", "chat.send")]
     [DataRow("bad command", "office.create")]
     public void ValidateReady_WhenCommandNamesAreDuplicateOrInvalid_FailsClosed(
@@ -118,6 +205,25 @@ public sealed class NativeHandshakeTests
                 ("commands", new NativeJsonArray((commands ?? []).Select(command => (NativeJsonValue)new NativeJsonString(command)))),
                 ("panels", new NativeJsonArray(Array.Empty<NativeJsonValue>())),
                 ("features", new NativeJsonObject()))),
+        }));
+
+    internal static NativeEnvelope Snapshot(string instanceId, long cursor) => new(
+        NativeMessageKind.Snapshot,
+        $"snapshot-{cursor}",
+        new NativeJsonObject(new KeyValuePair<string, NativeJsonValue>[]
+        {
+            new("protocol_version", new NativeJsonInteger(1)),
+            new("session_id", new NativeJsonString("native-app")),
+            new("cursor", new NativeJsonInteger(cursor)),
+            new("panels", new NativeJsonArray([])),
+            new("conversation", new NativeJsonArray([])),
+            new("composer", Object(("can_send", new NativeJsonBoolean(true)))),
+            new("status", new NativeJsonObject()),
+            new("working_memory", new NativeJsonObject()),
+            new("approval_policy", new NativeJsonObject()),
+            new("terminals", new NativeJsonArray([])),
+            new("instance_id", new NativeJsonString(instanceId)),
+            new("reset_reason", new NativeJsonString("initial")),
         }));
 
     internal static BridgeAnnouncement Announcement()
