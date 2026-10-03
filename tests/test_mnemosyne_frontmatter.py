@@ -399,11 +399,23 @@ def test_top_level_marker_does_not_affect_unrelated_quoted_fields() -> None:
     [
         ("---\nsources_encoding: json-v1\nsources: [oops\n---\n", "[oops"),
         ('---\nsources_encoding: json-v1\nsources: {"a": 1}\n---\n', '{"a": 1}'),
-        ('---\nsources_encoding: json-v1\nsources: "not a list"\n---\n', "not a list"),
-        ("---\nsources_encoding: json-v1\nsources: ['a', 'b']\n---\n", ["a", "b"]),
-        ("---\nsources_encoding: json-v1\nsources: [1, 2]\n---\n", [1, 2]),
-        ('---\nsources_encoding: json-v1\nsources: ["a", 2]\n---\n', ["a", 2]),
-        ('---\nsources_encoding: json-v1\nsources: [["a"]]\n---\n', [["a"]]),
+        (
+            '---\nsources_encoding: json-v1\nsources: "not a list"\n---\n',
+            '"not a list"',
+        ),
+        ("---\nsources_encoding: json-v1\nsources: ['a', 'b']\n---\n", "['a', 'b']"),
+        ("---\nsources_encoding: json-v1\nsources: [1, 2]\n---\n", "[1, 2]"),
+        ('---\nsources_encoding: json-v1\nsources: ["a", 2]\n---\n', '["a", 2]'),
+        ('---\nsources_encoding: json-v1\nsources: [["a"]]\n---\n', '[["a"]]'),
+        (
+            '---\nsources_encoding: json-v1\nsources: ["a' + BS + 'q"]\n---\n',
+            '["a' + BS + 'q"]',
+        ),
+        ("---\nsources_encoding: json-v1\nsources: true\n---\n", "true"),
+        (
+            "---\nsources_encoding: json-v1\nsources: plain, source\n---\n",
+            "plain, source",
+        ),
         ("---\nsources_encoding: json-v1\nsources: [not json\n---\n", "[not json"),
     ],
 )
@@ -413,6 +425,14 @@ def test_invalid_marked_sources_degrade_without_raising(
     meta = parse(text)[0]
     assert meta["sources"] == expected
     assert meta["sources_encoding"] == "json-v1"
+
+
+def test_marked_sources_without_a_json_array_are_never_reinterpreted() -> None:
+    legacy_shaped = "nav, path [with, bracket]"
+    text = "---\nsources_encoding: json-v1\nsources: " + legacy_shaped + "\n---\n"
+    assert parse(text)[0]["sources"] == legacy_shaped
+    empty = parse("---\nsources_encoding: json-v1\nsources: []\n---\n")[0]
+    assert empty["sources"] == []
 
 
 def test_marker_survives_a_rewrite_through_memory_io(tmp_path: Path) -> None:

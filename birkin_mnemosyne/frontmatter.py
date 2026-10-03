@@ -69,16 +69,17 @@ def _top_level_json_sources(lines: list[str]) -> bool:
     return found and marker == SOURCES_ENCODING_JSON_V1
 
 
-def _decode_json_sources(val: str) -> JsonValue | None:
-    """Decode a marked ``sources`` value, or return None to keep legacy parsing."""
+def _decode_json_sources(val: str) -> JsonValue:
+    """Decode a marked ``sources`` value, degrading to the raw string."""
+    stripped = val.strip()
     try:
-        decoded = load_json(val)
+        decoded = load_json(stripped)
     except json.JSONDecodeError:
-        return None
+        return stripped
     if not isinstance(decoded, list):
-        return None
+        return stripped
     if not all(isinstance(item, str) for item in decoded):
-        return None
+        return stripped
     return [str(item) for item in decoded]
 
 
@@ -175,6 +176,12 @@ def _parse_scalar(s: str, *, marked_sources: bool) -> JsonValue:
         return s
 
 
+def _parse_marked_sources(raw: str) -> JsonValue:
+    """Parse a marked ``sources`` line without any legacy reinterpretation."""
+    _key, sep, val = raw.partition(":")
+    return _decode_json_sources(val if sep else raw)
+
+
 def _parse_block(
     lines: list[str],
     i: int,
@@ -234,9 +241,11 @@ def _parse_block(
         key, _, val = content.partition(":")
         key = key.strip()
         val = val.strip()
-        if val:
-            is_sources = base == 0 and key == "sources" and marked_sources
-            mapping[key] = _parse_scalar(val, marked_sources=is_sources)
+        if base == 0 and marked_sources and key == "sources":
+            mapping[key] = _parse_marked_sources(raw)
+            i += 1
+        elif val:
+            mapping[key] = _parse_scalar(val, marked_sources=False)
             i += 1
         else:
             sub, i = _parse_block(lines, i + 1, ind + 1)
