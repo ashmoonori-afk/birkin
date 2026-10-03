@@ -105,22 +105,24 @@ def profile_lock(
     path = (root / ".profile.lock").resolve()
     local = _state(path)
     with local:
-        if _bump(path, 1) > 1:
-            try:
+        try:
+            if _bump(path, 1) > 1:
                 yield
-            finally:
-                _ = _bump(path, -1)
-            return
-        fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
-        with os.fdopen(fd, "r+b", buffering=0) as handle:
-            acquired = False
+                return
+            fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
             try:
-                _lock_file(handle, path, timeout)
-                acquired = True
-                yield
-            finally:
+                handle = os.fdopen(fd, "r+b", buffering=0)
+            except BaseException:
+                os.close(fd)
+                raise
+            with handle:
+                acquired = False
                 try:
+                    _lock_file(handle, path, timeout)
+                    acquired = True
+                    yield
+                finally:
                     if acquired:
                         _unlock_file(handle)
-                finally:
-                    _ = _bump(path, -1)
+        finally:
+            _ = _bump(path, -1)
