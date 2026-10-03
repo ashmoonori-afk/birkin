@@ -263,9 +263,9 @@ def reap_orphans(*, alive: Callable[[int | None], bool] = pid_alive,
         owner_alive = alive(owner)
         owner_generation = data.get("owner_generation")
         if owner_alive and owner_generation and isinstance(owner, int):
-            owner_alive = (
-                process_generation(owner) == owner_generation
-            )
+            current_owner_generation = process_generation(owner)
+            if current_owner_generation is not None:
+                owner_alive = current_owner_generation == owner_generation
         if owner_alive:
             continue                # a live birkin owns these — hands off
         dead_owners += 1

@@ -197,6 +197,81 @@ def test_reaper_refuses_child_without_recorded_generation(
     assert killed == []
 
 
+def test_reaper_spares_live_owner_with_unobservable_generation(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    procreg = _setup(tmp_path, monkeypatch)
+    from birkin import store
+
+    path = procreg._reg_path(424245)
+    store._write_json(
+        path,
+        {
+            "owner": 424245,
+            "owner_generation": "recorded-owner",
+            "children": [801],
+            "records": [
+                {"pid": 801, "process_generation": "generation-801"}
+            ],
+        },
+    )
+    before = path.read_bytes()
+    monkeypatch.setattr(
+        procreg,
+        "process_generation",
+        lambda pid: None if pid == 424245 else "generation-801",
+    )
+    killed: list[int] = []
+
+    result = procreg.reap_orphans(
+        alive=lambda pid: True,          # owner and child both live
+        kill=killed.append,
+    )
+
+    assert result == {"dead_owners": 0, "killed": 0}
+    assert killed == []                  # uncertain owner is not owner death
+    assert path.read_bytes() == before   # registry untouched
+
+
+def test_reaper_reaps_observable_owner_generation_mismatch(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    procreg = _setup(tmp_path, monkeypatch)
+    from birkin import store
+
+    path = procreg._reg_path(424246)
+    store._write_json(
+        path,
+        {
+            "owner": 424246,
+            "owner_generation": "recorded-owner",
+            "children": [901],
+            "records": [
+                {"pid": 901, "process_generation": "generation-901"}
+            ],
+        },
+    )
+    monkeypatch.setattr(
+        procreg,
+        "process_generation",
+        lambda pid: (
+            "reused-owner" if pid == 424246 else "generation-901"
+        ),
+    )
+    killed: list[int] = []
+
+    result = procreg.reap_orphans(
+        alive=lambda pid: True,
+        kill=killed.append,
+    )
+
+    assert result == {"dead_owners": 1, "killed": 1}
+    assert killed == [901]               # PID-reuse guard still reaps
+    assert not path.exists()
+
+
 def test_kill_tree_resolves_windows_taskkill_absolutely(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
