@@ -24,10 +24,23 @@ EXPECTED_JOBS = {
     "dotnet-portable",
     "wpf-windows",
     "live-bridge-window",
+    "canonical-repair-bridge",
     "protocol-fixture-freshness",
     "swift-conformance",
     "provider-office-gate",
 }
+CANONICAL_REPAIR_CLASS = (
+    "Birkin.Native.Protocol.Tests.Transport.CanonicalRepairBridgeIntegrationTests"
+)
+CANONICAL_REPAIR_MATRIX = [
+    {"os": "ubuntu-latest", "python": "3.10"},
+    {"os": "ubuntu-latest", "python": "3.11"},
+    {"os": "ubuntu-latest", "python": "3.13"},
+    {"os": "macos-latest", "python": "3.11"},
+    {"os": "macos-latest", "python": "3.13"},
+    {"os": "windows-latest", "python": "3.11"},
+    {"os": "windows-latest", "python": "3.13"},
+]
 PORTABLE_OSES = ["ubuntu-latest", "macos-latest", "windows-latest"]
 PYTHON_DESELECTIONS = {
     "tests/test_native_transport.py::test_uds_listener_rejects_symlinked_parent",
@@ -398,6 +411,92 @@ def test_live_job_bounds_hangs_and_uploads_all_diagnostics() -> None:
     assert upload_config["path"] == "windows/BirkinNativeApp/**/TestResults/**"
     assert upload_config["if-no-files-found"] == "error"
     assert upload_config["retention-days"] == 7
+
+
+def test_canonical_repair_bridge_runs_the_real_recovery_tests_in_automatic_ci() -> None:
+    job = _job(_workflow(), "canonical-repair-bridge")
+    assert job["runs-on"] == "${{ matrix.os }}"
+    assert "if" not in job
+    strategy = _mapping(job["strategy"])
+    assert strategy["fail-fast"] is False
+    assert _mapping(strategy["matrix"])["include"] == CANONICAL_REPAIR_MATRIX
+    env = _mapping(job["env"])
+    assert env["PYTHONUTF8"] == "1"
+    assert env["UV_NO_SYNC"] == "1"
+    assert "environment" not in job
+    assert "${{ secrets." not in str(job)
+
+    steps = _steps(job)
+    python_index, python = next(
+        (index, step)
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/setup-python@")
+    )
+    assert _mapping(python["with"])["python-version"] == "${{ matrix.python }}"
+    uv_index = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("astral-sh/setup-uv@")
+    )
+    dotnet_index = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("uses", "")).startswith("actions/setup-dotnet@")
+    )
+    assert _mapping(steps[dotnet_index]["with"])["dotnet-version"] == "8.x"
+    project = "windows/BirkinNativeApp/tests/Birkin.Native.Protocol.Tests/Birkin.Native.Protocol.Tests.csproj"
+    sync_index = next(
+        index
+        for index, step in enumerate(steps)
+        if step.get("run") == 'uv sync --frozen --python "${{ matrix.python }}" --all-extras --all-groups'
+    )
+    restore_index = next(
+        index for index, step in enumerate(steps) if step.get("run") == f"dotnet restore {project}"
+    )
+    test_index = next(
+        index
+        for index, step in enumerate(steps)
+        if str(step.get("run", "")).startswith("dotnet test ")
+    )
+    assert python_index < uv_index < dotnet_index < sync_index < restore_index < test_index
+
+    test_command = _normalized(cast(str, steps[test_index]["run"]))
+    assert test_command == " ".join(
+        (
+            f"dotnet test {project} -c Release --no-restore",
+            f'--filter "FullyQualifiedName~{CANONICAL_REPAIR_CLASS}"',
+            '--logger "trx;LogFileName=canonical-repair.trx"',
+            "--results-directory TestResults/canonical-repair",
+        )
+    )
+    assert PORTABLE_FILTER not in test_command
+    assert "TestCategory=LiveBridge" not in test_command
+    assert "Birkin.Native.App.Tests" not in test_command
+
+    verification = _normalized(cast(str, steps[test_index + 1]["run"]))
+    assert steps[test_index + 1]["shell"] == "python"
+    assert 'f"{{{namespace}}}TestMethod"' in verification
+    assert "Results/{{{namespace}}}UnitTestResult" in verification
+    assert "len(executed) != 2" in verification
+    assert 'outcome != "Passed"' in verification
+    assert "TestResults/canonical-repair" in verification
+    for method in (
+        "HeartbeatRepair_AtCurrentCursor_ReceivesRealSnapshotAndRestoresMutations",
+        "HeartbeatRepair_WithRetainedEvents_ReceivesRealSnapshotAndRestoresMutations",
+    ):
+        assert method in cast(str, steps[test_index + 1]["run"])
+
+    uploads = [
+        step
+        for step in steps
+        if str(step.get("uses", "")).startswith("actions/upload-artifact@")
+    ]
+    assert len(uploads) == 1
+    assert uploads[0]["if"] == "always()"
+    upload_config = _mapping(uploads[0]["with"])
+    assert upload_config["name"] == "canonical-repair-${{ matrix.os }}-${{ matrix.python }}"
+    assert upload_config["path"] == "TestResults/canonical-repair"
+    assert upload_config["if-no-files-found"] == "error"
 
 
 def test_swift_job_runs_the_full_package_suite() -> None:

@@ -149,7 +149,10 @@ public static class NativeHandshake
             Object(
                 ("session_id", new NativeJsonString(session.SessionId)),
                 ("after_cursor", new NativeJsonInteger(subscription.AfterCursor)),
-                ("known_instance_id", subscription.KnownInstanceId is null
+                // Canonical repair needs a replacement snapshot, not
+                // contiguous retained-event replay: a null identity makes
+                // the server choose its snapshot branch at any cursor.
+                ("known_instance_id", subscription.IsCanonicalRepair || subscription.KnownInstanceId is null
                     ? NativeJsonNull.Value
                     : new NativeJsonString(subscription.KnownInstanceId)),
                 ("session_capability", new NativeJsonString(session.Capability)),
