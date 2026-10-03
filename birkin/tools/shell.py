@@ -20,11 +20,17 @@ from ._types import Tool, ToolContext, ToolResult
 # the full output to disk first — slicing it away here would destroy it.
 MAX_OUTPUT = 5_000_000
 DEFAULT_TIMEOUT = 120
+# Conservative literal-name detection, not a cmd parser and not a complete
+# interpreter-execution sandbox: variable expansion, caret escaping,
+# concatenation, renamed executables, and arbitrary child processes are out of
+# scope. Detecting the executable basename anywhere -- rather than enumerating
+# wrapper grammars -- keeps ordinary FOR/IF bodies, `@`, grouping, nesting, and
+# paths inside the gate; shellguard's hardline tier still wins first.
 _POWERSHELL_SEGMENT = re.compile(
     (
-        r"(?:^|[;&|]\s*|\bcmd(?:\.exe)?\s+/[ck]\s+)"
-        + r"(?:call\s+)?(?:\"?[^\s\";&|]*[\\/])?"
-        + r"(?:powershell|pwsh)(?:\.exe)?(?:\"|\s|$)"
+        r"(?:^|[\s@\"'()\\/;,&|<>=:])"
+        + r"(?:powershell|pwsh)(?:\.exe)?"
+        + r"(?=$|[\s\"'();,&|<>=])"
     ),
     re.IGNORECASE,
 )
