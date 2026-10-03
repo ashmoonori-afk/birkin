@@ -523,4 +523,6 @@ pytest
 
 Native and browser suites have additional platform requirements; use their linked guides rather than treating a focused local pass as cross-platform acceptance.
 
+Threaded native control tests synchronize on exact events and correlated replies within one shared deadline, including reader and server cleanup, rather than requiring each worker to start within one second.
+
 Birkin is released under the [MIT License](./LICENSE). Third-party attribution and terms are recorded in [NOTICE](./NOTICE), `LICENSES/`, and the Office [third-party notices](./birkin/office/adapters/THIRD_PARTY_NOTICES.md).

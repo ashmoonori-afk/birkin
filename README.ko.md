@@ -545,4 +545,6 @@ pytest
 
 Native와 Browser test에는 플랫폼별 준비가 더 필요합니다. 일부 로컬 test 통과를 여러 플랫폼의 전체 인수로 해석하지 말고 위의 문서를 따라 확인하십시오.
 
+스레드를 사용하는 Native 제어 테스트는 작업마다 1초 안에 시작할 것을 요구하지 않고, 하나의 공통 제한시간 안에서 정확한 이벤트와 요청별 응답을 기다리며 응답 읽기와 서버 정리까지 확인합니다.
+
 Birkin은 [MIT License](./LICENSE)로 배포합니다. 외부 구성 요소의 저작권과 조건은 [NOTICE](./NOTICE), `LICENSES/`, Office [third-party notice](./birkin/office/adapters/THIRD_PARTY_NOTICES.md)에 기록돼 있습니다.

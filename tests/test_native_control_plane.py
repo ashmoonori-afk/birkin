@@ -29,6 +29,7 @@ _TEST_DEADLINE_SECONDS: Final = 20.0
 def test_controls_execute_with_canonical_authority_during_active_normal_command(
     tmp_path: Path,
 ) -> None:
+    deadline = ThreadDeadline.after(_TEST_DEADLINE_SECONDS)
     turn_started = threading.Event()
     release_turn = threading.Event()
     interrupted = threading.Event()
@@ -38,8 +39,7 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
 
     def chat_send(payload: dict[str, object]) -> dict[str, object]:
         turn_started.set()
-        if not release_turn.wait(timeout=10):
-            raise AssertionError("test did not release active turn")
+        deadline.wait_for(release_turn, "active turn release")
         return {"reply": str(payload["text"])}
 
     def interrupt(_payload: dict[str, object]) -> dict[str, object]:
@@ -71,32 +71,31 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
         },
     )
     server_socket, client = socket.socketpair()
-    client.settimeout(2)
+    client.settimeout(deadline.remaining)
     thread, errors = serve(
         bridge, server_socket, transport="uds", peer_uid=local_peer_uid()
     )
     token = handshake(client)
-    client.settimeout(0)
     replies = CorrelatedFrameReader(client, token)
     try:
         _send(client, token, "chat.send", "turn", 0, {"text": "work"})
-        assert turn_started.wait(timeout=1)
+        deadline.wait_for(turn_started, "normal lane admission")
 
         cursor = source.snapshot().cursor
         replies.expect("interrupt")
         _send(client, token, "chat.interrupt", "interrupt", cursor, {})
-        assert replies.receive("interrupt").kind == "receipt"
+        assert replies.receive("interrupt", timeout=deadline.remaining).kind == "receipt"
         assert resumed.is_set() is False
 
         cursor = source.snapshot().cursor
         replies.expect("steer")
         _send(client, token, "chat.steer", "steer", cursor, {"text": "check tests"})
-        assert replies.receive("steer").kind == "receipt"
+        assert replies.receive("steer", timeout=deadline.remaining).kind == "receipt"
 
         cursor = source.snapshot().cursor
         replies.expect("resume")
         _send(client, token, "chat.resume", "resume", cursor, {})
-        assert replies.receive("resume").kind == "receipt"
+        assert replies.receive("resume", timeout=deadline.remaining).kind == "receipt"
 
         replies.expect("second-normal")
         _send(
@@ -107,7 +106,7 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
             source.snapshot().cursor,
             {"text": "no"},
         )
-        refusal = replies.receive("second-normal")
+        refusal = replies.receive("second-normal", timeout=deadline.remaining)
         assert refusal.body["code"] == "E_FLOW_VIOLATION"
 
         replies.expect("wrong-scope")
@@ -120,7 +119,7 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
             {},
             view_id="other",
         )
-        scope_error = replies.receive("wrong-scope")
+        scope_error = replies.receive("wrong-scope", timeout=deadline.remaining)
         assert scope_error.body["code"] == "E_CAPABILITY_SCOPE"
         assert [event.type for event in source.events()].count("turn.interrupted") == 1
 
@@ -135,8 +134,8 @@ def test_controls_execute_with_canonical_authority_during_active_normal_command(
         ]
     finally:
         release_turn.set()
-        replies.close()
-        thread.join(timeout=3)
+        replies.close(timeout=deadline.remaining)
+        deadline.join(thread, "server shutdown")
     assert (thread.is_alive(), errors) == (False, [])
 
 
