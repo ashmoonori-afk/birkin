@@ -1,7 +1,10 @@
+import copy
+import importlib.resources
 import json
 from datetime import datetime, timedelta
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from birkin import config, cron, store
 
@@ -152,9 +155,123 @@ def test_legacy_migration_rereads_after_acquiring_lock(
     assert [job["id"] for job in jobs] == ["legacy", "concurrent"]
 
 
-def test_cron_schema_declares_exact_schedule_variants() -> None:
-    import importlib.resources
+@pytest.fixture(scope="function")
+def cron_job_schema_validator() -> Draft202012Validator:
+    """Validator over the shipped cron job schema resource."""
+    schema = json.loads(
+        importlib.resources.files("birkin").joinpath(
+            "schemas/cron-job-v1.schema.json"
+        ).read_text(encoding="utf-8")
+    )
+    Draft202012Validator.check_schema(schema)
+    return Draft202012Validator(schema)
 
+
+@pytest.fixture(scope="function")
+def versioned_daily_job() -> dict:
+    """A complete schema_version=1 daily record, freshly built per test."""
+    return {
+        "schema_version": 1,
+        "id": "tz-daily",
+        "name": "tz-daily",
+        "hour": 9,
+        "minute": 0,
+        "type": "shell",
+        "value": "echo hi",
+        "enabled": True,
+        "deliver_chat_id": None,
+        "created": "2026-05-28T08:00:00+00:00",
+        "last_run": None,
+        "schedule": {
+            "kind": "daily",
+            "display": "09:00",
+            "hour": 9,
+            "minute": 0,
+        },
+        "next_run": "2026-05-29T00:00:00+00:00",
+    }
+
+
+OTHER_SCHEDULES = [
+    {"kind": "interval", "display": "hourly", "minutes": 60},
+    {
+        "kind": "once",
+        "display": "once",
+        "run_at": "2026-05-29T09:00:00+00:00",
+    },
+    {"kind": "cron", "display": "daily", "expr": "0 9 * * *"},
+]
+
+
+@pytest.mark.parametrize("timezone", ["Asia/Seoul", None])
+def test_cron_schema_accepts_daily_timezone(
+    cron_job_schema_validator, versioned_daily_job, timezone
+) -> None:
+    job = copy.deepcopy(versioned_daily_job)
+    job["schedule"]["timezone"] = timezone
+
+    assert cron._validate_job(job, 0) == job
+    cron_job_schema_validator.validate(job)
+
+
+def test_cron_schema_accepts_daily_without_timezone(
+    cron_job_schema_validator, versioned_daily_job
+) -> None:
+    job = copy.deepcopy(versioned_daily_job)
+
+    assert "timezone" not in job["schedule"]
+    assert cron._validate_job(job, 0) == job
+    cron_job_schema_validator.validate(job)
+
+
+@pytest.mark.parametrize("timezone", [7, True, [], {}])
+def test_cron_schema_rejects_invalid_daily_timezone(
+    cron_job_schema_validator, versioned_daily_job, timezone
+) -> None:
+    from jsonschema import ValidationError
+
+    job = copy.deepcopy(versioned_daily_job)
+    job["schedule"]["timezone"] = timezone
+
+    with pytest.raises(ValidationError):
+        cron_job_schema_validator.validate(job)
+
+
+@pytest.mark.parametrize(
+    "schedule", OTHER_SCHEDULES, ids=[s["kind"] for s in OTHER_SCHEDULES]
+)
+@pytest.mark.parametrize("timezone", ["Asia/Seoul", None])
+def test_cron_schema_timezone_stays_scoped_to_daily(
+    cron_job_schema_validator, versioned_daily_job, schedule, timezone
+) -> None:
+    from jsonschema import ValidationError
+
+    control = copy.deepcopy(versioned_daily_job)
+    control["schedule"] = copy.deepcopy(schedule)
+    assert cron._validate_job(control, 0) == control
+    cron_job_schema_validator.validate(control)
+
+    job = copy.deepcopy(control)
+    job["schedule"]["timezone"] = timezone
+    with pytest.raises(cron.CronFormatError):
+        cron._validate_job(job, 0)
+    with pytest.raises(ValidationError):
+        cron_job_schema_validator.validate(job)
+
+
+def test_cron_schema_daily_rejects_unknown_fields(
+    cron_job_schema_validator, versioned_daily_job
+) -> None:
+    from jsonschema import ValidationError
+
+    job = copy.deepcopy(versioned_daily_job)
+    job["schedule"]["surprise"] = True
+
+    with pytest.raises(ValidationError):
+        cron_job_schema_validator.validate(job)
+
+
+def test_cron_schema_declares_exact_schedule_variants() -> None:
     schema = json.loads(
         importlib.resources.files("birkin").joinpath(
             "schemas/cron-job-v1.schema.json"

@@ -39,7 +39,8 @@
             "kind": {"const": "daily"},
             "display": {"type": "string"},
             "hour": {"type": "integer", "minimum": 0, "maximum": 23},
-            "minute": {"type": "integer", "minimum": 0, "maximum": 59}
+            "minute": {"type": "integer", "minimum": 0, "maximum": 59},
+            "timezone": {"type": ["string", "null"]}
           },
           "additionalProperties": false
         },
