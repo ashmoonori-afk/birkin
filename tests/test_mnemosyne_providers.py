@@ -16,7 +16,6 @@ fires when CI exports ``PYTHONUTF8=1``).
 
 from __future__ import annotations
 
-import subprocess
 import sys
 
 import pytest
@@ -49,22 +48,19 @@ _EMPTY_STDIN_CHILD = (
 
 
 @pytest.fixture
-def legacy_default_codec(monkeypatch):
+def default_codec(monkeypatch):
     """Force implicit subprocess text I/O onto cp949, mid-pytest.
 
-    ``subprocess.run`` reads the default text codec from the *live* locale, so
-    pytest's capture machinery has already pinned it to UTF-8 by the time a test
-    runs. Patching ``locale.getpreferredencoding`` is the only portable, public
-    way to make "no explicit encoding" select a legacy codec again; on Python
-    3.10 there is no ``subprocess._text_encoding`` to patch at all.
+    The parent's default subprocess codec is what the production call must not
+    depend on, and the interpreter picks it in ways a test cannot set from the
+    outside (``PYTHONUTF8=1`` pins it to UTF-8 regardless of the locale; on
+    Python 3.13 ``locale.getpreferredencoding`` is bypassed entirely). So the
+    codec is injected where it is actually consulted: the public
+    ``subprocess.run`` boundary. The forwarding call keeps child execution, pipe
+    transport, decoding, and return status untouched, and changes only the
+    implicit codec selection - which is exactly the regression under test.
     """
-    import locale
-
     real_run = providers.subprocess.run
-    real_getpreferredencoding = locale.getpreferredencoding
-
-    def force_cp949(do_setlocale=True):
-        return "cp949"
 
     def forwarding_run(*args, **kwargs):
         if kwargs.get("encoding") is None:
@@ -72,15 +68,13 @@ def legacy_default_codec(monkeypatch):
         return real_run(*args, **kwargs)
 
     monkeypatch.setattr(providers.subprocess, "run", forwarding_run)
-    monkeypatch.setattr(locale, "getpreferredencoding", force_cp949)
     yield
     monkeypatch.undo()
     assert providers.subprocess.run is real_run
-    assert locale.getpreferredencoding is real_getpreferredencoding
 
 
 @pytest.mark.parametrize("prompt", [SAMPLE, "plain ascii prompt"])
-def test_run_sends_prompt_as_utf8_bytes(legacy_default_codec, prompt):
+def test_run_sends_prompt_as_utf8_bytes(default_codec, prompt):
     """The child must receive the prompt's UTF-8 bytes, whatever the locale is.
 
     The hex assertion is deliberate: a codec mismatch on both ends could still
@@ -92,7 +86,7 @@ def test_run_sends_prompt_as_utf8_bytes(legacy_default_codec, prompt):
     assert (out, err, code) == (prompt.encode("utf-8").hex(), "", 0)
 
 
-def test_run_decodes_child_utf8_streams(legacy_default_codec):
+def test_run_decodes_child_utf8_streams(default_codec):
     """Child UTF-8 on both streams must decode exactly, exit status preserved."""
     out, err, code = providers._run(
         [sys.executable, "-c", _UTF8_STREAMS_CHILD], stdin=None, timeout=30)
@@ -100,7 +94,7 @@ def test_run_decodes_child_utf8_streams(legacy_default_codec):
     assert (out, err, code) == (SAMPLE, SAMPLE, 7)
 
 
-def test_run_keeps_empty_stdin_and_replacement_decoding(legacy_default_codec):
+def test_run_keeps_empty_stdin_and_replacement_decoding(default_codec):
     """Empty stdin stays empty and undecodable output stays tolerant."""
     out, err, code = providers._run(
         [sys.executable, "-c", _EMPTY_STDIN_CHILD], stdin="", timeout=30)
@@ -108,20 +102,25 @@ def test_run_keeps_empty_stdin_and_replacement_decoding(legacy_default_codec):
     assert (out, err, code) == ("ok\ufffd", "err\ufffd", 0)
 
 
-def test_default_codec_injection_would_actually_corrupt(monkeypatch):
+def test_default_codec_injection_would_actually_corrupt(default_codec, monkeypatch):
     """Guard the harness: without the production encoding, cp949 corrupts.
 
-    This is the negative control for the fixture above. It calls the real
-    ``subprocess.run`` with cp949 forced and no explicit encoding, proving the
-    injected codec really reaches pipe encoding/decoding on this interpreter.
+    This is the negative control for the fixture above. It drops the production
+    ``encoding`` through the same public forwarding boundary, so it fails only
+    if the injected codec really reaches pipe encoding/decoding on this
+    interpreter - which keeps the two multilingual assertions above meaningful.
     """
-    import locale
+    real_run = providers.subprocess.run
 
-    monkeypatch.setattr(locale, "getpreferredencoding", lambda do_setlocale=True: "cp949")
+    def drop_encoding(*args, **kwargs):
+        kwargs.pop("encoding", None)
+        return real_run(*args, **kwargs)
 
-    proc = subprocess.run([sys.executable, "-c", _HEX_STDIN_CHILD],
-                          input=SAMPLE, capture_output=True, text=True,
-                          errors="replace", timeout=30)
+    monkeypatch.setattr(providers.subprocess, "run", drop_encoding)
 
-    assert proc.stdout != SAMPLE.encode("utf-8").hex()
-    assert SAMPLE.encode("cp949", "replace").hex() == proc.stdout
+    out, err, code = providers._run(
+        [sys.executable, "-c", _HEX_STDIN_CHILD], stdin=SAMPLE, timeout=30)
+
+    assert (err, code) == ("", 0)
+    assert out != SAMPLE.encode("utf-8").hex()
+    assert out == SAMPLE.encode("cp949", "replace").hex()
