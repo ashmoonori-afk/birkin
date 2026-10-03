@@ -22,6 +22,7 @@ clean text -- the overwhelmingly common case -- never pays for the full scan.
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -60,11 +61,30 @@ _PRIVATE_KEY_RE = re.compile(
     r"-----END [A-Z ]*PRIVATE KEY-----")
 
 # Assignment whose *name* claims the value is a secret. Gated on the name so a
-# plain ``count = 12345`` is never touched.
+# plain ``count = 12345`` is never touched. The name vocabulary is shared with
+# the JSON key form below, so the two paths cannot drift apart.
+_SECRET_NAME = (
+    r"[A-Za-z0-9_.\-]*(?:api[_\-]?key|secret|password|passwd|token|"
+    r"credential|access[_\-]?key)[A-Za-z0-9_.\-]*"
+)
 _SECRET_ASSIGN_RE = re.compile(
-    r"(?i)\b([A-Za-z0-9_.\-]*(?:api[_\-]?key|secret|password|passwd|token|"
-    r"credential|access[_\-]?key)[A-Za-z0-9_.\-]*)"
+    r"(?i)\b(" + _SECRET_NAME + r")"
     r"(\s*[=:]\s*)([\"']?)([^\s\"'#,;{}()]{6,})")
+
+# One complete JSON string token, quotes included: no raw control character may
+# appear unescaped, and every escape is a valid JSON escape. A token that is
+# *not* validated this way could not be handed to ``json.loads`` safely.
+_JSON_TOKEN = r'"(?:[^"\\\x00-\x1f]|\\(?:["\\/bfnrt]|u[0-9A-Fa-f]{4}))*"'
+
+# A JSON pair is a key token, then a colon, then a value token. The optional
+# group wraps BOTH the separator and the value, so a standalone token yields
+# ``None`` for each and is never mistaken for a pair.
+_JSON_PAIR_RE = re.compile(
+    "(" + _JSON_TOKEN + ")(?:([ \t\r\n]*:[ \t\r\n]*)(" + _JSON_TOKEN + "))?"
+)
+
+# The decoded JSON key, so ``"pass\u0077ord"`` counts as ``password``.
+_SECRET_JSON_KEY_RE = re.compile("^(?i:" + _SECRET_NAME + ")$")
 
 # A programmatic lookup references a variable *name*, not secret material.
 # Masking it corrupts code and config snippets (hermes issue #2852):
@@ -72,7 +92,6 @@ _SECRET_ASSIGN_RE = re.compile(
 _CODE_VALUE_RE = re.compile(
     r"(?i)^(?:os\.|process\.|env\.|environ|getenv|self\.|this\.|"
     r"config\.|settings\.|\$|%|<)")
-
 
 def _has_prefix(text: str) -> bool:
     return any(prefix in text for prefix in _PREFIXES)
@@ -90,6 +109,29 @@ def _mask_assignment(match: re.Match) -> str:
     return f"{name}{sep}{quote}{SENTINEL}{quote}"
 
 
+def _mask_json_pair(match: re.Match) -> str:
+    """Mask a JSON credential *value*, leaving the key and formatting alone.
+
+    Only a complete pair is considered. A standalone token -- including an
+    escaped ``\"password\": \"...\"`` example sitting inside an unrelated
+    string -- never becomes a candidate key, because it has no separator group.
+    """
+    key, sep, value = match.group(1, 2, 3)
+    if sep is None or value is None:
+        return match.group(0)
+    try:
+        decoded = json.loads(key)
+    except ValueError:
+        return match.group(0)
+    if not isinstance(decoded, str) or not _SECRET_JSON_KEY_RE.match(decoded):
+        return match.group(0)
+    # A JSON string is a *value*, not a lookup: a programmatic expression kept
+    # intact merely because the tool echoed a rendered config is a leak, so
+    # every string value of a credential key is masked in full.
+    # The whole value token, quotes included: never a prefix or a suffix.
+    return f'{key}{sep}"{SENTINEL}"'
+
+
 def redact_sensitive_text(text: str) -> str:
     """Return ``text`` with credential material replaced by sentinels.
 
@@ -99,6 +141,10 @@ def redact_sensitive_text(text: str) -> str:
     if not text:
         return text
     out = text
+    # JSON first: an escaped example inside a plain string is consumed as a
+    # token here, so the later passes keep seeing exactly what they saw before.
+    if '"' in out and ":" in out:
+        out = _JSON_PAIR_RE.sub(_mask_json_pair, out)
     if "-----BEGIN" in out:
         out = _PRIVATE_KEY_RE.sub(SENTINEL, out)
     if _has_prefix(out):
