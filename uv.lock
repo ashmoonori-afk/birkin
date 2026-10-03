@@ -152,7 +152,6 @@ desktop = [
     { name = "pywinctl", marker = "sys_platform == 'linux'" },
 ]
 dev = [
-    { name = "jsonschema" },
     { name = "openai", extra = ["realtime", "voice-helpers"] },
     { name = "openpyxl" },
     { name = "pexpect" },
@@ -229,7 +228,6 @@ dev = [
     { name = "bandit" },
     { name = "basedpyright" },
     { name = "build" },
-    { name = "jsonschema" },
     { name = "pexpect" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -244,7 +242,6 @@ requires-dist = [
     { name = "defusedxml", marker = "extra == 'office'", specifier = ">=0.7,<1" },
     { name = "docling", marker = "extra == 'office-docling'", specifier = ">=2.50,<3" },
     { name = "httpx", specifier = ">=0.28,<1" },
-    { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'full'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'office'", specifier = ">=4.23,<5" },
     { name = "jsonschema", marker = "extra == 'research'", specifier = ">=4.23,<5" },
@@ -315,7 +312,6 @@ dev = [
     { name = "bandit", specifier = ">=1.8" },
     { name = "basedpyright", specifier = ">=1.31" },
     { name = "build", specifier = ">=1.2" },
-    { name = "jsonschema", specifier = ">=4.23,<5" },
     { name = "pexpect", specifier = ">=4.9,<5" },
     { name = "pytest", specifier = ">=8" },
     { name = "pytest-cov", specifier = ">=5" },

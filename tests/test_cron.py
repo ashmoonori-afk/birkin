@@ -4,9 +4,15 @@ import json
 from datetime import datetime, timedelta
 
 import pytest
-from jsonschema import Draft202012Validator
 
 from birkin import config, cron, store
+
+# jsonschema is an optional P3 distribution declared by the office, research,
+# work and full extras. Only the office CI job installs it, so a `dev`-only
+# environment must skip the schema-parity tests instead of failing to import.
+_jsonschema = pytest.importorskip("jsonschema")
+Draft202012Validator = _jsonschema.Draft202012Validator
+ValidationError = _jsonschema.ValidationError
 
 
 def test_add_and_load_job():
@@ -228,8 +234,6 @@ def test_cron_schema_accepts_daily_without_timezone(
 def test_cron_schema_rejects_invalid_daily_timezone(
     cron_job_schema_validator, versioned_daily_job, timezone
 ) -> None:
-    from jsonschema import ValidationError
-
     job = copy.deepcopy(versioned_daily_job)
     job["schedule"]["timezone"] = timezone
 
@@ -244,8 +248,6 @@ def test_cron_schema_rejects_invalid_daily_timezone(
 def test_cron_schema_timezone_stays_scoped_to_daily(
     cron_job_schema_validator, versioned_daily_job, schedule, timezone
 ) -> None:
-    from jsonschema import ValidationError
-
     control = copy.deepcopy(versioned_daily_job)
     control["schedule"] = copy.deepcopy(schedule)
     assert cron._validate_job(control, 0) == control
@@ -262,8 +264,6 @@ def test_cron_schema_timezone_stays_scoped_to_daily(
 def test_cron_schema_daily_rejects_unknown_fields(
     cron_job_schema_validator, versioned_daily_job
 ) -> None:
-    from jsonschema import ValidationError
-
     job = copy.deepcopy(versioned_daily_job)
     job["schedule"]["surprise"] = True
 
