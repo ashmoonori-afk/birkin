@@ -46,8 +46,10 @@ PR104_REJECTION_COMMANDS = [
     'cmd /c "(powershell)"',
 ]
 
-# Invocations terminated by a trailing boundary character that no integration
-# case above already covers.
+# Invocations terminated by a trailing boundary character that no wrapper
+# case above already covers: that character must sit immediately AFTER the
+# executable and before a distinct shell separator, so the exit is the only
+# thing separating the literal name from the rest of the command.
 TRAILING_BOUNDARY_COMMANDS = [
     "echo hi\tpwsh",
     "echo pwsh\n",
@@ -56,11 +58,15 @@ TRAILING_BOUNDARY_COMMANDS = [
     "echo hi'pwsh.exe'",
     "echo hi(powershell",
     "(powershell)",
-    "echo hi,powershell",
-    "echo hi|powershell",
-    "echo hi<powershell",
-    "echo hi>powershell",
-    "echo hi=powershell",
+    "echo hi,powershell;echo AUDIT_PROBE",
+    "echo hi;powershell;echo AUDIT_PROBE",
+    "echo hi,powershell,echo AUDIT_PROBE",
+    "echo hi(powershell(echo AUDIT_PROBE",
+    "echo hi|powershell;echo AUDIT_PROBE",
+    "echo hi=powershell=echo AUDIT_PROBE",
+    "echo hi<powershell;echo AUDIT_PROBE",
+    "echo hi<powershell>echo AUDIT_PROBE",
+    "echo hi>powershell;echo AUDIT_PROBE",
     "echo hi>(pwsh.exe)",
 ]
 
@@ -337,16 +343,32 @@ def test_powershell_config_opt_in_allows_execution(
     assert runner.calls == ["powershell -NoProfile -Command Get-Date"]
 
 
-def test_trailing_boundary_matcher_accepts_adjacent_separators() -> None:
-    pattern = shell_mod._POWERSHELL_SEGMENT  # pyright: ignore[reportPrivateUsage]
-    for command in TRAILING_BOUNDARY_COMMANDS:
-        assert pattern.search(command), command
+@pytest.mark.parametrize("command", TRAILING_BOUNDARY_COMMANDS)
+def test_trailing_boundary_invocations_queue_one_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    runner = _mock_runner(monkeypatch)
+    registry = _registry(
+        tmp_path,
+        {
+            "shell_approval": "off",
+            "auto_approve": ["shell"],
+        },
+    )
 
+    result = registry.execute("run_shell", {"command": command})
 
-def test_matcher_still_rejects_continued_filenames() -> None:
-    pattern = shell_mod._POWERSHELL_SEGMENT  # pyright: ignore[reportPrivateUsage]
-    for command in COMPATIBILITY_COMMANDS:
-        assert not pattern.search(command), command
+    pending = store.list_pending()
+    assert result.is_error
+    assert runner.calls == []
+    assert len(pending) == 1
+    operation = _record_operation(pending[0])
+    assert operation["gate"] == "powershell_opt_in"
+    assert operation["tool"] == "run_shell"
+    assert _operation_command(operation) == command
+    assert _operation_cwd(operation) == str(tmp_path.resolve())
 
 
 def test_manual_approval_runs_exact_powershell_command_once(
@@ -441,7 +463,17 @@ def test_wrapper_approval_binds_the_exact_command(
     assert runner.calls == [first]
 
 
-def test_matcher_rejects_non_invocations() -> None:
-    pattern = shell_mod._POWERSHELL_SEGMENT  # pyright: ignore[reportPrivateUsage]
-    for command in NO_INVOCATION_COMMANDS:
-        assert not pattern.search(command), command
+@pytest.mark.parametrize("command", NO_INVOCATION_COMMANDS)
+def test_non_invocations_execute_without_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    command: str,
+) -> None:
+    runner = _mock_runner(monkeypatch)
+    registry = _registry(tmp_path, {"shell_approval": "off"})
+
+    result = registry.execute("run_shell", {"command": command})
+
+    assert result.is_error is False
+    assert runner.calls == [command]
+    assert store.list_pending() == []
