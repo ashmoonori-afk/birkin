@@ -111,10 +111,11 @@ public sealed class CanonicalRepairBridgeIntegrationTests
         var initialCursor = initial.Cursor;
 
         var firstCommand = $"repair-warmup-{Guid.NewGuid():N}";
+        var warmupName = UniqueName();
         var firstEvents = await SendAndAwaitEventsAsync(
             session,
             store,
-            SessionCommands.Rename(identity.SessionId, UniqueName(), Context(firstCommand, store)),
+            SessionCommands.Rename(identity.SessionId, warmupName, Context(firstCommand, store)),
             ["session.renamed", "command.completed"],
             deadline.Token);
         var renamedCursor = Current(store).Cursor;
@@ -127,6 +128,11 @@ public sealed class CanonicalRepairBridgeIntegrationTests
         Assert.AreEqual(initialCursor, Current(store).Cursor);
         Assert.AreEqual(initial.SessionId, Current(store).SessionId);
         Assert.AreEqual(initial.InstanceId, Current(store).InstanceId);
+        // The stale pre-rename projection is the closest valid neighbor of the
+        // replacement: the same session and instance, without the warmup rename.
+        Assert.IsFalse(
+            SessionContainsName(Current(store), identity.SessionId, warmupName),
+            "the stale client must not already carry the warmup rename");
         var repairRequests = session.CanonicalRepairRequestCount;
 
         var replacement = new TaskCompletionSource<NativeProjectionState>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -166,6 +172,12 @@ public sealed class CanonicalRepairBridgeIntegrationTests
             Assert.IsTrue(
                 SessionNames(repaired).Contains(identity.SessionId),
                 "the replacement snapshot must carry the current session history");
+            // A replacement at cursor S with the pre-repair names must fail: the
+            // warmup rename is the authoritative difference between the stale
+            // client state and the server state the snapshot has to restore.
+            Assert.IsTrue(
+                SessionContainsName(repaired, identity.SessionId, warmupName),
+                "the replacement snapshot must restore the warmup rename for the current session");
             lock (transitions)
             {
                 CollectionAssert.AreEqual(
@@ -292,12 +304,16 @@ public sealed class CanonicalRepairBridgeIntegrationTests
         .Select(item => ((NativeJsonString)item["session_id"]!).Value)
         .ToArray();
 
-    private static string[] SessionRenames(NativeProjectionState state) => SessionsPanel(state)
-        .Where(item => item["status"] is NativeJsonString status
-            && string.Equals(status.Value, "renamed", StringComparison.Ordinal)
-            && item["session_id"] is NativeJsonString)
-        .Select(item => ((NativeJsonString)item["session_id"]!).Value)
-        .ToArray();
+    /// <summary>
+    /// True only when the sessions_history entry for <paramref name="sessionId"/>
+    /// carries exactly <paramref name="name"/>. Substring or cross-session matches
+    /// must not satisfy the replacement-content assertion.
+    /// </summary>
+    private static bool SessionContainsName(NativeProjectionState state, string sessionId, string name) => SessionsPanel(state)
+        .Any(item => item["session_id"] is NativeJsonString id
+            && string.Equals(id.Value, sessionId, StringComparison.Ordinal)
+            && item["name"] is NativeJsonString itemName
+            && string.Equals(itemName.Value, name, StringComparison.Ordinal));
 
     private static NativeJsonObject[] SessionsPanel(NativeProjectionState state) => ((NativeJsonArray)state.Panels
         .Values.Cast<NativeJsonObject>()
