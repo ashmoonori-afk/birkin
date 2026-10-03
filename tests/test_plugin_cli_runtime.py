@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from birkin import config, plugin_runtime
+from birkin import config, plugin_install, plugin_runtime
 from birkin.cli import build_parser, main
 from birkin.plugin_install import PluginInstaller, Scope
 from birkin.plugin_runtime import PluginActivationError, load_agent_tools
@@ -253,3 +253,52 @@ def test_plugin_activation_rejects_post_verification_replacement(
     assert not thread.is_alive()
     assert len(activation_errors) == 1
     assert not sentinel.exists()
+
+
+@pytest.mark.parametrize("upgrade", [False, True])
+def test_registry_publication_failure_preserves_install_and_allows_retry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    upgrade: bool,
+) -> None:
+    project, team = tmp_path / "project-registry", tmp_path / "team-registry"
+    installer = PluginInstaller(project, team, {"test": KEY})
+    old_bundle = (
+        _manifest(tmp_path / "old", kind="skill", entry="skill", version="1.0.0")
+        if upgrade
+        else None
+    )
+    if old_bundle is not None:
+        installer.install(old_bundle, Scope.PROJECT, "1.0.0")
+    lock_path = project / "registry.lock"
+    original_lock = lock_path.read_bytes() if upgrade else None
+    new_bundle = _manifest(
+        tmp_path / "new", kind="skill", entry="skill", version="2.0.0"
+    )
+    destination = project / "bundles" / "plugin-skill" / "2.0.0"
+
+    original_replace = plugin_install.os.replace
+
+    def fail_lock_publish(source: Path, target: Path) -> None:
+        if Path(target).name == "registry.lock":
+            raise PermissionError("registry publication denied")
+        original_replace(source, target)
+
+    monkeypatch.setattr(plugin_install.os, "replace", fail_lock_publish)
+    with pytest.raises(PermissionError):
+        installer.install(new_bundle, Scope.PROJECT, "2.0.0", upgrade=upgrade)
+    monkeypatch.setattr(plugin_install.os, "replace", original_replace)
+
+    assert not destination.exists()
+    if upgrade:
+        assert lock_path.read_bytes() == original_lock
+        installed = installer.resolve("plugin-skill")
+        assert installed.version == "1.0.0"
+        assert (installed.path / "birkin-plugin.json").is_file()
+        installer.install(new_bundle, Scope.PROJECT, "2.0.0", upgrade=True)
+        assert installer.resolve("plugin-skill").version == "2.0.0"
+        assert not (project / "bundles" / "plugin-skill" / "1.0.0").exists()
+    else:
+        assert not lock_path.exists()
+        installer.install(new_bundle, Scope.PROJECT, "2.0.0")
+        assert installer.resolve("plugin-skill").version == "2.0.0"

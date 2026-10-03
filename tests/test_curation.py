@@ -1722,6 +1722,13 @@ def test_curation_snapshots_the_vault_before_applying(monkeypatch):
 
 
 def test_no_snapshot_when_the_gate_accepts_nothing(monkeypatch):
+    """Eager Windows snapshot: apply snapshots once, before the anchor pins
+    notes; every other path snapshots only for accepted operations.
+
+    That is the timing contract, not a test workaround: on Windows the
+    DELETE-holding handles deny `git add` while they live, so a checkpoint
+    deferred until after the gate can never be written.
+    """
     vault = _seed_vault()
     taken: list = []
     monkeypatch.setattr(curation, "snapshot_vault",
@@ -1730,7 +1737,69 @@ def test_no_snapshot_when_the_gate_accepts_nothing(monkeypatch):
                        "ops": [{"op": "archive", "slug": "nope"}],
                        "summary": "s"})
     curation.run_curation_pass(vault, lambda _p: plan, provider="test")
+    expected = 1 if os.name == "nt" else 0
+    assert len(taken) == expected
+    if expected:
+        assert taken == [vault]
+
+    # Dry runs never touch the vault, so they never request a checkpoint.
+    taken.clear()
+    curation.run_curation_pass(vault, lambda _p: plan, provider="test",
+                               apply=False)
     assert taken == []
+
+
+@pytest.mark.skipif(
+    os.name != "nt",
+    reason="Windows pinned-note checkpoint ordering",
+)
+def test_windows_curation_rezone_with_real_checkpoint(
+        tmp_path: Path,
+        monkeypatch,
+) -> None:
+    """A real Git checkpoint must be writable while curation pins notes."""
+    import shutil
+
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    from birkin import checkpoints
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("BIRKIN_HOME", str(home))
+    config.save_config({
+        **config.load_config(),
+        "checkpoints": True,
+        "vault_path": str(tmp_path / "vault"),
+    })
+    vault = config.vault_dir(config.load_config())
+    memory = VaultMemory({"vault_path": str(vault)})
+    memory.write_note("Budget plan", "ORIGINAL BUDGET BYTES", zone="inbox")
+    source = vault / "budget-plan.md"
+    original = source.read_bytes()
+
+    plan = json.dumps({"plan_version": 2, "ops": [
+        {"op": "rezone", "slug": "budget-plan", "zone": "finance"}],
+        "summary": "s"})
+    outcome = curation.run_curation_pass(
+        vault, lambda _prompt: plan, provider="test", now=NOW)
+
+    assert outcome.effected == [
+        {"op": "rezone", "slug": "budget-plan", "zone": "finance"},
+    ]
+    assert not source.exists()
+    destination = vault / "finance" / "budget-plan.md"
+    assert destination.is_file()
+
+    mgr = checkpoints.CheckpointManager(enabled=True)
+    entries = mgr.list_checkpoints(vault)
+    assert entries, "curation apply left no checkpoint"
+    restore = mgr.restore(
+        vault, entries[0]["hash"], mode=checkpoints.RestoreMode.FILES)
+    assert restore.ok, restore.message
+    assert source.read_bytes() == original
+    # git checkout restores tracked content only; the moved note entered the
+    # store in the same snapshot, so it keeps its bytes on disk.
+    assert destination.read_bytes() == original
 
 
 def test_snapshot_vault_is_a_real_restorable_checkpoint(tmp_path, monkeypatch):

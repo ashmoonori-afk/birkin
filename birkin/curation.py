@@ -156,6 +156,14 @@ def _run_curation_pass_pinned(
     read_note = None
     write_note = None
     windows_anchor = None
+    # Windows pins every note with a DELETE handle for the whole pass, and the
+    # default share mode denies delete, so a checkpoint taken while those
+    # handles are open fails to stage and aborts apply. Snapshot before the
+    # anchor exists; POSIX keeps the accepted-ops ordering below.
+    windows_early_snapshot = apply and os.name == "nt" and root_fd is None
+    if windows_early_snapshot:
+        snapshot_vault(current_vault())
+
     if apply:
         memory = VaultMemory(
             {"vault_path": str(configured_vault)},
@@ -196,7 +204,7 @@ def _run_curation_pass_pinned(
         gate = validate_clamp(plan, dex, snap, now=now)
         accepted = _dense_zone_links(gate.accepted, snap)
         if apply:
-            if accepted:
+            if accepted and not windows_early_snapshot:
                 snapshot_vault(current_vault())
             effected = apply_plan(
                 accepted,
