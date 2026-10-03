@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import date
 
+from .frontmatter import SOURCES_ENCODING_JSON_V1, SOURCES_ENCODING_KEY
 from .index_types import NoteEntry
 from .json_types import JsonObject, JsonValue
 from .lexical import STEM_MARK, STEM_MIN, normalize_with_offsets, script
@@ -24,7 +26,7 @@ def compose_frontmatter(
     version: int = 1,
 ) -> str:
     """Compose the original stable note-frontmatter representation."""
-    encoded_sources = ", ".join(f'"{source}"' for source in sources)
+    encoded_sources = json.dumps(sources, ensure_ascii=True)
     encoded_tags = ", ".join(str(tag) for tag in tags)
     expiry_line = f"expires_at: {expires_at}\n" if expires_at else ""
     return "".join(
@@ -37,7 +39,8 @@ def compose_frontmatter(
             f"confidence: {confidence}\n",
             f"polarity: {polarity}\n",
             f"version: {int(version)}\n",
-            f"sources: [{encoded_sources}]\n",
+            f"{SOURCES_ENCODING_KEY}: {SOURCES_ENCODING_JSON_V1}\n",
+            f"sources: {encoded_sources}\n",
             f"tags: [{encoded_tags}]\n",
             expiry_line,
             "---\n\n",
