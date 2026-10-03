@@ -523,4 +523,7 @@ pytest
 
 Native and browser suites have additional platform requirements; use their linked guides rather than treating a focused local pass as cross-platform acceptance.
 
+Threaded native control tests synchronize on exact events and correlated replies within one shared deadline, including reader and server cleanup, rather than requiring each worker to start within one second.
+Launchd terminal cleanup tests track the labels of their own real jobs and verify that closing one authority preserves another authority's job; concurrent workers' global job lists are not treated as test-owned state.
+
 Birkin is released under the [MIT License](./LICENSE). Third-party attribution and terms are recorded in [NOTICE](./NOTICE), `LICENSES/`, and the Office [third-party notices](./birkin/office/adapters/THIRD_PARTY_NOTICES.md).
