@@ -228,8 +228,6 @@ class PluginInstaller:
         finally:
             if staging.exists():
                 shutil.rmtree(staging)
-        if old is not None and old != destination:
-            shutil.rmtree(old)
         relative = destination.relative_to(root).as_posix()
         bundles[manifest.name] = {
             "version": version,
@@ -238,7 +236,13 @@ class PluginInstaller:
             "path": relative,
             "kinds": [kind.value for kind in manifest.kinds],
         }
-        self._write_lock(root, lock)
+        try:
+            self._write_lock(root, lock)
+        except BaseException:
+            shutil.rmtree(destination, ignore_errors=True)
+            raise
+        if old is not None and old != destination:
+            shutil.rmtree(old)
         return InstalledPlugin(
             manifest.name,
             version,
