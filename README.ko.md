@@ -17,6 +17,8 @@ Birkin은 대화, 근거를 남기는 리서치, 문서 작업, 승인을 하나
 
 Birkin의 필수 runtime dependency는 `httpx`, `pydantic`, `psutil`, `tzdata`, `typing-extensions`입니다. `birkin_mnemosyne`은 별도 설치하지 않고 Birkin에 포함됩니다. 저장소에는 현재 **63개 skill**이 포함돼 있습니다.
 
+Mnemosyne CLI provider는 시스템 로캘과 관계없이 프롬프트 입력, 표준 출력, 표준 오류에 UTF-8을 사용합니다. 잘못된 출력 바이트는 기존과 같이 대체 문자로 처리합니다.
+
 ![리서치 결과, 문서 검토, 승인 요청을 함께 보여 주는 Birkin 업무 공간](./docs/assets/birkin-workspace-windows.png)
 
 > 표지는 생성한 브랜드 일러스트입니다. 업무 공간 이미지는 대표 데이터를 사용해 만든 제품 방향 시안입니다. 두 이미지 모두 실제 Microsoft 365 세션이나 설치 패키지 인수 결과는 아닙니다.

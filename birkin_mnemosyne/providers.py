@@ -44,7 +44,7 @@ def _run(argv: list[str], stdin: str | None = None,
     """Discrete-argv subprocess (never shell=True). Returns (out, err, code)."""
     try:
         proc = subprocess.run(argv, input=stdin, capture_output=True,
-                              text=True, errors="replace", timeout=timeout,
+                              text=True, encoding="utf-8", errors="replace", timeout=timeout,
                               cwd=cwd, env=env)
         return proc.stdout or "", proc.stderr or "", proc.returncode
     except subprocess.TimeoutExpired:
