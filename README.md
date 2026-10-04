@@ -17,6 +17,8 @@ It is built for work where the difference between “prepared” and “executed
 
 Birkin's mandatory runtime dependencies are `httpx`, `pydantic`, `psutil`, `tzdata`, and `typing-extensions`. `birkin_mnemosyne` is bundled with Birkin rather than installed separately. The repository currently bundles **63 skills**.
 
+Mnemosyne CLI providers use UTF-8 for prompt input, stdout, and stderr regardless of the system locale. Malformed output bytes retain the existing replacement behavior.
+
 ![Birkin workspace showing research, document review, and an approval request](./docs/assets/birkin-workspace-windows.png)
 
 > The hero is a generated brand illustration. The workspace image is a generated product-direction render with representative data. Neither is a live Microsoft 365 session or packaged-release acceptance result.
