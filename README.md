@@ -19,6 +19,8 @@ Birkin's mandatory runtime dependencies are `httpx`, `pydantic`, `psutil`, `tzda
 
 Mnemosyne CLI providers use UTF-8 for prompt input, stdout, and stderr regardless of the system locale. Malformed output bytes retain the existing replacement behavior.
 
+Bundled Mnemosyne notes preserve source strings containing commas, quotes, backslashes, and line separators across writes and appends. New notes encode `sources` as a JSON string array with `sources_encoding: json-v1`; unmarked notes retain literal legacy backslashes and convert on their next normal write. This does not reconstruct provenance already corrupted by an older writer, and older readers cannot decode the marked escapes.
+
 ![Birkin workspace showing research, document review, and an approval request](./docs/assets/birkin-workspace-windows.png)
 
 > The hero is a generated brand illustration. The workspace image is a generated product-direction render with representative data. Neither is a live Microsoft 365 session or packaged-release acceptance result.
