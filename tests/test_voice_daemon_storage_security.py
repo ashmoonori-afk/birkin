@@ -77,7 +77,7 @@ def test_windows_acl_hardening_resets_foreign_entries(
         assert creationflags >= 0
         commands.append(command)
         stdout = (
-            b'"MOONDESK\\\\lg","S-1-5-21-1-2-3-1001"\r\n'
+            b'"DESKTOP\\\\user","S-1-5-21-1-2-3-1001"\r\n'
             if command[0].endswith("whoami.exe")
             else b""
         )

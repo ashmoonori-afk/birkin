@@ -155,7 +155,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", required=True)
     ap.add_argument("--vault",
-                    default=r"C:\Users\lg\AppData\Local\Temp\bk-realvault-v_l2qem9\vault")
+                    default=r"C:\Users\user\AppData\Local\Temp\bk-realvault-v_l2qem9\vault")
     ap.add_argument("--limit", type=int, default=470)
     args = ap.parse_args()
 

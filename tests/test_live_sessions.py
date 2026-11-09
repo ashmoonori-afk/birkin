@@ -20,7 +20,7 @@ _OMO_PATH = (
 )
 _CODEX_UUID = "01a021f3-711f-7621-8100-2dacdd7503e1"
 _CODEX_PATH = (
-    r"C:\Users\lg\.codex\sessions\2026\08\21"
+    r"C:\Users\user\.codex\sessions\2026\08\21"
     rf"\rollout-2026-08-21T10-33-22-{_CODEX_UUID}.jsonl"
 )
 
@@ -150,7 +150,7 @@ def test_access_denied_is_counted_and_named() -> None:
 
 def test_session_file_maps_one_to_one_to_session_id() -> None:
     shared_files = tuple(
-        rf"C:\Users\lg\.codex\{name}_1.sqlite"
+        rf"C:\Users\user\.codex\{name}_1.sqlite"
         for name in ("state", "logs", "goals", "memories")
     )
     process = _FakeProcess(

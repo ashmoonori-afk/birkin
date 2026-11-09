@@ -192,7 +192,7 @@ configurable via `vault_path`). Each note is Obsidian-compatible:
 
 ```markdown
 ---
-title: FlowerPlus GTM
+title: Northwind GTM
 type: project            # person | project | preference | fact | topic | session
 created: 2026-05-27
 updated: 2026-05-27
@@ -201,7 +201,7 @@ sources: ["session:2026-05-27-1012"]
 tags: [marketing, gtm]
 ---
 
-FlowerPlus is a corporate-welfare flower subscription play. Related to
+Northwind is an office-snack subscription play. Related to
 [[Outbound Sales Script]] and [[User Research Report]].
 ```
 
@@ -301,9 +301,9 @@ intentionally absent — use `birkin chat`.
 
 The selected-reference contract is owner-locked and exclusive:
 
-- **B STRUCTURE — operations hierarchy and scan flow:** `C:\Users\lg\Documents\Claude\Projects\Birkin\.omo\teams\team-ae9e376f\artifacts\real-product-screens\github-mission-control.jpg` (`sha256:b5d34b8aff00427a7e7dd5107fdf2123159bacecdf84b8cf581d5e09f1ffaf80`). Use its navigation, collection, selected-detail, and persistent-status hierarchy. Do not copy brand marks or product-specific copy.
-- **A STYLE — compact workbench language:** `C:\Users\lg\Documents\Claude\Projects\Birkin\.omo\teams\team-ae9e376f\artifacts\real-product-screens\vscode-agents-window.png` (`sha256:abe56f8953f366f343d811467f34de4e767a942c6b69139cc8db0c0414825b03`). Use compact charcoal surfaces, native/system typography, crisp 1px separators, dense rows, restrained blue focus/selection, and clear panel/tab boundaries. Exclude its chat composer, file tree, editor, terminal, brand marks, and product-specific copy.
-- **C APPROVAL STRUCTURE — truthful explicit decisions:** `C:\Users\lg\Documents\Claude\Projects\Birkin\.omo\teams\team-ae9e376f\artifacts\real-product-screens\replit-task-board.png` (`sha256:839a3f36ab104245b05ce35c173fc7c07244fd021d18c94b71e853e9feac8a7e`). Use proposal queue -> selected review -> explicit approve/reject -> truthful inline result or recovery. Exclude fake lifecycle states and unsupported mutations.
+- **B STRUCTURE — operations hierarchy and scan flow:** `C:\Users\user\Documents\Claude\Projects\Birkin\.omo\teams\team-ae9e376f\artifacts\real-product-screens\github-mission-control.jpg` (`sha256:b5d34b8aff00427a7e7dd5107fdf2123159bacecdf84b8cf581d5e09f1ffaf80`). Use its navigation, collection, selected-detail, and persistent-status hierarchy. Do not copy brand marks or product-specific copy.
+- **A STYLE — compact workbench language:** `C:\Users\user\Documents\Claude\Projects\Birkin\.omo\teams\team-ae9e376f\artifacts\real-product-screens\vscode-agents-window.png` (`sha256:abe56f8953f366f343d811467f34de4e767a942c6b69139cc8db0c0414825b03`). Use compact charcoal surfaces, native/system typography, crisp 1px separators, dense rows, restrained blue focus/selection, and clear panel/tab boundaries. Exclude its chat composer, file tree, editor, terminal, brand marks, and product-specific copy.
+- **C APPROVAL STRUCTURE — truthful explicit decisions:** `C:\Users\user\Documents\Claude\Projects\Birkin\.omo\teams\team-ae9e376f\artifacts\real-product-screens\replit-task-board.png` (`sha256:839a3f36ab104245b05ce35c173fc7c07244fd021d18c94b71e853e9feac8a7e`). Use proposal queue -> selected review -> explicit approve/reject -> truthful inline result or recovery. Exclude fake lifecycle states and unsupported mutations.
 
 These references govern only their named roles. Earlier selected-reference choices are superseded; compatible accessibility and spacing research may remain secondary, but no fourth selected reference or copied product identity may override this contract. Birkin's monitoring-only scope, domain vocabulary, current-version rule, source/wheel parity, and accepted-debt boundary remain authoritative.
 
