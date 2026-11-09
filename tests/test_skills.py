@@ -952,8 +952,6 @@ def test_exception_after_committed_replace_preserves_target(
         if Path(destination).name == "SKILL.md":
             raise OSError("injected exception after committed replace")
 
-    monkeypatch.setattr(os, "replace", replace_then_raise)
-
     def fail_target_stat(
             target_name,
             *args,
@@ -968,19 +966,21 @@ def test_exception_after_committed_replace_preserves_target(
             **kwargs,
         )
 
-    monkeypatch.setattr(os, "stat", fail_target_stat)
-
     def fail_fstat(*_args) -> None:
         raise OSError("injected descriptor identity probe failure")
 
-    monkeypatch.setattr(os, "fstat", fail_fstat)
-
-    with pytest.raises(OSError):
-        apply_skill_proposal({
-            "action": "improve",
-            "target": "committed-replace",
-            "addition": "COMMITTED POSIX GUIDANCE",
-        })
+    # Scope the os patches to the call under test: pytest's own capture
+    # (9.2+) calls os.fstat when the test phase ends.
+    with monkeypatch.context() as patched:
+        patched.setattr(os, "replace", replace_then_raise)
+        patched.setattr(os, "stat", fail_target_stat)
+        patched.setattr(os, "fstat", fail_fstat)
+        with pytest.raises(OSError):
+            apply_skill_proposal({
+                "action": "improve",
+                "target": "committed-replace",
+                "addition": "COMMITTED POSIX GUIDANCE",
+            })
 
     assert "COMMITTED POSIX GUIDANCE" in path.read_text(
         encoding="utf-8"
