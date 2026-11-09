@@ -77,12 +77,12 @@ Exact reproduction command (Git Bash, Python 3.12):
 ```bash
 curl --fail --location \
   "https://huggingface.co/datasets/xiaowu0162/longmemeval-cleaned/resolve/98d7416c24c778c2fee6e6f3006e7a073259d48f/longmemeval_s_cleaned.json?download=true" \
-  --output /c/Users/lg/Documents/Claude/Projects/Birkin/.dataset-cache/longmemeval/longmemeval_s_cleaned.json
-sha256sum /c/Users/lg/Documents/Claude/Projects/Birkin/.dataset-cache/longmemeval/longmemeval_s_cleaned.json
+  --output /c/Users/user/Documents/Claude/Projects/Birkin/.dataset-cache/longmemeval/longmemeval_s_cleaned.json
+sha256sum /c/Users/user/Documents/Claude/Projects/Birkin/.dataset-cache/longmemeval/longmemeval_s_cleaned.json
 export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
-C:/Users/lg/AppData/Local/Programs/Python/Python312/python.exe \
+C:/Users/user/AppData/Local/Programs/Python/Python312/python.exe \
   benchmarks/bench_memory_longmemeval.py \
-  --data C:/Users/lg/Documents/Claude/Projects/Birkin/.dataset-cache/longmemeval/longmemeval_s_cleaned.json \
+  --data C:/Users/user/Documents/Claude/Projects/Birkin/.dataset-cache/longmemeval/longmemeval_s_cleaned.json \
   --retrieval-only \
   --out benchmarks/results/memory-longmemeval-public.json
 ```

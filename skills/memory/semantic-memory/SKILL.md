@@ -28,7 +28,7 @@ into linked notes rather than dumping raw text.
 
 ## How to write good notes
 
-1. **One entity per note.** Title it by the entity (`FlowerPlus GTM`, not
+1. **One entity per note.** Title it by the entity (`Northwind GTM`, not
    "today's chat").
 2. **Classify** with `type`: `person | project | preference | fact | topic`.
 3. **Link generously.** Pass `links` (or `memory_link`) so the graph connects —

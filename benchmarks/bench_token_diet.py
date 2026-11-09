@@ -75,7 +75,7 @@ def best_window(body: str, qterms: set[str], window: int) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--vault",
-                    default=r"C:\Users\lg\AppData\Local\Temp\bk-realvault-v_l2qem9\vault")
+                    default=r"C:\Users\user\AppData\Local\Temp\bk-realvault-v_l2qem9\vault")
     ap.add_argument("--window", type=int, default=600)
     args = ap.parse_args()
     vp = Path(args.vault)

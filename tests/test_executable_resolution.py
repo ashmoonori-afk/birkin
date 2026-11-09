@@ -62,7 +62,7 @@ def test_do_nothing_shim_ahead_on_path_is_rejected() -> None:
 
 
 def test_only_shim_failure_names_exact_path() -> None:
-    shim = r"C:\Users\lg\AppData\Local\Microsoft\WindowsApps\python.exe"
+    shim = r"C:\Users\user\AppData\Local\Microsoft\WindowsApps\python.exe"
     resolver, _ = _python_resolver(
         (shim,),
         {shim: ProbeExecution(9009, "", "Python ")},
