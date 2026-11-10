@@ -19,6 +19,8 @@ Birkin의 필수 runtime dependency는 `httpx`, `pydantic`, `psutil`, `tzdata`, 
 
 Mnemosyne CLI provider는 시스템 로캘과 관계없이 프롬프트 입력, 표준 출력, 표준 오류에 UTF-8을 사용합니다. 잘못된 출력 바이트는 기존과 같이 대체 문자로 처리합니다.
 
+포함된 Mnemosyne은 쉼표, 따옴표, 역슬래시, 줄 구분자가 있는 출처 문자열을 저장·추가할 때 그대로 보존합니다. 새 노트는 `sources_encoding: json-v1` 표식과 함께 `sources`를 JSON 문자열 배열로 저장합니다. 표식이 없는 기존 노트의 역슬래시는 문자 그대로 읽고 다음 일반 저장 때 변환합니다. 이전 작성기가 이미 손상시킨 출처는 복구하지 않으며, 이전 읽기 버전은 새 표식의 이스케이프를 해석할 수 없습니다.
+
 ![리서치 결과, 문서 검토, 승인 요청을 함께 보여 주는 Birkin 업무 공간](./docs/assets/birkin-workspace-windows.png)
 
 > 표지는 생성한 브랜드 일러스트입니다. 업무 공간 이미지는 대표 데이터를 사용해 만든 제품 방향 시안입니다. 두 이미지 모두 실제 Microsoft 365 세션이나 설치 패키지 인수 결과는 아닙니다.

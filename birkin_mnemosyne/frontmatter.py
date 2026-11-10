@@ -15,9 +15,10 @@ raising.
 
 from __future__ import annotations
 
+import json
 import re
 
-from .json_types import JsonObject, JsonValue
+from .json_types import JsonObject, JsonValue, load_json
 
 
 def split_frontmatter(text: str) -> tuple[str, str]:
@@ -52,11 +53,31 @@ def _split_commas(s: str) -> list[str]:
     out: list[str] = []
     depth = 0
     buf: list[str] = []
-    for ch in s:
+    quote = ""
+    at_value_start = True
+    for index, ch in enumerate(s):
+        if quote:
+            if ch == quote:
+                remaining = s[index + 1:].lstrip()
+                if not remaining or remaining[0] in ",]}":
+                    quote = ""
+            buf.append(ch)
+            continue
+        if at_value_start and ch in "\"'":
+            quote = ch
+            at_value_start = False
+            buf.append(ch)
+            continue
         if ch in "[{":
             depth += 1
+            at_value_start = True
         elif ch in "]}":
             depth -= 1
+            at_value_start = False
+        elif ch == ",":
+            at_value_start = True
+        elif not ch.isspace():
+            at_value_start = False
         if ch == "," and depth == 0:
             out.append("".join(buf))
             buf = []
@@ -95,6 +116,13 @@ def _parse_block(
     Returns (obj, next_index).
     """
     result: JsonValue | None = None
+    sources_encoding: JsonValue = None
+    if base == 0:
+        # Read the last top-level marker before values, regardless of field order.
+        for line in lines[i:]:
+            key, _, val = line.partition(":")
+            if _indent(line) == 0 and key.strip() == "sources_encoding":
+                sources_encoding = _parse_value(val)
     while i < len(lines):
         raw = lines[i]
         if not raw.strip():
@@ -143,7 +171,21 @@ def _parse_block(
         key, _, val = content.partition(":")
         key = key.strip()
         val = val.strip()
-        if val:
+        if base == 0 and ind == 0 and key == "sources" and sources_encoding == "json-v1":
+            try:
+                decoded = load_json(val)
+            except json.JSONDecodeError:
+                mapping[key] = val
+            else:
+                match decoded:
+                    case list() as sources:
+                        mapping[key] = sources if all(
+                            isinstance(source, str) for source in sources
+                        ) else val
+                    case str() | int() | float() | dict() | None:
+                        mapping[key] = val
+            i += 1
+        elif val:
             mapping[key] = _parse_value(val)
             i += 1
         else:

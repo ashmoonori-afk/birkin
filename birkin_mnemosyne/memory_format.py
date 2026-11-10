@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from datetime import date
 
@@ -23,8 +24,8 @@ def compose_frontmatter(
     polarity: str = "positive",
     version: int = 1,
 ) -> str:
-    """Compose the original stable note-frontmatter representation."""
-    encoded_sources = ", ".join(f'"{source}"' for source in sources)
+    """Compose note frontmatter with explicitly encoded source strings."""
+    encoded_sources = json.dumps(sources, ensure_ascii=True)
     encoded_tags = ", ".join(str(tag) for tag in tags)
     expiry_line = f"expires_at: {expires_at}\n" if expires_at else ""
     return "".join(
@@ -37,7 +38,8 @@ def compose_frontmatter(
             f"confidence: {confidence}\n",
             f"polarity: {polarity}\n",
             f"version: {int(version)}\n",
-            f"sources: [{encoded_sources}]\n",
+            f"sources: {encoded_sources}\n",
+            "sources_encoding: json-v1\n",
             f"tags: [{encoded_tags}]\n",
             expiry_line,
             "---\n\n",
