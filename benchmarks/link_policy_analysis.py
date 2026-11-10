@@ -16,7 +16,7 @@ retrieval measure used by bench_real_vault.py (recall_top3+links).
 
 Usage:
   python benchmarks/link_policy_analysis.py
-      [--vault C:/Users/lg/AppData/Local/Temp/bk-realvault-v_l2qem9/vault]
+      [--vault C:/Users/user/AppData/Local/Temp/bk-realvault-v_l2qem9/vault]
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from birkin.mnemosyne import slug, tokenize
 
 RES = Path("benchmarks/results")
 QUERY_FILE = RES / "realvault-queries.json"
-DEFAULT_VAULT = r"C:\Users\lg\AppData\Local\Temp\bk-realvault-v_l2qem9\vault"
+DEFAULT_VAULT = r"C:\Users\user\AppData\Local\Temp\bk-realvault-v_l2qem9\vault"
 BODY_CAP = 2000  # chars of note body used for similarity
 
 

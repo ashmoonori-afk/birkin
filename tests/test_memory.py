@@ -15,10 +15,10 @@ def _mem():
 
 def test_write_and_get_note_roundtrip():
     m = _mem()
-    m.write_note("FlowerPlus GTM", "Corporate welfare flowers.", note_type="project")
-    text = m.get_note("FlowerPlus GTM")
+    m.write_note("Northwind GTM", "Office snack subscriptions.", note_type="project")
+    text = m.get_note("Northwind GTM")
     assert text is not None
-    assert "Corporate welfare flowers." in text
+    assert "Office snack subscriptions." in text
     assert "type: project" in text
 
 

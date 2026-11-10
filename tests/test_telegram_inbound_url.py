@@ -44,7 +44,7 @@ class TestEscapedUrlIsRecovered:
 class TestThingsThatMustNotBeTouched:
     def test_a_windows_path_survives(self) -> None:
         """The single most likely thing a user pastes into this bot."""
-        text = r"C:\Users\lg\Documents\Birkin"
+        text = r"C:\Users\user\Documents\Birkin"
         assert tg.recover_inbound_text(text, []) == text
 
     def test_a_regex_escape_survives(self) -> None:
